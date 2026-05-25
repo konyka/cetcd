@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>cetcd — implementation notes</title>
+<style>
+  :root {
+    --bg:#0e1117; --fg:#e6edf3; --mut:#8b949e; --acc:#58a6ff;
+    --ok:#3fb950; --warn:#d29922; --err:#f85149; --card:#161b22; --bd:#30363d;
+  }
+  body{font:14px/1.55 system-ui,Segoe UI,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--fg);max-width:1100px;margin:2rem auto;padding:0 1.25rem;}
+  h1,h2,h3{color:#fff;letter-spacing:.2px;}
+  h1{font-size:1.6rem;margin-bottom:.25rem;}
+  .sub{color:var(--mut);margin-bottom:1.5rem;}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:1rem 1.25rem;margin:.75rem 0;}
+  .pill{display:inline-block;padding:.1rem .55rem;border-radius:999px;font-size:.75rem;font-weight:600;}
+  .pill.todo{background:#21262d;color:var(--mut);}
+  .pill.wip{background:#3b2f00;color:var(--warn);}
+  .pill.done{background:#0a3622;color:var(--ok);}
+  .pill.blocked{background:#5a1d1d;color:var(--err);}
+  table{width:100%;border-collapse:collapse;margin:.5rem 0;}
+  th,td{text-align:left;padding:.4rem .6rem;border-bottom:1px solid var(--bd);}
+  th{color:var(--mut);font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;}
+  code{background:#21262d;padding:.05rem .35rem;border-radius:4px;font-size:.85em;}
+  .legend span{margin-right:1rem;}
+  .footer{color:var(--mut);font-size:.8rem;margin-top:2rem;}
+  a{color:var(--acc);text-decoration:none;}
+  a:hover{text-decoration:underline;}
+</style>
+</head>
+<body>
+<h1>cetcd — implementation notes</h1>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 0 complete</code>.</p>
+
+<div class="card">
+  <h2>Status</h2>
+  <p>Phase 0 (<strong>Foundations</strong>) complete. 9/9 unit tests passing with ASan+UBSan on Clang 22.
+     CI matrix written (Linux gcc+clang, macOS clang, Windows MSVC). Ready for Phase 1 (IO + protobuf).</p>
+  <p class="legend">
+    <span><span class="pill done">done</span> complete</span>
+    <span><span class="pill wip">wip</span> in progress</span>
+    <span><span class="pill todo">todo</span> not started</span>
+    <span><span class="pill blocked">blocked</span> waiting on input</span>
+  </p>
+</div>
+
+<div class="card">
+  <h2>Roadmap</h2>
+  <table>
+    <thead><tr><th>#</th><th>Phase</th><th>Highlights</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>-1</td><td>Brainstorm + plan</td><td>Architecture doc, library survey, Raft decision, ADRs</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>0</td><td>Foundations</td><td>CMake, CI matrix, <code>libcetcd_base</code> (arenas, slabs, hash, log) — 9/9 tests green</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>1</td><td>IO + protobuf</td><td><code>libcetcd_io</code> (libuv+libco), <code>libcetcd_proto</code> (protobuf-c codegen)</td><td><span class="pill todo">todo</span></td></tr>
+      <tr><td>2</td><td>Raft core</td><td><code>libcetcd_raft</code> — deterministic, Ready-style, ported tests</td><td><span class="pill todo">todo</span></td></tr>
+      <tr><td>3</td><td>WAL + backend</td><td><code>libcetcd_wal</code> (etcd byte-compat), <code>libcetcd_backend</code> (LMDB)</td><td><span class="pill todo">todo</span></td></tr>
+      <tr><td>4</td><td>MVCC + Lease</td><td>Revision index, watcher fan-out, TTL heap</td><td><span class="pill todo">todo</span></td></tr>
+      <tr><td>5</td><td>HTTP/2 + gRPC + TLS</td><td>nghttp2 framing, gRPC over it, OpenSSL ALPN</td><td><span class="pill todo">todo</span></td></tr>
+      <tr><td>6</td><td>v3rpc KV/Watch/Lease</td><td>First 13 RPCs; etcdctl talks to single-node cetcd</td><td><span class="pill todo">todo</span></td></tr>
+      <tr><td>7</td><td>Peer transport + cluster</td><td>3-node cetcd; mixed-cluster cetcd ↔ etcd peer test</td><td><span class="pill todo">todo</span></td></tr>
+      <tr><td>8</td><td>Auth + Cluster + Maint</td><td>Remaining 35 RPCs; bcrypt + JWT</td><td><span class="pill todo">todo</span></td></tr>
+      <tr><td>9</td><td>Snapshots + compaction</td><td>Snapshot stream, defragment, hash-kv parity</td><td><span class="pill todo">todo</span></td></tr>
+      <tr><td>10</td><td>Bench + harden + 0.1</td><td>Jepsen-lite, fuzzing, perf report, tag v0.1.0</td><td><span class="pill todo">todo</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Phase 0 deliverables</h2>
+  <table>
+    <thead><tr><th>Module</th><th>Header</th><th>Impl</th><th>Tests</th></tr></thead>
+    <tbody>
+      <tr><td>error</td><td><code>include/cetcd/base.h</code></td><td><code>src/base/error.c</code></td><td><code>test_error.c</code> ✓</td></tr>
+      <tr><td>slice</td><td><code>include/cetcd/slice.h</code></td><td><code>src/base/slice.c</code></td><td><code>test_slice.c</code> ✓</td></tr>
+      <tr><td>buf</td><td><code>include/cetcd/buf.h</code></td><td><code>src/base/buf.c</code></td><td><code>test_buf.c</code> ✓</td></tr>
+      <tr><td>clock</td><td><code>include/cetcd/clock.h</code></td><td><code>src/base/clock.c</code></td><td><code>test_clock.c</code> ✓</td></tr>
+      <tr><td>log</td><td><code>include/cetcd/log.h</code></td><td><code>src/base/log.c</code></td><td><code>test_log.c</code> ✓</td></tr>
+      <tr><td>arena</td><td><code>include/cetcd/arena.h</code></td><td><code>src/base/arena.c</code></td><td><code>test_arena.c</code> ✓</td></tr>
+      <tr><td>slab</td><td><code>include/cetcd/slab.h</code></td><td><code>src/base/slab.c</code></td><td><code>test_slab.c</code> ✓</td></tr>
+      <tr><td>hash</td><td><code>include/cetcd/hash.h</code></td><td><code>src/base/hash.c</code></td><td><code>test_hash.c</code> ✓</td></tr>
+      <tr><td>hashmap</td><td><code>include/cetcd/hashmap.h</code></td><td><code>src/base/hashmap.c</code></td><td><code>test_hashmap.c</code> ✓</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Key decisions</h2>
+  <table>
+    <thead><tr><th>Topic</th><th>Choice</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>License</td><td>Apache-2.0</td><td>Matches etcd upstream; permissive</td></tr>
+      <tr><td>Wire compat target</td><td>etcd v3.5 stable</td><td>Production-tested, not chasing beta</td></tr>
+      <tr><td>C standard</td><td>C99 floor, C11 atomics</td><td>Universal; atomics non-negotiable</td></tr>
+      <tr><td>Event loop</td><td>libuv</td><td>Cross-platform epoll/kqueue/IOCP</td></tr>
+      <tr><td>HTTP/2</td><td>nghttp2</td><td>De-facto C HTTP/2</td></tr>
+      <tr><td>Protobuf</td><td>protobuf-c</td><td>Mature, BSD-2</td></tr>
+      <tr><td>gRPC</td><td>roll our own on nghttp2</td><td>grpc-core is C++; framing is small</td></tr>
+      <tr><td>TLS</td><td>OpenSSL 3</td><td>ALPN works, ubiquitous</td></tr>
+      <tr><td>Backend</td><td>LMDB</td><td>MVCC native, mmap'd, fast</td></tr>
+      <tr><td>Raft</td><td>roll our own</td><td>No C lib matches go.etcd.io/raft's Ready-style API</td></tr>
+      <tr><td>Coroutines</td><td>libco + Win fibers</td><td>Stackful, tiny, multi-arch</td></tr>
+      <tr><td>Build</td><td>CMake ≥ 3.21</td><td>Cross-platform, IDE friendly</td></tr>
+      <tr><td>Test harness</td><td>In-tree custom (Phase 0)</td><td>Avoids network fetch; will evaluate Unity later</td></tr>
+      <tr><td>WAL format</td><td>byte-compat with etcd</td><td>Read existing clusters' WAL</td></tr>
+      <tr><td>Backend format</td><td>LMDB env (NEW)</td><td>One-way migration tool ships</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>CI matrix</h2>
+  <table>
+    <thead><tr><th>OS</th><th>Compiler</th><th>Build types</th><th>Sanitizers</th></tr></thead>
+    <tbody>
+      <tr><td>ubuntu-latest</td><td>gcc, clang</td><td>Debug, Release</td><td>address,undefined (Debug)</td></tr>
+      <tr><td>macos-latest</td><td>clang</td><td>Debug, Release</td><td>address,undefined (Debug)</td></tr>
+      <tr><td>windows-latest</td><td>MSVC</td><td>Debug, Release</td><td>—</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>References</h2>
+  <ul>
+    <li>Upstream etcd source: <code>/home/timeshift/opensource/etcd</code></li>
+    <li>Raft paper: Ongaro &amp; Ousterhout, <em>In Search of an Understandable Consensus Algorithm</em>, 2014.</li>
+    <li>etcd v3 API: <code>api/etcdserverpb/rpc.proto</code> — 48 RPCs across 6 services.</li>
+    <li>Raft library mirrored from: <code>go.etcd.io/raft/v3 v3.6.0-beta</code>.</li>
+    <li>Architecture plan: <code>.sisyphus/plans/00-architecture-brainstorm.md</code></li>
+  </ul>
+</div>
+
+<p class="footer">cetcd — Apache-2.0. Built with paranoia and parsimony.</p>
+</body>
+</html>

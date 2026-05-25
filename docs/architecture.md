@@ -1,0 +1,301 @@
+# cetcd Architecture
+
+> **Status**: living document. Last revised at Phase 0. See `notes.html` for delta history.
+
+cetcd is a from-scratch reimplementation of [etcd](https://github.com/etcd-io/etcd) in pure C
+(C99 floor with required C11 `<stdatomic.h>`). It targets wire compatibility with the
+**etcd v3.5 stable API** so that existing tools (`etcdctl`, official client libraries) work
+unchanged.
+
+This document is the canonical reference for what cetcd *is* and *is not*, and how its
+internals are organised. For deeper rationale on individual decisions, see
+[`docs/adr/`](./adr/).
+
+---
+
+## 1. Goals and non-goals
+
+### Goals
+
+- **Wire compatibility** with the etcd v3.5 gRPC API — all 48 RPCs across KV, Watch, Lease,
+  Cluster, Auth, Maintenance.
+- **Cross-platform**: Linux (primary), macOS, FreeBSD, Windows (MSVC + MinGW-w64).
+- **Performance** parity or better with Go etcd on a 3-node 70/30 Put/Range workload.
+- **Pure C, C99 floor**. C11 atomics required. No GNU/MSVC extensions in public headers.
+- **Distribution**: Raft consensus, joint-consensus membership changes, snapshots.
+- **Testability**: TDD throughout. Deterministic Raft tests via injectable clocks/networks.
+- **Observability**: structured JSON logs, Prometheus `/metrics`, profiling hooks.
+
+### Non-goals (v0.1)
+
+- The etcd v2 API.
+- The gRPC-gateway (HTTP/JSON ↔ gRPC proxy).
+- `etcdutl` (offline disk surgeon).
+- gRPC reflection service.
+
+---
+
+## 2. Module map
+
+```
+src/
+├── base/        libcetcd_base       arenas, slabs, hash, btree, refcount, errors, log, clock
+├── io/          libcetcd_io         libuv event loop + libco coroutines + worker pool
+├── proto/       libcetcd_proto      protobuf-c runtime + generated etcd v3 message types
+├── http2/       libcetcd_http2      nghttp2 + gRPC framing (length-prefixed proto frames)
+├── tls/         libcetcd_tls        OpenSSL 3 TLS termination + ALPN
+├── raft/        libcetcd_raft       Raft logic core (no I/O, no threads)
+├── wal/         libcetcd_wal        Append-only log, byte-compatible with etcd WAL
+├── backend/     libcetcd_backend    LMDB-backed transactional key-value
+├── schema/      libcetcd_schema     bucket layout and migrations
+├── mvcc/        libcetcd_mvcc       Revision index, watcher fan-out, compaction
+├── lease/       libcetcd_lease      TTL min-heap + lease-keys index
+├── auth/        libcetcd_auth       RBAC, JWT, bcrypt password hashing
+├── peer/        libcetcd_peer       Raft transport (rafthttp-equivalent)
+├── snap/        libcetcd_snap       Snapshot file r/w and streaming
+├── v3rpc/       libcetcd_v3rpc      gRPC handlers for all 48 RPCs
+└── server/      libcetcd_server     Main loop, apply pipeline, config, lifecycle
+
+cmd/
+├── cetcd/         daemon binary
+└── cetcdctl/      client CLI
+```
+
+### Dependency direction
+
+```
+cetcd (daemon)
+  └─ libcetcd_server
+       ├─ libcetcd_v3rpc
+       │    ├─ libcetcd_http2 ─── nghttp2
+       │    ├─ libcetcd_tls   ─── OpenSSL
+       │    └─ libcetcd_proto ─── protobuf-c
+       ├─ libcetcd_peer
+       ├─ libcetcd_raft       (pure logic, no deps below base)
+       ├─ libcetcd_wal
+       ├─ libcetcd_mvcc
+       │    └─ libcetcd_backend ─── LMDB
+       ├─ libcetcd_lease
+       ├─ libcetcd_auth
+       ├─ libcetcd_snap
+       └─ libcetcd_io          ─── libuv + libco
+
+libcetcd_base   (zero deps except libc and mimalloc)
+```
+
+No back edges. `libcetcd_base` is a leaf. Tests live alongside each module under
+`tests/unit/<module>/`.
+
+---
+
+## 3. Concurrency model
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Reactor thread(s) — N per machine, sharded by connection hash   │
+│                                                                 │
+│   libuv event loop                                              │
+│     ├─ accept TCP / TLS                                         │
+│     ├─ nghttp2 → gRPC frames                                    │
+│     ├─ dispatch each RPC to its own libco coroutine             │
+│     │     coroutine yields on:                                  │
+│     │       • disk fsync       → worker pool                    │
+│     │       • raft propose     → MPSC ring → raft thread        │
+│     │       • LMDB read        → inline (mmap, no syscall)      │
+│     └─ watcher fan-out (lock-free per-key queues)               │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Raft thread (1)                                                 │
+│   • cetcd_raft_step(node, msg)                                  │
+│   • cetcd_raft_ready(node) → {entries, committed, snap, msgs}   │
+│   • commit batch handed to apply coroutine on reactor           │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│ Worker pool (N = cores)                                         │
+│   • WAL fsync                                                   │
+│   • Snapshot create/restore                                     │
+│   • LMDB compaction                                             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+Rationale: see [ADR 0003 — Coroutines on libuv](./adr/0003-coroutines-on-libuv.md).
+
+### Lock policy
+
+- All inter-thread communication uses **MPSC/SPSC ring buffers** in `libcetcd_base`.
+  No locks on the hot path between reactor ↔ raft ↔ worker pool.
+- Within a reactor, coroutines are cooperatively scheduled — no locks needed for
+  per-connection state.
+- Cross-reactor sharing happens via the raft thread only.
+
+---
+
+## 4. Storage layer
+
+### WAL (write-ahead log)
+
+cetcd's WAL is **byte-for-byte compatible** with etcd's WAL so we can read an existing
+cluster's log files. Each record is:
+
+```
++--------+----------------+----------+-------------+
+| length |   type:Int64   |   data   | crc:CRC32C  |
+| 8 B LE |    8 B LE      |  N bytes |    4 B LE   |
++--------+----------------+----------+-------------+
+```
+
+Record types: `Metadata`, `Entry`, `State`, `Snapshot`, `CRC`. Segment files are named
+`%016x-%016x.wal` (sequence, start-index). CRC algorithm is **Castagnoli (CRC32C)**, matching
+etcd. Segment rotation at 64 MiB by default.
+
+### Backend (LMDB)
+
+The backend uses **LMDB** (single-writer / many-reader memory-mapped B+tree). One environment
+per cetcd instance, with logical sub-databases corresponding to etcd's bbolt buckets:
+
+- `key` — committed MVCC key-value pairs, keyed by encoded revision.
+- `lease` — lease metadata.
+- `auth`, `authUsers`, `authRoles` — RBAC tables.
+- `members`, `cluster`, `alarm`, `meta` — cluster state.
+
+cetcd is **not** disk-format compatible with bbolt. A one-way migrator `cetcd-migrate` ships
+to convert an existing etcd data directory into a cetcd LMDB env.
+See [ADR 0002 — LMDB backend](./adr/0002-lmdb-backend.md).
+
+### MVCC
+
+The revision index uses a **treap** (probabilistically balanced BST) mapping
+`key → keyIndex { generations[] { revisions[] } }`, mirroring etcd's `mvcc/key_index.go`.
+Reads at a given revision do an inorder walk; ranges use the LMDB cursor.
+
+Watchers attach to a per-key bucket; commit notifications fan out via lock-free queues to
+each watcher's coroutine.
+
+### Snapshot
+
+Snapshots are streamed over gRPC via the `Maintenance.Snapshot` server-streaming RPC. On
+disk, snapshot files are stored as `%016x-%016x.snap` with a header `{crc:uint32, len:uint32}`
+followed by an LMDB env-dump payload. A separate `etcd-snap-import` mode accepts bbolt-format
+snapshots for migration.
+
+---
+
+## 5. Raft
+
+cetcd ships its own Raft implementation modeled on [`go.etcd.io/raft`](https://github.com/etcd-io/raft).
+See [ADR 0001 — Raft rolled in-house](./adr/0001-raft-rolled-in-house.md) for why no existing
+C Raft library was chosen.
+
+### Public API (sketch)
+
+```c
+typedef struct cetcd_raft_node cetcd_raft_node;
+
+cetcd_raft_node *cetcd_raft_start(const cetcd_raft_config *cfg);
+void             cetcd_raft_stop(cetcd_raft_node *n);
+
+/* Feed an incoming raft message (from peer). */
+int cetcd_raft_step(cetcd_raft_node *n, const cetcd_raft_msg *msg);
+
+/* Drain pending work the embedder must persist & send. */
+typedef struct {
+    cetcd_raft_hard_state state;       /* persist before sending */
+    cetcd_slice          *entries;     /* persist to WAL */
+    size_t                num_entries;
+    cetcd_raft_msg       *messages;    /* send to peers AFTER persist */
+    size_t                num_messages;
+    cetcd_raft_snapshot  *snapshot;    /* optional */
+    /* ...committed entries ready to apply... */
+} cetcd_raft_ready;
+
+cetcd_raft_ready *cetcd_raft_ready_take(cetcd_raft_node *n);
+void              cetcd_raft_advance(cetcd_raft_node *n, cetcd_raft_ready *r);
+```
+
+The Raft module **does no I/O and spawns no threads**. The embedder owns persistence
+(WAL/Snapshot) and transport (`libcetcd_peer`).
+
+---
+
+## 6. Wire protocol
+
+cetcd speaks etcd v3 gRPC over HTTP/2:
+
+- 6 services: `KV`, `Watch`, `Lease`, `Cluster`, `Maintenance`, `Auth`.
+- 48 RPCs (full catalogue in [`docs/api.md`](./api.md)).
+- 4 streaming RPCs: `RangeStream`, `Watch` (bidi), `LeaseKeepAlive` (bidi), `Snapshot` (server-stream).
+- Protobuf wire-types are generated from etcd v3.5's `.proto` files vendored under
+  `proto/v3.5/`.
+
+The peer transport (`libcetcd_peer`) mirrors etcd's `rafthttp` over HTTP/2 streams. Peer URLs
+take the form `http(s)://host:peer-port/raft/stream/{message,msgapp}/{member-id}` — same as
+etcd, so cetcd nodes can act as peers in a mixed cetcd/etcd cluster (validated in Phase 7).
+
+---
+
+## 7. Build, test, ship
+
+### Build
+
+CMake 3.21+. All third-party libraries are **vendored** under `third_party/` (pinned).
+OpenSSL is the one exception: discovered via `find_package(OpenSSL 3.0 REQUIRED)`.
+
+```sh
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCETCD_SANITIZERS=address,undefined
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+### Test
+
+- Unit tests: **Unity + CMock**, one binary per `libcetcd_*`, registered with `ctest`.
+- Integration: shell-driven, spawns real `cetcd` and `etcdctl` processes.
+- Fuzzing: libFuzzer harnesses (`tests/fuzz/`) on proto, WAL, raft step function.
+- Sanitizers: ASan, UBSan, TSan, MSan — each a separate CI job.
+
+### CI
+
+`.github/workflows/ci.yml` — matrix of {Linux-gcc, Linux-clang, macOS, Windows-MSVC,
+Windows-MinGW, FreeBSD, Linux-cross-aarch64}. Coverage uploaded to codecov.
+
+---
+
+## 8. Cross-platform abstractions
+
+`libcetcd_base/platform.h` is the only place with `#ifdef _WIN32` etc. Public headers never
+include OS-specific headers.
+
+| Abstraction         | POSIX                | Windows                 |
+| ------------------- | -------------------- | ----------------------- |
+| Time                | `clock_gettime`      | `QueryPerformanceCounter` |
+| Thread              | `pthread_create`     | `CreateThread`          |
+| Mutex / condvar     | `pthread_mutex_t`    | `SRWLOCK` / `CONDITION_VARIABLE` |
+| Atomics             | C11 `<stdatomic.h>`  | C11 `<stdatomic.h>` (MSVC ≥ 2022) |
+| File I/O            | `open` / `pread`     | `CreateFileW` / `ReadFileEx` |
+| Sockets / event     | via libuv            | via libuv (IOCP)        |
+| Coroutines          | libco (ASM per-arch) | libco (Windows fibers)  |
+| Dynamic loading     | `dlopen`             | `LoadLibraryW`          |
+
+---
+
+## 9. Glossary
+
+- **Revision**: monotonic global commit counter (etcd MVCC's universal clock).
+- **Lease**: a TTL-bound handle keys can attach to; expires together.
+- **Apply**: take a committed Raft entry → mutate the state machine (mvcc/backend).
+- **Snapshot**: a serialised state-machine checkpoint allowing log truncation.
+- **WAL**: write-ahead log — every Raft entry is fsync'd here before it commits.
+- **Watcher**: a long-lived stream subscribed to key-range events at-and-after a revision.
+
+---
+
+## 10. References
+
+- Diego Ongaro, John Ousterhout — *In Search of an Understandable Consensus Algorithm* (Raft paper), 2014.
+- The etcd source tree: <https://github.com/etcd-io/etcd>.
+- The etcd v3 API specification: `api/etcdserverpb/rpc.proto`.
+- LMDB design notes: <https://lmdb.tech/>.
+- libuv documentation: <https://docs.libuv.org/>.
