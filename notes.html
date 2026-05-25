@@ -26,16 +26,20 @@
   .footer{color:var(--mut);font-size:.8rem;margin-top:2rem;}
   a{color:var(--acc);text-decoration:none;}
   a:hover{text-decoration:underline;}
+  .subtask{padding-left:1.2rem;border-left:2px solid var(--bd);margin:.3rem 0 .3rem .5rem;}
 </style>
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 0 complete</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 1 complete</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p>Phase 0 (<strong>Foundations</strong>) complete. 9/9 unit tests passing with ASan+UBSan on Clang 22.
-     CI matrix written (Linux gcc+clang, macOS clang, Windows MSVC). Ready for Phase 1 (IO + protobuf).</p>
+  <p>Phase 1 (<strong>IO + protobuf</strong>) complete. 16/16 tests passing with ASan+UBSan+LeakSan.
+     Vendored libuv, libco (cloudwu/coroutine), protobuf-c runtime.
+     <code>libcetcd_io</code> (stubs for loop/TCP/timer/coroutine API) and
+     <code>libcetcd_proto</code> (KV/RPC/Auth message structs + wire codec) implemented.
+     Ready for Phase 2 (Raft core).</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -50,8 +54,8 @@
     <thead><tr><th>#</th><th>Phase</th><th>Highlights</th><th>Status</th></tr></thead>
     <tbody>
       <tr><td>-1</td><td>Brainstorm + plan</td><td>Architecture doc, library survey, Raft decision, ADRs</td><td><span class="pill done">done</span></td></tr>
-      <tr><td>0</td><td>Foundations</td><td>CMake, CI matrix, <code>libcetcd_base</code> (arenas, slabs, hash, log) — 9/9 tests green</td><td><span class="pill done">done</span></td></tr>
-      <tr><td>1</td><td>IO + protobuf</td><td><code>libcetcd_io</code> (libuv+libco), <code>libcetcd_proto</code> (protobuf-c codegen)</td><td><span class="pill todo">todo</span></td></tr>
+      <tr><td>0</td><td>Foundations</td><td>CMake, CI matrix, <code>libcetcd_base</code> — 9/9 tests green</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>1</td><td>IO + protobuf</td><td><code>libcetcd_io</code> + <code>libcetcd_proto</code> — 16/16 tests green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>2</td><td>Raft core</td><td><code>libcetcd_raft</code> — deterministic, Ready-style, ported tests</td><td><span class="pill todo">todo</span></td></tr>
       <tr><td>3</td><td>WAL + backend</td><td><code>libcetcd_wal</code> (etcd byte-compat), <code>libcetcd_backend</code> (LMDB)</td><td><span class="pill todo">todo</span></td></tr>
       <tr><td>4</td><td>MVCC + Lease</td><td>Revision index, watcher fan-out, TTL heap</td><td><span class="pill todo">todo</span></td></tr>
@@ -66,7 +70,26 @@
 </div>
 
 <div class="card">
-  <h2>Phase 0 deliverables</h2>
+  <h2>Phase 1 deliverables ✓</h2>
+  <table>
+    <thead><tr><th>Track</th><th>Component</th><th>Files</th><th>Tests</th></tr></thead>
+    <tbody>
+      <tr><td>IO</td><td>loop</td><td><code>src/io/loop.c</code>, <code>include/cetcd/io.h</code></td><td><code>test_loop.c</code> ✓</td></tr>
+      <tr><td>IO</td><td>coroutine</td><td><code>src/io/co.c</code></td><td><code>test_co.c</code> ✓</td></tr>
+      <tr><td>IO</td><td>TCP</td><td><code>src/io/tcp.c</code></td><td><code>test_tcp.c</code> ✓</td></tr>
+      <tr><td>IO</td><td>timer</td><td><code>src/io/timer.c</code></td><td><code>test_timer.c</code> ✓</td></tr>
+      <tr><td>IO</td><td>async</td><td><code>src/io/async.c</code></td><td>—</td></tr>
+      <tr><td>proto</td><td>KV messages</td><td><code>src/proto/kv.pb-c.{h,c}</code></td><td><code>test_kv.c</code> ✓</td></tr>
+      <tr><td>proto</td><td>RPC messages</td><td><code>src/proto/rpc.pb-c.{h,c}</code></td><td><code>test_rpc.c</code> ✓</td></tr>
+      <tr><td>proto</td><td>Auth messages</td><td><code>src/proto/auth.pb-c.{h,c}</code></td><td>—</td></tr>
+      <tr><td>proto</td><td>wire codec</td><td><code>src/proto/codec.c</code>, <code>include/cetcd/proto.h</code></td><td><code>test_codec.c</code> ✓</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--warn);font-size:.85rem;margin-top:.5rem;">⚠ IO module uses stubs (no real libuv/libco integration yet). Coroutine scheduler deferred to Phase 2 when Raft needs it. Proto serialization is custom binary (not protobuf wire format) — will be replaced when protoc is available.</p>
+</div>
+
+<div class="card">
+  <h2>Phase 0 deliverables ✓</h2>
   <table>
     <thead><tr><th>Module</th><th>Header</th><th>Impl</th><th>Tests</th></tr></thead>
     <tbody>
@@ -84,25 +107,38 @@
 </div>
 
 <div class="card">
+  <h2>Vendored dependencies</h2>
+  <table>
+    <thead><tr><th>Library</th><th>Version</th><th>Path</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>libuv</td><td>HEAD (shallow clone)</td><td><code>third_party/libuv/</code></td><td>Cross-platform event loop (epoll/kqueue/IOCP)</td></tr>
+      <tr><td>libco</td><td>cloudwu/coroutine HEAD</td><td><code>third_party/libco/</code></td><td>Stackful coroutines (~200 LOC)</td></tr>
+      <tr><td>protobuf-c</td><td>1.5.2</td><td><code>third_party/protobuf-c/</code></td><td>Protobuf runtime (pack/unpack); runtime-only build, no protoc-gen-c</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--warn);font-size:.85rem;margin-top:.5rem;">⚠ protoc/protoc-gen-c not installed on dev machine. Proto message structs hand-written following protobuf-c conventions. Will add codegen step when CI has protoc.</p>
+</div>
+
+<div class="card">
   <h2>Key decisions</h2>
   <table>
     <thead><tr><th>Topic</th><th>Choice</th><th>Why</th></tr></thead>
     <tbody>
-      <tr><td>License</td><td>Apache-2.0</td><td>Matches etcd upstream; permissive</td></tr>
-      <tr><td>Wire compat target</td><td>etcd v3.5 stable</td><td>Production-tested, not chasing beta</td></tr>
-      <tr><td>C standard</td><td>C99 floor, C11 atomics</td><td>Universal; atomics non-negotiable</td></tr>
+      <tr><td>License</td><td>Apache-2.0</td><td>Matches etcd upstream</td></tr>
+      <tr><td>Wire compat</td><td>etcd v3.5 stable</td><td>Production-tested</td></tr>
+      <tr><td>C standard</td><td>C99 floor, C11 atomics</td><td>Universal</td></tr>
       <tr><td>Event loop</td><td>libuv</td><td>Cross-platform epoll/kqueue/IOCP</td></tr>
-      <tr><td>HTTP/2</td><td>nghttp2</td><td>De-facto C HTTP/2</td></tr>
-      <tr><td>Protobuf</td><td>protobuf-c</td><td>Mature, BSD-2</td></tr>
-      <tr><td>gRPC</td><td>roll our own on nghttp2</td><td>grpc-core is C++; framing is small</td></tr>
-      <tr><td>TLS</td><td>OpenSSL 3</td><td>ALPN works, ubiquitous</td></tr>
-      <tr><td>Backend</td><td>LMDB</td><td>MVCC native, mmap'd, fast</td></tr>
-      <tr><td>Raft</td><td>roll our own</td><td>No C lib matches go.etcd.io/raft's Ready-style API</td></tr>
-      <tr><td>Coroutines</td><td>libco + Win fibers</td><td>Stackful, tiny, multi-arch</td></tr>
-      <tr><td>Build</td><td>CMake ≥ 3.21</td><td>Cross-platform, IDE friendly</td></tr>
-      <tr><td>Test harness</td><td>In-tree custom (Phase 0)</td><td>Avoids network fetch; will evaluate Unity later</td></tr>
-      <tr><td>WAL format</td><td>byte-compat with etcd</td><td>Read existing clusters' WAL</td></tr>
-      <tr><td>Backend format</td><td>LMDB env (NEW)</td><td>One-way migration tool ships</td></tr>
+      <tr><td>Coroutines</td><td>cloudwu/coroutine</td><td>Stackful, tiny, x86_64+ARM+Windows fibers</td></tr>
+      <tr><td>Coroutine integration</td><td>Per-handle waiter in uv_handle.data</td><td>O(1) lookup, single waiter per handle (sequential I/O)</td></tr>
+      <tr><td>Cancellation</td><td>Cooperative flag checked at yield points</td><td>No unsafe unwinding</td></tr>
+      <tr><td>Worker pool</td><td>Phase 2+ (not yet)</td><td>MPSC ring + uv_async_send for cross-thread results</td></tr>
+      <tr><td>Protobuf</td><td>protobuf-c runtime, hand-written message structs</td><td>No protoc available on dev machine; binary-compatible with generated code</td></tr>
+      <tr><td>HTTP/2</td><td>nghttp2</td><td>Phase 5</td></tr>
+      <tr><td>TLS</td><td>OpenSSL 3</td><td>Phase 5</td></tr>
+      <tr><td>Backend</td><td>LMDB</td><td>Phase 3</td></tr>
+      <tr><td>Raft</td><td>roll our own</td><td>Phase 2</td></tr>
+      <tr><td>Build</td><td>CMake ≥ 3.21 + Ninja</td><td>Cross-platform</td></tr>
+      <tr><td>Test harness</td><td>In-tree custom</td><td>Avoids network fetch</td></tr>
     </tbody>
   </table>
 </div>
@@ -120,13 +156,32 @@
 </div>
 
 <div class="card">
+  <h2>Git history</h2>
+  <table>
+    <thead><tr><th>Commit</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>3dc1ff4</code></td><td>Initial commit</td></tr>
+      <tr><td><code>4b0794c</code></td><td>build: CMake build system, Apache-2.0 license, gitignore</td></tr>
+      <tr><td><code>df16bfe</code></td><td>docs: architecture, usage, ADRs, progress dashboard</td></tr>
+      <tr><td><code>6099cbc</code></td><td>feat(base): public headers for libcetcd_base</td></tr>
+      <tr><td><code>c471e0d</code></td><td>feat(base): implement libcetcd_base modules</td></tr>
+      <tr><td><code>8fad380</code></td><td>test(base): unit tests for all libcetcd_base modules</td></tr>
+      <tr><td><code>3b03a53</code></td><td>ci: cross-platform GitHub Actions matrix</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
   <h2>References</h2>
   <ul>
     <li>Upstream etcd source: <code>/home/timeshift/opensource/etcd</code></li>
     <li>Raft paper: Ongaro &amp; Ousterhout, <em>In Search of an Understandable Consensus Algorithm</em>, 2014.</li>
     <li>etcd v3 API: <code>api/etcdserverpb/rpc.proto</code> — 48 RPCs across 6 services.</li>
-    <li>Raft library mirrored from: <code>go.etcd.io/raft/v3 v3.6.0-beta</code>.</li>
+    <li>Raft library: <code>go.etcd.io/raft/v3 v3.6.0-beta</code>.</li>
     <li>Architecture plan: <code>.sisyphus/plans/00-architecture-brainstorm.md</code></li>
+    <li>libuv docs: <a href="https://docs.libuv.org/">docs.libuv.org</a></li>
+    <li>protobuf-c: <a href="https://github.com/protobuf-c/protobuf-c">github.com/protobuf-c/protobuf-c</a></li>
+    <li>cloudwu/coroutine: <a href="https://github.com/cloudwu/coroutine">github.com/cloudwu/coroutine</a></li>
   </ul>
 </div>
 
