@@ -1,1 +1,3 @@
 add_subdirectory(base)
+add_subdirectory(proto)
+add_subdirectory(io)

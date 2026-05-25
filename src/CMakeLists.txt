@@ -4,6 +4,8 @@
 # own static library `cetcd_<name>` and an alias `cetcd::<name>`.
 
 add_subdirectory(base)
+add_subdirectory(proto)
+add_subdirectory(io)
 
 # Future phases will add:
 #   add_subdirectory(io)
