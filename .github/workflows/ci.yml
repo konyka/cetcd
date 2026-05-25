@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux: Ubuntu with gcc and clang, Debug+Release; Debug uses sanitizers
+          - os: ubuntu-latest
+            compiler: gcc
+            cc: gcc
+            cxx: g++
+            build_type: Debug
+            sanitizer: address,undefined
+          - os: ubuntu-latest
+            compiler: gcc
+            cc: gcc
+            cxx: g++
+            build_type: Release
+            sanitizer: ""
+          - os: ubuntu-latest
+            compiler: clang
+            cc: clang
+            cxx: clang++
+            build_type: Debug
+            sanitizer: address,undefined
+          - os: ubuntu-latest
+            compiler: clang
+            cc: clang
+            cxx: clang++
+            build_type: Release
+            sanitizer: ""
+          # macOS: Clang only, Debug+Release with sanitizers on Debug
+          - os: macos-latest
+            compiler: clang
+            cc: clang
+            cxx: clang++
+            build_type: Debug
+            sanitizer: address,undefined
+          - os: macos-latest
+            compiler: clang
+            cc: clang
+            cxx: clang++
+            build_type: Release
+            sanitizer: ""
+          # Windows: MSVC, Debug+Release (sanitizers not used on Windows)
+          - os: windows-latest
+            compiler: msvc
+            build_type: Debug
+            sanitizer: ""
+          - os: windows-latest
+            compiler: msvc
+            build_type: Release
+            sanitizer: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        # Linux/macOS via apt/brew; Windows via Chocolatey
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+        shell: bash
+
+      - name: Install Ninja (macOS)
+        if: ${{ matrix.os == 'macos-latest' }}
+        run: |
+          brew install ninja
+        shell: bash
+
+      - name: Install Ninja (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: |
+          choco install ninja -y
+        shell: pwsh
+
+      - name: Configure (Linux/macOS)
+        if: ${{ matrix.os != 'windows-latest' }}
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: |
+          ARGS="-B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}"
+          if [[ -n "${{ matrix.sanitizer }}" ]]; then
+            ARGS="$ARGS -DCETCD_SANITIZERS=${{ matrix.sanitizer }}"
+          fi
+          echo "Running: cmake $ARGS"
+          cmake $ARGS
+        shell: bash
+
+      - name: Configure (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $args = @("-B", "build", "-G", "Ninja", "-DCMAKE_BUILD_TYPE=${{ matrix.build_type }}")
+          Write-Host "Running: cmake $args"
+          & cmake @args
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
