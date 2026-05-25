@@ -1,10 +1,19 @@
-# Third-party dependencies — vendored.
-#
-# Phase 0 has no third-party deps (libcetcd_base is freestanding-ish; only libc
-# and C11 atomics). Later phases will populate this directory with libuv,
-# nghttp2, LMDB, protobuf-c, libco, mimalloc, Unity, CMock.
-#
-# For each vendored lib we will add a thin CMakeLists wrapper that exposes a
-# `cetcd::<lib>` target. Until then this file is a placeholder.
+# Third-party dependencies — vendored under this directory.
 
-message(STATUS "third_party/: no vendored deps required at Phase 0")
+# --- libuv (event loop) ---
+set(LIBUV_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+set(UV_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+add_subdirectory(libuv)
+
+# Ensure a consistent target name: libuv exports 'uv_a' on most platforms.
+# If it only exported 'uv', create an alias.
+if(NOT TARGET uv_a AND TARGET uv)
+    add_library(uv_a ALIAS uv)
+endif()
+
+# --- libco (stackful coroutines) ---
+add_subdirectory(libco)
+
+# --- protobuf-c runtime (pack/unpack only, no protoc-gen-c) ---
+add_subdirectory(protobuf-c/build-cmake)

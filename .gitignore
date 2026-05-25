@@ -111,6 +111,8 @@ Thumbs.db
 /third_party/*/build/
 /third_party/*/_build/
 /third_party/*/.libs/
+/third_party/*/.git/
+/third_party/vendor_third_party.sh
 
 # Sisyphus working dir (not for git)
 /.sisyphus/
