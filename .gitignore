@@ -53,3 +53,69 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# ---------- cetcd: CMake / build artifacts ----------
+/build/
+/build-*/
+/out/
+/cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+*.cmake.tmp
+
+# Ninja / Make
+.ninja_deps
+.ninja_log
+build.ninja
+rules.ninja
+*.make
+
+# CTest
+CTestTestfile.cmake
+DartConfiguration.tcl
+
+# Coverage
+*.gcda
+*.gcno
+*.gcov
+coverage/
+lcov.info
+
+# Sanitizer logs
+asan.log*
+ubsan.log*
+tsan.log*
+msan.log*
+
+# Generated protobuf
+*.pb-c.c
+*.pb-c.h
+src/proto/gen/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.user
+
+# Vendored build outputs (we vendor sources, not builds)
+/third_party/*/build/
+/third_party/*/_build/
+/third_party/*/.libs/
+
+# Sisyphus working dir (not for git)
+/.sisyphus/
+
+# Local env overrides
+.envrc.local
+.env.local
+
