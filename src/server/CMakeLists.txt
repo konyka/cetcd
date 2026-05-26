@@ -11,4 +11,6 @@ cetcd_add_module(server
         cetcd_auth
         cetcd_peer
         cetcd_snap
+        cetcd_wal
+        cetcd_backend
 )

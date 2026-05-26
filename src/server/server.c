@@ -6,17 +6,28 @@
 #include "cetcd/auth.h"
 #include "cetcd/peer.h"
 #include "cetcd/snap.h"
+#include "cetcd/wal.h"
+#include "cetcd/backend.h"
 
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 struct cetcd_server {
     cetcd_server_config  cfg;
     cetcd_v3rpc         *rpc;
     cetcd_raft          *raft;
     cetcd_cluster       *cluster;
+    cetcd_backend       *backend;
+    cetcd_wal_encoder   *wal_enc;
     bool                 started;
 };
+
+static int ensure_dir(const char *path) {
+    struct stat st;
+    if (stat(path, &st) == 0) return 0;
+    return mkdir(path, 0755);
+}
 
 cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
     if (!cfg) return NULL;
@@ -53,6 +64,8 @@ cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
 
 void cetcd_server_free(cetcd_server *srv) {
     if (!srv) return;
+    if (srv->wal_enc) { cetcd_wal_encoder_flush(srv->wal_enc); cetcd_wal_encoder_free(srv->wal_enc); }
+    if (srv->backend) cetcd_backend_close(srv->backend);
     if (srv->cluster) cetcd_cluster_free(srv->cluster);
     if (srv->raft) cetcd_raft_free(srv->raft);
     if (srv->rpc) cetcd_v3rpc_free(srv->rpc);
@@ -61,6 +74,27 @@ void cetcd_server_free(cetcd_server *srv) {
 
 int cetcd_server_start(cetcd_server *srv) {
     if (!srv) return CETCD_ERR_INVAL;
+
+    if (srv->cfg.data_dir[0]) {
+        ensure_dir(srv->cfg.data_dir);
+
+        if (!srv->backend) {
+            cetcd_backend_config be_cfg;
+            memset(&be_cfg, 0, sizeof(be_cfg));
+            be_cfg.path = srv->cfg.data_dir;
+            be_cfg.map_size = 64 * 1024 * 1024;
+            be_cfg.max_dbs = 16;
+            srv->backend = cetcd_backend_open(&be_cfg);
+        }
+
+        if (!srv->wal_enc) {
+            char wal_path[600];
+            snprintf(wal_path, sizeof(wal_path), "%s/wal", srv->cfg.data_dir);
+            ensure_dir(srv->cfg.data_dir);
+            srv->wal_enc = cetcd_wal_encoder_create(wal_path);
+        }
+    }
+
     srv->started = true;
     return 0;
 }

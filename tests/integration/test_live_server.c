@@ -65,9 +65,35 @@ CETCD_TEST_CASE(live_server_snapshot_after_writes) {
     cetcd_server_free(srv);
 }
 
+CETCD_TEST_CASE(live_server_persistent_backend) {
+    const char *data_dir = "/tmp/cetcd_test_persist_13";
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 23792;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+
+    uint8_t put_req[] = {0x0a, 0x04, 't','e','s','t', 0x12, 0x04, 'd','a','t','a'};
+    cetcd_server_rpc_result resp = cetcd_server_handle_rpc(srv,
+        "/etcdserverpb.KV/Put", put_req, sizeof(put_req));
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_server_rpc_result_free(&resp);
+
+    CETCD_ASSERT_TRUE(cetcd_server_revision(srv) > 0);
+
+    cetcd_server_stop(srv);
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_start_stop),
     CETCD_TEST_ENTRY(live_server_snapshot_after_writes),
+    CETCD_TEST_ENTRY(live_server_persistent_backend),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

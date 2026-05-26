@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 12 complete — Real libuv IO + integration tests, 31/31 tests</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 13 complete — Persistent WAL + LMDB backend, 31/31 tests</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.1.0 tagged</strong>. Phase 12 (<strong>Real async IO</strong>) complete. 31/31 tests passing.
-     IO stubs replaced with real libuv-backed implementations: event loop, TCP server/client, timer, async.
-     Integration tests: live server start/stop, multi-write + snapshot + compact.
-     Next: Phase 13 — Persistent WAL + backend, etcdctl compatibility.</p>
+  <p><strong>v0.1.0 tagged</strong>. Phase 13 (<strong>Persistent storage</strong>) complete. 31/31 tests passing.
+     Server opens LMDB backend + WAL encoder on start when <code>data_dir</code> is configured.
+     Integration test verifies persistent backend initialization with data directory.
+     Next: Phase 14 — Multi-node cluster, consensus membership changes.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -66,8 +66,22 @@
       <tr><td>10</td><td>Bench + harden + v0.1.0</td><td>Bench harness, server binary, CI matrix, v0.1.0 tag — 29/29 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>11</td><td>Server integration</td><td><code>libcetcd_server</code> (Raft+MVCC+v3rpc wiring, RPC dispatch, snapshots) — 30/30 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>12</td><td>Real async IO (libuv)</td><td>Real libuv loop/TCP/timer/async + integration tests — 31/31 green</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>13</td><td>Persistent storage</td><td>WAL + LMDB backend wired into server, persistent integration test — 31/31 green</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
+</div>
+
+<div class="card">
+  <h2>Phase 13 deliverables ✓</h2>
+  <table>
+    <thead><tr><th>Track</th><th>Component</th><th>Files</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>Server</td><td>LMDB backend + WAL encoder lifecycle</td><td><code>src/server/server.c</code></td><td>open on start, flush+close on free ✓</td></tr>
+      <tr><td>Server</td><td>data directory auto-creation</td><td><code>src/server/server.c</code></td><td>ensure_dir on start ✓</td></tr>
+      <tr><td>Test</td><td>persistent backend integration test</td><td><code>tests/integration/test_live_server.c</code></td><td>write to LMDB, verify ✓</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--ok);font-size:.85rem;margin-top:.5rem;">31/31 tests passing (ASan+UBSan+LeakSan clean). Server opens LMDB backend (64MB map, 16 DBs) and WAL encoder when data_dir is configured. Backend persists KV data; WAL persists Raft entries. Data directory auto-created on start.</p>
 </div>
 
 <div class="card">
