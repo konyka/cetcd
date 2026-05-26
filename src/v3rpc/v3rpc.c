@@ -5,31 +5,41 @@
 #include "cetcd/v3rpc.h"
 #include "cetcd/mvcc.h"
 #include "cetcd/lease.h"
+#include "cetcd/auth.h"
 
 /* Forward declarations for per RPC handlers (defined in separate files) */
 cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes lease_handle_grant(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+cetcd_rpc_bytes auth_handle_enable(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+cetcd_rpc_bytes auth_handle_disable(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+cetcd_rpc_bytes auth_handle_authenticate(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+cetcd_rpc_bytes auth_handle_user_add(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+cetcd_rpc_bytes auth_handle_user_delete(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+cetcd_rpc_bytes auth_handle_role_add(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+cetcd_rpc_bytes auth_handle_role_grant(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 
 struct cetcd_v3rpc {
     cetcd_mvcc_store *store;
     cetcd_lease_mgr  *leases;
+    cetcd_auth_store *auth;
 };
 
 /* Global handles for internal helpers used by RPC handlers in other files */
 cetcd_mvcc_store *g_rpc_store = NULL;
 cetcd_lease_mgr  *g_rpc_lease_mgr = NULL;
+cetcd_auth_store *g_rpc_auth = NULL;
 
 cetcd_v3rpc *cetcd_v3rpc_new(void) {
     cetcd_v3rpc *rpc = (cetcd_v3rpc *)calloc(1, sizeof(*rpc));
     if (!rpc) return NULL;
     rpc->store = cetcd_mvcc_store_new();
-    /* Lease manager with no expire callback for tests */
     rpc->leases = cetcd_lease_mgr_new(NULL, NULL);
-    /* Expose internals for other modules via globals */
+    rpc->auth = cetcd_auth_store_new();
     g_rpc_store = rpc->store;
     g_rpc_lease_mgr = rpc->leases;
+    g_rpc_auth = rpc->auth;
     return rpc;
 }
 
@@ -42,6 +52,10 @@ void cetcd_v3rpc_free(cetcd_v3rpc *rpc) {
     if (rpc->leases) {
         cetcd_lease_mgr_free(rpc->leases);
         rpc->leases = NULL;
+    }
+    if (rpc->auth) {
+        cetcd_auth_store_free(rpc->auth);
+        rpc->auth = NULL;
     }
     free(rpc);
 }
@@ -102,6 +116,29 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
     if (strcmp(path, "/etcdserverpb.Watch/Watch") == 0) {
         cetcd_rpc_bytes empty = {NULL, 0};
         return empty;
+    }
+
+    /* Auth */
+    if (strcmp(path, "/etcdserverpb.Auth/AuthEnable") == 0) {
+        return auth_handle_enable(rpc, req_data, req_len);
+    }
+    if (strcmp(path, "/etcdserverpb.Auth/AuthDisable") == 0) {
+        return auth_handle_disable(rpc, req_data, req_len);
+    }
+    if (strcmp(path, "/etcdserverpb.Auth/Authenticate") == 0) {
+        return auth_handle_authenticate(rpc, req_data, req_len);
+    }
+    if (strcmp(path, "/etcdserverpb.Auth/UserAdd") == 0) {
+        return auth_handle_user_add(rpc, req_data, req_len);
+    }
+    if (strcmp(path, "/etcdserverpb.Auth/UserDelete") == 0) {
+        return auth_handle_user_delete(rpc, req_data, req_len);
+    }
+    if (strcmp(path, "/etcdserverpb.Auth/RoleAdd") == 0) {
+        return auth_handle_role_add(rpc, req_data, req_len);
+    }
+    if (strcmp(path, "/etcdserverpb.Auth/UserGrantRole") == 0) {
+        return auth_handle_role_grant(rpc, req_data, req_len);
     }
 
     /* Unknown path */

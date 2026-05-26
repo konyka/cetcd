@@ -15,6 +15,7 @@ add_subdirectory(http2)
 add_subdirectory(tls)
 add_subdirectory(v3rpc)
 add_subdirectory(peer)
+add_subdirectory(auth)
 
 # Future phases will add:
 #   add_subdirectory(io)

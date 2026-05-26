@@ -1,0 +1,59 @@
+#ifndef CETCD_AUTH_H_
+#define CETCD_AUTH_H_
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct cetcd_auth_store cetcd_auth_store;
+
+typedef struct {
+    char    name[128];
+    char   *roles;
+    size_t  n_roles;
+    uint8_t password_hash[64];
+    size_t  hash_len;
+} cetcd_user;
+
+typedef struct {
+    char name[128];
+    int  perm_read;
+    int  perm_write;
+    char key_prefix[256];
+    size_t key_prefix_len;
+} cetcd_role;
+
+cetcd_auth_store *cetcd_auth_store_new(void);
+void              cetcd_auth_store_free(cetcd_auth_store *s);
+
+int cetcd_auth_add_user(cetcd_auth_store *s, const char *name,
+                         const char *password);
+int cetcd_auth_remove_user(cetcd_auth_store *s, const char *name);
+bool cetcd_auth_has_user(const cetcd_auth_store *s, const char *name);
+int cetcd_auth_grant_role(cetcd_auth_store *s, const char *user,
+                           const char *role);
+int cetcd_auth_revoke_role(cetcd_auth_store *s, const char *user,
+                            const char *role);
+
+int cetcd_auth_add_role(cetcd_auth_store *s, const char *name,
+                         int perm_read, int perm_write,
+                         const char *key_prefix, size_t prefix_len);
+int cetcd_auth_remove_role(cetcd_auth_store *s, const char *name);
+
+bool cetcd_auth_check_password(const cetcd_auth_store *s,
+                                const char *name, const char *password);
+
+bool cetcd_auth_is_enabled(const cetcd_auth_store *s);
+void cetcd_auth_set_enabled(cetcd_auth_store *s, bool enabled);
+
+size_t cetcd_auth_user_count(const cetcd_auth_store *s);
+size_t cetcd_auth_role_count(const cetcd_auth_store *s);
+
+#ifdef __cplusplus
+}
+#endif
+#endif

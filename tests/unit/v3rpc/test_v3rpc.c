@@ -1,5 +1,6 @@
 #include "cetcd/base.h"
 #include "cetcd/v3rpc.h"
+#include "cetcd/auth.h"
 #include "cetcd_test.h"
 
 CETCD_TEST_CASE(v3rpc_create_destroy) {
@@ -84,7 +85,6 @@ CETCD_TEST_CASE(v3rpc_lease_grant_revoke) {
 CETCD_TEST_CASE(v3rpc_delete_range) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
-    /* Put first */
     uint8_t put_buf[64];
     size_t pos = 0;
     put_buf[pos++] = 0x0a; put_buf[pos++] = 0x03;
@@ -94,7 +94,6 @@ CETCD_TEST_CASE(v3rpc_delete_range) {
     cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
     cetcd_rpc_bytes_free(&resp);
 
-    /* DeleteRange */
     uint8_t del_buf[16];
     pos = 0;
     del_buf[pos++] = 0x0a; del_buf[pos++] = 0x03;
@@ -107,12 +106,79 @@ CETCD_TEST_CASE(v3rpc_delete_range) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_auth_enable_disable) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    uint8_t dummy[] = {0x00};
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Auth/AuthEnable", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Auth/AuthDisable", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_auth_user_add_authenticate) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* UserAdd: field 1 (name) = "alice", field 2 (password) = "pass123" */
+    uint8_t add_buf[32];
+    size_t pos = 0;
+    add_buf[pos++] = 0x0a; add_buf[pos++] = 0x05;
+    memcpy(add_buf + pos, "alice", 5); pos += 5;
+    add_buf[pos++] = 0x12; add_buf[pos++] = 0x07;
+    memcpy(add_buf + pos, "pass123", 7); pos += 7;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Auth/UserAdd", add_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* Authenticate: correct password */
+    uint8_t auth_buf[32];
+    pos = 0;
+    auth_buf[pos++] = 0x0a; auth_buf[pos++] = 0x05;
+    memcpy(auth_buf + pos, "alice", 5); pos += 5;
+    auth_buf[pos++] = 0x12; auth_buf[pos++] = 0x07;
+    memcpy(auth_buf + pos, "pass123", 7); pos += 7;
+
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Auth/Authenticate", auth_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* Authenticate: wrong password */
+    uint8_t bad_buf[32];
+    pos = 0;
+    bad_buf[pos++] = 0x0a; bad_buf[pos++] = 0x05;
+    memcpy(bad_buf + pos, "alice", 5); pos += 5;
+    bad_buf[pos++] = 0x12; bad_buf[pos++] = 0x03;
+    memcpy(bad_buf + pos, "bad", 3); pos += 3;
+
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Auth/Authenticate", bad_buf, pos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
     CETCD_TEST_ENTRY(v3rpc_unknown_path),
     CETCD_TEST_ENTRY(v3rpc_lease_grant_revoke),
     CETCD_TEST_ENTRY(v3rpc_delete_range),
+    CETCD_TEST_ENTRY(v3rpc_auth_enable_disable),
+    CETCD_TEST_ENTRY(v3rpc_auth_user_add_authenticate),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

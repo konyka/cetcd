@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 7 complete — Peer transport + multi-node cluster, 27/27 tests</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 8 complete — Auth RBAC + RPC dispatch, 28/28 tests</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p>Phase 7 (<strong>Peer transport + multi-node</strong>) complete. 27/27 tests passing.
-     Cluster management (add/remove peers), length-prefixed message framing,
-     pluggable send callback for HTTP/2 transport integration.
-     Next: Phase 8 — Auth + Cluster + Maintenance RPCs.</p>
+  <p>Phase 8 (<strong>Auth RBAC + RPC dispatch</strong>) complete. 28/28 tests passing.
+     <code>libcetcd_auth</code>: user/role CRUD, SHA-256 password hashing, grant/revoke roles, enable/disable.
+     v3rpc auth handlers: AuthEnable/AuthDisable, Authenticate (token), UserAdd/UserDelete, RoleAdd, UserGrantRole.
+     Next: Phase 9 — Snapshots + compaction.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -61,11 +61,26 @@
       <tr><td>5</td><td>HTTP/2 + gRPC + TLS</td><td><code>libcetcd_http2</code> (nghttp2), <code>libcetcd_tls</code> (OpenSSL ALPN) — 25/25 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>6</td><td>v3rpc KV/Watch/Lease</td><td><code>libcetcd_v3rpc</code> (dispatch, KV, Lease, Watch stub) — 26/26 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>7</td><td>Peer transport + cluster</td><td><code>libcetcd_peer</code> (cluster mgmt, msg framing, send callback) — 27/27 green</td><td><span class="pill done">done</span></td></tr>
-      <tr><td>8</td><td>Auth + Cluster + Maint</td><td>Remaining 35 RPCs; bcrypt + JWT</td><td><span class="pill todo">todo</span></td></tr>
+      <tr><td>8</td><td>Auth RBAC + RPC dispatch</td><td><code>libcetcd_auth</code> (user/role CRUD, SHA-256 pass, grant/revoke) + v3rpc auth handlers — 28/28 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>9</td><td>Snapshots + compaction</td><td>Snapshot stream, defragment, hash-kv parity</td><td><span class="pill todo">todo</span></td></tr>
       <tr><td>10</td><td>Bench + harden + 0.1</td><td>Jepsen-lite, fuzzing, perf report, tag v0.1.0</td><td><span class="pill todo">todo</span></td></tr>
     </tbody>
   </table>
+</div>
+
+<div class="card">
+  <h2>Phase 8 deliverables ✓</h2>
+  <table>
+    <thead><tr><th>Track</th><th>Component</th><th>Files</th><th>Tests</th></tr></thead>
+    <tbody>
+      <tr><td>Auth</td><td>auth store create/destroy, enable/disable</td><td><code>src/auth/auth.c</code></td><td>create_destroy, enable_disable ✓</td></tr>
+      <tr><td>Auth</td><td>user add/remove with SHA-256 password hashing</td><td><code>src/auth/auth.c</code></td><td>add_remove_user, password_check ✓</td></tr>
+      <tr><td>Auth</td><td>role add/remove with read/write perms + key prefix</td><td><code>src/auth/auth.c</code></td><td>add_remove_role ✓</td></tr>
+      <tr><td>Auth</td><td>grant/revoke role to/from user</td><td><code>src/auth/auth.c</code></td><td>grant_revoke_role ✓</td></tr>
+      <tr><td>v3rpc</td><td>auth RPC dispatch (7 new paths)</td><td><code>src/v3rpc/auth_handler.c</code></td><td>enable_disable, user_add_authenticate ✓</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--ok);font-size:.85rem;margin-top:.5rem;">28/28 tests passing (ASan+UBSan+LeakSan clean). Auth store uses hashmap for user/role lookup. Passwords hashed with SHA-256 from base module. v3rpc now dispatches AuthEnable/AuthDisable/Authenticate/UserAdd/UserDelete/RoleAdd/UserGrantRole.</p>
 </div>
 
 <div class="card">
