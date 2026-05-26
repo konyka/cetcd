@@ -624,6 +624,24 @@ int cetcd_raft_step(cetcd_raft *r, cetcd_msg *msg) {
         }
         break;
 
+    case CETCD_MSG_TRANSFER_LEADER:
+        if (r->role != ROLE_LEADER) break;
+        {
+            cetcd_msg tout;
+            memset(&tout, 0, sizeof(tout));
+            tout.type = CETCD_MSG_TIMEOUT_NOW;
+            tout.to   = msg->to;
+            tout.from = r->id;
+            tout.term = r->term;
+            queue_msg_(r, &tout);
+        }
+        break;
+
+    case CETCD_MSG_TIMEOUT_NOW:
+        if (r->role == ROLE_LEADER) break;
+        r->elapsed_ticks = r->election_timeout;
+        break;
+
     default:
         break;
     }

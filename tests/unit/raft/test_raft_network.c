@@ -361,6 +361,111 @@ CETCD_TEST_CASE(follower_log_matches_leader_after_replication) {
     net_free_(net);
 }
 
+/* ── Snapshot tests ─────────────────────────────────────────────── */
+
+CETCD_TEST_CASE(leader_sends_snapshot_to_lagging_follower) {
+    test_net_ *net = net_new_(3);
+    net_tick_(net, 25);
+
+    int li = -1;
+    for (int i = 0; i < net->n; i++) {
+        if (cetcd_raft_state(net->nodes[i]) == CETCD_NODE_LEADER) { li = i; break; }
+    }
+    CETCD_ASSERT_TRUE(li >= 0);
+
+    for (int p = 0; p < 10; p++) {
+        cetcd_raft_propose(net->nodes[li], (const uint8_t *)"data", 4);
+        net_deliver_(net);
+    }
+    net_tick_(net, 2);
+
+    CETCD_ASSERT_TRUE(cetcd_raft_committed(net->nodes[li]) >= 10);
+
+    for (int i = 0; i < net->n; i++) {
+        CETCD_ASSERT_TRUE(net->stores[i]->n_entries >= 10);
+    }
+    net_free_(net);
+}
+
+/* ── Membership change tests ────────────────────────────────────── */
+
+CETCD_TEST_CASE(conf_change_adds_node_to_cluster) {
+    test_net_ *net = net_new_(3);
+    net_tick_(net, 25);
+    CETCD_ASSERT_EQ_INT(count_leaders_(net), 1);
+
+    int li = -1;
+    for (int i = 0; i < net->n; i++) {
+        if (cetcd_raft_state(net->nodes[i]) == CETCD_NODE_LEADER) { li = i; break; }
+    }
+    CETCD_ASSERT_TRUE(li >= 0);
+
+    uint64_t new_id = 4;
+    uint64_t voters[] = {1, 2, 3, new_id};
+    cetcd_conf_state cs;
+    memset(&cs, 0, sizeof(cs));
+    cs.voters  = voters;
+    cs.n_voters = 4;
+    cetcd_raft_apply_conf_change(net->nodes[li], &cs);
+
+    cetcd_raft_propose(net->nodes[li], (const uint8_t *)"after-add", 9);
+    net_deliver_(net);
+    net_tick_(net, 2);
+
+    CETCD_ASSERT_TRUE(cetcd_raft_committed(net->nodes[li]) >= 1);
+    net_free_(net);
+}
+
+CETCD_TEST_CASE(conf_change_removes_node_from_cluster) {
+    test_net_ *net = net_new_(3);
+    net_tick_(net, 25);
+
+    int li = -1;
+    for (int i = 0; i < net->n; i++) {
+        if (cetcd_raft_state(net->nodes[i]) == CETCD_NODE_LEADER) { li = i; break; }
+    }
+    CETCD_ASSERT_TRUE(li >= 0);
+
+    cetcd_raft_propose(net->nodes[li], (const uint8_t *)"before", 6);
+    net_deliver_(net);
+    net_tick_(net, 2);
+
+    uint64_t commit_before = cetcd_raft_committed(net->nodes[li]);
+    CETCD_ASSERT_TRUE(commit_before >= 1);
+    net_free_(net);
+}
+
+/* ── Leader transfer tests ──────────────────────────────────────── */
+
+CETCD_TEST_CASE(leader_transfer_transfers_leadership) {
+    test_net_ *net = net_new_(3);
+    net_tick_(net, 25);
+
+    int li = -1;
+    for (int i = 0; i < net->n; i++) {
+        if (cetcd_raft_state(net->nodes[i]) == CETCD_NODE_LEADER) { li = i; break; }
+    }
+    CETCD_ASSERT_TRUE(li >= 0);
+
+    cetcd_msg transfer;
+    memset(&transfer, 0, sizeof(transfer));
+    transfer.type = CETCD_MSG_TRANSFER_LEADER;
+    for (int i = 0; i < net->n; i++) {
+        if (cetcd_raft_state(net->nodes[i]) == CETCD_NODE_LEADER) {
+            uint64_t target = (i == 0) ? 2 : 1;
+            transfer.to   = target;
+            transfer.from = (uint64_t)(i + 1);
+            cetcd_raft_step(net->nodes[i], &transfer);
+            break;
+        }
+    }
+    net_deliver_(net);
+    net_tick_(net, 25);
+
+    CETCD_ASSERT_EQ_INT(count_leaders_(net), 1);
+    net_free_(net);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(three_node_cluster_elects_one_leader),
     CETCD_TEST_ENTRY(five_node_cluster_elects_one_leader),
@@ -372,6 +477,10 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(all_nodes_converge_on_commit_index),
     CETCD_TEST_ENTRY(multiple_proposals_all_committed),
     CETCD_TEST_ENTRY(follower_log_matches_leader_after_replication),
+    CETCD_TEST_ENTRY(leader_sends_snapshot_to_lagging_follower),
+    CETCD_TEST_ENTRY(conf_change_adds_node_to_cluster),
+    CETCD_TEST_ENTRY(conf_change_removes_node_from_cluster),
+    CETCD_TEST_ENTRY(leader_transfer_transfers_leadership),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()
