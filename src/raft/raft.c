@@ -208,7 +208,7 @@ static void maybe_advance_commit_(cetcd_raft *r) {
 /* ── Lifecycle ──────────────────────────────────────────────────── */
 
 cetcd_raft *cetcd_raft_new(cetcd_raft_config *cfg) {
-    if (!cfg || !cfg->storage) return NULL;
+    if (!cfg) return NULL;
     if (cfg->id == 0) return NULL;
     if (cfg->election_tick == 0 || cfg->heartbeat_tick == 0) return NULL;
 

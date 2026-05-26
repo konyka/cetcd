@@ -28,9 +28,14 @@ struct cetcd_server {
     cetcd_loop          *loop;
     cetcd_tcp           *listener;
     cetcd_tcp           *peer_listener;
+    cetcd_timer         *tick_timer;
     cetcd_metrics       *metrics;
     bool                 started;
 };
+
+static int  ensure_dir(const char *path);
+static void raft_tick_cb_(void *arg);
+static void process_ready_(cetcd_server *srv);
 
 static int ensure_dir(const char *path) {
     struct stat st;
@@ -78,6 +83,7 @@ cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
 
 void cetcd_server_free(cetcd_server *srv) {
     if (!srv) return;
+    if (srv->tick_timer) { cetcd_timer_stop(srv->tick_timer); cetcd_timer_free(srv->tick_timer); }
     if (srv->peer_listener) { cetcd_tcp_free(srv->peer_listener); srv->peer_listener = NULL; }
     if (srv->listener) { cetcd_tcp_free(srv->listener); srv->listener = NULL; }
     if (srv->loop) { cetcd_loop_free(srv->loop); srv->loop = NULL; }
@@ -231,6 +237,11 @@ int cetcd_server_serve(cetcd_server *srv) {
         }
     }
 
+    srv->tick_timer = cetcd_timer_new(srv->loop);
+    if (srv->tick_timer) {
+        cetcd_timer_start(srv->tick_timer, 100, 100, raft_tick_cb_, srv);
+    }
+
     srv->started = true;
     cetcd_loop_run(srv->loop);
     return 0;
@@ -281,4 +292,41 @@ int cetcd_server_propose_conf_change(cetcd_server *srv, uint64_t peer_id, int ch
 
 cetcd_metrics *cetcd_server_metrics(cetcd_server *srv) {
     return srv ? srv->metrics : NULL;
+}
+
+static void raft_tick_cb_(void *arg) {
+    cetcd_server *srv = (cetcd_server *)arg;
+    if (!srv || !srv->raft || !srv->started) return;
+    cetcd_raft_tick(srv->raft);
+    if (srv->metrics) cetcd_metrics_counter(srv->metrics, "raft_ticks_total", 1);
+    process_ready_(srv);
+}
+
+static void process_ready_(cetcd_server *srv) {
+    cetcd_ready rd = cetcd_raft_ready(srv->raft);
+
+    if (rd.messages && rd.n_messages > 0) {
+        for (uint32_t i = 0; i < rd.n_messages; i++) {
+            uint8_t *wire = NULL;
+            size_t wire_len = cetcd_msg_encode_wire(&rd.messages[i], &wire);
+            if (wire && wire_len > 0) {
+                uint8_t *framed = NULL;
+                size_t framed_len = cetcd_msg_encode(wire, wire_len, &framed);
+                if (framed && framed_len > 0) {
+                    cetcd_cluster_send_msg(srv->cluster, framed, framed_len, rd.messages[i].to);
+                    free(framed);
+                }
+                free(wire);
+            }
+        }
+    }
+
+    if (rd.committed > 0) {
+        if (srv->metrics) {
+            cetcd_metrics_gauge_set(srv->metrics, "raft_committed_index", (double)rd.committed);
+        }
+    }
+
+    cetcd_raft_advance(srv->raft, &rd);
+    cetcd_ready_free(&rd);
 }

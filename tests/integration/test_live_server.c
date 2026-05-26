@@ -207,6 +207,37 @@ CETCD_TEST_CASE(live_server_peer_port_listen) {
     CETCD_ASSERT_TRUE(peer_ok);
 }
 
+CETCD_TEST_CASE(live_server_raft_tick_timer) {
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 23796;
+    cfg.peer_port = 23896;
+    cfg.election_tick = 5;
+    cfg.heartbeat_tick = 1;
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+
+    for (int i = 0; i < 20; i++) {
+        cetcd_server_tick(srv);
+    }
+
+    bool is_leader = cetcd_server_is_leader(srv);
+    CETCD_ASSERT_TRUE(is_leader);
+
+    cetcd_metrics *m = cetcd_server_metrics(srv);
+    CETCD_ASSERT_NOT_NULL(m);
+    char buf[4096];
+    size_t len = cetcd_metrics_render(m, buf, sizeof(buf));
+    CETCD_ASSERT_TRUE(len > 0);
+    CETCD_ASSERT_TRUE(strstr(buf, "cetcd_server_info 1") != NULL);
+
+    cetcd_server_stop(srv);
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_start_stop),
     CETCD_TEST_ENTRY(live_server_snapshot_after_writes),
@@ -214,6 +245,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_tcp_listen),
     CETCD_TEST_ENTRY(live_server_cluster_membership),
     CETCD_TEST_ENTRY(live_server_peer_port_listen),
+    CETCD_TEST_ENTRY(live_server_raft_tick_timer),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

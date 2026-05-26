@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 17 complete — Metrics + graceful shutdown + structured logging, 33/33 tests</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 18 complete — Raft event loop + leader election, 33/33 tests</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
   <p><strong>v0.1.0 tagged</strong>. Phase 14 (<strong>Real TCP gRPC listener</strong>) complete. 31/31 tests passing.
      <code>cetcd_server_serve()</code>: binds TCP port, accepts connections via libuv event loop.
      Integration test: fork server process, real TCP connect from client, verify port listening.
-     Next: Phase 18 — Multi-node consensus testing, etcdctl wire compatibility, production hardening.</p>
+     Next: Phase 19 — Multi-node TCP consensus, etcdctl wire compatibility.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -71,8 +71,24 @@
       <tr><td>15</td><td>Multi-node cluster + membership</td><td>initial_peers config, peer port listener, cluster add/remove, 6 integration tests — 31/31 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>16</td><td>Raft wire protocol</td><td>msg encode/decode, varint protobuf wire format, 3 new unit tests — 32/32 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>17</td><td>Metrics + observability</td><td>Prometheus counter/gauge/histogram, structured JSON logging, graceful shutdown, 5 new unit tests — 33/33 green</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>18</td><td>Raft event loop + election</td><td>tick timer, Ready processing, message routing, single-node leader election, null storage — 33/33 green</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
+</div>
+
+<div class="card">
+  <h2>Phase 18 deliverables ✓</h2>
+  <table>
+    <thead><tr><th>Track</th><th>Component</th><th>Files</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>Server</td><td>Raft tick timer in event loop</td><td><code>src/server/server.c</code></td><td>cetcd_timer 100ms periodic tick ✓</td></tr>
+      <tr><td>Server</td><td>Ready processing + message routing</td><td><code>src/server/server.c</code></td><td>serialize→encode→cluster_send ✓</td></tr>
+      <tr><td>Raft</td><td>NULL storage allowed (in-memory log)</td><td><code>src/raft/raft.c</code></td><td>single-node election without storage ✓</td></tr>
+      <tr><td>Test</td><td>Single-node leader election test</td><td><code>tests/integration/test_live_server.c</code></td><td>20 ticks → leader ✓</td></tr>
+      <tr><td>Test</td><td>Updated raft election test (null storage)</td><td><code>tests/unit/raft/test_raft_election.c</code></td><td>null storage → leader ✓</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--ok);font-size:.85rem;margin-top:.5rem;">33/33 tests passing (ASan+UBSan+LeakSan clean). Server runs a 100ms periodic Raft tick timer in the libuv event loop. After processing Ready, outgoing messages are serialized via wire codec and routed through cluster transport. Single-node can self-elect as leader. NULL storage now supported for in-memory-only operation. 7 integration tests, 33 total.</p>
 </div>
 
 <div class="card">

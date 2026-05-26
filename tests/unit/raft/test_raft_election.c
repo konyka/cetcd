@@ -139,11 +139,14 @@ CETCD_TEST_CASE(step_with_hup_triggers_election) {
     cetcd_raft_free(r);
 }
 
-CETCD_TEST_CASE(config_null_storage_fails) {
+CETCD_TEST_CASE(config_null_storage_ok) {
     cetcd_raft_config cfg = single_node_cfg(1);
     cfg.storage = NULL;
     cetcd_raft *r = cetcd_raft_new(&cfg);
-    CETCD_ASSERT_TRUE(r == NULL);
+    CETCD_ASSERT_NOT_NULL(r);
+    for (int i = 0; i < 10; i++) cetcd_raft_tick(r);
+    CETCD_ASSERT_TRUE(cetcd_raft_state(r) == CETCD_NODE_LEADER);
+    cetcd_raft_free(r);
 }
 
 CETCD_TEST_CASE(free_null_is_safe) {
@@ -157,7 +160,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(leader_can_propose_entries),
     CETCD_TEST_ENTRY(advance_clears_ready),
     CETCD_TEST_ENTRY(step_with_hup_triggers_election),
-    CETCD_TEST_ENTRY(config_null_storage_fails),
+    CETCD_TEST_ENTRY(config_null_storage_ok),
     CETCD_TEST_ENTRY(free_null_is_safe),
 CETCD_TEST_LIST_END
 
