@@ -17,3 +17,6 @@ add_subdirectory(libco)
 
 # --- protobuf-c runtime (pack/unpack only, no protoc-gen-c) ---
 add_subdirectory(protobuf-c/build-cmake)
+
+# --- LMDB ---
+# add_subdirectory(lmdb)  # blocked: need lmdb-devel or network for midl.h

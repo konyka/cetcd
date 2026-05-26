@@ -7,6 +7,8 @@ add_subdirectory(base)
 add_subdirectory(proto)
 add_subdirectory(io)
 add_subdirectory(raft)
+add_subdirectory(wal)
+# add_subdirectory(backend)  # blocked: need lmdb-devel or network for midl.h
 
 # Future phases will add:
 #   add_subdirectory(io)

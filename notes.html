@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 2D/E/F — snapshots, membership changes, leader transfer</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 3A — WAL encoder/decoder complete, LMDB backend blocked</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p>Phase 2D/E/F (<strong>Snapshots + Membership + Leader Transfer</strong>) complete. 18/18 tests (22 test cases) passing with ASan+UBSan+LeakSan.
-     Leader transfer via TIMEOUT_NOW message, membership changes via apply_conf_change,
-     snapshot replication for lagging followers. Phase 2 Raft core complete.
-     Next: Phase 3 — WAL + LMDB backend.</p>
+  <p>Phase 3A (<strong>WAL encoder/decoder</strong>) complete. 19/19 tests passing.
+     etcd-compatible binary frame format (8-byte aligned, CRC-32C Castagnoli, protobuf-like records).
+     LMDB backend blocked on network access (need <code>midl.h</code>/<code>midl.c</code> from LMDB source).
+     Next: install <code>lmdb-devel</code>, unblock backend, continue Phase 3.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -193,6 +193,7 @@
       <tr><td><em>next</em></td><td>feat(raft): multi-node election, vote/AppendEntries, peer tracking</td></tr>
       <tr><td><em>next</em></td><td>feat(raft): log replication, commit advancement, log consistency check</td></tr>
       <tr><td><em>next</em></td><td>feat(raft): snapshots, membership changes, leader transfer — Phase 2 complete</td></tr>
+      <tr><td><em>next</em></td><td>feat(wal): WAL encoder/decoder — etcd-compatible binary format</td></tr>
     </tbody>
   </table>
 </div>
