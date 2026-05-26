@@ -1,4 +1,5 @@
 add_executable(cetcd main.c)
+target_compile_definitions(cetcd PRIVATE _POSIX_C_SOURCE=200809L)
 target_link_libraries(cetcd
     PRIVATE
         cetcd::server

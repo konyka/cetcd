@@ -25,6 +25,7 @@ struct cetcd_server {
     cetcd_wal_encoder   *wal_enc;
     cetcd_loop          *loop;
     cetcd_tcp           *listener;
+    cetcd_tcp           *peer_listener;
     bool                 started;
 };
 
@@ -69,6 +70,9 @@ cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
 
 void cetcd_server_free(cetcd_server *srv) {
     if (!srv) return;
+    if (srv->peer_listener) { cetcd_tcp_free(srv->peer_listener); srv->peer_listener = NULL; }
+    if (srv->listener) { cetcd_tcp_free(srv->listener); srv->listener = NULL; }
+    if (srv->loop) { cetcd_loop_free(srv->loop); srv->loop = NULL; }
     if (srv->wal_enc) { cetcd_wal_encoder_flush(srv->wal_enc); cetcd_wal_encoder_free(srv->wal_enc); }
     if (srv->backend) cetcd_backend_close(srv->backend);
     if (srv->cluster) cetcd_cluster_free(srv->cluster);
@@ -98,6 +102,10 @@ int cetcd_server_start(cetcd_server *srv) {
             ensure_dir(srv->cfg.data_dir);
             srv->wal_enc = cetcd_wal_encoder_create(wal_path);
         }
+    }
+
+    for (uint32_t i = 0; i < srv->cfg.n_initial_peers; i++) {
+        cetcd_cluster_add_peer(srv->cluster, &srv->cfg.initial_peers[i]);
     }
 
     srv->started = true;
@@ -201,6 +209,17 @@ int cetcd_server_serve(cetcd_server *srv) {
         return CETCD_ERR_IO;
     }
 
+    if (srv->cfg.peer_port > 0) {
+        const char *peer_addr = srv->cfg.peer_addr[0] ? srv->cfg.peer_addr : srv->cfg.listen_addr;
+        srv->peer_listener = cetcd_tcp_new(srv->loop);
+        if (srv->peer_listener) {
+            rc = cetcd_tcp_bind(srv->peer_listener, peer_addr, srv->cfg.peer_port);
+            if (rc == 0) {
+                cetcd_tcp_listen(srv->peer_listener, on_client_conn, srv);
+            }
+        }
+    }
+
     srv->started = true;
     cetcd_loop_run(srv->loop);
     return 0;
@@ -220,4 +239,31 @@ bool cetcd_server_is_leader(const cetcd_server *srv) {
 
 uint64_t cetcd_server_node_id(const cetcd_server *srv) {
     return srv ? srv->cfg.node_id : 0;
+}
+
+size_t cetcd_server_peer_count(const cetcd_server *srv) {
+    if (!srv || !srv->cluster) return 0;
+    return cetcd_cluster_peer_count(srv->cluster);
+}
+
+int cetcd_server_add_peer(cetcd_server *srv, const cetcd_peer_info *info) {
+    if (!srv || !srv->cluster || !info) return CETCD_ERR_INVAL;
+    return cetcd_cluster_add_peer(srv->cluster, info);
+}
+
+int cetcd_server_remove_peer(cetcd_server *srv, uint64_t peer_id) {
+    if (!srv || !srv->cluster) return CETCD_ERR_INVAL;
+    return cetcd_cluster_remove_peer(srv->cluster, peer_id);
+}
+
+int cetcd_server_propose_conf_change(cetcd_server *srv, uint64_t peer_id, int change_type) {
+    if (!srv || !srv->raft) return CETCD_ERR_INVAL;
+    uint8_t buf[16];
+    size_t pos = 0;
+    buf[pos++] = 0x08;
+    buf[pos++] = (uint8_t)change_type;
+    buf[pos++] = 0x10;
+    do { uint8_t b = peer_id & 0x7F; peer_id >>= 7;
+         if (peer_id) b |= 0x80; buf[pos++] = b; } while (peer_id);
+    return cetcd_raft_propose_conf_change(srv->raft, buf, pos);
 }

@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "cetcd/base.h"
+#include "cetcd/peer.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,16 +14,20 @@ extern "C" {
 
 typedef struct cetcd_server cetcd_server;
 
+#define CETCD_MAX_INITIAL_PEERS 32
+
 typedef struct cetcd_server_config {
-    uint64_t node_id;
-    char     data_dir[512];
-    char     listen_addr[256];
-    uint16_t listen_port;
-    char     peer_addr[256];
-    uint16_t peer_port;
-    uint64_t election_tick;
-    uint64_t heartbeat_tick;
-    bool     auth_enabled;
+    uint64_t        node_id;
+    char            data_dir[512];
+    char            listen_addr[256];
+    uint16_t        listen_port;
+    char            peer_addr[256];
+    uint16_t        peer_port;
+    uint64_t        election_tick;
+    uint64_t        heartbeat_tick;
+    bool            auth_enabled;
+    cetcd_peer_info initial_peers[CETCD_MAX_INITIAL_PEERS];
+    uint32_t        n_initial_peers;
 } cetcd_server_config;
 
 cetcd_server *cetcd_server_new(const cetcd_server_config *cfg);
@@ -65,9 +70,15 @@ cetcd_snap *cetcd_server_snapshot(cetcd_server *srv);
 int cetcd_server_serve(cetcd_server *srv);
 
 /* Queries */
-int64_t cetcd_server_revision(const cetcd_server *srv);
-bool    cetcd_server_is_leader(const cetcd_server *srv);
+int64_t  cetcd_server_revision(const cetcd_server *srv);
+bool     cetcd_server_is_leader(const cetcd_server *srv);
 uint64_t cetcd_server_node_id(const cetcd_server *srv);
+size_t   cetcd_server_peer_count(const cetcd_server *srv);
+
+/* Membership */
+int  cetcd_server_add_peer(cetcd_server *srv, const cetcd_peer_info *info);
+int  cetcd_server_remove_peer(cetcd_server *srv, uint64_t peer_id);
+int  cetcd_server_propose_conf_change(cetcd_server *srv, uint64_t peer_id, int change_type);
 
 #ifdef __cplusplus
 }

@@ -142,11 +142,78 @@ CETCD_TEST_CASE(live_server_tcp_listen) {
     CETCD_ASSERT_TRUE(connected);
 }
 
+CETCD_TEST_CASE(live_server_cluster_membership) {
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 23794;
+    cfg.peer_port = 23894;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+
+    cetcd_peer_info peers[3] = {
+        {1, "127.0.0.1", 23894},
+        {2, "127.0.0.1", 23895},
+        {3, "127.0.0.1", 23896},
+    };
+    memcpy(cfg.initial_peers, peers, sizeof(peers));
+    cfg.n_initial_peers = 3;
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+    CETCD_ASSERT_EQ_INT((int)cetcd_server_peer_count(srv), 3);
+
+    cetcd_peer_info new_peer = {4, "127.0.0.1", 23897};
+    CETCD_ASSERT_EQ_INT(cetcd_server_add_peer(srv, &new_peer), 0);
+    CETCD_ASSERT_EQ_INT((int)cetcd_server_peer_count(srv), 4);
+
+    CETCD_ASSERT_EQ_INT(cetcd_server_remove_peer(srv, 4), 0);
+    CETCD_ASSERT_EQ_INT((int)cetcd_server_peer_count(srv), 3);
+
+    CETCD_ASSERT_EQ_INT(cetcd_server_remove_peer(srv, 99), CETCD_ERR_NOTFOUND);
+
+    cetcd_server_stop(srv);
+    cetcd_server_free(srv);
+}
+
+CETCD_TEST_CASE(live_server_peer_port_listen) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        cetcd_server_config cfg;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.node_id = 1;
+        strncpy(cfg.listen_addr, "127.0.0.1", sizeof(cfg.listen_addr) - 1);
+        cfg.listen_port = 23795;
+        cfg.peer_port = 23895;
+        cetcd_server *srv = cetcd_server_new(&cfg);
+        if (srv) {
+            cetcd_server_start(srv);
+            alarm(2);
+            cetcd_server_serve(srv);
+            cetcd_server_free(srv);
+        }
+        _exit(0);
+    }
+
+    struct timespec ts = {0, 200000000};
+    nanosleep(&ts, NULL);
+    bool client_ok = try_connect("127.0.0.1", 23795);
+    bool peer_ok = try_connect("127.0.0.1", 23895);
+    kill(pid, SIGTERM);
+    int status;
+    waitpid(pid, &status, 0);
+    CETCD_ASSERT_TRUE(client_ok);
+    CETCD_ASSERT_TRUE(peer_ok);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_start_stop),
     CETCD_TEST_ENTRY(live_server_snapshot_after_writes),
     CETCD_TEST_ENTRY(live_server_persistent_backend),
     CETCD_TEST_ENTRY(live_server_tcp_listen),
+    CETCD_TEST_ENTRY(live_server_cluster_membership),
+    CETCD_TEST_ENTRY(live_server_peer_port_listen),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()
