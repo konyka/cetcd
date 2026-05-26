@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 3A — WAL encoder/decoder complete, LMDB backend blocked</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 3 complete — WAL encoder/decoder + LMDB backend, 20/20 tests</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p>Phase 3A (<strong>WAL encoder/decoder</strong>) complete. 19/19 tests passing.
-     etcd-compatible binary frame format (8-byte aligned, CRC-32C Castagnoli, protobuf-like records).
-     LMDB backend blocked on network access (need <code>midl.h</code>/<code>midl.c</code> from LMDB source).
-     Next: install <code>lmdb-devel</code>, unblock backend, continue Phase 3.</p>
+  <p>Phase 3 (<strong>WAL + LMDB backend</strong>) complete. 20/20 tests passing.
+     WAL encoder/decoder with etcd byte-compatible format (8-byte aligned, CRC-32C Castagnoli, protobuf-like records).
+     LMDB backend with put/get/del/txn and named database (bucket) support.
+     Next: Phase 4 — MVCC + Lease.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -56,7 +56,7 @@
       <tr><td>0</td><td>Foundations</td><td>CMake, CI matrix, <code>libcetcd_base</code> — 9/9 tests green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>1</td><td>IO + protobuf</td><td><code>libcetcd_io</code> + <code>libcetcd_proto</code> — 16/16 tests green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>2</td><td>Raft core</td><td><code>libcetcd_raft</code> — election, replication, commit, snapshots, membership, transfer — 18/18 green</td><td><span class="pill done">done</span></td></tr>
-      <tr><td>3</td><td>WAL + backend</td><td><code>libcetcd_wal</code> (etcd byte-compat), <code>libcetcd_backend</code> (LMDB)</td><td><span class="pill todo">todo</span></td></tr>
+      <tr><td>3</td><td>WAL + backend</td><td><code>libcetcd_wal</code> (etcd byte-compat), <code>libcetcd_backend</code> (LMDB) — 20/20 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>4</td><td>MVCC + Lease</td><td>Revision index, watcher fan-out, TTL heap</td><td><span class="pill todo">todo</span></td></tr>
       <tr><td>5</td><td>HTTP/2 + gRPC + TLS</td><td>nghttp2 framing, gRPC over it, OpenSSL ALPN</td><td><span class="pill todo">todo</span></td></tr>
       <tr><td>6</td><td>v3rpc KV/Watch/Lease</td><td>First 13 RPCs; etcdctl talks to single-node cetcd</td><td><span class="pill todo">todo</span></td></tr>
@@ -69,7 +69,23 @@
 </div>
 
 <div class="card">
-  <h2>Phase 2 deliverables (in progress)</h2>
+  <h2>Phase 3 deliverables ✓</h2>
+  <table>
+    <thead><tr><th>Track</th><th>Component</th><th>Files</th><th>Tests</th></tr></thead>
+    <tbody>
+      <tr><td>WAL</td><td>encoder (CRC-32C + protobuf frames)</td><td><code>src/wal/encoder.c</code></td><td>—</td></tr>
+      <tr><td>WAL</td><td>decoder (CRC verify + frame reader)</td><td><code>src/wal/decoder.c</code></td><td>—</td></tr>
+      <tr><td>WAL</td><td>roundtrip encode→decode</td><td><code>src/wal/encoder.c</code>, <code>src/wal/decoder.c</code></td><td><code>test_wal.c</code> ✓</td></tr>
+      <tr><td>Backend</td><td>LMDB wrapper (open/close/put/get/del/txn)</td><td><code>src/backend/backend.c</code></td><td><code>test_backend.c</code> ✓</td></tr>
+      <tr><td>Backend</td><td>named databases (buckets)</td><td><code>src/backend/backend.c</code></td><td>covered by backend test ✓</td></tr>
+      <tr><td>Backend</td><td>auto-commit + explicit transactions</td><td><code>src/backend/backend.c</code></td><td>covered by backend test ✓</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--ok);font-size:.85rem;margin-top:.5rem;">20/20 tests passing (ASan+UBSan+LeakSan clean). WAL uses etcd-compatible 8-byte aligned frames with CRC-32C Castagnoli. LMDB backend wraps vendored LMDB 0.9.34 with official midl sources.</p>
+</div>
+
+<div class="card">
+  <h2>Phase 2 deliverables ✓</h2>
   <table>
     <thead><tr><th>Track</th><th>Component</th><th>Files</th><th>Tests</th></tr></thead>
     <tbody>
@@ -135,6 +151,7 @@
       <tr><td>libuv</td><td>HEAD (shallow clone)</td><td><code>third_party/libuv/</code></td><td>Cross-platform event loop (epoll/kqueue/IOCP)</td></tr>
       <tr><td>libco</td><td>cloudwu/coroutine HEAD</td><td><code>third_party/libco/</code></td><td>Stackful coroutines (~200 LOC)</td></tr>
       <tr><td>protobuf-c</td><td>1.5.2</td><td><code>third_party/protobuf-c/</code></td><td>Protobuf runtime (pack/unpack); runtime-only build, no protoc-gen-c</td></tr>
+      <tr><td>LMDB</td><td>0.9.34</td><td><code>third_party/lmdb/</code></td><td>Key-value storage backend (mdb.c + official midl.c/h)</td></tr>
     </tbody>
   </table>
   <p style="color:var(--warn);font-size:.85rem;margin-top:.5rem;">⚠ protoc/protoc-gen-c not installed on dev machine. Proto message structs hand-written following protobuf-c conventions. Will add codegen step when CI has protoc.</p>
