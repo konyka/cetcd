@@ -9,6 +9,8 @@ add_subdirectory(io)
 add_subdirectory(raft)
 add_subdirectory(wal)
 add_subdirectory(backend)
+add_subdirectory(mvcc)
+add_subdirectory(lease)
 
 # Future phases will add:
 #   add_subdirectory(io)

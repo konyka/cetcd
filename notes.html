@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 3 complete — WAL encoder/decoder + LMDB backend, 20/20 tests</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 4 complete — MVCC + Lease, 23/23 tests</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p>Phase 3 (<strong>WAL + LMDB backend</strong>) complete. 20/20 tests passing.
-     WAL encoder/decoder with etcd byte-compatible format (8-byte aligned, CRC-32C Castagnoli, protobuf-like records).
-     LMDB backend with put/get/del/txn and named database (bucket) support.
-     Next: Phase 4 — MVCC + Lease.</p>
+  <p>Phase 4 (<strong>MVCC + Lease</strong>) complete. 23/23 tests passing.
+     Treap ordered map with range queries. MVCC store with revision-based indexing, historical reads,
+     watch (exact key + prefix), and lease manager with TTL min-heap.
+     Next: Phase 5 — HTTP/2 + gRPC + TLS.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -57,7 +57,7 @@
       <tr><td>1</td><td>IO + protobuf</td><td><code>libcetcd_io</code> + <code>libcetcd_proto</code> — 16/16 tests green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>2</td><td>Raft core</td><td><code>libcetcd_raft</code> — election, replication, commit, snapshots, membership, transfer — 18/18 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>3</td><td>WAL + backend</td><td><code>libcetcd_wal</code> (etcd byte-compat), <code>libcetcd_backend</code> (LMDB) — 20/20 green</td><td><span class="pill done">done</span></td></tr>
-      <tr><td>4</td><td>MVCC + Lease</td><td>Revision index, watcher fan-out, TTL heap</td><td><span class="pill todo">todo</span></td></tr>
+      <tr><td>4</td><td>MVCC + Lease</td><td><code>libcetcd_mvcc</code> (treap, revision, watch), <code>libcetcd_lease</code> (TTL heap) — 23/23 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>5</td><td>HTTP/2 + gRPC + TLS</td><td>nghttp2 framing, gRPC over it, OpenSSL ALPN</td><td><span class="pill todo">todo</span></td></tr>
       <tr><td>6</td><td>v3rpc KV/Watch/Lease</td><td>First 13 RPCs; etcdctl talks to single-node cetcd</td><td><span class="pill todo">todo</span></td></tr>
       <tr><td>7</td><td>Peer transport + cluster</td><td>3-node cetcd; mixed-cluster cetcd ↔ etcd peer test</td><td><span class="pill todo">todo</span></td></tr>
@@ -66,6 +66,23 @@
       <tr><td>10</td><td>Bench + harden + 0.1</td><td>Jepsen-lite, fuzzing, perf report, tag v0.1.0</td><td><span class="pill todo">todo</span></td></tr>
     </tbody>
   </table>
+</div>
+
+<div class="card">
+  <h2>Phase 4 deliverables ✓</h2>
+  <table>
+    <thead><tr><th>Track</th><th>Component</th><th>Files</th><th>Tests</th></tr></thead>
+    <tbody>
+      <tr><td>Base</td><td>treap (randomized BST ordered map)</td><td><code>src/base/treap.c</code></td><td><code>test_treap.c</code> (5) ✓</td></tr>
+      <tr><td>MVCC</td><td>revision-based store (put/get/delete)</td><td><code>src/mvcc/mvcc.c</code></td><td>covered by mvcc tests ✓</td></tr>
+      <tr><td>MVCC</td><td>historical read at revision</td><td><code>src/mvcc/mvcc.c</code></td><td>covered by mvcc tests ✓</td></tr>
+      <tr><td>MVCC</td><td>range query [lo, hi)</td><td><code>src/mvcc/mvcc.c</code></td><td><code>test_mvcc.c</code> (6) ✓</td></tr>
+      <tr><td>MVCC</td><td>watch (exact key + prefix)</td><td><code>src/mvcc/mvcc.c</code></td><td>watch tests ✓</td></tr>
+      <tr><td>Lease</td><td>grant/revoke/keep-alive</td><td><code>src/lease/lease.c</code></td><td><code>test_lease.c</code> (5) ✓</td></tr>
+      <tr><td>Lease</td><td>TTL min-heap + key attachment</td><td><code>src/lease/lease.c</code></td><td>expire + attach tests ✓</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--ok);font-size:.85rem;margin-top:.5rem;">23/23 tests passing (ASan+UBSan+LeakSan clean). Treap provides O(log n) ordered operations. MVCC uses treap as key→generation index with revision history array. Lease uses tick-based expiry with callback notification.</p>
 </div>
 
 <div class="card">

@@ -46,6 +46,7 @@ CETCD_API const char *cetcd_version(void);
 #include "cetcd/slab.h"
 #include "cetcd/hash.h"
 #include "cetcd/hashmap.h"
+#include "cetcd/treap.h"
 
 #ifdef __cplusplus
 }

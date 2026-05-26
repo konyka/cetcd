@@ -8,7 +8,8 @@ cetcd_add_module(base
         arena.c
         slab.c
         hash.c
-        hashmap.c)
+        hashmap.c
+        treap.c)
 
 if(NOT WIN32)
     target_link_libraries(cetcd_base PUBLIC m)
