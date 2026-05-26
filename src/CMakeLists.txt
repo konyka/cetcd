@@ -6,6 +6,7 @@
 add_subdirectory(base)
 add_subdirectory(proto)
 add_subdirectory(io)
+add_subdirectory(raft)
 
 # Future phases will add:
 #   add_subdirectory(io)

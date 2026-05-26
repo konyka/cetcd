@@ -31,15 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 1 complete</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 2 started</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p>Phase 1 (<strong>IO + protobuf</strong>) complete. 16/16 tests passing with ASan+UBSan+LeakSan.
-     Vendored libuv, libco (cloudwu/coroutine), protobuf-c runtime.
-     <code>libcetcd_io</code> (stubs for loop/TCP/timer/coroutine API) and
-     <code>libcetcd_proto</code> (KV/RPC/Auth message structs + wire codec) implemented.
-     Ready for Phase 2 (Raft core).</p>
+  <p>Phase 2 (<strong>Raft core</strong>) started. Single-node election + proposal + Ready/Advance working.
+     17/17 tests passing with ASan+UBSan+LeakSan.
+     Core Raft API: <code>cetcd_raft_new/step/tick/ready/advance/propose</code>.
+     Next: multi-node election, log replication, vote requests.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -56,7 +55,7 @@
       <tr><td>-1</td><td>Brainstorm + plan</td><td>Architecture doc, library survey, Raft decision, ADRs</td><td><span class="pill done">done</span></td></tr>
       <tr><td>0</td><td>Foundations</td><td>CMake, CI matrix, <code>libcetcd_base</code> — 9/9 tests green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>1</td><td>IO + protobuf</td><td><code>libcetcd_io</code> + <code>libcetcd_proto</code> — 16/16 tests green</td><td><span class="pill done">done</span></td></tr>
-      <tr><td>2</td><td>Raft core</td><td><code>libcetcd_raft</code> — deterministic, Ready-style, ported tests</td><td><span class="pill todo">todo</span></td></tr>
+      <tr><td>2</td><td>Raft core</td><td><code>libcetcd_raft</code> — single-node election/proposal/Ready — 17/17 green</td><td><span class="pill wip">wip</span></td></tr>
       <tr><td>3</td><td>WAL + backend</td><td><code>libcetcd_wal</code> (etcd byte-compat), <code>libcetcd_backend</code> (LMDB)</td><td><span class="pill todo">todo</span></td></tr>
       <tr><td>4</td><td>MVCC + Lease</td><td>Revision index, watcher fan-out, TTL heap</td><td><span class="pill todo">todo</span></td></tr>
       <tr><td>5</td><td>HTTP/2 + gRPC + TLS</td><td>nghttp2 framing, gRPC over it, OpenSSL ALPN</td><td><span class="pill todo">todo</span></td></tr>
