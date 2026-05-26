@@ -31,7 +31,8 @@ cetcd_backend *cetcd_backend_open(const cetcd_backend_config *cfg) {
     if (mdb_env_create(&be->env) != MDB_SUCCESS) { free(be->path); free(be); return NULL; }
     mdb_env_set_mapsize(be->env, cfg->map_size ? cfg->map_size : 16*1024*1024);
     if (cfg->max_dbs > 0) mdb_env_set_maxdbs(be->env, cfg->max_dbs);
-    mdb_env_open(be->env, be->path, 0, 0664);
+    int rc = mdb_env_open(be->env, be->path, 0, 0664);
+    if (rc != MDB_SUCCESS) { mdb_env_close(be->env); free(be->path); free(be); return NULL; }
     return be;
 }
 
@@ -94,7 +95,7 @@ static int _get_internal(cetcd_txn *txn, const char *bucket,
         MDB_val mkey = {.mv_data = (void*)key, .mv_size = key_len };
         MDB_val mval;
         int rc = mdb_get(txn->txn, dbi, &mkey, &mval);
-        if (rc != MDB_SUCCESS) return CETCD_ERR_NOTFOUND;
+        if (rc != MDB_SUCCESS) { *val = NULL; *val_len = 0; return CETCD_ERR_NOTFOUND; }
         *val_len = (size_t)mval.mv_size;
         *val = (uint8_t*)malloc(*val_len);
         if (*val && mval.mv_data) memcpy(*val, mval.mv_data, *val_len);

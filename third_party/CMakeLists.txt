@@ -19,4 +19,4 @@ add_subdirectory(libco)
 add_subdirectory(protobuf-c/build-cmake)
 
 # --- LMDB ---
-# add_subdirectory(lmdb)  # blocked: need lmdb-devel or network for midl.h
+add_subdirectory(lmdb)
