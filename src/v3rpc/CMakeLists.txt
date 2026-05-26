@@ -1,0 +1,12 @@
+cetcd_add_module(v3rpc
+    SOURCES
+        v3rpc.c
+        kv_handler.c
+        watch_handler.c
+        lease_handler.c
+    PUBLIC_DEPS
+        cetcd_base
+    PRIVATE_DEPS
+        cetcd_mvcc
+        cetcd_lease
+)

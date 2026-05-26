@@ -13,6 +13,7 @@ add_subdirectory(mvcc)
 add_subdirectory(lease)
 add_subdirectory(http2)
 add_subdirectory(tls)
+add_subdirectory(v3rpc)
 
 # Future phases will add:
 #   add_subdirectory(io)

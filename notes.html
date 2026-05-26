@@ -31,14 +31,15 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 5 complete — HTTP/2 + gRPC + TLS, 25/25 tests</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 6 complete — v3rpc KV/Watch/Lease, 26/26 tests</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p>Phase 5 (<strong>HTTP/2 + gRPC + TLS</strong>) complete. 25/25 tests passing.
-     HTTP/2 session over nghttp2 with gRPC length-prefixed framing.
-     TLS wrapper over OpenSSL 3.x with ALPN (h2) support.
-     Next: Phase 6 — v3rpc KV/Watch/Lease (first 13 RPCs).</p>
+  <p>Phase 6 (<strong>v3rpc KV/Watch/Lease</strong>) complete. 26/26 tests passing.
+     RPC dispatch with protobuf-like request/response encoding.
+     KV handlers (Put, Range, DeleteRange) wired to MVCC store.
+     Lease handler (Grant) wired to lease manager. Watch stub ready.
+     Next: Phase 7 — Peer transport + multi-node cluster.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -59,13 +60,30 @@
       <tr><td>3</td><td>WAL + backend</td><td><code>libcetcd_wal</code> (etcd byte-compat), <code>libcetcd_backend</code> (LMDB) — 20/20 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>4</td><td>MVCC + Lease</td><td><code>libcetcd_mvcc</code> (treap, revision, watch), <code>libcetcd_lease</code> (TTL heap) — 23/23 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>5</td><td>HTTP/2 + gRPC + TLS</td><td><code>libcetcd_http2</code> (nghttp2), <code>libcetcd_tls</code> (OpenSSL ALPN) — 25/25 green</td><td><span class="pill done">done</span></td></tr>
-      <tr><td>6</td><td>v3rpc KV/Watch/Lease</td><td>First 13 RPCs; etcdctl talks to single-node cetcd</td><td><span class="pill todo">todo</span></td></tr>
+      <tr><td>6</td><td>v3rpc KV/Watch/Lease</td><td><code>libcetcd_v3rpc</code> (dispatch, KV, Lease, Watch stub) — 26/26 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>7</td><td>Peer transport + cluster</td><td>3-node cetcd; mixed-cluster cetcd ↔ etcd peer test</td><td><span class="pill todo">todo</span></td></tr>
       <tr><td>8</td><td>Auth + Cluster + Maint</td><td>Remaining 35 RPCs; bcrypt + JWT</td><td><span class="pill todo">todo</span></td></tr>
       <tr><td>9</td><td>Snapshots + compaction</td><td>Snapshot stream, defragment, hash-kv parity</td><td><span class="pill todo">todo</span></td></tr>
       <tr><td>10</td><td>Bench + harden + 0.1</td><td>Jepsen-lite, fuzzing, perf report, tag v0.1.0</td><td><span class="pill todo">todo</span></td></tr>
     </tbody>
   </table>
+</div>
+
+<div class="card">
+  <h2>Phase 6 deliverables ✓</h2>
+  <table>
+    <thead><tr><th>Track</th><th>Component</th><th>Files</th><th>Tests</th></tr></thead>
+    <tbody>
+      <tr><td>v3rpc</td><td>RPC dispatch (:path routing to handlers)</td><td><code>src/v3rpc/v3rpc.c</code></td><td>create + unknown path ✓</td></tr>
+      <tr><td>v3rpc</td><td>KV Put handler (proto decode → MVCC put)</td><td><code>src/v3rpc/kv_handler.c</code></td><td>put + range ✓</td></tr>
+      <tr><td>v3rpc</td><td>KV Range handler (MVCC get/range → proto encode)</td><td><code>src/v3rpc/kv_handler.c</code></td><td>range test ✓</td></tr>
+      <tr><td>v3rpc</td><td>KV DeleteRange handler</td><td><code>src/v3rpc/kv_handler.c</code></td><td>delete test ✓</td></tr>
+      <tr><td>v3rpc</td><td>Lease Grant handler (proto decode → lease_grant)</td><td><code>src/v3rpc/lease_handler.c</code></td><td>grant test ✓</td></tr>
+      <tr><td>v3rpc</td><td>Watch stub</td><td><code>src/v3rpc/watch_handler.c</code></td><td>—</td></tr>
+      <tr><td>proto</td><td>Extended RPC types (DeleteRange, Txn, Watch, Lease)</td><td><code>src/proto/rpc.pb-c.h</code></td><td>—</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--ok);font-size:.85rem;margin-top:.5rem;">26/26 tests passing (ASan+UBSan+LeakSan clean). Protobuf encoding/decoding hand-rolled (no protoc needed). KV handlers decode request fields, call MVCC/lease, encode response.</p>
 </div>
 
 <div class="card">
