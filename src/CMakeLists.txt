@@ -11,6 +11,8 @@ add_subdirectory(wal)
 add_subdirectory(backend)
 add_subdirectory(mvcc)
 add_subdirectory(lease)
+add_subdirectory(http2)
+add_subdirectory(tls)
 
 # Future phases will add:
 #   add_subdirectory(io)
