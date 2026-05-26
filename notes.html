@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 15 complete — Multi-node cluster + membership, 31/31 tests</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 16 complete — Raft wire protocol + cluster membership, 32/32 tests</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
   <p><strong>v0.1.0 tagged</strong>. Phase 14 (<strong>Real TCP gRPC listener</strong>) complete. 31/31 tests passing.
      <code>cetcd_server_serve()</code>: binds TCP port, accepts connections via libuv event loop.
      Integration test: fork server process, real TCP connect from client, verify port listening.
-     Next: Phase 16 — etcdctl wire compatibility, production hardening.</p>
+     Next: Phase 17 — Prometheus metrics, structured logging, production hardening.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -69,8 +69,22 @@
       <tr><td>13</td><td>Persistent storage</td><td>WAL + LMDB backend wired into server, persistent integration test — 31/31 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>14</td><td>Real TCP gRPC listener</td><td>cetcd_server_serve() + fork-based TCP connect test — 31/31 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>15</td><td>Multi-node cluster + membership</td><td>initial_peers config, peer port listener, cluster add/remove, 6 integration tests — 31/31 green</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>16</td><td>Raft wire protocol</td><td>msg encode/decode, varint protobuf wire format, 3 new unit tests — 32/32 green</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
+</div>
+
+<div class="card">
+  <h2>Phase 16 deliverables ✓</h2>
+  <table>
+    <thead><tr><th>Track</th><th>Component</th><th>Files</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>Raft</td><td>Message wire encode/decode (varint protobuf)</td><td><code>src/raft/raft.c</code>, <code>include/cetcd/raft.h</code></td><td>roundtrip all 19 msg types ✓</td></tr>
+      <tr><td>Raft</td><td>Entry serialization with data</td><td><code>src/raft/raft.c</code></td><td>2-entry encode/decode ✓</td></tr>
+      <tr><td>Test</td><td>3 new wire codec unit tests</td><td><code>tests/unit/raft/test_raft_wire.c</code></td><td>simple, entries, all-types ✓</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--ok);font-size:.85rem;margin-top:.5rem;">32/32 tests passing (ASan+UBSan+LeakSan clean). Raft messages can now be serialized to a compact binary wire format (varint-tagged protobuf-like) and deserialized back. Supports all 19 message types, entries with data, context bytes, and snapshot indices. Ready for inter-node TCP transport.</p>
 </div>
 
 <div class="card">

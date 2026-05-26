@@ -176,6 +176,11 @@ uint64_t          cetcd_raft_applied(cetcd_raft *r);
 /* Memory management for Ready */
 void              cetcd_ready_free(cetcd_ready *rd);
 
+/* Message serialization for peer transport */
+size_t            cetcd_msg_encode_wire(const cetcd_msg *msg, uint8_t **out);
+cetcd_msg        *cetcd_msg_decode_wire(const uint8_t *data, size_t len);
+void              cetcd_msg_free(cetcd_msg *msg);
+
 #ifdef __cplusplus
 }
 #endif

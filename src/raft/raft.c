@@ -781,3 +781,173 @@ void cetcd_ready_free(cetcd_ready *rd) {
     }
     memset(rd, 0, sizeof(*rd));
 }
+
+/* ── Wire encoding helpers ──────────────────────────────────────── */
+
+static size_t wire_u64_(uint8_t *buf, uint64_t val) {
+    size_t n = 0;
+    do { uint8_t b = val & 0x7F; val >>= 7; if (val) b |= 0x80; buf[n++] = b; } while (val);
+    return n;
+}
+
+static size_t wire_u32_(uint8_t *buf, uint32_t val) {
+    size_t n = 0;
+    do { uint8_t b = val & 0x7F; val >>= 7; if (val) b |= 0x80; buf[n++] = b; } while (val);
+    return n;
+}
+
+static uint64_t dec_u64_(const uint8_t *buf, size_t len, size_t *pos) {
+    uint64_t val = 0; uint32_t shift = 0;
+    while (*pos < len) {
+        uint8_t b = buf[(*pos)++];
+        val |= (uint64_t)(b & 0x7F) << shift;
+        if (!(b & 0x80)) break;
+        shift += 7;
+    }
+    return val;
+}
+
+static uint32_t dec_u32_(const uint8_t *buf, size_t len, size_t *pos) {
+    uint32_t val = 0; uint32_t shift = 0;
+    while (*pos < len) {
+        uint8_t b = buf[(*pos)++];
+        val |= (uint32_t)(b & 0x7F) << shift;
+        if (!(b & 0x80)) break;
+        shift += 7;
+    }
+    return val;
+}
+
+#define TAG_U64(fnum, val) do { *p++ = (uint8_t)((fnum) << 3 | 0); p += wire_u64_(p, (val)); } while(0)
+#define TAG_U32(fnum, val) do { *p++ = (uint8_t)((fnum) << 3 | 0); p += wire_u32_(p, (val)); } while(0)
+#define TAG_BYTES(fnum, data, len) do { \
+    *p++ = (uint8_t)((fnum) << 3 | 2); p += wire_u32_(p, (len)); \
+    if ((len) > 0) { memcpy(p, (data), (len)); p += (len); } \
+} while(0)
+
+size_t cetcd_msg_encode_wire(const cetcd_msg *msg, uint8_t **out) {
+    if (!msg || !out) return 0;
+    uint8_t buf[65536];
+    uint8_t *p = buf;
+
+    TAG_U32(1, (uint32_t)msg->type);
+    TAG_U64(2, msg->to);
+    TAG_U64(3, msg->from);
+    TAG_U64(4, msg->term);
+    TAG_U64(5, msg->log_term);
+    TAG_U64(6, msg->index);
+    TAG_U64(7, msg->commit);
+    TAG_U64(8, msg->reject);
+    if (msg->snapshot) {
+        TAG_U64(9, msg->snapshot);
+    }
+    if (msg->context_len > 0 && msg->context) {
+        TAG_BYTES(10, msg->context, msg->context_len);
+    }
+    for (uint32_t i = 0; i < msg->n_entries; i++) {
+        const cetcd_entry *e = &msg->entries[i];
+
+        *p++ = (uint8_t)((11) << 3 | 2);
+        uint8_t entry_tmp[4096];
+        uint8_t *etp = entry_tmp;
+        do { *etp++ = (uint8_t)((1) << 3 | 0); etp += wire_u64_(etp, e->term); } while(0);
+        do { *etp++ = (uint8_t)((2) << 3 | 0); etp += wire_u64_(etp, e->index); } while(0);
+        do { *etp++ = (uint8_t)((3) << 3 | 0); etp += wire_u32_(etp, (uint32_t)e->type); } while(0);
+        if (e->data.len > 0 && e->data.data) {
+            do { *etp++ = (uint8_t)((4) << 3 | 2); etp += wire_u32_(etp, e->data.len); memcpy(etp, e->data.data, e->data.len); etp += e->data.len; } while(0);
+        }
+        uint32_t elen = (uint32_t)(etp - entry_tmp);
+        p += wire_u32_(p, elen);
+        memcpy(p, entry_tmp, elen);
+        p += elen;
+    }
+
+    size_t total = (size_t)(p - buf);
+    uint8_t *result = (uint8_t *)malloc(total);
+    if (!result) return 0;
+    memcpy(result, buf, total);
+    *out = result;
+    return total;
+}
+
+cetcd_msg *cetcd_msg_decode_wire(const uint8_t *data, size_t len) {
+    if (!data || len == 0) return NULL;
+    cetcd_msg *msg = (cetcd_msg *)calloc(1, sizeof(*msg));
+    if (!msg) return NULL;
+
+    size_t pos = 0;
+    cetcd_entry entries[256];
+    uint32_t n_entries = 0;
+
+    while (pos < len) {
+        uint8_t tag = data[pos++];
+        uint32_t fnum = tag >> 3;
+        uint8_t wire = tag & 0x07;
+
+        if (wire == 0) {
+            if (fnum == 1) msg->type = (cetcd_msg_type)dec_u32_(data, len, &pos);
+            else if (fnum == 2) msg->to = dec_u64_(data, len, &pos);
+            else if (fnum == 3) msg->from = dec_u64_(data, len, &pos);
+            else if (fnum == 4) msg->term = dec_u64_(data, len, &pos);
+            else if (fnum == 5) msg->log_term = dec_u64_(data, len, &pos);
+            else if (fnum == 6) msg->index = dec_u64_(data, len, &pos);
+            else if (fnum == 7) msg->commit = dec_u64_(data, len, &pos);
+            else if (fnum == 8) msg->reject = dec_u64_(data, len, &pos);
+            else if (fnum == 9) msg->snapshot = dec_u64_(data, len, &pos);
+            else { dec_u64_(data, len, &pos); }
+        } else if (wire == 2) {
+            uint32_t blen = dec_u32_(data, len, &pos);
+            if (pos + blen > len) break;
+            if (fnum == 10) {
+                msg->context = (uint8_t *)malloc(blen);
+                if (msg->context) { memcpy(msg->context, data + pos, blen); msg->context_len = blen; }
+            } else if (fnum == 11 && n_entries < 256) {
+                const uint8_t *edata = data + pos;
+                size_t epos = 0;
+                memset(&entries[n_entries], 0, sizeof(cetcd_entry));
+                while (epos < blen) {
+                    uint8_t etag = edata[epos++];
+                    uint32_t ef = etag >> 3;
+                    uint8_t ew = etag & 0x07;
+                    if (ew == 0) {
+                        if (ef == 1) entries[n_entries].term = dec_u64_(edata, blen, &epos);
+                        else if (ef == 2) entries[n_entries].index = dec_u64_(edata, blen, &epos);
+                        else if (ef == 3) entries[n_entries].type = (cetcd_entry_type)dec_u32_(edata, blen, &epos);
+                        else { dec_u64_(edata, blen, &epos); }
+                    } else if (ew == 2) {
+                        uint32_t dlen = dec_u32_(edata, blen, &epos);
+                        if (ef == 4 && epos + dlen <= blen) {
+                            entries[n_entries].data.data = (uint8_t *)malloc(dlen);
+                            if (entries[n_entries].data.data) {
+                                memcpy(entries[n_entries].data.data, edata + epos, dlen);
+                                entries[n_entries].data.len = dlen;
+                            }
+                        }
+                        epos += dlen;
+                    } else { break; }
+                }
+                n_entries++;
+            }
+            pos += blen;
+        } else { break; }
+    }
+
+    if (n_entries > 0) {
+        msg->entries = (cetcd_entry *)calloc(n_entries, sizeof(cetcd_entry));
+        if (msg->entries) { memcpy(msg->entries, entries, n_entries * sizeof(cetcd_entry)); }
+        msg->n_entries = n_entries;
+    }
+    return msg;
+}
+
+void cetcd_msg_free(cetcd_msg *msg) {
+    if (!msg) return;
+    if (msg->entries) {
+        for (uint32_t i = 0; i < msg->n_entries; i++) {
+            free(msg->entries[i].data.data);
+        }
+        free(msg->entries);
+    }
+    free(msg->context);
+    free(msg);
+}
