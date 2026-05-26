@@ -121,3 +121,6 @@ Thumbs.db
 .envrc.local
 .env.local
 
+# Reference proto files (not part of C build)
+/proto/
+
