@@ -9,7 +9,8 @@ cetcd_add_module(base
         slab.c
         hash.c
         hashmap.c
-        treap.c)
+        treap.c
+        metrics.c)
 
 if(NOT WIN32)
     target_link_libraries(cetcd_base PUBLIC m)

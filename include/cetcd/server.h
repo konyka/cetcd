@@ -7,6 +7,7 @@
 
 #include "cetcd/base.h"
 #include "cetcd/peer.h"
+#include "cetcd/metrics.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -62,6 +63,8 @@ int  cetcd_server_compact(cetcd_server *srv, int64_t rev);
 /* Take a snapshot of the current MVCC state. */
 typedef struct cetcd_snap cetcd_snap;
 cetcd_snap *cetcd_server_snapshot(cetcd_server *srv);
+
+cetcd_metrics *cetcd_server_metrics(cetcd_server *srv);
 
 /* Start a blocking gRPC listener on listen_addr:listen_port.
    Accepts connections, reads length-prefixed gRPC frames,

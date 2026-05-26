@@ -9,6 +9,8 @@
 #include "cetcd/wal.h"
 #include "cetcd/backend.h"
 #include "cetcd/io.h"
+#include "cetcd/metrics.h"
+#include "cetcd/log.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -26,6 +28,7 @@ struct cetcd_server {
     cetcd_loop          *loop;
     cetcd_tcp           *listener;
     cetcd_tcp           *peer_listener;
+    cetcd_metrics       *metrics;
     bool                 started;
 };
 
@@ -59,6 +62,11 @@ cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
 
     srv->cluster = cetcd_cluster_new(cfg->node_id);
 
+    srv->metrics = cetcd_metrics_new();
+    if (srv->metrics) {
+        cetcd_metrics_gauge_set(srv->metrics, "cetcd_server_info", 1);
+    }
+
     if (cfg->auth_enabled) {
         extern cetcd_auth_store *g_rpc_auth;
         if (g_rpc_auth) cetcd_auth_set_enabled(g_rpc_auth, true);
@@ -78,6 +86,7 @@ void cetcd_server_free(cetcd_server *srv) {
     if (srv->cluster) cetcd_cluster_free(srv->cluster);
     if (srv->raft) cetcd_raft_free(srv->raft);
     if (srv->rpc) cetcd_v3rpc_free(srv->rpc);
+    if (srv->metrics) cetcd_metrics_free(srv->metrics);
     free(srv);
 }
 
@@ -129,6 +138,7 @@ cetcd_server_rpc_result cetcd_server_handle_rpc(cetcd_server *srv,
                                                   size_t req_len) {
     cetcd_server_rpc_result result = {NULL, 0};
     if (!srv || !srv->rpc || !path) return result;
+    if (srv->metrics) cetcd_metrics_counter(srv->metrics, "grpc_requests_total", 1);
     cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(srv->rpc, path, req, req_len);
     result.data = resp.data;
     result.len = resp.len;
@@ -144,6 +154,7 @@ void cetcd_server_rpc_result_free(cetcd_server_rpc_result *r) {
 void cetcd_server_tick(cetcd_server *srv) {
     if (!srv || !srv->raft) return;
     cetcd_raft_tick(srv->raft);
+    if (srv->metrics) cetcd_metrics_counter(srv->metrics, "raft_ticks_total", 1);
 }
 
 int cetcd_server_compact(cetcd_server *srv, int64_t rev) {
@@ -266,4 +277,8 @@ int cetcd_server_propose_conf_change(cetcd_server *srv, uint64_t peer_id, int ch
     do { uint8_t b = peer_id & 0x7F; peer_id >>= 7;
          if (peer_id) b |= 0x80; buf[pos++] = b; } while (peer_id);
     return cetcd_raft_propose_conf_change(srv->raft, buf, pos);
+}
+
+cetcd_metrics *cetcd_server_metrics(cetcd_server *srv) {
+    return srv ? srv->metrics : NULL;
 }

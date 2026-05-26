@@ -1,9 +1,19 @@
 #include "cetcd/base.h"
 #include "cetcd/server.h"
+#include "cetcd/log.h"
+#include "cetcd/metrics.h"
 
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static cetcd_server *g_srv = NULL;
+
+static void on_signal(int sig) {
+    (void)sig;
+    if (g_srv) cetcd_server_stop(g_srv);
+}
 
 static void print_usage(const char *prog) {
     printf("cetcd v%s — pure-C etcd reimplementation\n",
@@ -18,6 +28,8 @@ static void print_usage(const char *prog) {
     printf("  --peer-port PORT Peer listen port (default: 2380)\n");
     printf("  --node-id ID     Node ID (default: 1)\n");
     printf("  --initial-cluster NODE1=ADDR:PORT,NODE2=...  Initial cluster membership\n");
+    printf("  --log-level LVL  Log level: trace,debug,info,warn,error (default: info)\n");
+    printf("  --log-format FMT Log format: text,json (default: text)\n");
     printf("  --help           Show this help\n");
 }
 
@@ -81,6 +93,17 @@ int main(int argc, char **argv) {
                 }
                 tok = strtok_r(NULL, ",", &saveptr);
             }
+        } else if (strcmp(argv[i], "--log-level") == 0 && i + 1 < argc) {
+            const char *lvl = argv[++i];
+            if (strcmp(lvl, "trace") == 0) cetcd_log_set_level(CETCD_LOG_TRACE);
+            else if (strcmp(lvl, "debug") == 0) cetcd_log_set_level(CETCD_LOG_DEBUG);
+            else if (strcmp(lvl, "warn") == 0) cetcd_log_set_level(CETCD_LOG_WARN);
+            else if (strcmp(lvl, "error") == 0) cetcd_log_set_level(CETCD_LOG_ERROR);
+            else cetcd_log_set_level(CETCD_LOG_INFO);
+        } else if (strcmp(argv[i], "--log-format") == 0 && i + 1 < argc) {
+            const char *fmt = argv[++i];
+            if (strcmp(fmt, "json") == 0) cetcd_log_set_format(CETCD_LOG_FORMAT_JSON);
+            else cetcd_log_set_format(CETCD_LOG_FORMAT_TEXT);
         } else if (strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return 0;
@@ -88,31 +111,38 @@ int main(int argc, char **argv) {
     }
     strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
 
-    printf("cetcd v%s starting\n", cetcd_version());
-    printf("  name      : %s\n", name);
-    printf("  node-id   : %llu\n", (unsigned long long)cfg.node_id);
-    printf("  data-dir  : %s\n", cfg.data_dir);
-    printf("  listen    : %s:%u\n", cfg.listen_addr, cfg.listen_port);
-    printf("  peer      : %s:%u\n", cfg.peer_addr, cfg.peer_port);
-    printf("  cluster   : %u peer(s)\n", cfg.n_initial_peers);
+    CETCD_INFO("cetcd v%s starting", cetcd_version());
+    CETCD_INFO("  name      : %s", name);
+    CETCD_INFO("  node-id   : %llu", (unsigned long long)cfg.node_id);
+    CETCD_INFO("  data-dir  : %s", cfg.data_dir);
+    CETCD_INFO("  listen    : %s:%u", cfg.listen_addr, cfg.listen_port);
+    CETCD_INFO("  peer      : %s:%u", cfg.peer_addr, cfg.peer_port);
+    CETCD_INFO("  cluster   : %u peer(s)", cfg.n_initial_peers);
 
     cetcd_server *srv = cetcd_server_new(&cfg);
     if (!srv) {
-        fprintf(stderr, "cetcd: failed to initialize server\n");
+        CETCD_FATAL("failed to initialize server");
         return 1;
     }
 
+    g_srv = srv;
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = on_signal;
+    sigaction(SIGTERM, &sa, NULL);
+    sigaction(SIGINT, &sa, NULL);
+
     cetcd_server_start(srv);
 
-    printf("cetcd: server initialized, revision=%lld\n",
-           (long long)cetcd_server_revision(srv));
-    printf("cetcd: ready to serve on %s:%u\n",
-           cfg.listen_addr, cfg.listen_port);
-    printf("cetcd: shutting down...\n");
+    CETCD_INFO("server initialized, revision=%lld", (long long)cetcd_server_revision(srv));
+    CETCD_INFO("ready to serve on %s:%u", cfg.listen_addr, cfg.listen_port);
 
-    cetcd_server_stop(srv);
+    cetcd_server_serve(srv);
+
+    CETCD_INFO("shutting down...");
     cetcd_server_free(srv);
+    g_srv = NULL;
 
-    printf("cetcd: shutdown complete\n");
+    CETCD_INFO("shutdown complete");
     return 0;
 }
