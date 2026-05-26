@@ -8,10 +8,13 @@
 #include "cetcd/snap.h"
 #include "cetcd/wal.h"
 #include "cetcd/backend.h"
+#include "cetcd/io.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <uv.h>
+#include "io_internal.h"
 
 struct cetcd_server {
     cetcd_server_config  cfg;
@@ -20,6 +23,8 @@ struct cetcd_server {
     cetcd_cluster       *cluster;
     cetcd_backend       *backend;
     cetcd_wal_encoder   *wal_enc;
+    cetcd_loop          *loop;
+    cetcd_tcp           *listener;
     bool                 started;
 };
 
@@ -167,6 +172,38 @@ cetcd_snap *cetcd_server_snapshot(cetcd_server *srv) {
         cetcd_kv_free_contents(kvs, kv_count);
     }
     return snap;
+}
+
+static void on_client_conn(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
+    (void)server; (void)client; (void)arg;
+}
+
+int cetcd_server_serve(cetcd_server *srv) {
+    if (!srv) return CETCD_ERR_INVAL;
+
+    srv->loop = cetcd_loop_new();
+    if (!srv->loop) return CETCD_ERR_INTERNAL;
+
+    srv->listener = cetcd_tcp_new(srv->loop);
+    if (!srv->listener) { cetcd_loop_free(srv->loop); srv->loop = NULL; return CETCD_ERR_INTERNAL; }
+
+    int rc = cetcd_tcp_bind(srv->listener, srv->cfg.listen_addr, srv->cfg.listen_port);
+    if (rc != 0) {
+        cetcd_tcp_free(srv->listener); srv->listener = NULL;
+        cetcd_loop_free(srv->loop); srv->loop = NULL;
+        return CETCD_ERR_IO;
+    }
+
+    rc = cetcd_tcp_listen(srv->listener, on_client_conn, srv);
+    if (rc != 0) {
+        cetcd_tcp_free(srv->listener); srv->listener = NULL;
+        cetcd_loop_free(srv->loop); srv->loop = NULL;
+        return CETCD_ERR_IO;
+    }
+
+    srv->started = true;
+    cetcd_loop_run(srv->loop);
+    return 0;
 }
 
 int64_t cetcd_server_revision(const cetcd_server *srv) {

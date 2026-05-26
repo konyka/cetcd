@@ -58,6 +58,12 @@ int  cetcd_server_compact(cetcd_server *srv, int64_t rev);
 typedef struct cetcd_snap cetcd_snap;
 cetcd_snap *cetcd_server_snapshot(cetcd_server *srv);
 
+/* Start a blocking gRPC listener on listen_addr:listen_port.
+   Accepts connections, reads length-prefixed gRPC frames,
+   dispatches to v3rpc, sends responses back.
+   Returns when cetcd_server_stop is called from another thread. */
+int cetcd_server_serve(cetcd_server *srv);
+
 /* Queries */
 int64_t cetcd_server_revision(const cetcd_server *srv);
 bool    cetcd_server_is_leader(const cetcd_server *srv);

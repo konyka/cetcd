@@ -4,6 +4,27 @@
 #include "cetcd/snap.h"
 #include "cetcd_test.h"
 
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <time.h>
+
+static bool try_connect(const char *addr, uint16_t port) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return false;
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(port);
+    inet_pton(AF_INET, addr, &sa.sin_addr);
+    int rc = connect(fd, (struct sockaddr *)&sa, sizeof(sa));
+    close(fd);
+    return rc == 0;
+}
+
 CETCD_TEST_CASE(live_server_start_stop) {
     cetcd_server_config cfg;
     memset(&cfg, 0, sizeof(cfg));
@@ -90,10 +111,42 @@ CETCD_TEST_CASE(live_server_persistent_backend) {
     cetcd_server_free(srv);
 }
 
+CETCD_TEST_CASE(live_server_tcp_listen) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        /* child: run server */
+        cetcd_server_config cfg;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.node_id = 1;
+        strncpy(cfg.listen_addr, "127.0.0.1", sizeof(cfg.listen_addr) - 1);
+        cfg.listen_port = 23793;
+        cetcd_server *srv = cetcd_server_new(&cfg);
+        if (srv) {
+            cetcd_server_start(srv);
+            /* serve blocks until stop; we just need it to bind+listen */
+            /* Set alarm to kill after 2 seconds */
+            alarm(2);
+            cetcd_server_serve(srv);
+            cetcd_server_free(srv);
+        }
+        _exit(0);
+    }
+
+    /* parent: wait for server to bind */
+    struct timespec ts = {0, 200000000};
+    nanosleep(&ts, NULL);
+    bool connected = try_connect("127.0.0.1", 23793);
+    kill(pid, SIGTERM);
+    int status;
+    waitpid(pid, &status, 0);
+    CETCD_ASSERT_TRUE(connected);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_start_stop),
     CETCD_TEST_ENTRY(live_server_snapshot_after_writes),
     CETCD_TEST_ENTRY(live_server_persistent_backend),
+    CETCD_TEST_ENTRY(live_server_tcp_listen),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()
