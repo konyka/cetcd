@@ -31,15 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 11 complete — Server integration, 30/30 tests</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 12 complete — Real libuv IO + integration tests, 31/31 tests</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.1.0 tagged</strong>. Phase 11 (<strong>Server integration</strong>) complete. 30/30 tests passing.
-     <code>libcetcd_server</code>: unified server module wiring Raft + MVCC + v3rpc + auth + peer + snap.
-     Server handles RPC dispatch (Put/Range/Delete/Auth/Lease), compaction, snapshots via single <code>cetcd_server</code> API.
-     <code>cetcd</code> binary updated to use integrated server with full CLI flags.
-     Next: Phase 12 — Real async IO (libuv), persistent WAL, etcdctl compatibility.</p>
+  <p><strong>v0.1.0 tagged</strong>. Phase 12 (<strong>Real async IO</strong>) complete. 31/31 tests passing.
+     IO stubs replaced with real libuv-backed implementations: event loop, TCP server/client, timer, async.
+     Integration tests: live server start/stop, multi-write + snapshot + compact.
+     Next: Phase 13 — Persistent WAL + backend, etcdctl compatibility.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -66,8 +65,25 @@
       <tr><td>9</td><td>Snapshots + compaction</td><td><code>libcetcd_snap</code> (encode/decode, binary-safe) + MVCC compact — 29/29 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>10</td><td>Bench + harden + v0.1.0</td><td>Bench harness, server binary, CI matrix, v0.1.0 tag — 29/29 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>11</td><td>Server integration</td><td><code>libcetcd_server</code> (Raft+MVCC+v3rpc wiring, RPC dispatch, snapshots) — 30/30 green</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>12</td><td>Real async IO (libuv)</td><td>Real libuv loop/TCP/timer/async + integration tests — 31/31 green</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
+</div>
+
+<div class="card">
+  <h2>Phase 12 deliverables ✓</h2>
+  <table>
+    <thead><tr><th>Track</th><th>Component</th><th>Files</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>IO</td><td>real libuv event loop (uv_loop_t wrapper)</td><td><code>src/io/loop.c</code></td><td>loop_new/run/stop/free with libuv ✓</td></tr>
+      <tr><td>IO</td><td>real TCP server/client (uv_tcp_t)</td><td><code>src/io/tcp.c</code></td><td>bind/listen/accept with connection callback ✓</td></tr>
+      <tr><td>IO</td><td>real timer (uv_timer_t)</td><td><code>src/io/timer.c</code></td><td>start/stop with real timeouts ✓</td></tr>
+      <tr><td>IO</td><td>real async (uv_async_t)</td><td><code>src/io/async.c</code></td><td>cross-thread signaling ✓</td></tr>
+      <tr><td>IO</td><td>internal header for loop struct sharing</td><td><code>src/io/io_internal.h</code></td><td>new file ✓</td></tr>
+      <tr><td>Test</td><td>integration tests for server lifecycle</td><td><code>tests/integration/test_live_server.c</code></td><td>start/stop + snapshot ✓</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--ok);font-size:.85rem;margin-top:.5rem;">31/31 tests passing (ASan+UBSan+LeakSan clean). All 4 IO stubs replaced with real libuv implementations. Timer uses real timeouts (0ms still fires immediately for compat). TCP accept creates client handles via uv_accept. Loop cleanup runs pending handles before uv_loop_close.</p>
 </div>
 
 <div class="card">

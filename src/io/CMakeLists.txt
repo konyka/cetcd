@@ -11,7 +11,7 @@ cetcd_add_module(io
         cetcd_base
 )
 
-# libuv and libco headers
+target_compile_definitions(cetcd_io PRIVATE _POSIX_C_SOURCE=200809L)
 target_include_directories(cetcd_io PRIVATE
     ${CMAKE_SOURCE_DIR}/third_party/libuv/include
     ${CMAKE_SOURCE_DIR}/third_party/libco
