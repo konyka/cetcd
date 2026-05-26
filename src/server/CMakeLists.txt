@@ -1,0 +1,14 @@
+cetcd_add_module(server
+    SOURCES
+        server.c
+    PUBLIC_DEPS
+        cetcd_base
+    PRIVATE_DEPS
+        cetcd_v3rpc
+        cetcd_raft
+        cetcd_mvcc
+        cetcd_lease
+        cetcd_auth
+        cetcd_peer
+        cetcd_snap
+)

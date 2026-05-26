@@ -31,15 +31,15 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>v0.1.0 tagged — Phase 10 complete, 29/29 tests</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 11 complete — Server integration, 30/30 tests</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.1.0 tagged</strong>. Phase 10 (<strong>Bench + harden + release</strong>) complete. 29/29 tests passing.
-     Benchmark harness with microbenchmarks (MVCC put/get, hash, snap encode, auth check).
-     Server binary (<code>cetcd</code>) with CLI flags integrating all modules.
-     Cross-platform CI (Linux gcc/clang, macOS clang, Windows MSVC).
-     All phases complete — first release tag.</p>
+  <p><strong>v0.1.0 tagged</strong>. Phase 11 (<strong>Server integration</strong>) complete. 30/30 tests passing.
+     <code>libcetcd_server</code>: unified server module wiring Raft + MVCC + v3rpc + auth + peer + snap.
+     Server handles RPC dispatch (Put/Range/Delete/Auth/Lease), compaction, snapshots via single <code>cetcd_server</code> API.
+     <code>cetcd</code> binary updated to use integrated server with full CLI flags.
+     Next: Phase 12 — Real async IO (libuv), persistent WAL, etcdctl compatibility.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -65,8 +65,24 @@
       <tr><td>8</td><td>Auth RBAC + RPC dispatch</td><td><code>libcetcd_auth</code> (user/role CRUD, SHA-256 pass, grant/revoke) + v3rpc auth handlers — 28/28 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>9</td><td>Snapshots + compaction</td><td><code>libcetcd_snap</code> (encode/decode, binary-safe) + MVCC compact — 29/29 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>10</td><td>Bench + harden + v0.1.0</td><td>Bench harness, server binary, CI matrix, v0.1.0 tag — 29/29 green</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>11</td><td>Server integration</td><td><code>libcetcd_server</code> (Raft+MVCC+v3rpc wiring, RPC dispatch, snapshots) — 30/30 green</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
+</div>
+
+<div class="card">
+  <h2>Phase 11 deliverables ✓</h2>
+  <table>
+    <thead><tr><th>Track</th><th>Component</th><th>Files</th><th>Tests</th></tr></thead>
+    <tbody>
+      <tr><td>Server</td><td>unified server module (config, init, lifecycle)</td><td><code>src/server/server.c</code></td><td>create_destroy ✓</td></tr>
+      <tr><td>Server</td><td>RPC dispatch through v3rpc (KV/Auth/Lease)</td><td><code>src/server/server.c</code></td><td>handle_rpc_put_range, handle_rpc_auth ✓</td></tr>
+      <tr><td>Server</td><td>MVCC compaction via server API</td><td><code>src/server/server.c</code></td><td>compact ✓</td></tr>
+      <tr><td>Server</td><td>snapshot of current MVCC state</td><td><code>src/server/server.c</code></td><td>snapshot ✓</td></tr>
+      <tr><td>CLI</td><td>cetcd binary using integrated server</td><td><code>cmd/cetcd/main.c</code></td><td>start/shutdown ✓</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--ok);font-size:.85rem;margin-top:.5rem;">30/30 tests passing (ASan+UBSan+LeakSan clean). Server module wires all 14 submodules into a unified API: cetcd_server_new/start/stop/free, handle_rpc, compact, snapshot, tick. Binary accepts --node-id, --listen, --port, --peer, --peer-port flags.</p>
 </div>
 
 <div class="card">

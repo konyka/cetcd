@@ -17,6 +17,7 @@ add_subdirectory(v3rpc)
 add_subdirectory(peer)
 add_subdirectory(auth)
 add_subdirectory(snap)
+add_subdirectory(server)
 
 # Future phases will add:
 #   add_subdirectory(io)
