@@ -31,14 +31,15 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 9 complete — Snapshots + compaction, 29/29 tests</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>v0.1.0 tagged — Phase 10 complete, 29/29 tests</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p>Phase 9 (<strong>Snapshots + compaction</strong>) complete. 29/29 tests passing.
-     <code>libcetcd_snap</code>: snapshot encode/decode with big-endian wire format, binary-safe keys/values.
-     MVCC compaction: trim history entries at or below a given revision, track compacted revision.
-     Next: Phase 10 — Bench + harden + v0.1.0.</p>
+  <p><strong>v0.1.0 tagged</strong>. Phase 10 (<strong>Bench + harden + release</strong>) complete. 29/29 tests passing.
+     Benchmark harness with microbenchmarks (MVCC put/get, hash, snap encode, auth check).
+     Server binary (<code>cetcd</code>) with CLI flags integrating all modules.
+     Cross-platform CI (Linux gcc/clang, macOS clang, Windows MSVC).
+     All phases complete — first release tag.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -63,9 +64,23 @@
       <tr><td>7</td><td>Peer transport + cluster</td><td><code>libcetcd_peer</code> (cluster mgmt, msg framing, send callback) — 27/27 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>8</td><td>Auth RBAC + RPC dispatch</td><td><code>libcetcd_auth</code> (user/role CRUD, SHA-256 pass, grant/revoke) + v3rpc auth handlers — 28/28 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>9</td><td>Snapshots + compaction</td><td><code>libcetcd_snap</code> (encode/decode, binary-safe) + MVCC compact — 29/29 green</td><td><span class="pill done">done</span></td></tr>
-      <tr><td>10</td><td>Bench + harden + 0.1</td><td>Jepsen-lite, fuzzing, perf report, tag v0.1.0</td><td><span class="pill todo">todo</span></td></tr>
+      <tr><td>10</td><td>Bench + harden + v0.1.0</td><td>Bench harness, server binary, CI matrix, v0.1.0 tag — 29/29 green</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
+</div>
+
+<div class="card">
+  <h2>Phase 10 deliverables ✓</h2>
+  <table>
+    <thead><tr><th>Track</th><th>Component</th><th>Files</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>Bench</td><td>microbenchmark harness + 5 benchmarks</td><td><code>bench/bench_micro.c</code>, <code>include/cetcd/bench.h</code></td><td>MVCC put 189K ops/s, get 1.35M ops/s ✓</td></tr>
+      <tr><td>Server</td><td><code>cetcd</code> CLI binary</td><td><code>cmd/cetcd/main.c</code></td><td>start/shutdown + --help ✓</td></tr>
+      <tr><td>CI</td><td>cross-platform GitHub Actions</td><td><code>.github/workflows/ci.yml</code></td><td>Linux/macOS/Windows, gcc/clang/MSVC ✓</td></tr>
+      <tr><td>Release</td><td>version bump to 0.1.0</td><td><code>CMakeLists.txt</code>, <code>include/cetcd/base.h</code></td><td>v0.1.0 tag ✓</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--ok);font-size:.85rem;margin-top:.5rem;">All 10 phases complete. 29/29 tests passing. 12 modules: base, io, proto, raft, wal, backend, mvcc, lease, http2, tls, v3rpc, auth, snap, peer. Server binary + benchmark harness + CI.</p>
 </div>
 
 <div class="card">

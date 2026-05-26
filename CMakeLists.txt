@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(cetcd
-    VERSION       0.0.1
+    VERSION       0.1.0
     DESCRIPTION   "Pure-C reimplementation of etcd, wire-compatible with v3.5"
     HOMEPAGE_URL  "https://github.com/konyka/cetcd"
     LANGUAGES     C)
@@ -152,6 +152,12 @@ endif()
 
 if(CETCD_BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif()
+
+add_subdirectory(cmd/cetcd)
+
+if(CETCD_BUILD_BENCH)
+    add_subdirectory(bench)
 endif()
 
 # ----------------------------------------------------------------------------

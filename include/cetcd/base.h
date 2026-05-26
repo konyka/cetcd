@@ -16,8 +16,8 @@ extern "C" {
 #endif
 
 #define CETCD_VERSION_MAJOR 0
-#define CETCD_VERSION_MINOR 0
-#define CETCD_VERSION_PATCH 1
+#define CETCD_VERSION_MINOR 1
+#define CETCD_VERSION_PATCH 0
 
 typedef enum cetcd_status {
     CETCD_OK            =  0,
