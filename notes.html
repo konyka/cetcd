@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 8 complete — Auth RBAC + RPC dispatch, 28/28 tests</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 9 complete — Snapshots + compaction, 29/29 tests</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p>Phase 8 (<strong>Auth RBAC + RPC dispatch</strong>) complete. 28/28 tests passing.
-     <code>libcetcd_auth</code>: user/role CRUD, SHA-256 password hashing, grant/revoke roles, enable/disable.
-     v3rpc auth handlers: AuthEnable/AuthDisable, Authenticate (token), UserAdd/UserDelete, RoleAdd, UserGrantRole.
-     Next: Phase 9 — Snapshots + compaction.</p>
+  <p>Phase 9 (<strong>Snapshots + compaction</strong>) complete. 29/29 tests passing.
+     <code>libcetcd_snap</code>: snapshot encode/decode with big-endian wire format, binary-safe keys/values.
+     MVCC compaction: trim history entries at or below a given revision, track compacted revision.
+     Next: Phase 10 — Bench + harden + v0.1.0.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -62,10 +62,24 @@
       <tr><td>6</td><td>v3rpc KV/Watch/Lease</td><td><code>libcetcd_v3rpc</code> (dispatch, KV, Lease, Watch stub) — 26/26 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>7</td><td>Peer transport + cluster</td><td><code>libcetcd_peer</code> (cluster mgmt, msg framing, send callback) — 27/27 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>8</td><td>Auth RBAC + RPC dispatch</td><td><code>libcetcd_auth</code> (user/role CRUD, SHA-256 pass, grant/revoke) + v3rpc auth handlers — 28/28 green</td><td><span class="pill done">done</span></td></tr>
-      <tr><td>9</td><td>Snapshots + compaction</td><td>Snapshot stream, defragment, hash-kv parity</td><td><span class="pill todo">todo</span></td></tr>
+      <tr><td>9</td><td>Snapshots + compaction</td><td><code>libcetcd_snap</code> (encode/decode, binary-safe) + MVCC compact — 29/29 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>10</td><td>Bench + harden + 0.1</td><td>Jepsen-lite, fuzzing, perf report, tag v0.1.0</td><td><span class="pill todo">todo</span></td></tr>
     </tbody>
   </table>
+</div>
+
+<div class="card">
+  <h2>Phase 9 deliverables ✓</h2>
+  <table>
+    <thead><tr><th>Track</th><th>Component</th><th>Files</th><th>Tests</th></tr></thead>
+    <tbody>
+      <tr><td>Snap</td><td>snapshot create/destroy with dynamic entry array</td><td><code>src/snap/snap.c</code></td><td>create_destroy, add_entries ✓</td></tr>
+      <tr><td>Snap</td><td>binary encode (BE wire format: count + per-entry key/val/rev)</td><td><code>src/snap/snap.c</code></td><td>encode_decode, empty_roundtrip ✓</td></tr>
+      <tr><td>Snap</td><td>binary decode with bounds validation</td><td><code>src/snap/snap.c</code></td><td>decode_corrupt ✓</td></tr>
+      <tr><td>MVCC</td><td>compaction — trim history ≤ compact_rev</td><td><code>src/mvcc/mvcc.c</code></td><td>mvcc_compact ✓</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--ok);font-size:.85rem;margin-top:.5rem;">29/29 tests passing (ASan+UBSan+LeakSan clean). Snapshot wire format: 4-byte BE entry count + per-entry (4B key_len + key + 4B val_len + val + 8B mod_revision). MVCC compaction removes history entries with rev.main ≤ compact_rev.</p>
 </div>
 
 <div class="card">

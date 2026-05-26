@@ -105,6 +105,15 @@ cetcd_watcher *cetcd_mvcc_watch_prefix(cetcd_mvcc_store *s,
 
 void cetcd_mvcc_watch_cancel(cetcd_mvcc_store *s, cetcd_watcher *w);
 
+/* --- Compaction --- */
+
+/* Compact the store by removing all history entries with revision <= compact_rev.
+   Returns 0 on success, CETCD_ERR_INVAL if compact_rev > current revision. */
+int cetcd_mvcc_compact(cetcd_mvcc_store *s, int64_t compact_rev);
+
+/* Return the current compacted revision (0 if no compaction done). */
+int64_t cetcd_mvcc_compacted_revision(const cetcd_mvcc_store *s);
+
 #ifdef __cplusplus
 }
 #endif

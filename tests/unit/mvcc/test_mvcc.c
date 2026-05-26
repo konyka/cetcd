@@ -149,6 +149,39 @@ CETCD_TEST_CASE(mvcc_watch_prefix) {
     cetcd_mvcc_store_free(s);
 }
 
+CETCD_TEST_CASE(mvcc_compact) {
+    cetcd_mvcc_store *s = cetcd_mvcc_store_new();
+    const uint8_t k1[] = "a";
+    const uint8_t k2[] = "b";
+    const uint8_t v1[] = "1";
+    const uint8_t v2[] = "2";
+    const uint8_t v3[] = "3";
+
+    cetcd_mvcc_put(s, k1, 1, v1, 1, 0);  /* rev 1 */
+    cetcd_mvcc_put(s, k2, 1, v2, 1, 0);  /* rev 2 */
+    CETCD_ASSERT_EQ_INT((int)cetcd_mvcc_revision(s), 2);
+    CETCD_ASSERT_EQ_INT((int)cetcd_mvcc_compacted_revision(s), 0);
+
+    /* Compact to rev 1 — should remove rev 1 history, keep rev 2 */
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_compact(s, 1), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)cetcd_mvcc_compacted_revision(s), 1);
+
+    /* Current data still readable */
+    cetcd_kv out;
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 0, k2, 1, &out), 0);
+    free((void*)out.key.data); free((void*)out.value.data);
+
+    /* Compact to rev 2 */
+    cetcd_mvcc_put(s, k1, 1, v3, 1, 0);  /* rev 3 */
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_compact(s, 2), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)cetcd_mvcc_compacted_revision(s), 2);
+
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_compact(s, 99), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_compact(s, 0), CETCD_ERR_INVAL);
+
+    cetcd_mvcc_store_free(s);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(mvcc_put_get_basic),
     CETCD_TEST_ENTRY(mvcc_multiple_puts_same_key),
@@ -156,6 +189,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(mvcc_range),
     CETCD_TEST_ENTRY(mvcc_watch_single_key),
     CETCD_TEST_ENTRY(mvcc_watch_prefix),
+    CETCD_TEST_ENTRY(mvcc_compact),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

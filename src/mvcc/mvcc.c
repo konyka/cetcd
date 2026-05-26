@@ -45,6 +45,7 @@ struct cetcd_mvcc_store {
     revision_entry *history;
     size_t          history_count;
     size_t          history_cap;
+    int64_t         compacted_rev;
     cetcd_watcher **watchers;
     size_t          watcher_count;
     size_t          watcher_cap;
@@ -381,4 +382,27 @@ void cetcd_mvcc_watch_cancel(cetcd_mvcc_store *s, cetcd_watcher *w) {
             return;
         }
     }
+}
+
+int cetcd_mvcc_compact(cetcd_mvcc_store *s, int64_t compact_rev) {
+    if (!s || compact_rev <= 0) return CETCD_ERR_INVAL;
+    if (compact_rev > s->main_rev) return CETCD_ERR_INVAL;
+    if (compact_rev <= s->compacted_rev) return CETCD_OK;
+
+    size_t keep = 0;
+    for (size_t i = 0; i < s->history_count; i++) {
+        if (s->history[i].rev.main > compact_rev) {
+            s->history[keep++] = s->history[i];
+        } else {
+            free((void*)s->history[i].key.data);
+            free((void*)s->history[i].value.data);
+        }
+    }
+    s->history_count = keep;
+    s->compacted_rev = compact_rev;
+    return CETCD_OK;
+}
+
+int64_t cetcd_mvcc_compacted_revision(const cetcd_mvcc_store *s) {
+    return s ? s->compacted_rev : 0;
 }
