@@ -57,7 +57,9 @@ struct cetcd_raft {
     /* Leader-only: per-follower progress */
     peer_progress_        progress[MAX_PEERS_];
 
-    /* Log */
+    /* In-memory log (1-indexed: log[0] is unused sentinel) */
+    cetcd_entry          *log;
+    uint32_t              log_cap;
     uint64_t              log_last_index;
     uint64_t              log_last_term;
 
@@ -71,6 +73,44 @@ struct cetcd_raft {
     uint32_t              cap_pending_msgs;
     bool                  has_pending;
 };
+
+/* ── Log helpers ────────────────────────────────────────────────── */
+
+static cetcd_entry *log_at_(cetcd_raft *r, uint64_t index) {
+    if (index == 0 || index > r->log_last_index) return NULL;
+    return &r->log[index];
+}
+
+static uint64_t log_term_at_(cetcd_raft *r, uint64_t index) {
+    if (index == 0) return 0;
+    cetcd_entry *e = log_at_(r, index);
+    return e ? e->term : 0;
+}
+
+static void log_append_(cetcd_raft *r, const cetcd_entry *e) {
+    uint64_t needed = e->index + 1;
+    if (needed > r->log_cap) {
+        uint32_t new_cap = r->log_cap;
+        while (new_cap < (uint32_t)needed) new_cap *= 2;
+        r->log = (cetcd_entry *)realloc(r->log, new_cap * sizeof(cetcd_entry));
+        memset(r->log + r->log_cap, 0, (new_cap - r->log_cap) * sizeof(cetcd_entry));
+        r->log_cap = new_cap;
+    }
+    r->log[e->index] = *e;
+    if (e->index > r->log_last_index) {
+        r->log_last_index = e->index;
+        r->log_last_term = e->term;
+    }
+}
+
+static void log_truncate_after_(cetcd_raft *r, uint64_t index) {
+    if (index >= r->log_last_index) return;
+    for (uint64_t i = index + 1; i <= r->log_last_index && i < r->log_cap; i++) {
+        memset(&r->log[i], 0, sizeof(cetcd_entry));
+    }
+    r->log_last_index = index;
+    r->log_last_term = log_term_at_(r, index);
+}
 
 /* ── Helpers ────────────────────────────────────────────────────── */
 
@@ -98,58 +138,6 @@ static void add_peer_(cetcd_raft *r, uint64_t id) {
 
 static uint32_t cluster_size_(cetcd_raft *r) {
     return r->n_peers;
-}
-
-/* ── Lifecycle ──────────────────────────────────────────────────── */
-
-cetcd_raft *cetcd_raft_new(cetcd_raft_config *cfg) {
-    if (!cfg || !cfg->storage) return NULL;
-    if (cfg->id == 0) return NULL;
-    if (cfg->election_tick == 0 || cfg->heartbeat_tick == 0) return NULL;
-
-    cetcd_raft *r = (cetcd_raft *)calloc(1, sizeof(*r));
-    if (!r) return NULL;
-
-    r->id                = cfg->id;
-    r->term              = 0;
-    r->vote              = 0;
-    r->commit            = 0;
-    r->applied           = 0;
-    r->leader_id         = 0;
-    r->role              = ROLE_FOLLOWER;
-
-    r->election_tick     = cfg->election_tick;
-    r->heartbeat_tick    = cfg->heartbeat_tick;
-    r->election_timeout  = cfg->election_tick;
-    r->heartbeat_timeout = cfg->heartbeat_tick;
-    r->elapsed_ticks     = 0;
-    r->heartbeat_elapsed = 0;
-
-    r->max_size_per_msg  = cfg->max_size_per_msg;
-    r->max_inflight_msgs = cfg->max_inflight_msgs;
-    r->check_quorum      = cfg->check_quorum;
-    r->pre_vote          = cfg->pre_vote;
-    r->storage           = cfg->storage;
-
-    /* Self is always a peer */
-    add_peer_(r, cfg->id);
-
-    r->cap_pending_entries = 16;
-    r->pending_entries = (cetcd_entry *)calloc(r->cap_pending_entries, sizeof(cetcd_entry));
-    r->cap_pending_msgs = 32;
-    r->pending_msgs = (cetcd_msg *)calloc(r->cap_pending_msgs, sizeof(cetcd_msg));
-
-    return r;
-}
-
-void cetcd_raft_free(cetcd_raft *r) {
-    if (!r) return;
-    free(r->pending_hs);
-    free(r->pending_entries);
-    free(r->pending_msgs);
-    free(r->peers);
-    free(r->votes_granted);
-    free(r);
 }
 
 /* ── Pending state helpers ──────────────────────────────────────── */
@@ -186,6 +174,94 @@ static void queue_msg_(cetcd_raft *r, const cetcd_msg *m) {
     r->has_pending = true;
 }
 
+/* ── Commit advancement ─────────────────────────────────────────── */
+
+static void maybe_advance_commit_(cetcd_raft *r) {
+    if (r->role != ROLE_LEADER) return;
+
+    uint64_t sorted[MAX_PEERS_ + 1];
+    uint32_t n = 0;
+
+    sorted[n++] = r->log_last_index;
+    for (uint32_t i = 0; i < r->n_peers && i < MAX_PEERS_; i++) {
+        sorted[n++] = r->progress[i].match_idx;
+    }
+
+    for (uint32_t i = 0; i < n - 1; i++) {
+        for (uint32_t j = i + 1; j < n; j++) {
+            if (sorted[j] > sorted[i]) {
+                uint64_t tmp = sorted[i];
+                sorted[i] = sorted[j];
+                sorted[j] = tmp;
+            }
+        }
+    }
+
+    uint64_t new_commit = sorted[quorum_(n) - 1];
+
+    if (new_commit > r->commit && log_term_at_(r, new_commit) == r->term) {
+        r->commit = new_commit;
+        queue_hard_state_(r);
+    }
+}
+
+/* ── Lifecycle ──────────────────────────────────────────────────── */
+
+cetcd_raft *cetcd_raft_new(cetcd_raft_config *cfg) {
+    if (!cfg || !cfg->storage) return NULL;
+    if (cfg->id == 0) return NULL;
+    if (cfg->election_tick == 0 || cfg->heartbeat_tick == 0) return NULL;
+
+    cetcd_raft *r = (cetcd_raft *)calloc(1, sizeof(*r));
+    if (!r) return NULL;
+
+    r->id                = cfg->id;
+    r->term              = 0;
+    r->vote              = 0;
+    r->commit            = 0;
+    r->applied           = 0;
+    r->leader_id         = 0;
+    r->role              = ROLE_FOLLOWER;
+
+    r->election_tick     = cfg->election_tick;
+    r->heartbeat_tick    = cfg->heartbeat_tick;
+    r->election_timeout  = cfg->election_tick;
+    r->heartbeat_timeout = cfg->heartbeat_tick;
+    r->elapsed_ticks     = 0;
+    r->heartbeat_elapsed = 0;
+
+    r->max_size_per_msg  = cfg->max_size_per_msg;
+    r->max_inflight_msgs = cfg->max_inflight_msgs;
+    r->check_quorum      = cfg->check_quorum;
+    r->pre_vote          = cfg->pre_vote;
+    r->storage           = cfg->storage;
+
+    add_peer_(r, cfg->id);
+
+    r->log_cap = 64;
+    r->log = (cetcd_entry *)calloc(r->log_cap, sizeof(cetcd_entry));
+    r->log_last_index = 0;
+    r->log_last_term = 0;
+
+    r->cap_pending_entries = 16;
+    r->pending_entries = (cetcd_entry *)calloc(r->cap_pending_entries, sizeof(cetcd_entry));
+    r->cap_pending_msgs = 32;
+    r->pending_msgs = (cetcd_msg *)calloc(r->cap_pending_msgs, sizeof(cetcd_msg));
+
+    return r;
+}
+
+void cetcd_raft_free(cetcd_raft *r) {
+    if (!r) return;
+    free(r->pending_hs);
+    free(r->pending_entries);
+    free(r->pending_msgs);
+    free(r->peers);
+    free(r->votes_granted);
+    free(r->log);
+    free(r);
+}
+
 /* ── Role transitions ──────────────────────────────────────────── */
 
 static void become_leader_(cetcd_raft *r) {
@@ -194,7 +270,6 @@ static void become_leader_(cetcd_raft *r) {
     r->elapsed_ticks = 0;
     r->heartbeat_elapsed = 0;
 
-    /* Initialize peer progress */
     for (uint32_t i = 0; i < r->n_peers && i < MAX_PEERS_; i++) {
         r->progress[i].next_idx  = r->log_last_index + 1;
         r->progress[i].match_idx = 0;
@@ -208,17 +283,14 @@ static void become_candidate_(cetcd_raft *r) {
     r->vote     = r->id;
     r->elapsed_ticks = 0;
 
-    /* Reset votes — we vote for ourselves */
     r->n_votes_granted = 0;
     r->votes_granted[r->n_votes_granted++] = r->id;
 
-    /* If we're the only node, become leader immediately */
     if (cluster_size_(r) == 1) {
         become_leader_(r);
         return;
     }
 
-    /* Send vote requests to all other peers */
     for (uint32_t i = 0; i < r->n_peers; i++) {
         if (r->peers[i] == r->id) continue;
         cetcd_msg msg;
@@ -246,7 +318,6 @@ static void become_follower_(cetcd_raft *r, uint64_t term, uint64_t leader) {
 /* ── Message handling ──────────────────────────────────────────── */
 
 static int handle_vote_(cetcd_raft *r, cetcd_msg *msg) {
-    /* Reject if term is stale */
     if (msg->term < r->term) {
         cetcd_msg resp;
         memset(&resp, 0, sizeof(resp));
@@ -259,15 +330,11 @@ static int handle_vote_(cetcd_raft *r, cetcd_msg *msg) {
         return 0;
     }
 
-    /* Step down if we see a higher term */
     if (msg->term > r->term) {
         become_follower_(r, msg->term, 0);
         queue_hard_state_(r);
     }
 
-    /* Grant vote if:
-     *   - We haven't voted this term, or we already voted for this candidate
-     *   - Candidate's log is at least as up-to-date as ours */
     bool can_vote = (r->vote == 0 || r->vote == msg->from);
     bool log_ok = (msg->log_term > r->log_last_term) ||
                   (msg->log_term == r->log_last_term &&
@@ -306,7 +373,6 @@ static int handle_vote_resp_(cetcd_raft *r, cetcd_msg *msg) {
         if (r->n_votes_granted >= quorum_(cluster_size_(r))) {
             become_leader_(r);
             queue_hard_state_(r);
-            /* Send initial empty AppendEntries (heartbeat) */
             for (uint32_t i = 0; i < r->n_peers; i++) {
                 if (r->peers[i] == r->id) continue;
                 cetcd_msg hb;
@@ -324,7 +390,6 @@ static int handle_vote_resp_(cetcd_raft *r, cetcd_msg *msg) {
 }
 
 static int handle_app_(cetcd_raft *r, cetcd_msg *msg) {
-    /* Reject stale terms */
     if (msg->term < r->term) {
         cetcd_msg resp;
         memset(&resp, 0, sizeof(resp));
@@ -337,33 +402,73 @@ static int handle_app_(cetcd_raft *r, cetcd_msg *msg) {
         return 0;
     }
 
-    /* Step down if higher term */
     if (msg->term > r->term) {
         become_follower_(r, msg->term, msg->from);
         queue_hard_state_(r);
     }
 
-    /* Update leader */
     if (r->role != ROLE_FOLLOWER) {
         become_follower_(r, msg->term, msg->from);
     }
     r->leader_id = msg->from;
     r->elapsed_ticks = 0;
 
-    /* Update commit */
+    /* Log consistency check */
+    if (msg->index > 0) {
+        if (msg->index > r->log_last_index) {
+            cetcd_msg resp;
+            memset(&resp, 0, sizeof(resp));
+            resp.type   = CETCD_MSG_APP_RESP;
+            resp.to     = msg->from;
+            resp.from   = r->id;
+            resp.term   = r->term;
+            resp.index  = r->log_last_index;
+            resp.reject = 1;
+            queue_msg_(r, &resp);
+            return 0;
+        }
+        if (log_term_at_(r, msg->index) != msg->log_term) {
+            cetcd_msg resp;
+            memset(&resp, 0, sizeof(resp));
+            resp.type   = CETCD_MSG_APP_RESP;
+            resp.to     = msg->from;
+            resp.from   = r->id;
+            resp.term   = r->term;
+            resp.index  = msg->index;
+            resp.reject = 1;
+            queue_msg_(r, &resp);
+            return 0;
+        }
+    }
+
+    /* Truncate conflicting entries and append new ones */
+    if (msg->n_entries > 0) {
+        uint64_t first_new = msg->index + 1;
+        for (uint32_t i = 0; i < msg->n_entries; i++) {
+            uint64_t idx = first_new + i;
+            if (idx <= r->log_last_index) {
+                if (log_term_at_(r, idx) != msg->entries[i].term) {
+                    log_truncate_after_(r, idx - 1);
+                }
+            }
+            cetcd_entry e = msg->entries[i];
+            e.index = idx;
+            log_append_(r, &e);
+            queue_entry_(r, &e);
+        }
+    }
+
     if (msg->commit > r->commit) {
-        r->commit = msg->commit;
-        queue_hard_state_(r);
+        uint64_t new_commit = msg->commit;
+        if (new_commit > r->log_last_index) {
+            new_commit = r->log_last_index;
+        }
+        if (new_commit > r->commit) {
+            r->commit = new_commit;
+            queue_hard_state_(r);
+        }
     }
 
-    /* Append entries from the message */
-    for (uint32_t i = 0; i < msg->n_entries; i++) {
-        r->log_last_index++;
-        r->log_last_term = msg->entries[i].term;
-        queue_entry_(r, &msg->entries[i]);
-    }
-
-    /* Respond with success */
     cetcd_msg resp;
     memset(&resp, 0, sizeof(resp));
     resp.type   = CETCD_MSG_APP_RESP;
@@ -385,7 +490,6 @@ static int handle_app_resp_(cetcd_raft *r, cetcd_msg *msg) {
         return 0;
     }
 
-    /* Find the peer's progress slot */
     int slot = -1;
     for (uint32_t i = 0; i < r->n_peers && i < MAX_PEERS_; i++) {
         if (r->peers[i] == msg->from) { slot = (int)i; break; }
@@ -395,6 +499,7 @@ static int handle_app_resp_(cetcd_raft *r, cetcd_msg *msg) {
     if (!msg->reject) {
         r->progress[slot].match_idx = msg->index;
         r->progress[slot].next_idx  = msg->index + 1;
+        maybe_advance_commit_(r);
     } else {
         if (r->progress[slot].next_idx > 1) {
             r->progress[slot].next_idx--;
@@ -417,8 +522,14 @@ static int handle_heartbeat_(cetcd_raft *r, cetcd_msg *msg) {
     r->elapsed_ticks = 0;
 
     if (msg->commit > r->commit) {
-        r->commit = msg->commit;
-        queue_hard_state_(r);
+        uint64_t new_commit = msg->commit;
+        if (new_commit > r->log_last_index) {
+            new_commit = r->log_last_index;
+        }
+        if (new_commit > r->commit) {
+            r->commit = new_commit;
+            queue_hard_state_(r);
+        }
     }
 
     cetcd_msg resp;
@@ -471,6 +582,7 @@ int cetcd_raft_step(cetcd_raft *r, cetcd_msg *msg) {
             e.data  = (cetcd_slice){.data = (uint8_t *)msg->context,
                                      .len  = msg->context_len};
             r->log_last_term = r->term;
+            log_append_(r, &e);
             queue_entry_(r, &e);
             queue_hard_state_(r);
 
@@ -484,7 +596,7 @@ int cetcd_raft_step(cetcd_raft *r, cetcd_msg *msg) {
                 app.from      = r->id;
                 app.term      = r->term;
                 app.log_term  = r->log_last_term;
-                app.index     = r->log_last_index;
+                app.index     = r->log_last_index - 1;
                 app.commit    = r->commit;
                 cetcd_entry *ecopy = (cetcd_entry *)malloc(sizeof(cetcd_entry));
                 if (ecopy) { *ecopy = e; }
@@ -492,6 +604,8 @@ int cetcd_raft_step(cetcd_raft *r, cetcd_msg *msg) {
                 app.n_entries = 1;
                 queue_msg_(r, &app);
             }
+
+            maybe_advance_commit_(r);
         }
         break;
 
@@ -584,7 +698,6 @@ cetcd_ready cetcd_raft_ready(cetcd_raft *r) {
         }
     }
 
-    /* Detach ownership */
     r->pending_hs        = NULL;
     r->pending_entries   = (cetcd_entry *)calloc(r->cap_pending_entries, sizeof(cetcd_entry));
     r->n_pending_entries = 0;

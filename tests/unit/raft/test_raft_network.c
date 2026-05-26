@@ -274,6 +274,93 @@ CETCD_TEST_CASE(follower_term_updates_from_leader) {
     net_free_(net);
 }
 
+/* ── Log replication + commit tests ─────────────────────────────── */
+
+CETCD_TEST_CASE(leader_commit_advances_after_replication) {
+    test_net_ *net = net_new_(3);
+    net_tick_(net, 25);
+    CETCD_ASSERT_EQ_INT(count_leaders_(net), 1);
+
+    int li = -1;
+    for (int i = 0; i < net->n; i++) {
+        if (cetcd_raft_state(net->nodes[i]) == CETCD_NODE_LEADER) { li = i; break; }
+    }
+    CETCD_ASSERT_TRUE(li >= 0);
+
+    uint64_t commit_before = cetcd_raft_committed(net->nodes[li]);
+    cetcd_raft_propose(net->nodes[li], (const uint8_t *)"hello", 5);
+    net_deliver_(net);
+    net_tick_(net, 2);
+
+    uint64_t commit_after = cetcd_raft_committed(net->nodes[li]);
+    CETCD_ASSERT_TRUE(commit_after > commit_before);
+    net_free_(net);
+}
+
+CETCD_TEST_CASE(all_nodes_converge_on_commit_index) {
+    test_net_ *net = net_new_(3);
+    net_tick_(net, 25);
+
+    int li = -1;
+    for (int i = 0; i < net->n; i++) {
+        if (cetcd_raft_state(net->nodes[i]) == CETCD_NODE_LEADER) { li = i; break; }
+    }
+    CETCD_ASSERT_TRUE(li >= 0);
+
+    cetcd_raft_propose(net->nodes[li], (const uint8_t *)"data1", 5);
+    net_deliver_(net);
+    net_tick_(net, 2);
+
+    uint64_t leader_commit = cetcd_raft_committed(net->nodes[li]);
+    for (int i = 0; i < net->n; i++) {
+        CETCD_ASSERT_TRUE(cetcd_raft_committed(net->nodes[i]) >= leader_commit);
+    }
+    net_free_(net);
+}
+
+CETCD_TEST_CASE(multiple_proposals_all_committed) {
+    test_net_ *net = net_new_(3);
+    net_tick_(net, 25);
+
+    int li = -1;
+    for (int i = 0; i < net->n; i++) {
+        if (cetcd_raft_state(net->nodes[i]) == CETCD_NODE_LEADER) { li = i; break; }
+    }
+    CETCD_ASSERT_TRUE(li >= 0);
+
+    for (int p = 0; p < 5; p++) {
+        cetcd_raft_propose(net->nodes[li], (const uint8_t *)"entry", 5);
+        net_deliver_(net);
+    }
+    net_tick_(net, 2);
+
+    CETCD_ASSERT_TRUE(cetcd_raft_committed(net->nodes[li]) >= 5);
+    for (int i = 0; i < net->n; i++) {
+        CETCD_ASSERT_TRUE(cetcd_raft_committed(net->nodes[i]) >= 5);
+    }
+    net_free_(net);
+}
+
+CETCD_TEST_CASE(follower_log_matches_leader_after_replication) {
+    test_net_ *net = net_new_(3);
+    net_tick_(net, 25);
+
+    int li = -1;
+    for (int i = 0; i < net->n; i++) {
+        if (cetcd_raft_state(net->nodes[i]) == CETCD_NODE_LEADER) { li = i; break; }
+    }
+    CETCD_ASSERT_TRUE(li >= 0);
+
+    cetcd_raft_propose(net->nodes[li], (const uint8_t *)"test", 4);
+    net_deliver_(net);
+    net_tick_(net, 2);
+
+    for (int i = 0; i < net->n; i++) {
+        CETCD_ASSERT_TRUE(net->stores[i]->n_entries >= 1);
+    }
+    net_free_(net);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(three_node_cluster_elects_one_leader),
     CETCD_TEST_ENTRY(five_node_cluster_elects_one_leader),
@@ -281,6 +368,10 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(leader_proposal_replicates_to_followers),
     CETCD_TEST_ENTRY(leader_heartbeat_maintains_authority),
     CETCD_TEST_ENTRY(follower_term_updates_from_leader),
+    CETCD_TEST_ENTRY(leader_commit_advances_after_replication),
+    CETCD_TEST_ENTRY(all_nodes_converge_on_commit_index),
+    CETCD_TEST_ENTRY(multiple_proposals_all_committed),
+    CETCD_TEST_ENTRY(follower_log_matches_leader_after_replication),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

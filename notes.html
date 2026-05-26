@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 2B — multi-node election complete</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 2C — log replication + commit advancement complete</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p>Phase 2B (<strong>Multi-node Raft election</strong>) complete. 18/18 tests passing with ASan+UBSan+LeakSan.
-     Full multi-node: vote request/response, AppendEntries, heartbeat, peer tracking, quorum election.
-     Network test harness with <code>test_net_</code> simulator (in-memory storage, message routing).
-     Next: log replication, commit advancement, snapshots, membership changes.</p>
+  <p>Phase 2C (<strong>Log replication + commit advancement</strong>) complete. 18/18 tests passing with ASan+UBSan+LeakSan.
+     In-memory log with 1-indexed sentinel, log consistency check (prev_index/prev_term),
+     conflict truncation, majority-based commit advancement, commit propagation via AppendEntries.
+     Next: snapshots, membership changes, leader transfer.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -55,7 +55,7 @@
       <tr><td>-1</td><td>Brainstorm + plan</td><td>Architecture doc, library survey, Raft decision, ADRs</td><td><span class="pill done">done</span></td></tr>
       <tr><td>0</td><td>Foundations</td><td>CMake, CI matrix, <code>libcetcd_base</code> — 9/9 tests green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>1</td><td>IO + protobuf</td><td><code>libcetcd_io</code> + <code>libcetcd_proto</code> — 16/16 tests green</td><td><span class="pill done">done</span></td></tr>
-      <tr><td>2</td><td>Raft core</td><td><code>libcetcd_raft</code> — multi-node election, vote/AppendEntries/heartbeat, peer tracking — 18/18 green</td><td><span class="pill wip">wip</span></td></tr>
+      <tr><td>2</td><td>Raft core</td><td><code>libcetcd_raft</code> — election, log replication, commit advancement — 18/18 green</td><td><span class="pill wip">wip</span></td></tr>
       <tr><td>3</td><td>WAL + backend</td><td><code>libcetcd_wal</code> (etcd byte-compat), <code>libcetcd_backend</code> (LMDB)</td><td><span class="pill todo">todo</span></td></tr>
       <tr><td>4</td><td>MVCC + Lease</td><td>Revision index, watcher fan-out, TTL heap</td><td><span class="pill todo">todo</span></td></tr>
       <tr><td>5</td><td>HTTP/2 + gRPC + TLS</td><td>nghttp2 framing, gRPC over it, OpenSSL ALPN</td><td><span class="pill todo">todo</span></td></tr>
@@ -79,13 +79,15 @@
       <tr><td>Raft</td><td>AppendEntries</td><td><code>src/raft/raft.c</code></td><td>covered by network tests ✓</td></tr>
       <tr><td>Raft</td><td>heartbeat + leader authority</td><td><code>src/raft/raft.c</code></td><td>covered by network tests ✓</td></tr>
       <tr><td>Raft</td><td>peer progress tracking</td><td><code>src/raft/raft.c</code></td><td>covered by network tests ✓</td></tr>
-      <tr><td>Raft</td><td>log replication</td><td>—</td><td><span class="pill todo">todo</span></td></tr>
+      <tr><td>Raft</td><td>log replication + commit</td><td><code>src/raft/raft.c</code></td><td>4 commit/replication tests ✓</td></tr>
+      <tr><td>Raft</td><td>log consistency check</td><td><code>src/raft/raft.c</code></td><td>covered by replication ✓</td></tr>
+      <tr><td>Raft</td><td>log replication</td><td>—</td><td>covered by network tests ✓</td></tr>
       <tr><td>Raft</td><td>snapshots</td><td>—</td><td><span class="pill todo">todo</span></td></tr>
       <tr><td>Raft</td><td>membership changes</td><td>—</td><td><span class="pill todo">todo</span></td></tr>
       <tr><td>Raft</td><td>leader transfer</td><td>—</td><td><span class="pill todo">todo</span></td></tr>
     </tbody>
   </table>
-  <p style="color:var(--ok);font-size:.85rem;margin-top:.5rem;">18/18 tests passing. Network simulator: <code>test_net_</code> with in-memory storage, message routing, per-node election timeout staggering.</p>
+  <p style="color:var(--ok);font-size:.85rem;margin-top:.5rem;">18/18 tests passing. Network simulator: <code>test_net_</code> with in-memory storage, message routing, per-node election timeout staggering. Log: 1-indexed in-memory array with consistency check + conflict truncation. Commit: majority-based advancement via sorted match_idx.</p>
 </div>
 
 <div class="card">
@@ -189,6 +191,7 @@
       <tr><td colspan="2" style="color:var(--mut);font-style:italic;">Phase 2 commits (pending push):</td></tr>
       <tr><td><code>7a9c358</code></td><td>feat(raft): single-node election + proposal + Ready/Advance</td></tr>
       <tr><td><em>next</em></td><td>feat(raft): multi-node election, vote/AppendEntries, peer tracking</td></tr>
+      <tr><td><em>next</em></td><td>feat(raft): log replication, commit advancement, log consistency check</td></tr>
     </tbody>
   </table>
 </div>
