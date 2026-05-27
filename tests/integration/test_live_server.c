@@ -440,6 +440,111 @@ CETCD_TEST_CASE(live_server_grpc_put_range_roundtrip) {
     waitpid(pid, &status, 0);
 }
 
+CETCD_TEST_CASE(live_server_grpc_delete_range) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        cetcd_server_config cfg;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.node_id = 1;
+        strncpy(cfg.listen_addr, "127.0.0.1", sizeof(cfg.listen_addr) - 1);
+        cfg.listen_port = 23852;
+        cfg.election_tick = 10;
+        cfg.heartbeat_tick = 1;
+        cetcd_server *srv = cetcd_server_new(&cfg);
+        if (srv) { cetcd_server_start(srv); alarm(3); cetcd_server_serve(srv); cetcd_server_free(srv); }
+        _exit(0);
+    }
+
+    struct timespec ts = {0, 200000000};
+    nanosleep(&ts, NULL);
+
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    CETCD_ASSERT_TRUE(fd >= 0);
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(23852);
+    inet_pton(AF_INET, "127.0.0.1", &sa.sin_addr);
+    CETCD_ASSERT_EQ_INT(connect(fd, (struct sockaddr *)&sa, sizeof(sa)), 0);
+
+    uint8_t put_req[] = {0x0a, 0x02, 'd', 'k', 0x12, 0x02, 'd', 'v'};
+    uint8_t frame_buf[4096];
+    size_t put_len = build_grpc_request(frame_buf, sizeof(frame_buf),
+                                          "/etcdserverpb.KV/Put", put_req, sizeof(put_req));
+    send(fd, frame_buf, put_len, 0);
+    uint8_t r1[1024];
+    CETCD_ASSERT_TRUE(recv(fd, r1, sizeof(r1), 0) > 7);
+
+    uint8_t del_req[] = {0x0a, 0x02, 'd', 'k'};
+    size_t del_len = build_grpc_request(frame_buf, sizeof(frame_buf),
+                                           "/etcdserverpb.KV/DeleteRange", del_req, sizeof(del_req));
+    send(fd, frame_buf, del_len, 0);
+    uint8_t r2[1024];
+    ssize_t n2 = recv(fd, r2, sizeof(r2), 0);
+    CETCD_ASSERT_TRUE(n2 > 7);
+
+    uint16_t rpath2 = ((uint16_t)r2[0] << 8) | r2[1];
+    uint32_t r2_payload = ((uint32_t)r2[2 + rpath2 + 1] << 24) |
+                          ((uint32_t)r2[2 + rpath2 + 2] << 16) |
+                          ((uint32_t)r2[2 + rpath2 + 3] << 8)  |
+                          ((uint32_t)r2[2 + rpath2 + 4]);
+    CETCD_ASSERT_TRUE(r2_payload > 0);
+
+    close(fd);
+    kill(pid, SIGTERM);
+    int status;
+    waitpid(pid, &status, 0);
+}
+
+CETCD_TEST_CASE(live_server_grpc_lease_grant) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        cetcd_server_config cfg;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.node_id = 1;
+        strncpy(cfg.listen_addr, "127.0.0.1", sizeof(cfg.listen_addr) - 1);
+        cfg.listen_port = 23853;
+        cfg.election_tick = 10;
+        cfg.heartbeat_tick = 1;
+        cetcd_server *srv = cetcd_server_new(&cfg);
+        if (srv) { cetcd_server_start(srv); alarm(3); cetcd_server_serve(srv); cetcd_server_free(srv); }
+        _exit(0);
+    }
+
+    struct timespec ts = {0, 200000000};
+    nanosleep(&ts, NULL);
+
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    CETCD_ASSERT_TRUE(fd >= 0);
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(23853);
+    inet_pton(AF_INET, "127.0.0.1", &sa.sin_addr);
+    CETCD_ASSERT_EQ_INT(connect(fd, (struct sockaddr *)&sa, sizeof(sa)), 0);
+
+    uint8_t lease_req[] = {0x08, 0x3c};
+    uint8_t frame_buf[4096];
+    size_t lease_len = build_grpc_request(frame_buf, sizeof(frame_buf),
+                                            "/etcdserverpb.Lease/LeaseGrant", lease_req, sizeof(lease_req));
+    send(fd, frame_buf, lease_len, 0);
+    uint8_t r[1024];
+    ssize_t n = recv(fd, r, sizeof(r), 0);
+    CETCD_ASSERT_TRUE(n > 7);
+
+    uint16_t rpath = ((uint16_t)r[0] << 8) | r[1];
+    uint32_t r_payload = ((uint32_t)r[2 + rpath + 1] << 24) |
+                         ((uint32_t)r[2 + rpath + 2] << 16) |
+                         ((uint32_t)r[2 + rpath + 3] << 8)  |
+                         ((uint32_t)r[2 + rpath + 4]);
+    CETCD_ASSERT_TRUE(r_payload > 0);
+
+    close(fd);
+    kill(pid, SIGTERM);
+    int status;
+    waitpid(pid, &status, 0);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_start_stop),
     CETCD_TEST_ENTRY(live_server_snapshot_after_writes),
@@ -451,6 +556,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_3node_cluster_election),
     CETCD_TEST_ENTRY(live_server_grpc_put_via_tcp),
     CETCD_TEST_ENTRY(live_server_grpc_put_range_roundtrip),
+    CETCD_TEST_ENTRY(live_server_grpc_delete_range),
+    CETCD_TEST_ENTRY(live_server_grpc_lease_grant),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

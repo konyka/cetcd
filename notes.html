@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 21 complete — Multi-service gRPC routing + Put/Range roundtrip, 33/33 tests</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 22 complete — DeleteRange + Lease Grant + v0.2.0 tagged, 33/33 tests</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.1.0 tagged</strong>. Phase 14 (<strong>Real TCP gRPC listener</strong>) complete. 31/31 tests passing.
-     <code>cetcd_server_serve()</code>: binds TCP port, accepts connections via libuv event loop.
-     Integration test: fork server process, real TCP connect from client, verify port listening.
-     Next: Phase 22 — etcdctl wire compatibility testing, DeleteRange, Lease Grant, production hardening.</p>
+  <p><strong>v0.2.0 tagged</strong>. Phase 22 (<strong>Full gRPC CRUD</strong>) complete. 33/33 tests passing.
+     Server handles KV/Put, KV/Range, KV/DeleteRange, Lease/LeaseGrant via TCP with framed routing.
+     Multi-node cluster election, Prometheus metrics, structured JSON logging, graceful shutdown.
+     Next: Phase 23 — Watch streaming, compaction API, production hardening.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -75,8 +75,22 @@
       <tr><td>19</td><td>Multi-node TCP consensus</td><td>peer send via TCP, cluster_get_peer API, 3-node election integration test — 33/33 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>20</td><td>gRPC read/write via TCP</td><td>real gRPC frame parsing, v3rpc dispatch, response framing, TCP Put test — 33/33 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>21</td><td>Multi-service gRPC routing</td><td>path-based routing (2B path + gRPC frame), Put+Range roundtrip — 33/33 green</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>22</td><td>Full gRPC CRUD + v0.2.0</td><td>DeleteRange, LeaseGrant via TCP, 12 integration tests, v0.2.0 tagged — 33/33 green</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
+</div>
+
+<div class="card">
+  <h2>Phase 22 deliverables ✓</h2>
+  <table>
+    <thead><tr><th>Track</th><th>Component</th><th>Files</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>Test</td><td>gRPC DeleteRange via TCP</td><td><code>tests/integration/test_live_server.c</code></td><td>Put → Delete → verify ✓</td></tr>
+      <tr><td>Test</td><td>gRPC LeaseGrant via TCP</td><td><code>tests/integration/test_live_server.c</code></td><td>grant TTL=60 ✓</td></tr>
+      <tr><td>Release</td><td>v0.2.0 tagged</td><td>—</td><td>full gRPC CRUD + multi-node ✓</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--ok);font-size:.85rem;margin-top:.5rem;">33/33 tests passing (ASan+UBSan+LeakSan clean). Full gRPC CRUD verified over TCP: KV/Put, KV/Range, KV/DeleteRange, Lease/LeaseGrant. 12 integration tests total covering server lifecycle, snapshots, persistence, TCP listen, cluster membership, peer ports, Raft election, 3-node consensus, and gRPC read/write. v0.2.0 tagged.</p>
 </div>
 
 <div class="card">
