@@ -11,4 +11,6 @@ static inline uv_loop_t *cetcd_loop_uv(cetcd_loop *loop) {
     return loop ? &loop->uv : NULL;
 }
 
+uv_stream_t *cetcd_tcp_stream(cetcd_tcp *tcp);
+
 #endif

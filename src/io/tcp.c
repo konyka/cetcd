@@ -92,5 +92,9 @@ int cetcd_tcp_write(cetcd_tcp *tcp, const void *buf, size_t len) {
 void cetcd_tcp_close(cetcd_tcp *tcp) {
     if (!tcp) return;
     uv_close((uv_handle_t *)&tcp->handle, NULL);
-    /* Memory is freed by close callback if needed elsewhere */
+}
+
+uv_stream_t *cetcd_tcp_stream(cetcd_tcp *tcp) {
+    if (!tcp) return NULL;
+    return (uv_stream_t *)&tcp->handle;
 }

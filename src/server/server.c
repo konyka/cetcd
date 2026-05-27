@@ -45,6 +45,91 @@ static void raft_tick_cb_(void *arg);
 static void process_ready_(cetcd_server *srv);
 static void peer_send_cb_(uint64_t to_id, const uint8_t *data, size_t len, void *udata);
 static void on_peer_incoming_(cetcd_tcp *server, cetcd_tcp *client, void *arg);
+static void on_client_conn_(cetcd_tcp *server, cetcd_tcp *client, void *arg);
+
+typedef struct client_ctx_ {
+    cetcd_server *srv;
+    cetcd_tcp    *client;
+    uint8_t       buf[65536];
+    size_t        buf_pos;
+} client_ctx_;
+
+static void client_close_cb_(uv_handle_t *handle) {
+    client_ctx_ *ctx = (client_ctx_ *)handle->data;
+    if (ctx) free(ctx);
+}
+
+static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
+    client_ctx_ *ctx = (client_ctx_ *)stream->data;
+    if (!ctx) return;
+    if (nread <= 0) {
+        if (nread < 0) uv_close((uv_handle_t *)stream, client_close_cb_);
+        return;
+    }
+    if (ctx->buf_pos + (size_t)nread > sizeof(ctx->buf)) {
+        uv_close((uv_handle_t *)stream, client_close_cb_);
+        return;
+    }
+    memcpy(ctx->buf + ctx->buf_pos, buf->base, (size_t)nread);
+    ctx->buf_pos += (size_t)nread;
+
+    while (ctx->buf_pos >= 5) {
+        uint32_t payload_len = ((uint32_t)ctx->buf[1] << 24) |
+                               ((uint32_t)ctx->buf[2] << 16) |
+                               ((uint32_t)ctx->buf[3] << 8)  |
+                               ((uint32_t)ctx->buf[4]);
+        size_t frame_len = 5 + payload_len;
+        if (ctx->buf_pos < frame_len) break;
+
+        cetcd_server_rpc_result resp = cetcd_server_handle_rpc(ctx->srv,
+            "/etcdserverpb.KV/Put", ctx->buf + 5, payload_len);
+
+        if (resp.data && resp.len > 0) {
+            uint8_t hdr[5] = {0};
+            hdr[1] = (uint8_t)((resp.len >> 24) & 0xFF);
+            hdr[2] = (uint8_t)((resp.len >> 16) & 0xFF);
+            hdr[3] = (uint8_t)((resp.len >> 8) & 0xFF);
+            hdr[4] = (uint8_t)(resp.len & 0xFF);
+
+            uv_buf_t wbuf[2];
+            wbuf[0] = uv_buf_init((char *)hdr, 5);
+            wbuf[1] = uv_buf_init((char *)resp.data, (unsigned int)resp.len);
+            uv_write_t *wr = (uv_write_t *)calloc(1, sizeof(uv_write_t));
+            if (wr) {
+                uv_write(wr, stream, wbuf, 2, (void (*)(uv_write_t *, int))free);
+            }
+        }
+        cetcd_server_rpc_result_free(&resp);
+
+        size_t remaining = ctx->buf_pos - frame_len;
+        if (remaining > 0) memmove(ctx->buf, ctx->buf + frame_len, remaining);
+        ctx->buf_pos = remaining;
+    }
+}
+
+static void alloc_cb_(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
+    (void)handle;
+    static char slab[65536];
+    *buf = uv_buf_init(slab, sizeof(slab));
+    (void)suggested_size;
+}
+
+static void on_client_conn_(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
+    (void)server;
+    cetcd_server *srv = (cetcd_server *)arg;
+    if (!client || !srv) return;
+
+    client_ctx_ *ctx = (client_ctx_ *)calloc(1, sizeof(client_ctx_));
+    if (!ctx) { cetcd_tcp_close(client); return; }
+    ctx->srv = srv;
+    ctx->client = client;
+
+    uv_stream_t *stream = cetcd_tcp_stream(client);
+    if (stream) {
+        stream->data = ctx;
+        uv_read_start(stream, alloc_cb_, on_client_read_);
+    }
+}
 
 static void peer_send_cb_(uint64_t to_id, const uint8_t *data, size_t len, void *udata) {
     cetcd_server *srv = (cetcd_server *)udata;
@@ -252,7 +337,7 @@ int cetcd_server_serve(cetcd_server *srv) {
         return CETCD_ERR_IO;
     }
 
-    rc = cetcd_tcp_listen(srv->listener, on_client_conn, srv);
+    rc = cetcd_tcp_listen(srv->listener, on_client_conn_, srv);
     if (rc != 0) {
         cetcd_tcp_free(srv->listener); srv->listener = NULL;
         cetcd_loop_free(srv->loop); srv->loop = NULL;

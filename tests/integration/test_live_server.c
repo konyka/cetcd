@@ -296,6 +296,66 @@ CETCD_TEST_CASE(live_server_3node_cluster_election) {
     }
 }
 
+CETCD_TEST_CASE(live_server_grpc_put_via_tcp) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        cetcd_server_config cfg;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.node_id = 1;
+        strncpy(cfg.listen_addr, "127.0.0.1", sizeof(cfg.listen_addr) - 1);
+        cfg.listen_port = 23850;
+        cfg.election_tick = 10;
+        cfg.heartbeat_tick = 1;
+        cetcd_server *srv = cetcd_server_new(&cfg);
+        if (srv) {
+            cetcd_server_start(srv);
+            alarm(3);
+            cetcd_server_serve(srv);
+            cetcd_server_free(srv);
+        }
+        _exit(0);
+    }
+
+    struct timespec ts = {0, 200000000};
+    nanosleep(&ts, NULL);
+
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    CETCD_ASSERT_TRUE(fd >= 0);
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(23850);
+    inet_pton(AF_INET, "127.0.0.1", &sa.sin_addr);
+    int rc = connect(fd, (struct sockaddr *)&sa, sizeof(sa));
+    CETCD_ASSERT_EQ_INT(rc, 0);
+
+    uint8_t put_req[] = {0x0a, 0x01, 'x', 0x12, 0x01, 'y'};
+    uint8_t grpc_frame[5 + sizeof(put_req)];
+    grpc_frame[0] = 0;
+    grpc_frame[1] = 0;
+    grpc_frame[2] = 0;
+    grpc_frame[3] = 0;
+    grpc_frame[4] = sizeof(put_req);
+    memcpy(grpc_frame + 5, put_req, sizeof(put_req));
+    send(fd, grpc_frame, sizeof(grpc_frame), 0);
+
+    uint8_t resp_buf[1024];
+    ssize_t n = recv(fd, resp_buf, sizeof(resp_buf), 0);
+    CETCD_ASSERT_TRUE(n > 5);
+
+    uint32_t resp_len = ((uint32_t)resp_buf[1] << 24) |
+                        ((uint32_t)resp_buf[2] << 16) |
+                        ((uint32_t)resp_buf[3] << 8)  |
+                        ((uint32_t)resp_buf[4]);
+    CETCD_ASSERT_TRUE(resp_len > 0);
+    CETCD_ASSERT_TRUE((size_t)n >= 5 + resp_len);
+
+    close(fd);
+    kill(pid, SIGTERM);
+    int status;
+    waitpid(pid, &status, 0);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_start_stop),
     CETCD_TEST_ENTRY(live_server_snapshot_after_writes),
@@ -305,6 +365,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_peer_port_listen),
     CETCD_TEST_ENTRY(live_server_raft_tick_timer),
     CETCD_TEST_ENTRY(live_server_3node_cluster_election),
+    CETCD_TEST_ENTRY(live_server_grpc_put_via_tcp),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()
