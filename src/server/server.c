@@ -73,26 +73,42 @@ static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *
     memcpy(ctx->buf + ctx->buf_pos, buf->base, (size_t)nread);
     ctx->buf_pos += (size_t)nread;
 
-    while (ctx->buf_pos >= 5) {
-        uint32_t payload_len = ((uint32_t)ctx->buf[1] << 24) |
-                               ((uint32_t)ctx->buf[2] << 16) |
-                               ((uint32_t)ctx->buf[3] << 8)  |
-                               ((uint32_t)ctx->buf[4]);
-        size_t frame_len = 5 + payload_len;
+    while (ctx->buf_pos >= 2) {
+        uint16_t path_len = ((uint16_t)ctx->buf[0] << 8) | ctx->buf[1];
+        size_t header = 2 + path_len;
+        if (ctx->buf_pos < header + 5) break;
+
+        char path[256];
+        if (path_len >= sizeof(path)) { uv_close((uv_handle_t *)stream, client_close_cb_); return; }
+        memcpy(path, ctx->buf + 2, path_len);
+        path[path_len] = '\0';
+
+        const uint8_t *grpc_hdr = ctx->buf + header;
+        uint32_t payload_len = ((uint32_t)grpc_hdr[1] << 24) |
+                               ((uint32_t)grpc_hdr[2] << 16) |
+                               ((uint32_t)grpc_hdr[3] << 8)  |
+                               ((uint32_t)grpc_hdr[4]);
+        size_t frame_len = header + 5 + payload_len;
         if (ctx->buf_pos < frame_len) break;
 
         cetcd_server_rpc_result resp = cetcd_server_handle_rpc(ctx->srv,
-            "/etcdserverpb.KV/Put", ctx->buf + 5, payload_len);
+            path, grpc_hdr + 5, payload_len);
 
         if (resp.data && resp.len > 0) {
-            uint8_t hdr[5] = {0};
-            hdr[1] = (uint8_t)((resp.len >> 24) & 0xFF);
-            hdr[2] = (uint8_t)((resp.len >> 16) & 0xFF);
-            hdr[3] = (uint8_t)((resp.len >> 8) & 0xFF);
-            hdr[4] = (uint8_t)(resp.len & 0xFF);
+            uint8_t resp_hdr[2 + 256 + 5];
+            size_t pos = 0;
+            resp_hdr[pos++] = (uint8_t)(path_len >> 8);
+            resp_hdr[pos++] = (uint8_t)(path_len & 0xFF);
+            memcpy(resp_hdr + pos, path, path_len);
+            pos += path_len;
+            resp_hdr[pos++] = 0;
+            resp_hdr[pos++] = (uint8_t)((resp.len >> 24) & 0xFF);
+            resp_hdr[pos++] = (uint8_t)((resp.len >> 16) & 0xFF);
+            resp_hdr[pos++] = (uint8_t)((resp.len >> 8) & 0xFF);
+            resp_hdr[pos++] = (uint8_t)(resp.len & 0xFF);
 
             uv_buf_t wbuf[2];
-            wbuf[0] = uv_buf_init((char *)hdr, 5);
+            wbuf[0] = uv_buf_init((char *)resp_hdr, (unsigned int)pos);
             wbuf[1] = uv_buf_init((char *)resp.data, (unsigned int)resp.len);
             uv_write_t *wr = (uv_write_t *)calloc(1, sizeof(uv_write_t));
             if (wr) {

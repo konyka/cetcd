@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 20 complete — Real gRPC read/write via TCP, 33/33 tests</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 21 complete — Multi-service gRPC routing + Put/Range roundtrip, 33/33 tests</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
   <p><strong>v0.1.0 tagged</strong>. Phase 14 (<strong>Real TCP gRPC listener</strong>) complete. 31/31 tests passing.
      <code>cetcd_server_serve()</code>: binds TCP port, accepts connections via libuv event loop.
      Integration test: fork server process, real TCP connect from client, verify port listening.
-     Next: Phase 21 — Full etcdctl wire compatibility testing, Range/Delete gRPC, watch streaming.</p>
+     Next: Phase 22 — etcdctl wire compatibility testing, DeleteRange, Lease Grant, production hardening.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -74,8 +74,23 @@
       <tr><td>18</td><td>Raft event loop + election</td><td>tick timer, Ready processing, message routing, single-node leader election, null storage — 33/33 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>19</td><td>Multi-node TCP consensus</td><td>peer send via TCP, cluster_get_peer API, 3-node election integration test — 33/33 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>20</td><td>gRPC read/write via TCP</td><td>real gRPC frame parsing, v3rpc dispatch, response framing, TCP Put test — 33/33 green</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>21</td><td>Multi-service gRPC routing</td><td>path-based routing (2B path + gRPC frame), Put+Range roundtrip — 33/33 green</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
+</div>
+
+<div class="card">
+  <h2>Phase 21 deliverables ✓</h2>
+  <table>
+    <thead><tr><th>Track</th><th>Component</th><th>Files</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>Server</td><td>Path-based gRPC routing (2B path_len + path + gRPC frame)</td><td><code>src/server/server.c</code></td><td>KV/Lease/Watch/Auth dispatch ✓</td></tr>
+      <tr><td>Server</td><td>Response includes path echo for client correlation</td><td><code>src/server/server.c</code></td><td>path_len + path + gRPC resp ✓</td></tr>
+      <tr><td>Test</td><td>gRPC Put via TCP with new framing</td><td><code>tests/integration/test_live_server.c</code></td><td>Put request/response ✓</td></tr>
+      <tr><td>Test</td><td>gRPC Put + Range roundtrip</td><td><code>tests/integration/test_live_server.c</code></td><td>Put → Range → get value ✓</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--ok);font-size:.85rem;margin-top:.5rem;">33/33 tests passing (ASan+UBSan+LeakSan clean). Server routes gRPC requests by service path: /etcdserverpb.KV/Put, /etcdserverpb.KV/Range, /etcdserverpb.KV/DeleteRange, Lease, Watch, Auth. Frame format: 2B path length + path + 5B gRPC header + payload. Response mirrors the format with path echo for correlation. 10 integration tests total.</p>
 </div>
 
 <div class="card">
