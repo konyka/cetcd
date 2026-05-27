@@ -43,6 +43,8 @@ int cetcd_msg_decode(const uint8_t *data, size_t len,
 
 size_t cetcd_cluster_peer_count(const cetcd_cluster *c);
 
+const cetcd_peer_info *cetcd_cluster_get_peer(const cetcd_cluster *c, uint64_t id);
+
 #ifdef __cplusplus
 }
 #endif

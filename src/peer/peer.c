@@ -176,3 +176,19 @@ size_t cetcd_cluster_peer_count(const cetcd_cluster *c) {
     if (!c) return 0;
     return c->peer_count;
 }
+
+static cetcd_peer_info peer_info_buf_;
+
+const cetcd_peer_info *cetcd_cluster_get_peer(const cetcd_cluster *c, uint64_t id) {
+    if (!c) return NULL;
+    for (size_t i = 0; i < c->peer_count; i++) {
+        if (c->peers[i] && c->peers[i]->id == id) {
+            peer_info_buf_.id = c->peers[i]->id;
+            strncpy(peer_info_buf_.addr, c->peers[i]->addr, sizeof(peer_info_buf_.addr) - 1);
+            peer_info_buf_.addr[sizeof(peer_info_buf_.addr) - 1] = '\0';
+            peer_info_buf_.port = c->peers[i]->port;
+            return &peer_info_buf_;
+        }
+    }
+    return NULL;
+}

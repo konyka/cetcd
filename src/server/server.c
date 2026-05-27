@@ -15,6 +15,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <errno.h>
 #include <uv.h>
 #include "io_internal.h"
 
@@ -30,12 +36,37 @@ struct cetcd_server {
     cetcd_tcp           *peer_listener;
     cetcd_timer         *tick_timer;
     cetcd_metrics       *metrics;
+    int                  peer_fd;
     bool                 started;
 };
 
 static int  ensure_dir(const char *path);
 static void raft_tick_cb_(void *arg);
 static void process_ready_(cetcd_server *srv);
+static void peer_send_cb_(uint64_t to_id, const uint8_t *data, size_t len, void *udata);
+static void on_peer_incoming_(cetcd_tcp *server, cetcd_tcp *client, void *arg);
+
+static void peer_send_cb_(uint64_t to_id, const uint8_t *data, size_t len, void *udata) {
+    cetcd_server *srv = (cetcd_server *)udata;
+    if (!srv || !srv->cluster || len == 0) return;
+    const cetcd_peer_info *pi = cetcd_cluster_get_peer(srv->cluster, to_id);
+    if (!pi) return;
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return;
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(pi->port);
+    inet_pton(AF_INET, pi->addr, &sa.sin_addr);
+    if (connect(fd, (struct sockaddr *)&sa, sizeof(sa)) == 0) {
+        send(fd, data, len, MSG_NOSIGNAL);
+    }
+    close(fd);
+}
+
+static void on_peer_incoming_(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
+    (void)server; (void)client; (void)arg;
+}
 
 static int ensure_dir(const char *path) {
     struct stat st;
@@ -122,6 +153,8 @@ int cetcd_server_start(cetcd_server *srv) {
     for (uint32_t i = 0; i < srv->cfg.n_initial_peers; i++) {
         cetcd_cluster_add_peer(srv->cluster, &srv->cfg.initial_peers[i]);
     }
+
+    cetcd_cluster_set_sender(srv->cluster, peer_send_cb_, srv);
 
     srv->started = true;
     return 0;
@@ -232,7 +265,7 @@ int cetcd_server_serve(cetcd_server *srv) {
         if (srv->peer_listener) {
             rc = cetcd_tcp_bind(srv->peer_listener, peer_addr, srv->cfg.peer_port);
             if (rc == 0) {
-                cetcd_tcp_listen(srv->peer_listener, on_client_conn, srv);
+                cetcd_tcp_listen(srv->peer_listener, on_peer_incoming_, srv);
             }
         }
     }

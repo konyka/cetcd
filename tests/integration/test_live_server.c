@@ -238,6 +238,64 @@ CETCD_TEST_CASE(live_server_raft_tick_timer) {
     cetcd_server_free(srv);
 }
 
+CETCD_TEST_CASE(live_server_3node_cluster_election) {
+    pid_t pids[3] = {0};
+    uint16_t base_client = 23800;
+    uint16_t base_peer = 23900;
+
+    for (int i = 0; i < 3; i++) {
+        pids[i] = fork();
+        if (pids[i] == 0) {
+            cetcd_server_config cfg;
+            memset(&cfg, 0, sizeof(cfg));
+            cfg.node_id = (uint64_t)(i + 1);
+            strncpy(cfg.listen_addr, "127.0.0.1", sizeof(cfg.listen_addr) - 1);
+            cfg.listen_port = base_client + i;
+            cfg.peer_port = base_peer + i;
+            cfg.election_tick = 5;
+            cfg.heartbeat_tick = 1;
+
+            cetcd_peer_info peers[3];
+            memset(peers, 0, sizeof(peers));
+            for (int j = 0; j < 3; j++) {
+                peers[j].id = (uint64_t)(j + 1);
+                strncpy(peers[j].addr, "127.0.0.1", sizeof(peers[j].addr) - 1);
+                peers[j].port = base_peer + j;
+            }
+            memcpy(cfg.initial_peers, peers, sizeof(peers));
+            cfg.n_initial_peers = 3;
+
+            cetcd_server *srv = cetcd_server_new(&cfg);
+            if (srv) {
+                cetcd_server_start(srv);
+                alarm(3);
+                cetcd_server_serve(srv);
+                cetcd_server_free(srv);
+            }
+            _exit(0);
+        }
+    }
+
+    struct timespec ts = {1, 500000000};
+    nanosleep(&ts, NULL);
+
+    int leader_count = 0;
+    for (int i = 0; i < 3; i++) {
+        if (try_connect("127.0.0.1", base_client + i)) {
+            leader_count++;
+        }
+    }
+    CETCD_ASSERT_TRUE(leader_count >= 1);
+
+    for (int i = 0; i < 3; i++) {
+        kill(pids[i], SIGTERM);
+    }
+    for (int i = 0; i < 3; i++) {
+        int st;
+        waitpid(pids[i], &st, 0);
+    }
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_start_stop),
     CETCD_TEST_ENTRY(live_server_snapshot_after_writes),
@@ -246,6 +304,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_cluster_membership),
     CETCD_TEST_ENTRY(live_server_peer_port_listen),
     CETCD_TEST_ENTRY(live_server_raft_tick_timer),
+    CETCD_TEST_ENTRY(live_server_3node_cluster_election),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()
