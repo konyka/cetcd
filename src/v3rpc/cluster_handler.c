@@ -42,9 +42,11 @@
 
 #include "cetcd/v3rpc.h"
 #include "cetcd/peer.h"
+#include "cetcd/mvcc.h"
 
 extern cetcd_cluster *g_rpc_cluster;
 extern uint64_t       g_rpc_node_id;
+extern cetcd_mvcc_store *g_rpc_store;
 
 /* Forward declarations */
 cetcd_rpc_bytes cluster_handle_member_list(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
@@ -91,10 +93,21 @@ static int read_bytes_c(const uint8_t *buf, size_t len, size_t *pos,
 }
 
 static cetcd_rpc_bytes make_simple_cluster_response(void) {
-    uint8_t *b = (uint8_t *)malloc(1);
+    /* Return a ResponseHeader (field 1) with current revision */
+    int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+    uint8_t hdr_buf[16];
+    size_t hp = 0;
+    hdr_buf[hp++] = 0x18; /* field 3 = revision */
+    write_varint_c(hdr_buf, sizeof(hdr_buf), &hp, (uint64_t)(current_rev > 0 ? current_rev : 1));
+
+    uint8_t *b = (uint8_t *)malloc(2 + hp);
     if (!b) return (cetcd_rpc_bytes){NULL, 0};
-    b[0] = 0;
-    return (cetcd_rpc_bytes){b, 1};
+    size_t pos = 0;
+    b[pos++] = 0x0a; /* field 1 = header */
+    write_varint_c(b, 2 + hp, &pos, (uint64_t)hp);
+    memcpy(b + pos, hdr_buf, hp);
+    pos += hp;
+    return (cetcd_rpc_bytes){b, pos};
 }
 
 /*
@@ -128,8 +141,19 @@ cetcd_rpc_bytes cluster_handle_member_list(cetcd_v3rpc *rpc,
                                             const uint8_t *req, size_t req_len) {
     (void)rpc; (void)req; (void)req_len;
 
-    uint8_t buf[512];
+    uint8_t buf[1024];
     size_t pos = 0;
+
+    /* field 1 = header (ResponseHeader with revision) */
+    {
+        int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+        uint8_t hdr_buf[16]; size_t hp = 0;
+        hdr_buf[hp++] = 0x18; /* revision */
+        write_varint_c(hdr_buf, sizeof(hdr_buf), &hp, (uint64_t)(current_rev > 0 ? current_rev : 1));
+        buf[pos++] = 0x0a;
+        write_varint_c(buf, sizeof(buf), &pos, (uint64_t)hp);
+        memcpy(buf + pos, hdr_buf, hp); pos += hp;
+    }
 
     /* Encode self as a member */
     if (g_rpc_node_id > 0) {
@@ -219,9 +243,19 @@ cetcd_rpc_bytes cluster_handle_member_add(cetcd_v3rpc *rpc,
     }
     if (peer_url) free(peer_url);
 
-    /* MemberAddResponse: field 2 (member) = Member */
+    /* MemberAddResponse: field 1 (header), field 2 (member) = Member */
     uint8_t buf[256];
     size_t bpos = 0;
+    /* field 1 = header */
+    {
+        int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+        uint8_t hdr_buf[16]; size_t hp = 0;
+        hdr_buf[hp++] = 0x18;
+        write_varint_c(hdr_buf, sizeof(hdr_buf), &hp, (uint64_t)(current_rev > 0 ? current_rev : 1));
+        buf[bpos++] = 0x0a;
+        write_varint_c(buf, sizeof(buf), &bpos, (uint64_t)hp);
+        memcpy(buf + bpos, hdr_buf, hp); bpos += hp;
+    }
     if (new_id > 0) {
         uint8_t member_buf[128];
         size_t mlen = encode_member(member_buf, sizeof(member_buf), new_id, "");
@@ -233,6 +267,7 @@ cetcd_rpc_bytes cluster_handle_member_add(cetcd_v3rpc *rpc,
         }
     }
     if (bpos == 0) return make_simple_cluster_response();
+    /* bpos > 0 means we have header + member data */
     uint8_t *out = (uint8_t *)malloc(bpos);
     if (!out) return (cetcd_rpc_bytes){NULL, 0};
     memcpy(out, buf, bpos);

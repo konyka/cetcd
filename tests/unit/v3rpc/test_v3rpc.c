@@ -2367,6 +2367,64 @@ CETCD_TEST_CASE(v3rpc_status_has_version_and_leader) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_cluster_responses_have_header) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    uint8_t dummy[] = {0x00};
+
+    /* MemberList response should start with header (tag 0x0a) */
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Cluster/MemberList", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* MemberRemove response should start with header (tag 0x0a) */
+    uint8_t rm_buf[4]; size_t pos = 0;
+    rm_buf[pos++] = 0x08; rm_buf[pos++] = 0x63; /* ID=99 */
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Cluster/MemberRemove", rm_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* MemberUpdate response should start with header (tag 0x0a) */
+    uint8_t upd_buf[32]; pos = 0;
+    upd_buf[pos++] = 0x08; upd_buf[pos++] = 0x63; /* ID=99 */
+    upd_buf[pos++] = 0x12; upd_buf[pos++] = 0x0e;
+    memcpy(upd_buf + pos, "127.0.0.1:2380", 14); pos += 14;
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Cluster/MemberUpdate", upd_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* MemberPromote response should start with header (tag 0x0a) */
+    uint8_t prom_buf[4]; pos = 0;
+    prom_buf[pos++] = 0x08; prom_buf[pos++] = 0x63; /* ID=99 */
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Cluster/MemberPromote", prom_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* MemberAdd response should start with header (tag 0x0a) */
+    uint8_t add_buf[32]; pos = 0;
+    add_buf[pos++] = 0x0a; add_buf[pos++] = 0x0e;
+    memcpy(add_buf + pos, "127.0.0.1:2380", 14); pos += 14;
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Cluster/MemberAdd", add_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
@@ -2440,6 +2498,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_lease_time_to_live_with_keys),
     CETCD_TEST_ENTRY(v3rpc_maintenance_responses_have_header),
     CETCD_TEST_ENTRY(v3rpc_status_has_version_and_leader),
+    CETCD_TEST_ENTRY(v3rpc_cluster_responses_have_header),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

@@ -354,6 +354,10 @@ static void parse_member_list_response(const uint8_t *data, size_t len) {
             }
             pos = mend;
             printf("\n");
+        } else if (tag == 0x0a) {
+            /* Skip header (length-delimited) */
+            uint64_t l = 0; read_varint(data, len, &pos, &l);
+            pos += l;
         } else {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
         }

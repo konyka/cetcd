@@ -265,6 +265,11 @@ etcd v3.5 proto wire format. The `DowngradeResponse` now correctly returns only 
 `Defragment`, `Alarm`, and `MoveLeader` returns a proper `ResponseHeader` with the current
 revision.
 
+All Cluster RPC responses (`MemberList`, `MemberAdd`, `MemberRemove`, `MemberUpdate`,
+`MemberPromote`) include a `ResponseHeader` as field 1, matching the etcd v3.5 proto wire
+format. The `make_simple_cluster_response()` helper used by `MemberRemove`, `MemberUpdate`,
+and `MemberPromote` returns a proper `ResponseHeader` with the current revision.
+
 The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/keepalive`,
 `member add/remove/update/promote`, `user delete/change-password/grant-role/revoke-role`,
 `role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix/--keys-only/--rev`,
