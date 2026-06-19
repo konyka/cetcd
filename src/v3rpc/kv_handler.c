@@ -60,6 +60,7 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
     uint8_t *key = NULL; size_t key_len = 0;
     uint8_t *val = NULL; size_t val_len = 0;
     int64_t  lease_id = 0;
+    int      prev_kv_flag = 0;
     size_t pos = 0;
     while (pos < req_len) {
         uint8_t tag = req[pos++];
@@ -70,9 +71,19 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
         } else if (tag == 0x18) { /* lease: varint */
             uint64_t tmp = 0; if (read_varint(req, req_len, &pos, &tmp) != 0) break; lease_id = (int64_t)tmp;
         } else if (tag == 0x20) { /* prev_kv (bool) */
-            uint64_t tmp = 0; if (read_varint(req, req_len, &pos, &tmp) != 0) break;
+            uint64_t tmp = 0; if (read_varint(req, req_len, &pos, &tmp) != 0) break; prev_kv_flag = (int)tmp;
         } else {
             uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
+        }
+    }
+
+    /* If prev_kv requested, get the old value before overwriting */
+    cetcd_kv old_kv;
+    memset(&old_kv, 0, sizeof(old_kv));
+    int has_old = 0;
+    if (prev_kv_flag && key && g_rpc_store) {
+        if (cetcd_mvcc_get(g_rpc_store, 0, key, key_len, &old_kv) == 0) {
+            has_old = 1;
         }
     }
 
@@ -85,32 +96,63 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
     if (val) free(val);
 
     /* PutResponse:
-     *   field 1 (header) = ResponseHeader (omitted for simplicity)
-     *   field 4 (prev_kv) = KeyValue (omitted, we don't support prev_kv yet)
-     * Minimal valid response: just header with revision
-     * ResponseHeader:
-     *   field 1 (cluster_id) = uint64, tag=0x08
-     *   field 2 (member_id)  = uint64, tag=0x10
-     *   field 3 (revision)   = int64,  tag=0x18
-     *   field 4 (raft_term)  = uint64, tag=0x20
+     *   field 1 (header)  = ResponseHeader, tag = 0x0a
+     *   field 4 (prev_kv) = KeyValue, tag = 0x22 (when prev_kv=true in request)
      */
     uint8_t hdr_buf[32];
     size_t hpos = 0;
     hdr_buf[hpos++] = 0x18; /* field 3 = revision */
     write_varint_local(hdr_buf, sizeof(hdr_buf), &hpos, (uint64_t)(rev > 0 ? rev : 1));
 
-    /* Wrap header as field 1 of PutResponse */
-    uint8_t resp[64];
+    /* Build prev_kv KeyValue if requested and old value existed */
+    uint8_t *pkv_buf = NULL;
+    size_t pkv_len = 0;
+    if (has_old) {
+        size_t cap = 256 + old_kv.key.len + old_kv.value.len;
+        pkv_buf = (uint8_t *)malloc(cap);
+        if (pkv_buf) {
+            size_t kp = 0;
+            pkv_buf[kp++] = 0x0a; /* key */
+            write_varint_local(pkv_buf, cap, &kp, old_kv.key.len);
+            memcpy(pkv_buf + kp, old_kv.key.data, old_kv.key.len);
+            kp += old_kv.key.len;
+            pkv_buf[kp++] = 0x10; /* create_revision */
+            write_varint_local(pkv_buf, cap, &kp, (uint64_t)old_kv.create_rev.main);
+            pkv_buf[kp++] = 0x18; /* mod_revision */
+            write_varint_local(pkv_buf, cap, &kp, (uint64_t)old_kv.mod_rev.main);
+            pkv_buf[kp++] = 0x20; /* version */
+            write_varint_local(pkv_buf, cap, &kp, (uint64_t)old_kv.version);
+            if (old_kv.value.len > 0) {
+                pkv_buf[kp++] = 0x2a; /* value */
+                write_varint_local(pkv_buf, cap, &kp, old_kv.value.len);
+                memcpy(pkv_buf + kp, old_kv.value.data, old_kv.value.len);
+                kp += old_kv.value.len;
+            }
+            pkv_len = kp;
+        }
+        free((void*)old_kv.key.data);
+        free((void*)old_kv.value.data);
+    }
+
+    /* Assemble response dynamically */
+    size_t resp_cap = 64 + hpos + (pkv_len > 0 ? 10 + pkv_len : 0);
+    uint8_t *resp = (uint8_t *)malloc(resp_cap);
+    if (!resp) { if (pkv_buf) free(pkv_buf); return (cetcd_rpc_bytes){NULL, 0}; }
     size_t rpos = 0;
-    resp[rpos++] = 0x0a; /* field 1 = header (length-delimited) */
-    write_varint_local(resp, sizeof(resp), &rpos, (uint64_t)hpos);
+    resp[rpos++] = 0x0a; /* field 1 = header */
+    write_varint_local(resp, resp_cap, &rpos, (uint64_t)hpos);
     memcpy(resp + rpos, hdr_buf, hpos);
     rpos += hpos;
 
-    uint8_t *out = (uint8_t *)malloc(rpos);
-    if (!out) return (cetcd_rpc_bytes){NULL, 0};
-    memcpy(out, resp, rpos);
-    return (cetcd_rpc_bytes){out, rpos};
+    if (pkv_len > 0) {
+        resp[rpos++] = 0x22; /* field 4 = prev_kv */
+        write_varint_local(resp, resp_cap, &rpos, (uint64_t)pkv_len);
+        memcpy(resp + rpos, pkv_buf, pkv_len);
+        rpos += pkv_len;
+        free(pkv_buf);
+    }
+
+    return (cetcd_rpc_bytes){resp, rpos};
 }
 
 cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
@@ -280,44 +322,158 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
 
 cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
-    size_t pos = 0; uint8_t *key = NULL; size_t key_len = 0;
+    size_t pos = 0;
+    uint8_t *key = NULL; size_t key_len = 0;
+    uint8_t *range_end = NULL; size_t range_end_len = 0;
+    int prev_kv_flag = 0;
     while (pos < req_len) {
         uint8_t tag = req[pos++];
-        if (tag == 0x0a) {
+        if (tag == 0x0a) { /* key */
             if (read_bytes(req, req_len, &pos, &key, &key_len) != 0) break;
+        } else if (tag == 0x12) { /* range_end */
+            if (read_bytes(req, req_len, &pos, &range_end, &range_end_len) != 0) break;
+        } else if (tag == 0x18) { /* prev_kv (bool) */
+            uint64_t tmp = 0; if (read_varint(req, req_len, &pos, &tmp) != 0) break; prev_kv_flag = (int)tmp;
         } else {
             uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
         }
     }
-    int64_t rev = 0;
-    if (key && g_rpc_store) {
-        cetcd_revision r = cetcd_mvcc_delete(g_rpc_store, key, key_len);
-        rev = r.main;
-    }
-    if (key) free(key);
 
     /* DeleteRangeResponse:
-     *   field 1 (header)  = ResponseHeader
-     *   field 2 (deleted) = int64, tag = 0x10
+     *   field 1 (header)   = ResponseHeader, tag = 0x0a
+     *   field 2 (deleted)  = int64, tag = 0x10
+     *   field 3 (prev_kvs) = repeated KeyValue, tag = 0x1a (when prev_kv=true)
      */
+    int64_t rev = 0;
+    int64_t deleted_count = 0;
+
+    /* We'll collect prev_kv data here */
+    uint8_t *prev_kvs_buf = NULL;
+    size_t prev_kvs_len = 0;
+    size_t prev_kvs_cap = 0;
+
+    if (key && g_rpc_store) {
+        if (!range_end || range_end_len == 0) {
+            /* Point delete */
+            if (prev_kv_flag) {
+                cetcd_kv old_kv;
+                memset(&old_kv, 0, sizeof(old_kv));
+                if (cetcd_mvcc_get(g_rpc_store, 0, key, key_len, &old_kv) == 0) {
+                    deleted_count = 1;
+                    /* Encode old_kv as KeyValue, wrapped in field 3 (prev_kvs, tag 0x1a) */
+                    uint8_t kv_enc[1024]; size_t ke = 0;
+                    kv_enc[ke++] = 0x0a; /* key */
+                    write_varint_local(kv_enc, sizeof(kv_enc), &ke, old_kv.key.len);
+                    memcpy(kv_enc + ke, old_kv.key.data, old_kv.key.len); ke += old_kv.key.len;
+                    kv_enc[ke++] = 0x10; /* create_revision */
+                    write_varint_local(kv_enc, sizeof(kv_enc), &ke, (uint64_t)old_kv.create_rev.main);
+                    kv_enc[ke++] = 0x18; /* mod_revision */
+                    write_varint_local(kv_enc, sizeof(kv_enc), &ke, (uint64_t)old_kv.mod_rev.main);
+                    kv_enc[ke++] = 0x20; /* version */
+                    write_varint_local(kv_enc, sizeof(kv_enc), &ke, (uint64_t)old_kv.version);
+                    if (old_kv.value.len > 0) {
+                        kv_enc[ke++] = 0x2a; /* value */
+                        write_varint_local(kv_enc, sizeof(kv_enc), &ke, old_kv.value.len);
+                        memcpy(kv_enc + ke, old_kv.value.data, old_kv.value.len); ke += old_kv.value.len;
+                    }
+                    size_t need = ke + 10;
+                    prev_kvs_buf = (uint8_t *)malloc(need);
+                    if (prev_kvs_buf) {
+                        prev_kvs_buf[prev_kvs_len++] = 0x1a; /* field 3 = prev_kvs */
+                        write_varint_local(prev_kvs_buf, need, &prev_kvs_len, (uint64_t)ke);
+                        memcpy(prev_kvs_buf + prev_kvs_len, kv_enc, ke);
+                        prev_kvs_len += ke;
+                        prev_kvs_cap = need;
+                    }
+                    free((void*)old_kv.key.data);
+                    free((void*)old_kv.value.data);
+                }
+            }
+            cetcd_revision r = cetcd_mvcc_delete(g_rpc_store, key, key_len);
+            rev = r.main;
+            if (!prev_kv_flag && rev > 0) deleted_count = 1;
+        } else {
+            /* Range delete: get all keys, then delete each one */
+            cetcd_kv *kvs = NULL; size_t n = 0;
+            cetcd_mvcc_range(g_rpc_store, 0, key, key_len, range_end, range_end_len, &kvs, &n);
+            deleted_count = (int64_t)n;
+
+            if (prev_kv_flag && n > 0) {
+                prev_kvs_cap = n * 256;
+                prev_kvs_buf = (uint8_t *)malloc(prev_kvs_cap);
+                if (prev_kvs_buf) {
+                    for (size_t i = 0; i < n; i++) {
+                        uint8_t kv_enc[1024];
+                        size_t kp = 0;
+                        kv_enc[kp++] = 0x0a; /* key */
+                        write_varint_local(kv_enc, sizeof(kv_enc), &kp, kvs[i].key.len);
+                        memcpy(kv_enc + kp, kvs[i].key.data, kvs[i].key.len);
+                        kp += kvs[i].key.len;
+                        kv_enc[kp++] = 0x10; /* create_revision */
+                        write_varint_local(kv_enc, sizeof(kv_enc), &kp, (uint64_t)kvs[i].create_rev.main);
+                        kv_enc[kp++] = 0x18; /* mod_revision */
+                        write_varint_local(kv_enc, sizeof(kv_enc), &kp, (uint64_t)kvs[i].mod_rev.main);
+                        kv_enc[kp++] = 0x20; /* version */
+                        write_varint_local(kv_enc, sizeof(kv_enc), &kp, (uint64_t)kvs[i].version);
+                        if (kvs[i].value.len > 0) {
+                            kv_enc[kp++] = 0x2a; /* value */
+                            write_varint_local(kv_enc, sizeof(kv_enc), &kp, kvs[i].value.len);
+                            memcpy(kv_enc + kp, kvs[i].value.data, kvs[i].value.len);
+                            kp += kvs[i].value.len;
+                        }
+                        /* Append to prev_kvs_buf as field 3 (tag 0x1a) */
+                        size_t needed = prev_kvs_len + 1 + 5 + kp;
+                        if (needed > prev_kvs_cap) {
+                            prev_kvs_cap = needed * 2;
+                            uint8_t *tmp = (uint8_t *)realloc(prev_kvs_buf, prev_kvs_cap);
+                            if (!tmp) { free(prev_kvs_buf); prev_kvs_buf = NULL; prev_kvs_len = 0; break; }
+                            prev_kvs_buf = tmp;
+                        }
+                        prev_kvs_buf[prev_kvs_len++] = 0x1a; /* field 3 = prev_kvs */
+                        write_varint_local(prev_kvs_buf, prev_kvs_cap, &prev_kvs_len, (uint64_t)kp);
+                        memcpy(prev_kvs_buf + prev_kvs_len, kv_enc, kp);
+                        prev_kvs_len += kp;
+                    }
+                }
+            }
+
+            /* Delete each key */
+            for (size_t i = 0; i < n; i++) {
+                cetcd_revision r = cetcd_mvcc_delete(g_rpc_store, kvs[i].key.data, kvs[i].key.len);
+                if (r.main > rev) rev = r.main;
+            }
+            if (rev == 0 && g_rpc_store) rev = cetcd_mvcc_revision(g_rpc_store);
+            if (kvs) cetcd_kv_free_contents(kvs, n);
+        }
+    }
+
+    if (key) free(key);
+    if (range_end) free(range_end);
+
+    /* Build response */
     uint8_t hdr_buf[32];
     size_t hpos = 0;
     hdr_buf[hpos++] = 0x18; /* revision */
     write_varint_local(hdr_buf, sizeof(hdr_buf), &hpos, (uint64_t)(rev > 0 ? rev : 1));
 
-    uint8_t resp[64];
+    size_t resp_cap = 64 + hpos + (prev_kvs_len > 0 ? prev_kvs_len : 0);
+    uint8_t *resp = (uint8_t *)malloc(resp_cap);
+    if (!resp) { if (prev_kvs_buf) free(prev_kvs_buf); return (cetcd_rpc_bytes){NULL, 0}; }
     size_t rpos = 0;
     resp[rpos++] = 0x0a; /* field 1 = header */
-    write_varint_local(resp, sizeof(resp), &rpos, (uint64_t)hpos);
+    write_varint_local(resp, resp_cap, &rpos, (uint64_t)hpos);
     memcpy(resp + rpos, hdr_buf, hpos);
     rpos += hpos;
     resp[rpos++] = 0x10; /* field 2 = deleted */
-    write_varint_local(resp, sizeof(resp), &rpos, (rev > 0 ? 1 : 0));
+    write_varint_local(resp, resp_cap, &rpos, (uint64_t)deleted_count);
 
-    uint8_t *out = (uint8_t *)malloc(rpos);
-    if (!out) return (cetcd_rpc_bytes){NULL, 0};
-    memcpy(out, resp, rpos);
-    return (cetcd_rpc_bytes){out, rpos};
+    if (prev_kvs_len > 0 && prev_kvs_buf) {
+        memcpy(resp + rpos, prev_kvs_buf, prev_kvs_len);
+        rpos += prev_kvs_len;
+        free(prev_kvs_buf);
+    }
+
+    return (cetcd_rpc_bytes){resp, rpos};
 }
 
 cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
@@ -594,23 +750,139 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
             memcpy(resp + rpos, del_inner, dp); rpos += dp;
 
         } else if (op_tag == 0x0a) {
-            /* RequestRange — return minimal response */
+            /* RequestRange — query MVCC store and return actual results */
             uint64_t rlen_val = 0;
             if (read_varint(od, ol, &op_pos, &rlen_val) != 0) continue;
+            const uint8_t *rd = od + op_pos;
+            size_t rl = (size_t)rlen_val;
             op_pos += (size_t)rlen_val;
 
-            uint8_t rng_inner[32]; size_t rp = 0;
-            rng_inner[rp++] = 0x18;
-            write_varint_local(rng_inner, sizeof(rng_inner), &rp, (uint64_t)(final_rev > 0 ? final_rev : 1));
-            rng_inner[rp++] = 0x20; /* field 4 = count */
-            write_varint_local(rng_inner, sizeof(rng_inner), &rp, 0);
-            if (rpos + 20 > resp_cap) { resp_cap *= 2; uint8_t *t = realloc(resp, resp_cap); if (!t) { free(resp); goto txn_cleanup; } resp = t; }
-            resp[rpos++] = 0x1a; /* field 3 = responses */
-            size_t inner_msg_len = 1 + 1 + rp;
-            write_varint_local(resp, resp_cap, &rpos, (uint64_t)inner_msg_len);
-            resp[rpos++] = 0x0a; /* field 1 = ResponseRange */
-            write_varint_local(resp, resp_cap, &rpos, (uint64_t)rp);
-            memcpy(resp + rpos, rng_inner, rp); rpos += rp;
+            /* Parse RequestRange: key (0x0a), range_end (0x12), revision (0x20) */
+            uint8_t *rkey = NULL; size_t rkey_len = 0;
+            uint8_t *rrange_end = NULL; size_t rrange_end_len = 0;
+            int64_t rrev = 0;
+            size_t rp_pos = 0;
+            while (rp_pos < rl) {
+                uint8_t rtag = rd[rp_pos++];
+                if (rtag == 0x0a) {
+                    read_bytes(rd, rl, &rp_pos, &rkey, &rkey_len);
+                } else if (rtag == 0x12) {
+                    read_bytes(rd, rl, &rp_pos, &rrange_end, &rrange_end_len);
+                } else if (rtag == 0x20) {
+                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rrev = (int64_t)v;
+                } else {
+                    uint64_t skip = 0; read_varint(rd, rl, &rp_pos, &skip);
+                }
+            }
+
+            /* Query MVCC store */
+            size_t rng_count = 0;
+            uint8_t *kvs_buf = NULL; size_t kvs_len = 0; size_t kvs_cap = 0;
+
+            if (rkey && g_rpc_store) {
+                if (!rrange_end || rrange_end_len == 0) {
+                    /* Point get */
+                    cetcd_kv out_kv;
+                    memset(&out_kv, 0, sizeof(out_kv));
+                    if (cetcd_mvcc_get(g_rpc_store, rrev, rkey, rkey_len, &out_kv) == 0) {
+                        rng_count = 1;
+                        uint8_t kv_enc[1024]; size_t kp = 0;
+                        kv_enc[kp++] = 0x0a;
+                        write_varint_local(kv_enc, sizeof(kv_enc), &kp, out_kv.key.len);
+                        memcpy(kv_enc + kp, out_kv.key.data, out_kv.key.len); kp += out_kv.key.len;
+                        kv_enc[kp++] = 0x10;
+                        write_varint_local(kv_enc, sizeof(kv_enc), &kp, (uint64_t)out_kv.create_rev.main);
+                        kv_enc[kp++] = 0x18;
+                        write_varint_local(kv_enc, sizeof(kv_enc), &kp, (uint64_t)out_kv.mod_rev.main);
+                        kv_enc[kp++] = 0x20;
+                        write_varint_local(kv_enc, sizeof(kv_enc), &kp, (uint64_t)out_kv.version);
+                        if (out_kv.value.len > 0) {
+                            kv_enc[kp++] = 0x2a;
+                            write_varint_local(kv_enc, sizeof(kv_enc), &kp, out_kv.value.len);
+                            memcpy(kv_enc + kp, out_kv.value.data, out_kv.value.len); kp += out_kv.value.len;
+                        }
+                        kvs_cap = kp + 10;
+                        kvs_buf = (uint8_t *)malloc(kvs_cap);
+                        if (kvs_buf) {
+                            kvs_buf[kvs_len++] = 0x0a; /* field 2 = kvs */
+                            write_varint_local(kvs_buf, kvs_cap, &kvs_len, (uint64_t)kp);
+                            memcpy(kvs_buf + kvs_len, kv_enc, kp); kvs_len += kp;
+                        }
+                        free((void*)out_kv.key.data);
+                        free((void*)out_kv.value.data);
+                    }
+                } else {
+                    /* Range query */
+                    cetcd_kv *kvs = NULL; size_t n = 0;
+                    cetcd_mvcc_range(g_rpc_store, rrev, rkey, rkey_len,
+                                     rrange_end, rrange_end_len, &kvs, &n);
+                    rng_count = n;
+                    kvs_cap = n * 256 + 64;
+                    kvs_buf = (uint8_t *)malloc(kvs_cap);
+                    if (kvs_buf) {
+                        for (size_t i = 0; i < n; i++) {
+                            uint8_t kv_enc[1024]; size_t kp = 0;
+                            kv_enc[kp++] = 0x0a;
+                            write_varint_local(kv_enc, sizeof(kv_enc), &kp, kvs[i].key.len);
+                            memcpy(kv_enc + kp, kvs[i].key.data, kvs[i].key.len); kp += kvs[i].key.len;
+                            kv_enc[kp++] = 0x10;
+                            write_varint_local(kv_enc, sizeof(kv_enc), &kp, (uint64_t)kvs[i].create_rev.main);
+                            kv_enc[kp++] = 0x18;
+                            write_varint_local(kv_enc, sizeof(kv_enc), &kp, (uint64_t)kvs[i].mod_rev.main);
+                            kv_enc[kp++] = 0x20;
+                            write_varint_local(kv_enc, sizeof(kv_enc), &kp, (uint64_t)kvs[i].version);
+                            if (kvs[i].value.len > 0) {
+                                kv_enc[kp++] = 0x2a;
+                                write_varint_local(kv_enc, sizeof(kv_enc), &kp, kvs[i].value.len);
+                                memcpy(kv_enc + kp, kvs[i].value.data, kvs[i].value.len); kp += kvs[i].value.len;
+                            }
+                            size_t needed = kvs_len + 1 + 5 + kp;
+                            if (needed > kvs_cap) {
+                                kvs_cap = needed * 2;
+                                uint8_t *tmp = (uint8_t *)realloc(kvs_buf, kvs_cap);
+                                if (!tmp) { free(kvs_buf); kvs_buf = NULL; kvs_len = 0; break; }
+                                kvs_buf = tmp;
+                            }
+                            kvs_buf[kvs_len++] = 0x0a; /* field 2 = kvs */
+                            write_varint_local(kvs_buf, kvs_cap, &kvs_len, (uint64_t)kp);
+                            memcpy(kvs_buf + kvs_len, kv_enc, kp); kvs_len += kp;
+                        }
+                    }
+                    if (kvs) cetcd_kv_free_contents(kvs, n);
+                }
+            }
+
+            /* Build ResponseRange inner: count + kvs */
+            size_t rng_inner_cap = 32 + (kvs_len > 0 ? kvs_len : 0);
+            uint8_t *rng_inner = (uint8_t *)malloc(rng_inner_cap);
+            size_t rp = 0;
+            if (rng_inner) {
+                rng_inner[rp++] = 0x20; /* field 4 = count */
+                write_varint_local(rng_inner, rng_inner_cap, &rp, (uint64_t)rng_count);
+                if (kvs_len > 0 && kvs_buf) {
+                    memcpy(rng_inner + rp, kvs_buf, kvs_len);
+                    rp += kvs_len;
+                }
+            }
+            if (rkey) free(rkey);
+            if (rrange_end) free(rrange_end);
+            if (kvs_buf) free(kvs_buf);
+
+            if (rng_inner) {
+                if (rpos + 20 + rp > resp_cap) {
+                    resp_cap = resp_cap * 2 + rp + 64;
+                    uint8_t *t = realloc(resp, resp_cap);
+                    if (!t) { free(resp); free(rng_inner); goto txn_cleanup; }
+                    resp = t;
+                }
+                resp[rpos++] = 0x1a; /* field 3 = responses */
+                size_t inner_msg_len = 1 + 1 + rp;
+                write_varint_local(resp, resp_cap, &rpos, (uint64_t)inner_msg_len);
+                resp[rpos++] = 0x0a; /* field 1 = ResponseRange */
+                write_varint_local(resp, resp_cap, &rpos, (uint64_t)rp);
+                memcpy(resp + rpos, rng_inner, rp); rpos += rp;
+                free(rng_inner);
+            }
         }
     }
 

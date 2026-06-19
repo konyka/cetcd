@@ -240,7 +240,7 @@ cetcd_rpc_bytes maint_handle_move_leader(cetcd_v3rpc *rpc, const uint8_t *req, s
  *
  * SnapshotRequest: empty
  * SnapshotResponse:
- *   field 1 (header)   = ResponseHeader (omitted for simplicity)
+ *   field 1 (header)   = ResponseHeader, tag = 0x0a
  *   field 2 (remaining) = uint64, tag = 0x10 (remaining bytes, 0 = done)
  *   field 3 (blob)     = bytes, tag = 0x1a (snapshot data)
  *
@@ -289,12 +289,23 @@ cetcd_rpc_bytes maint_handle_snapshot(cetcd_v3rpc *rpc, const uint8_t *req, size
         }
     }
 
-    /* Build response: field 2 (remaining=0) + field 3 (blob) */
-    size_t cap = 32 + (blob_len > 0 ? blob_len : 0);
+    /* Build response: field 1 (header) + field 2 (remaining=0) + field 3 (blob) */
+    size_t cap = 64 + (blob_len > 0 ? blob_len : 0);
     uint8_t *buf = (uint8_t *)malloc(cap);
     if (!buf) { if (blob) free(blob); return (cetcd_rpc_bytes){NULL, 0}; }
 
     size_t pos = 0;
+    /* field 1 = header (ResponseHeader with revision) */
+    {
+        int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+        uint8_t hdr_buf[32]; size_t hp = 0;
+        hdr_buf[hp++] = 0x18; /* revision */
+        write_varint_m(hdr_buf, sizeof(hdr_buf), &hp, (uint64_t)(current_rev > 0 ? current_rev : 1));
+        buf[pos++] = 0x0a; /* field 1 = header */
+        write_varint_m(buf, cap, &pos, (uint64_t)hp);
+        memcpy(buf + pos, hdr_buf, hp); pos += hp;
+    }
+
     /* field 2 = remaining (uint64), tag = 0x10 */
     buf[pos++] = 0x10;
     write_varint_m(buf, cap, &pos, 0);

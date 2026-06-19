@@ -1435,6 +1435,216 @@ CETCD_TEST_CASE(v3rpc_watch_response_correct_tags) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_put_prev_kv) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put key="pktest" value="oldval" */
+    uint8_t put1[32]; size_t p1 = 0;
+    put1[p1++] = 0x0a; put1[p1++] = 0x06;
+    memcpy(put1 + p1, "pktest", 6); p1 += 6;
+    put1[p1++] = 0x12; put1[p1++] = 0x06;
+    memcpy(put1 + p1, "oldval", 6); p1 += 6;
+    cetcd_rpc_bytes r1 = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put1, p1);
+    cetcd_rpc_bytes_free(&r1);
+
+    /* Put key="pktest" value="newval" with prev_kv=true */
+    uint8_t put2[48]; size_t p2 = 0;
+    put2[p2++] = 0x0a; put2[p2++] = 0x06;
+    memcpy(put2 + p2, "pktest", 6); p2 += 6;
+    put2[p2++] = 0x12; put2[p2++] = 0x06;
+    memcpy(put2 + p2, "newval", 6); p2 += 6;
+    put2[p2++] = 0x20; put2[p2++] = 0x01; /* prev_kv = true */
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put2, p2);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* PutResponse should contain field 4 (prev_kv) with tag 0x22 */
+    bool found_prev_kv = false;
+    for (size_t i = 0; i < resp.len; i++) {
+        if (resp.data[i] == 0x22) { found_prev_kv = true; break; }
+    }
+    CETCD_ASSERT_TRUE(found_prev_kv);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_delete_prev_kv) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put key="dktest" value="delval" */
+    uint8_t put_buf[32]; size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x06;
+    memcpy(put_buf + pos, "dktest", 6); pos += 6;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x06;
+    memcpy(put_buf + pos, "delval", 6); pos += 6;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* Delete key="dktest" with prev_kv=true (field 3, tag 0x18) */
+    uint8_t del_buf[32]; size_t dpos = 0;
+    del_buf[dpos++] = 0x0a; del_buf[dpos++] = 0x06;
+    memcpy(del_buf + dpos, "dktest", 6); dpos += 6;
+    del_buf[dpos++] = 0x18; del_buf[dpos++] = 0x01; /* prev_kv = true */
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/DeleteRange", del_buf, dpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* DeleteRangeResponse should contain field 3 (prev_kvs) with tag 0x1a */
+    bool found_prev_kvs = false;
+    for (size_t i = 0; i < resp.len; i++) {
+        if (resp.data[i] == 0x1a) { found_prev_kvs = true; break; }
+    }
+    CETCD_ASSERT_TRUE(found_prev_kvs);
+
+    /* Also verify field 2 (deleted) = 1, tag 0x10 */
+    bool found_deleted = false;
+    for (size_t i = 0; i < resp.len; i++) {
+        if (resp.data[i] == 0x10) { found_deleted = true; break; }
+    }
+    CETCD_ASSERT_TRUE(found_deleted);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_delete_range_multiple) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put keys "ra", "rb", "rc" */
+    const char *keys[] = {"ra", "rb", "rc"};
+    for (int i = 0; i < 3; i++) {
+        uint8_t put_buf[32]; size_t pos = 0;
+        put_buf[pos++] = 0x0a; put_buf[pos++] = 0x02;
+        memcpy(put_buf + pos, keys[i], 2); pos += 2;
+        put_buf[pos++] = 0x12; put_buf[pos++] = 0x01;
+        put_buf[pos++] = '0' + i;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Delete range "ra" to "rd" (should delete ra, rb, rc) */
+    uint8_t del_buf[32]; size_t dpos = 0;
+    del_buf[dpos++] = 0x0a; del_buf[dpos++] = 0x02;
+    memcpy(del_buf + dpos, "ra", 2); dpos += 2;
+    del_buf[dpos++] = 0x12; del_buf[dpos++] = 0x02;
+    memcpy(del_buf + dpos, "rd", 2); dpos += 2;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/DeleteRange", del_buf, dpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* Parse deleted count: field 2 (tag 0x10) should be 3 */
+    int64_t deleted = 0;
+    size_t rpos = 0;
+    while (rpos < resp.len) {
+        uint8_t tag = resp.data[rpos++];
+        if (tag == 0x10) {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                v |= (uint64_t)(b & 0x7f) << shift;
+                if (!(b & 0x80)) break;
+                shift += 7;
+            }
+            deleted = (int64_t)v;
+            break;
+        } else if (tag == 0x0a || tag == 0x1a) {
+            uint64_t l = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                l |= (uint64_t)(b & 0x7f) << shift;
+                if (!(b & 0x80)) break;
+                shift += 7;
+            }
+            rpos += l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                v |= (uint64_t)(b & 0x7f) << shift;
+                if (!(b & 0x80)) break;
+                shift += 7;
+            }
+        }
+    }
+    CETCD_ASSERT_TRUE(deleted >= 3);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_txn_range_returns_data) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put key="trkey" value="trval" */
+    uint8_t put_buf[32]; size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x05;
+    memcpy(put_buf + pos, "trkey", 5); pos += 5;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x05;
+    memcpy(put_buf + pos, "trval", 5); pos += 5;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* Build Txn with success op: RequestRange("trkey")
+     * RequestRange: field 1 (key) = "trkey"
+     * RequestOp: field 1 (request_range) = RequestRange
+     * TxnRequest: field 2 (success) = [RequestOp]
+     */
+    uint8_t range_inner[16]; size_t rip = 0;
+    range_inner[rip++] = 0x0a; range_inner[rip++] = 0x05;
+    memcpy(range_inner + rip, "trkey", 5); rip += 5;
+
+    uint8_t op_buf[32]; size_t opos = 0;
+    op_buf[opos++] = 0x0a; /* RequestRange (field 1 of RequestOp) */
+    op_buf[opos++] = (uint8_t)rip;
+    memcpy(op_buf + opos, range_inner, rip); opos += rip;
+
+    uint8_t txn_buf[64]; size_t tpos = 0;
+    txn_buf[tpos++] = 0x12; /* field 2 = success */
+    txn_buf[tpos++] = (uint8_t)opos;
+    memcpy(txn_buf + tpos, op_buf, opos); tpos += opos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", txn_buf, tpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 5);
+
+    /* The ResponseRange should contain actual kv data.
+     * Look for "trval" in the response bytes to confirm data was returned. */
+    bool found_val = false;
+    for (size_t i = 0; i + 4 < resp.len; i++) {
+        if (memcmp(resp.data + i, "trval", 5) == 0) { found_val = true; break; }
+    }
+    CETCD_ASSERT_TRUE(found_val);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_snapshot_has_header) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put a key so the store has data */
+    uint8_t put_buf[32]; size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x04;
+    memcpy(put_buf + pos, "snap", 4); pos += 4;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x04;
+    memcpy(put_buf + pos, "data", 4); pos += 4;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* Request snapshot */
+    uint8_t req[] = {0x00};
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Maintenance/Snapshot", req, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* SnapshotResponse should start with field 1 (header) tag = 0x0a */
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
@@ -1488,6 +1698,11 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_compact_has_header),
     CETCD_TEST_ENTRY(v3rpc_lease_revoke_has_header),
     CETCD_TEST_ENTRY(v3rpc_watch_response_correct_tags),
+    CETCD_TEST_ENTRY(v3rpc_put_prev_kv),
+    CETCD_TEST_ENTRY(v3rpc_delete_prev_kv),
+    CETCD_TEST_ENTRY(v3rpc_delete_range_multiple),
+    CETCD_TEST_ENTRY(v3rpc_txn_range_returns_data),
+    CETCD_TEST_ENTRY(v3rpc_snapshot_has_header),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

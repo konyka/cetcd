@@ -254,18 +254,22 @@ correct renewal behavior for leases with non-default TTLs.
 
 The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/keepalive`,
 `member add/remove/update/promote`, `user delete/change-password/grant-role/revoke-role`,
-`role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix`, `del --prefix`,
-`watch`, `txn cas` (compare-and-swap), and `auth login` (token-based authentication).
+`role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix/--keys-only/--rev`,
+`del --prefix/--prev-kv`, `put --prev-kv`, `watch`, `txn cas` (compare-and-swap), and
+`auth login` (token-based authentication).
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
-`range_end`), `Put` returns a proper `PutResponse` with header revision, and `DeleteRange`
-returns the count of deleted keys. The `Txn` handler now evaluates `Compare` clauses against
-the MVCC store — supporting `EQUAL`/`GREATER`/`LESS`/`NOT_EQUAL` operators on `VERSION`,
-`CREATE`, `MOD`, `VALUE`, and `LEASE` targets — and executes success or failure ops
-accordingly, returning a complete `TxnResponse` with `ResponseHeader`, `succeeded` flag,
-and `ResponseOp` entries. The `Compact` and `LeaseRevoke` responses now include proper
-`ResponseHeader` with the current revision.
+`range_end`), `Put` returns a proper `PutResponse` with header revision and supports `prev_kv`
+(returning the previous key-value when `prev_kv=true` is set in the request), `DeleteRange`
+supports `range_end` for range deletes and `prev_kv` for returning deleted key-values.
+The `Txn` handler now evaluates `Compare` clauses against the MVCC store — supporting
+`EQUAL`/`GREATER`/`LESS`/`NOT_EQUAL` operators on `VERSION`, `CREATE`, `MOD`, `VALUE`, and
+`LEASE` targets — and executes success or failure ops accordingly, returning a complete
+`TxnResponse` with `ResponseHeader`, `succeeded` flag, and `ResponseOp` entries. The
+`RequestRange` op within transactions now queries the MVCC store and returns actual key-value
+data instead of an empty count. The `Compact` and `LeaseRevoke` responses include proper
+`ResponseHeader` with the current revision. The `Snapshot` response includes a `ResponseHeader`.
 
 The Watch handler uses correct protobuf field numbers: `watch_id` at field 2 (tag 0x10),
 `created` at field 3 (tag 0x18), `canceled` at field 4 (tag 0x20), and `events` at

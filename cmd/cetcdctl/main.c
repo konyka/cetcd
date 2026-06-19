@@ -61,6 +61,7 @@
 
 static const char *g_host = "127.0.0.1";
 static uint16_t    g_port = 2379;
+static int         g_keys_only = 0; /* flag for get --keys-only */
 
 /* --- Protobuf helpers --- */
 
@@ -221,7 +222,7 @@ static void parse_range_response(const uint8_t *data, size_t len) {
             pos = kv_end;
             count++;
             printf("%.*s", (int)key_len, key_data);
-            if (val_data && val_len > 0) {
+            if (!g_keys_only && val_data && val_len > 0) {
                 printf(" -> %.*s", (int)val_len, val_data);
             }
             printf("\n");
@@ -366,30 +367,87 @@ static void parse_string_list_response(const uint8_t *data, size_t len, const ch
 /* --- Commands --- */
 
 static int cmd_put(int argc, char **argv) {
-    if (argc < 4) { fprintf(stderr, "usage: cetcdctl put KEY VALUE\n"); return 1; }
+    if (argc < 4) { fprintf(stderr, "usage: cetcdctl put [--prev-kv] KEY VALUE\n"); return 1; }
+    bool prev_kv = false;
+    int key_idx = 2, val_idx = 3;
+    if (strcmp(argv[2], "--prev-kv") == 0) {
+        prev_kv = true;
+        key_idx = 3; val_idx = 4;
+        if (argc < 5) { fprintf(stderr, "usage: cetcdctl put --prev-kv KEY VALUE\n"); return 1; }
+    }
     uint8_t req[4096], resp[4096];
     size_t pos = 0;
     pos = encode_bytes_field(req, sizeof(req), pos, 0x0a,
-                             (const uint8_t *)argv[2], strlen(argv[2]));
+                             (const uint8_t *)argv[key_idx], strlen(argv[key_idx]));
     pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
-                             (const uint8_t *)argv[3], strlen(argv[3]));
+                             (const uint8_t *)argv[val_idx], strlen(argv[val_idx]));
+    if (prev_kv) {
+        /* field 4 (prev_kv) = bool, tag = 0x20 */
+        pos = encode_varint_field(req, sizeof(req), pos, 0x20, 1);
+    }
     int rlen = do_rpc("/etcdserverpb.KV/Put", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+    if (prev_kv) {
+        /* Parse PutResponse for prev_kv (field 4, tag 0x22) */
+        size_t rpos = 0;
+        while (rpos < (size_t)rlen) {
+            uint8_t tag = resp[rpos++];
+            if (tag == 0x22) {
+                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+                size_t kv_end = rpos + (size_t)l;
+                const uint8_t *pk = NULL; size_t pk_len = 0;
+                const uint8_t *pv = NULL; size_t pv_len = 0;
+                while (rpos < kv_end) {
+                    uint8_t ktag = resp[rpos++];
+                    if (ktag == 0x0a) {
+                        uint64_t kl = 0; read_varint(resp, kv_end, &rpos, &kl);
+                        pk = resp + rpos; pk_len = (size_t)kl; rpos += kl;
+                    } else if (ktag == 0x2a) {
+                        uint64_t vl = 0; read_varint(resp, kv_end, &rpos, &vl);
+                        pv = resp + rpos; pv_len = (size_t)vl; rpos += vl;
+                    } else {
+                        uint64_t v = 0; read_varint(resp, kv_end, &rpos, &v);
+                    }
+                }
+                rpos = kv_end;
+                if (pk) {
+                    printf("prev: %.*s", (int)pk_len, pk);
+                    if (pv && pv_len > 0) printf(" -> %.*s", (int)pv_len, pv);
+                    printf("\n");
+                }
+            } else if (tag == 0x0a) {
+                /* header */
+                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
+            } else {
+                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            }
+        }
+    }
     printf("OK\n");
     return 0;
 }
 
 static int cmd_get(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] KEY\n"); return 1; }
-    /* Check for --prefix flag */
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--keys-only] [--rev N] KEY\n"); return 1; }
     bool prefix = false;
-    int key_idx = 2;
-    if (strcmp(argv[2], "--prefix") == 0) {
-        prefix = true;
-        key_idx = 3;
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl get --prefix KEY\n"); return 1; }
+    bool keys_only = false;
+    int64_t rev = 0;
+    const char *key = NULL;
+
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--prefix") == 0) {
+            prefix = true;
+        } else if (strcmp(argv[i], "--keys-only") == 0) {
+            keys_only = true;
+        } else if (strcmp(argv[i], "--rev") == 0) {
+            if (i + 1 >= argc) { fprintf(stderr, "--rev requires a revision number\n"); return 1; }
+            rev = atol(argv[++i]);
+        } else {
+            key = argv[i];
+        }
     }
-    const char *key = argv[key_idx];
+    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--keys-only] [--rev N] KEY\n"); return 1; }
+
     size_t key_len = strlen(key);
 
     uint8_t req[1024], resp[8192];
@@ -405,22 +463,34 @@ static int cmd_get(int argc, char **argv) {
         pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
                                  (const uint8_t *)range_end, key_len);
     }
+    if (rev > 0) {
+        /* field 4 (revision) = int64, tag = 0x20 */
+        pos = encode_varint_field(req, sizeof(req), pos, 0x20, (uint64_t)rev);
+    }
+    g_keys_only = keys_only ? 1 : 0;
     int rlen = do_rpc("/etcdserverpb.KV/Range", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
     parse_range_response(resp, rlen);
+    g_keys_only = 0;
     return 0;
 }
 
 static int cmd_del(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl del [--prefix] KEY\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--prev-kv] KEY\n"); return 1; }
     bool prefix = false;
-    int key_idx = 2;
-    if (strcmp(argv[2], "--prefix") == 0) {
-        prefix = true;
-        key_idx = 3;
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl del --prefix KEY\n"); return 1; }
+    bool prev_kv = false;
+    const char *key = NULL;
+
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--prefix") == 0) {
+            prefix = true;
+        } else if (strcmp(argv[i], "--prev-kv") == 0) {
+            prev_kv = true;
+        } else {
+            key = argv[i];
+        }
     }
-    const char *key = argv[key_idx];
+    if (!key) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--prev-kv] KEY\n"); return 1; }
     size_t key_len = strlen(key);
 
     uint8_t req[1024], resp[4096];
@@ -435,21 +505,47 @@ static int cmd_del(int argc, char **argv) {
         pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
                                  (const uint8_t *)range_end, key_len);
     }
+    if (prev_kv) {
+        /* field 3 (prev_kv) = bool, tag = 0x18 */
+        pos = encode_varint_field(req, sizeof(req), pos, 0x18, 1);
+    }
     int rlen = do_rpc("/etcdserverpb.KV/DeleteRange", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-    /* Parse DeleteRangeResponse: field 2 (deleted) = int64, tag=0x10 */
+    /* Parse DeleteRangeResponse: field 2 (deleted), field 3 (prev_kvs) */
     size_t rpos = 0;
     while (rpos < (size_t)rlen) {
         uint8_t tag = resp[rpos++];
         if (tag == 0x10) {
             uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
             printf("%llu key(s) deleted\n", (unsigned long long)v);
-            return 0;
+        } else if (tag == 0x1a && prev_kv) {
+            /* prev_kvs: repeated KeyValue */
+            uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+            size_t kv_end = rpos + (size_t)l;
+            const uint8_t *pk = NULL; size_t pk_len = 0;
+            const uint8_t *pv = NULL; size_t pv_len = 0;
+            while (rpos < kv_end) {
+                uint8_t ktag = resp[rpos++];
+                if (ktag == 0x0a) {
+                    uint64_t kl = 0; read_varint(resp, kv_end, &rpos, &kl);
+                    pk = resp + rpos; pk_len = (size_t)kl; rpos += kl;
+                } else if (ktag == 0x2a) {
+                    uint64_t vl = 0; read_varint(resp, kv_end, &rpos, &vl);
+                    pv = resp + rpos; pv_len = (size_t)vl; rpos += vl;
+                } else {
+                    uint64_t v = 0; read_varint(resp, kv_end, &rpos, &v);
+                }
+            }
+            rpos = kv_end;
+            if (pk) {
+                printf("prev: %.*s", (int)pk_len, pk);
+                if (pv && pv_len > 0) printf(" -> %.*s", (int)pv_len, pv);
+                printf("\n");
+            }
         } else {
             uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
         }
     }
-    printf("OK\n");
     return 0;
 }
 
@@ -1205,9 +1301,10 @@ static void print_usage(void) {
     printf("  --host ADDR    Server address (default: 127.0.0.1)\n");
     printf("  --port PORT    Server port (default: 2379)\n\n");
     printf("Commands:\n");
-    printf("  put KEY VALUE          Store a key-value pair\n");
-    printf("  get [--prefix] KEY      Retrieve a key (or all keys with prefix)\n");
-    printf("  del [--prefix] KEY      Delete a key (or all keys with prefix)\n");
+    printf("  put [--prev-kv] KEY VALUE  Store a key-value pair (--prev-kv shows old value)\n");
+    printf("  get [--prefix] [--keys-only] [--rev N] KEY\n");
+    printf("                         Retrieve a key (options: --prefix range, --keys-only, --rev N historical)\n");
+    printf("  del [--prefix] [--prev-kv] KEY  Delete a key (options: --prefix, --prev-kv)\n");
     printf("  watch [--prefix] KEY   Watch key changes (single response)\n");
     printf("  lease grant TTL        Grant a lease (TTL in seconds)\n");
     printf("  lease revoke ID        Revoke a lease by ID\n");
