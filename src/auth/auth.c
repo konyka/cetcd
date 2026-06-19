@@ -385,3 +385,48 @@ int cetcd_auth_revoke_role(cetcd_auth_store *s, const char *user, const char *ro
     }
     return CETCD_ERR_NOTFOUND;
 }
+
+/* --- Get user/role --- */
+
+const cetcd_user *cetcd_auth_get_user(const cetcd_auth_store *s, const char *name) {
+    if (!s || !name) return NULL;
+    return cetcd_find_user((cetcd_auth_store *)s, name);
+}
+
+const cetcd_role *cetcd_auth_get_role(const cetcd_auth_store *s, const char *name) {
+    if (!s || !name) return NULL;
+    return cetcd_find_role((cetcd_auth_store *)s, name);
+}
+
+/* --- Grant / Revoke permission --- */
+
+int cetcd_auth_grant_permission(cetcd_auth_store *s, const char *role,
+                                  int perm_read, int perm_write,
+                                  const char *key, size_t key_len) {
+    if (!s || !role) return CETCD_ERR_INVAL;
+    cetcd_role *r = cetcd_find_role(s, role);
+    if (!r) return CETCD_ERR_NOTFOUND;
+    r->perm_read = perm_read ? 1 : 0;
+    r->perm_write = perm_write ? 1 : 0;
+    if (key && key_len > 0) {
+        size_t lp = key_len < sizeof(r->key_prefix) ? key_len : sizeof(r->key_prefix) - 1;
+        memcpy(r->key_prefix, key, lp);
+        r->key_prefix[lp] = '\0';
+        r->key_prefix_len = lp;
+    } else {
+        r->key_prefix[0] = '\0';
+        r->key_prefix_len = 0;
+    }
+    return CETCD_OK;
+}
+
+int cetcd_auth_revoke_permission(cetcd_auth_store *s, const char *role) {
+    if (!s || !role) return CETCD_ERR_INVAL;
+    cetcd_role *r = cetcd_find_role(s, role);
+    if (!r) return CETCD_ERR_NOTFOUND;
+    r->perm_read = 0;
+    r->perm_write = 0;
+    r->key_prefix[0] = '\0';
+    r->key_prefix_len = 0;
+    return CETCD_OK;
+}

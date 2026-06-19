@@ -577,6 +577,7 @@ static int cmd_auth(int argc, char **argv) {
 static int cmd_user(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl user add NAME PASS\n");
+        fprintf(stderr, "       cetcdctl user get NAME\n");
         fprintf(stderr, "       cetcdctl user list\n");
         return 1;
     }
@@ -589,6 +590,15 @@ static int cmd_user(int argc, char **argv) {
         int rlen = do_rpc("/etcdserverpb.Auth/UserAdd", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         printf("OK\n");
+    } else if (strcmp(argv[2], "get") == 0) {
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl user get NAME\n"); return 1; }
+        uint8_t req[256], resp[4096];
+        size_t pos = 0;
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        int rlen = do_rpc("/etcdserverpb.Auth/UserGet", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        printf("roles:\n");
+        parse_string_list_response(resp, rlen, "roles");
     } else if (strcmp(argv[2], "list") == 0) {
         uint8_t req[] = {0x00}, resp[4096];
         int rlen = do_rpc("/etcdserverpb.Auth/UserList", req, 1, resp, sizeof(resp));
@@ -604,7 +614,10 @@ static int cmd_user(int argc, char **argv) {
 static int cmd_role(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl role add NAME\n");
+        fprintf(stderr, "       cetcdctl role get NAME\n");
         fprintf(stderr, "       cetcdctl role list\n");
+        fprintf(stderr, "       cetcdctl role grant-permission ROLE TYPE KEY\n");
+        fprintf(stderr, "       cetcdctl role revoke-permission ROLE\n");
         return 1;
     }
     if (strcmp(argv[2], "add") == 0) {
@@ -620,6 +633,86 @@ static int cmd_role(int argc, char **argv) {
         int rlen = do_rpc("/etcdserverpb.Auth/RoleList", req, 1, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         parse_string_list_response(resp, rlen, "roles");
+    } else if (strcmp(argv[2], "get") == 0) {
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl role get NAME\n"); return 1; }
+        uint8_t req[256], resp[1024];
+        size_t pos = 0;
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        int rlen = do_rpc("/etcdserverpb.Auth/RoleGet", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        printf("role: %s\n", argv[3]);
+        /* Parse permission from response */
+        size_t rpos = 0;
+        while (rpos < (size_t)rlen) {
+            uint8_t tag = resp[rpos++];
+            if (tag == 0x12) {
+                /* Permission (length-delimited) */
+                uint64_t plen = 0; read_varint(resp, rlen, &rpos, &plen);
+                size_t pend = rpos + (size_t)plen;
+                while (rpos < pend) {
+                    uint8_t ptag = resp[rpos++];
+                    if (ptag == 0x08) {
+                        uint64_t pt = 0; read_varint(resp, pend, &rpos, &pt);
+                        printf("  permType: %s\n", pt == 0 ? "READ" : pt == 1 ? "WRITE" : "READWRITE");
+                    } else if (ptag == 0x0a) {
+                        uint64_t l = 0; read_varint(resp, pend, &rpos, &l);
+                        printf("  key: %.*s\n", (int)l, resp + rpos);
+                        rpos += l;
+                    } else {
+                        uint64_t v = 0; read_varint(resp, pend, &rpos, &v);
+                    }
+                }
+                rpos = pend;
+            } else {
+                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            }
+        }
+    } else if (strcmp(argv[2], "grant-permission") == 0) {
+        if (argc < 6) {
+            fprintf(stderr, "usage: cetcdctl role grant-permission ROLE TYPE KEY\n");
+            fprintf(stderr, "  TYPE: read | write | readwrite\n");
+            return 1;
+        }
+        int perm_type = 2; /* default readwrite */
+        if (strcmp(argv[4], "read") == 0) perm_type = 0;
+        else if (strcmp(argv[4], "write") == 0) perm_type = 1;
+        else if (strcmp(argv[4], "readwrite") == 0) perm_type = 2;
+        else { fprintf(stderr, "invalid TYPE: %s (use read|write|readwrite)\n", argv[4]); return 1; }
+
+        /* Build Permission sub-message */
+        uint8_t perm[256];
+        size_t ppos = 0;
+        perm[ppos++] = 0x08; /* field 1 = permType */
+        perm[ppos++] = (uint8_t)perm_type;
+        size_t klen = strlen(argv[5]);
+        perm[ppos++] = 0x0a; /* field 2 = key */
+        /* varint for key length */
+        uint64_t l = klen;
+        while (l >= 0x80) { perm[ppos++] = (uint8_t)(l | 0x80); l >>= 7; }
+        perm[ppos++] = (uint8_t)l;
+        memcpy(perm + ppos, argv[5], klen); ppos += klen;
+
+        /* Build RoleGrantPermissionRequest */
+        uint8_t req[512], resp[256];
+        size_t pos = 0;
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        req[pos++] = 0x12; /* field 2 = perm */
+        l = ppos;
+        while (l >= 0x80) { req[pos++] = (uint8_t)(l | 0x80); l >>= 7; }
+        req[pos++] = (uint8_t)l;
+        memcpy(req + pos, perm, ppos); pos += ppos;
+
+        int rlen = do_rpc("/etcdserverpb.Auth/RoleGrantPermission", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        printf("OK\n");
+    } else if (strcmp(argv[2], "revoke-permission") == 0) {
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl role revoke-permission ROLE\n"); return 1; }
+        uint8_t req[256], resp[256];
+        size_t pos = 0;
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        int rlen = do_rpc("/etcdserverpb.Auth/RoleRevokePermission", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        printf("OK\n");
     } else {
         fprintf(stderr, "unknown role subcommand: %s\n", argv[2]);
         return 1;
@@ -649,9 +742,15 @@ static void print_usage(void) {
     printf("  auth disable           Disable authentication\n");
     printf("  auth status            Query auth status\n");
     printf("  user add NAME PASS     Add a user\n");
+    printf("  user get NAME          Get user details (roles)\n");
     printf("  user list              List all users\n");
     printf("  role add NAME          Add a role\n");
+    printf("  role get NAME          Get role details (permissions)\n");
     printf("  role list              List all roles\n");
+    printf("  role grant-permission ROLE TYPE KEY\n");
+    printf("                         Grant permission (read|write|readwrite)\n");
+    printf("  role revoke-permission ROLE\n");
+    printf("                         Revoke all permissions from role\n");
     printf("  snapshot save [FILE]   Save a snapshot to file\n");
     printf("  downgrade enable VER   Enable cluster downgrade\n");
     printf("  downgrade cancel       Cancel cluster downgrade\n");

@@ -117,6 +117,9 @@ Thumbs.db
 # Sisyphus working dir (not for git)
 /.sisyphus/
 
+# Qoder IDE
+/.qoder/
+
 # Local env overrides
 .envrc.local
 .env.local

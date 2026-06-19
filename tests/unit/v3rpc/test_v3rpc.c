@@ -736,6 +736,135 @@ CETCD_TEST_CASE(v3rpc_auth_user_revoke_role) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_auth_user_get) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Add user */
+    uint8_t user_buf[32];
+    size_t pos = 0;
+    user_buf[pos++] = 0x0a; user_buf[pos++] = 0x04;
+    memcpy(user_buf + pos, "dave", 4); pos += 4;
+    user_buf[pos++] = 0x12; user_buf[pos++] = 0x04;
+    memcpy(user_buf + pos, "pass", 4); pos += 4;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Auth/UserAdd", user_buf, pos);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* Add role and grant to user */
+    uint8_t role_buf[16];
+    pos = 0;
+    role_buf[pos++] = 0x0a; role_buf[pos++] = 0x05;
+    memcpy(role_buf + pos, "admin", 5); pos += 5;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleAdd", role_buf, pos);
+    cetcd_rpc_bytes_free(&resp);
+
+    uint8_t grant_buf[32];
+    pos = 0;
+    grant_buf[pos++] = 0x0a; grant_buf[pos++] = 0x04;
+    memcpy(grant_buf + pos, "dave", 4); pos += 4;
+    grant_buf[pos++] = 0x12; grant_buf[pos++] = 0x05;
+    memcpy(grant_buf + pos, "admin", 5); pos += 5;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/UserGrantRole", grant_buf, pos);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* UserGet: should return roles */
+    uint8_t get_buf[16];
+    pos = 0;
+    get_buf[pos++] = 0x0a; get_buf[pos++] = 0x04;
+    memcpy(get_buf + pos, "dave", 4); pos += 4;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/UserGet", get_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_auth_role_get) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Add a role */
+    uint8_t role_buf[16];
+    size_t pos = 0;
+    role_buf[pos++] = 0x0a; role_buf[pos++] = 0x04;
+    memcpy(role_buf + pos, "root", 4); pos += 4;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleAdd", role_buf, pos);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* RoleGet: should return permissions */
+    uint8_t get_buf[16];
+    pos = 0;
+    get_buf[pos++] = 0x0a; get_buf[pos++] = 0x04;
+    memcpy(get_buf + pos, "root", 4); pos += 4;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleGet", get_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_auth_role_grant_permission) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Add a role */
+    uint8_t role_buf[16];
+    size_t pos = 0;
+    role_buf[pos++] = 0x0a; role_buf[pos++] = 0x04;
+    memcpy(role_buf + pos, "root", 4); pos += 4;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleAdd", role_buf, pos);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* Build Permission sub-message: permType=2 (READWRITE), key="/foo" */
+    uint8_t perm[32];
+    size_t ppos = 0;
+    perm[ppos++] = 0x08; /* field 1 = permType */
+    perm[ppos++] = 0x02; /* READWRITE */
+    perm[ppos++] = 0x0a; /* field 2 = key */
+    perm[ppos++] = 0x04;
+    memcpy(perm + ppos, "/foo", 4); ppos += 4;
+
+    /* Build RoleGrantPermissionRequest: field 1 (name) + field 2 (perm) */
+    uint8_t req[64];
+    pos = 0;
+    req[pos++] = 0x0a; req[pos++] = 0x04;
+    memcpy(req + pos, "root", 4); pos += 4;
+    req[pos++] = 0x12; /* field 2 = perm */
+    req[pos++] = (uint8_t)ppos;
+    memcpy(req + pos, perm, ppos); pos += ppos;
+
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleGrantPermission", req, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_auth_role_revoke_permission) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Add a role */
+    uint8_t role_buf[16];
+    size_t pos = 0;
+    role_buf[pos++] = 0x0a; role_buf[pos++] = 0x04;
+    memcpy(role_buf + pos, "root", 4); pos += 4;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleAdd", role_buf, pos);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* Revoke permission (role has default permissions from RoleAdd) */
+    uint8_t req[16];
+    pos = 0;
+    req[pos++] = 0x0a; req[pos++] = 0x04;
+    memcpy(req + pos, "root", 4); pos += 4;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleRevokePermission", req, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
@@ -771,6 +900,10 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_maintenance_snapshot),
     CETCD_TEST_ENTRY(v3rpc_maintenance_snapshot_empty),
     CETCD_TEST_ENTRY(v3rpc_maintenance_downgrade),
+    CETCD_TEST_ENTRY(v3rpc_auth_user_get),
+    CETCD_TEST_ENTRY(v3rpc_auth_role_get),
+    CETCD_TEST_ENTRY(v3rpc_auth_role_grant_permission),
+    CETCD_TEST_ENTRY(v3rpc_auth_role_revoke_permission),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

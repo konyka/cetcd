@@ -42,6 +42,10 @@ cetcd_rpc_bytes auth_handle_user_change_password(cetcd_v3rpc *rpc, const uint8_t
 cetcd_rpc_bytes auth_handle_role_list(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes auth_handle_role_delete(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes auth_handle_user_revoke_role(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+cetcd_rpc_bytes auth_handle_user_get(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+cetcd_rpc_bytes auth_handle_role_get(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+cetcd_rpc_bytes auth_handle_role_grant_permission(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+cetcd_rpc_bytes auth_handle_role_revoke_permission(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 
 /* KV/Compact (kv_handler.c) */
 cetcd_rpc_bytes kv_handle_compact(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
@@ -242,6 +246,18 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
     }
     if (strcmp(path, "/etcdserverpb.Auth/UserRevokeRole") == 0) {
         return auth_handle_user_revoke_role(rpc, req_data, req_len);
+    }
+    if (strcmp(path, "/etcdserverpb.Auth/UserGet") == 0) {
+        return auth_handle_user_get(rpc, req_data, req_len);
+    }
+    if (strcmp(path, "/etcdserverpb.Auth/RoleGet") == 0) {
+        return auth_handle_role_get(rpc, req_data, req_len);
+    }
+    if (strcmp(path, "/etcdserverpb.Auth/RoleGrantPermission") == 0) {
+        return auth_handle_role_grant_permission(rpc, req_data, req_len);
+    }
+    if (strcmp(path, "/etcdserverpb.Auth/RoleRevokePermission") == 0) {
+        return auth_handle_role_revoke_permission(rpc, req_data, req_len);
     }
 
     /* Unknown path */
