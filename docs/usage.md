@@ -13,11 +13,14 @@
   - FreeBSD: clang 13+
 - CMake ≥ 3.21
 - Ninja (recommended) or Make / MSBuild
-- OpenSSL 3.0+ development headers (only system dependency)
+- OpenSSL 3.0+ development headers (system dependency)
+- nghttp2 development headers (system dependency, for HTTP/2 session management)
 - Python 3.8+ (for protobuf-c codegen at build time)
 
 Everything else (libuv, LMDB, protobuf-c, libco) is vendored
-under `third_party/`.
+under `third_party/`. nghttp2 and OpenSSL are discovered via `pkg-config`;
+if nghttp2 is not found, the HTTP/2 module falls back to stub no-ops
+(gRPC framing helpers still work).
 
 ### Configure + build
 
@@ -216,6 +219,10 @@ sanitizers enabled (`-DCMAKE_BUILD_TYPE=Debug -DCETCD_SANITIZERS=address,undefin
 
 **Build fails on OpenSSL**: Ensure OpenSSL 3.0+ development headers are
 installed (`pkg-config --modversion openssl`).
+
+**HTTP/2 module is stub-only**: Install nghttp2 development headers
+(`pkg-config --modversion libnghttp2`). Without nghttp2, HTTP/2 session
+management is disabled and only gRPC framing helpers are available.
 
 For further help, see `docs/architecture.md` for the system design, or
 open an issue at <https://github.com/konyka/cetcd/issues>.

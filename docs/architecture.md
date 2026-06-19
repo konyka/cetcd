@@ -42,7 +42,7 @@ src/
 ├── base/        libcetcd_base       arenas, slabs, hash, btree, refcount, errors, log, clock
 ├── io/          libcetcd_io         libuv event loop + libco coroutines + worker pool
 ├── proto/       libcetcd_proto      protobuf-c runtime + generated etcd v3 message types
-├── http2/       libcetcd_http2      nghttp2 + gRPC framing (length-prefixed proto frames)
+├── http2/       libcetcd_http2      nghttp2 session management + gRPC framing (length-prefixed proto frames)
 ├── tls/         libcetcd_tls        OpenSSL 3 TLS termination + ALPN
 ├── raft/        libcetcd_raft       Raft logic core (no I/O, no threads)
 ├── wal/         libcetcd_wal        Append-only log, byte-compatible with etcd WAL
@@ -228,6 +228,14 @@ cetcd speaks etcd v3 gRPC over HTTP/2:
 - 4 streaming RPCs: `RangeStream`, `Watch` (bidi), `LeaseKeepAlive` (bidi), `Snapshot` (server-stream).
 - Protobuf wire-types are generated from etcd v3.5's `.proto` files vendored under
   `proto/v3.5/`.
+
+The HTTP/2 layer uses nghttp2 for full session management — connection preface,
+SETTINGS exchange, HPACK header compression, stream multiplexing, and DATA/HEADERS
+frame processing. HTTP-level message validation is disabled via
+`nghttp2_option_set_no_http_messaging` because gRPC does not require full HTTP
+semantics (e.g. `:authority`, content-length consistency). When nghttp2 is not
+available, a stub implementation provides safe no-ops so the rest of the codebase
+compiles and the gRPC framing helpers remain functional.
 
 The peer transport (`libcetcd_peer`) mirrors etcd's `rafthttp` over HTTP/2 streams. Peer URLs
 take the form `http(s)://host:peer-port/raft/stream/{message,msgapp}/{member-id}` — same as

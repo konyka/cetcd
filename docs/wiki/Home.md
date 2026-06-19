@@ -659,7 +659,7 @@ Proto 文件位于 `proto/` 目录，覆盖：
 提供 HTTP/2 会话管理和 gRPC 帧处理：
 
 ```c
-// 会话管理
+// 会话创建与数据交换
 cetcd_h2_session *cetcd_h2_session_new(const cetcd_h2_callbacks *cbs);
 int cetcd_h2_feed(cetcd_h2_session *s, const uint8_t *data, size_t len);
 int cetcd_h2_send_pending(cetcd_h2_session *s, int (*write_fn)(...), void *ctx);
@@ -668,15 +668,22 @@ int cetcd_h2_send_pending(cetcd_h2_session *s, int (*write_fn)(...), void *ctx);
 int cetcd_h2_submit_response(cetcd_h2_session *s, int32_t stream_id,
                                const char **headers, size_t header_count,
                                const uint8_t *body, size_t body_len, bool end_stream);
+int cetcd_h2_submit_trailers(cetcd_h2_session *s, int32_t stream_id,
+                               const char **trailers, size_t count);
+void cetcd_h2_session_terminate(cetcd_h2_session *s, uint32_t error_code);
 
 // gRPC 帧编解码
 int cetcd_grpc_encode(const uint8_t *msg, size_t msg_len, bool compressed, uint8_t **out, size_t *out_len);
 int cetcd_grpc_decode(const uint8_t *frame, size_t frame_len, bool *compressed, uint8_t **msg, size_t *msg_len);
 ```
 
+会话管理基于 nghttp2 库，使用 `nghttp2_option_set_no_http_messaging` 禁用 HTTP/1.1 兼容验证（gRPC 不需要完整 HTTP 语义检查）。支持完整的 HTTP/2 帧交换流程：连接前奏、SETTINGS 交换、HEADERS/DATA 帧处理、HPACK 头部压缩、流多路复用。
+
 回调模型：
 - `on_request`：收到 HTTP/2 请求头时触发
 - `on_data`：收到请求体数据时触发
+
+测试覆盖 11 个测试用例：gRPC 帧编解码往返、压缩标志、空消息、空指针安全、连接前奏处理、服务器接收请求、完整往返、带 trailers 响应、会话终止。
 
 ---
 
