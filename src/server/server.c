@@ -319,6 +319,12 @@ cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
 
     srv->cluster = cetcd_cluster_new(cfg->node_id);
 
+    /* Set global cluster handle for cluster RPC handlers */
+    extern cetcd_cluster *g_rpc_cluster;
+    extern uint64_t       g_rpc_node_id;
+    g_rpc_cluster = srv->cluster;
+    g_rpc_node_id = cfg->node_id;
+
     srv->metrics = cetcd_metrics_new();
     if (srv->metrics) {
         cetcd_metrics_gauge_set(srv->metrics, "cetcd_server_info", 1);
@@ -453,10 +459,6 @@ cetcd_snap *cetcd_server_snapshot(cetcd_server *srv) {
     return snap;
 }
 
-static void on_client_conn(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
-    (void)server; (void)client; (void)arg;
-}
-
 int cetcd_server_serve(cetcd_server *srv) {
     if (!srv) return CETCD_ERR_INVAL;
 
@@ -559,6 +561,21 @@ static void raft_tick_cb_(void *arg) {
 static void process_ready_(cetcd_server *srv) {
     cetcd_ready rd = cetcd_raft_ready(srv->raft);
 
+    /* Persist new entries to WAL */
+    if (rd.entries && rd.n_entries > 0 && srv->wal_enc) {
+        for (uint32_t i = 0; i < rd.n_entries; i++) {
+            cetcd_wal_encode_entry(srv->wal_enc, &rd.entries[i]);
+        }
+        cetcd_wal_encoder_flush(srv->wal_enc);
+    }
+
+    /* Persist HardState if changed */
+    if (rd.hard_state && srv->wal_enc) {
+        cetcd_wal_encode_hard_state(srv->wal_enc, rd.hard_state);
+        cetcd_wal_encoder_flush(srv->wal_enc);
+    }
+
+    /* Send outgoing messages to peers */
     if (rd.messages && rd.n_messages > 0) {
         for (uint32_t i = 0; i < rd.n_messages; i++) {
             uint8_t *wire = NULL;
@@ -575,9 +592,62 @@ static void process_ready_(cetcd_server *srv) {
         }
     }
 
+    /* Apply committed entries to the MVCC store */
     if (rd.committed > 0) {
         if (srv->metrics) {
             cetcd_metrics_gauge_set(srv->metrics, "raft_committed_index", (double)rd.committed);
+        }
+        /* Apply entries: decode NORMAL entries as KV operations.
+         * Entry data format: tag(1 byte) + key_len(varint) + key + val_len(varint) + val
+         * tag: 1=Put, 2=Delete
+         * This is a simplified apply — in production, entries would go through Raft consensus
+         * and be applied in order. */
+        extern cetcd_mvcc_store *g_rpc_store;
+        if (g_rpc_store && rd.entries) {
+            for (uint32_t i = 0; i < rd.n_entries; i++) {
+                if (rd.entries[i].type != CETCD_ENTRY_NORMAL) continue;
+                if (rd.entries[i].index > rd.committed) break;
+                const uint8_t *data = rd.entries[i].data.data;
+                size_t len = rd.entries[i].data.len;
+                if (!data || len < 2) continue;
+                /* Simple apply: data is raw KV operation */
+                uint8_t op = data[0];
+                size_t pos = 1;
+                /* read key */
+                uint64_t klen = 0; int shift = 0;
+                while (pos < len) {
+                    uint8_t b = data[pos++];
+                    klen |= (uint64_t)(b & 0x7F) << shift;
+                    if (!(b & 0x80)) break;
+                    shift += 7;
+                }
+                if (pos + klen > len) continue;
+                const uint8_t *key = data + pos;
+                pos += klen;
+                if (op == 1) {
+                    /* Put: read value */
+                    uint64_t vlen = 0; shift = 0;
+                    while (pos < len) {
+                        uint8_t b = data[pos++];
+                        vlen |= (uint64_t)(b & 0x7F) << shift;
+                        if (!(b & 0x80)) break;
+                        shift += 7;
+                    }
+                    if (pos + vlen > len) continue;
+                    cetcd_mvcc_put(g_rpc_store, key, (size_t)klen,
+                                   data + pos, (size_t)vlen, 0);
+                } else if (op == 2) {
+                    /* Delete */
+                    cetcd_mvcc_delete(g_rpc_store, key, (size_t)klen);
+                }
+            }
+        }
+        if (srv->metrics) {
+            extern cetcd_mvcc_store *g_rpc_store;
+            if (g_rpc_store) {
+                cetcd_metrics_gauge_set(srv->metrics, "mvcc_revision",
+                                       (double)cetcd_mvcc_revision(g_rpc_store));
+            }
         }
     }
 

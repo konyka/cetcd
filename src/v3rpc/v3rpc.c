@@ -32,6 +32,8 @@ cetcd_rpc_bytes maint_handle_hash(cetcd_v3rpc *rpc, const uint8_t *req, size_t r
 cetcd_rpc_bytes maint_handle_hash_kv(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes maint_handle_alarm(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes maint_handle_move_leader(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+cetcd_rpc_bytes maint_handle_snapshot(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+cetcd_rpc_bytes maint_handle_downgrade(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 
 /* Additional auth handlers (auth_handler.c) */
 cetcd_rpc_bytes auth_handle_status(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
@@ -169,6 +171,12 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
     }
     if (strcmp(path, "/etcdserverpb.Maintenance/MoveLeader") == 0) {
         return maint_handle_move_leader(rpc, req_data, req_len);
+    }
+    if (strcmp(path, "/etcdserverpb.Maintenance/Snapshot") == 0) {
+        return maint_handle_snapshot(rpc, req_data, req_len);
+    }
+    if (strcmp(path, "/etcdserverpb.Maintenance/Downgrade") == 0) {
+        return maint_handle_downgrade(rpc, req_data, req_len);
     }
 
     /* KV/Compact */

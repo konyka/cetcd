@@ -97,7 +97,7 @@ src/
 
 cmd/
 ├── cetcd/         守护进程二进制
-└── cetcdctl/      客户端 CLI
+└── cetcdctl/      客户端 CLI（put/get/del/lease/txn/compact/status/alarm/member/auth/user/role/snapshot/downgrade）
 ```
 
 ---
@@ -751,7 +751,7 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
                                       size_t req_len);
 ```
 
-#### 已实现的 RPC 路径
+#### 已实现的 RPC 路径（36 个）
 
 | 服务 | RPC | 处理器文件 | 说明 |
 |------|-----|-----------|------|
@@ -790,6 +790,8 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 | Maintenance | `/etcdserverpb.Maintenance/HashKV` | `maint_handler.c` | 返回哈希值+压缩修订号 |
 | Maintenance | `/etcdserverpb.Maintenance/Alarm` | `maint_handler.c` | 告警获取/激活/停用 |
 | Maintenance | `/etcdserverpb.Maintenance/MoveLeader` | `maint_handler.c` | 领导者转移请求 |
+| Maintenance | `/etcdserverpb.Maintenance/Snapshot` | `maint_handler.c` | 返回 KV 存储快照（单次返回所有键值对） |
+| Maintenance | `/etcdserverpb.Maintenance/Downgrade` | `maint_handler.c` | 集群版本降级（no-op，返回当前版本） |
 
 ---
 
@@ -825,16 +827,22 @@ struct cetcd_server {
 cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_server_stop() → cetcd_server_free()
 ```
 
-1. **new**：初始化 v3rpc、raft、cluster、metrics
-2. **start**：打开 backend（LMDB）、创建 WAL 编码器、添加初始对等节点
+1. **new**：初始化 v3rpc、raft、cluster、metrics；设置全局 `g_rpc_cluster` / `g_rpc_node_id`
+2. **start**：打开 backend（LMDB）、创建 WAL 编码器、添加初始对等节点、设置集群消息发送回调
 3. **serve**：创建事件循环、绑定客户端/对等端口、启动 Raft tick 定时器、运行事件循环
 4. **stop**：设置 `started = false`
 5. **free**：逆序释放所有资源
 
-#### Raft 驱动
+#### Raft 驱动 (process_ready_)
 
-- 100ms 定时器触发 `raft_tick_cb_`
-- 取出 `cetcd_ready`：将消息编码并通过 `cetcd_cluster_send_msg` 发送给对等节点
+- 100ms 定时器触发 `raft_tick_cb_` → `cetcd_raft_tick` + `process_ready_`
+- **WAL 持久化**：将 `rd.entries` 中的新条目写入 WAL，刷新到磁盘
+- **HardState 持久化**：如果 `rd.hard_state` 非空，编码并写入 WAL
+- **消息发送**：将 `rd.messages` 编码为线路格式，通过 `cetcd_cluster_send_msg` 发送给对等节点
+- **已提交条目应用**：将 `rd.committed` 之前的 NORMAL 条目应用到 MVCC 存储：
+  - 条目数据格式：`tag(1B) + key_len(varint) + key + val_len(varint) + val`
+  - tag=1: Put（`cetcd_mvcc_put`），tag=2: Delete（`cetcd_mvcc_delete`）
+- 更新 metrics（`raft_committed_index`、`mvcc_revision`）
 - 调用 `cetcd_raft_advance` 确认处理完成
 
 #### 对等节点消息接收
@@ -855,6 +863,40 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 2. 数据到达 → `on_client_read_` 解析帧：`path_len(2B) + path + grpc_frame(5B header + payload)`
 3. 分发到 `cetcd_server_handle_rpc` → `cetcd_v3rpc_dispatch`
 4. 响应原路写回
+
+#### cetcdctl 客户端 CLI
+
+`cmd/cetcdctl/main.c` 提供完整的命令行客户端，使用与服务器相同的自定义 gRPC 帧协议：
+
+```
+帧格式: 2B path_len(BE) + path + 1B compressed + 4B payload_len(BE) + payload
+```
+
+支持的全局选项和命令：
+
+| 全局选项 | 默认值 | 说明 |
+|---------|--------|------|
+| `--host ADDR` | 127.0.0.1 | 服务器地址 |
+| `--port PORT` | 2379 | 服务器端口 |
+
+| 命令 | 说明 |
+|------|------|
+| `put KEY VALUE` | 存储键值对 |
+| `get KEY` | 获取键值 |
+| `del KEY` | 删除键 |
+| `lease grant TTL` | 授予租约 |
+| `lease revoke ID` | 撤销租约 |
+| `lease timetolive ID` | 查询租约剩余时间 |
+| `txn put KEY VALUE` | 事务写入 |
+| `compact REV` | 压缩 MVCC 历史到指定修订号 |
+| `status` | 获取服务器状态 |
+| `alarm` | 查询告警 |
+| `member list` | 列出集群成员 |
+| `auth enable/disable/status` | 认证管理 |
+| `user add/list` | 用户管理 |
+| `role add/list` | 角色管理 |
+| `snapshot save [FILE]` | 保存快照到文件 |
+| `downgrade enable/cancel/validate` | 集群版本降级 |
 
 ---
 

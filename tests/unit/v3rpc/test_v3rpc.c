@@ -634,6 +634,65 @@ CETCD_TEST_CASE(v3rpc_auth_role_delete) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_maintenance_snapshot) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put some keys first so the snapshot has data */
+    uint8_t put_buf[32];
+    size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x02;
+    memcpy(put_buf + pos, "s1", 2); pos += 2;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x02;
+    memcpy(put_buf + pos, "v1", 2); pos += 2;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* Snapshot request: empty */
+    uint8_t dummy[] = {0x00};
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Snapshot", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_maintenance_snapshot_empty) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Snapshot request on empty store */
+    uint8_t dummy[] = {0x00};
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Snapshot", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_maintenance_downgrade) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* DowngradeRequest: field 1 (action) = 1 (ENABLE), field 2 (version) = "0.1.0" */
+    uint8_t dg_buf[32];
+    size_t pos = 0;
+    dg_buf[pos++] = 0x08; /* field 1 = action */
+    dg_buf[pos++] = 0x01; /* ENABLE */
+    dg_buf[pos++] = 0x12; /* field 2 = version */
+    dg_buf[pos++] = 0x05;
+    memcpy(dg_buf + pos, "0.1.0", 5); pos += 5;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Downgrade", dg_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_auth_user_revoke_role) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -709,6 +768,9 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_auth_role_list),
     CETCD_TEST_ENTRY(v3rpc_auth_role_delete),
     CETCD_TEST_ENTRY(v3rpc_auth_user_revoke_role),
+    CETCD_TEST_ENTRY(v3rpc_maintenance_snapshot),
+    CETCD_TEST_ENTRY(v3rpc_maintenance_snapshot_empty),
+    CETCD_TEST_ENTRY(v3rpc_maintenance_downgrade),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

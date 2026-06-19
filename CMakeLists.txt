@@ -155,6 +155,7 @@ if(CETCD_BUILD_EXAMPLES)
 endif()
 
 add_subdirectory(cmd/cetcd)
+add_subdirectory(cmd/cetcdctl)
 
 if(CETCD_BUILD_BENCH)
     add_subdirectory(bench)
