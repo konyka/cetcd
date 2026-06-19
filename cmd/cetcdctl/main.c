@@ -283,12 +283,16 @@ static void parse_lease_grant_response(const uint8_t *data, size_t len) {
     size_t pos = 0;
     while (pos < len) {
         uint8_t tag = data[pos++];
-        if (tag == 0x08) {
+        if (tag == 0x10) {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
             printf("lease ID: %llu\n", (unsigned long long)v);
-        } else if (tag == 0x10) {
+        } else if (tag == 0x18) {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
             printf("TTL: %llu seconds\n", (unsigned long long)v);
+        } else if (tag == 0x0a) {
+            /* Skip header (length-delimited) */
+            uint64_t l = 0; read_varint(data, len, &pos, &l);
+            pos += l;
         } else {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
         }
@@ -299,15 +303,24 @@ static void parse_lease_ttl_response(const uint8_t *data, size_t len) {
     size_t pos = 0;
     while (pos < len) {
         uint8_t tag = data[pos++];
-        if (tag == 0x08) {
+        if (tag == 0x10) {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
             printf("lease ID: %llu\n", (unsigned long long)v);
-        } else if (tag == 0x10) {
-            uint64_t v = 0; read_varint(data, len, &pos, &v);
-            printf("remaining TTL: %lld\n", (long long)v);
         } else if (tag == 0x18) {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
+            printf("remaining TTL: %lld\n", (long long)v);
+        } else if (tag == 0x20) {
+            uint64_t v = 0; read_varint(data, len, &pos, &v);
             printf("granted TTL: %lld\n", (long long)v);
+        } else if (tag == 0x2a) {
+            /* keys (repeated bytes) */
+            uint64_t l = 0; read_varint(data, len, &pos, &l);
+            printf("key: %.*s\n", (int)l, data + pos);
+            pos += l;
+        } else if (tag == 0x0a) {
+            /* Skip header (length-delimited) */
+            uint64_t l = 0; read_varint(data, len, &pos, &l);
+            pos += l;
         } else {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
         }
@@ -655,12 +668,12 @@ static int cmd_lease(int argc, char **argv) {
         uint8_t req[] = {0x00}, resp[4096];
         int rlen = do_rpc("/etcdserverpb.Lease/LeaseLeases", req, 1, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        /* Parse LeaseLeasesResponse: field 1 (leases) = repeated LeaseStatus */
+        /* Parse LeaseLeasesResponse: field 1 (header), field 2 (leases) = repeated LeaseStatus */
         size_t rpos = 0;
         int count = 0;
         while (rpos < (size_t)rlen) {
             uint8_t tag = resp[rpos++];
-            if (tag == 0x0a) {
+            if (tag == 0x12) {
                 uint64_t lslen = 0; read_varint(resp, rlen, &rpos, &lslen);
                 size_t lend = rpos + (size_t)lslen;
                 while (rpos < lend) {
@@ -674,6 +687,10 @@ static int cmd_lease(int argc, char **argv) {
                     }
                 }
                 rpos = lend;
+            } else if (tag == 0x0a) {
+                /* Skip header (length-delimited) */
+                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+                rpos += l;
             } else {
                 uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
             }
@@ -686,16 +703,20 @@ static int cmd_lease(int argc, char **argv) {
         pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(argv[3]));
         int rlen = do_rpc("/etcdserverpb.Lease/LeaseKeepAlive", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        /* Parse KeepAliveResponse: field 1 (ID), field 2 (TTL) */
+        /* Parse KeepAliveResponse: field 1 (header), field 2 (ID), field 3 (TTL) */
         size_t rpos = 0;
         while (rpos < (size_t)rlen) {
             uint8_t tag = resp[rpos++];
-            if (tag == 0x08) {
+            if (tag == 0x10) {
                 uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
                 printf("lease ID: %llu\n", (unsigned long long)v);
-            } else if (tag == 0x10) {
+            } else if (tag == 0x18) {
                 uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
                 printf("TTL: %llu seconds\n", (unsigned long long)v);
+            } else if (tag == 0x0a) {
+                /* Skip header (length-delimited) */
+                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+                rpos += l;
             } else {
                 uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
             }

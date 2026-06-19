@@ -4,9 +4,11 @@
 /* Access to the internal mvcc store via global handles defined in v3rpc.c */
 #include "cetcd/v3rpc.h"
 #include "cetcd/mvcc.h"
+#include "cetcd/lease.h"
 
 /* Externs pointing to the live store/lease mgr (set by v3rpc_new) */
 extern cetcd_mvcc_store *g_rpc_store;
+extern cetcd_lease_mgr  *g_rpc_lease_mgr;
 
 /* Forward declare to be linked with v3rpc.c */
 cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
@@ -113,10 +115,20 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
     if (key && g_rpc_store) {
         /* Allow put even without value if ignore_value is set */
         if (val || ignore_value) {
+            /* If overwriting a key with a different lease, detach from old */
+            if (g_rpc_lease_mgr && lease_id > 0 && has_old && old_kv.lease_id > 0 && old_kv.lease_id != lease_id) {
+                cetcd_lease_detach_key(g_rpc_lease_mgr, (cetcd_lease_id)old_kv.lease_id,
+                                        key, key_len);
+            }
             cetcd_revision r = cetcd_mvcc_put(g_rpc_store, key, key_len,
                                                val ? val : (const uint8_t*)"", val ? val_len : 0,
                                                lease_id);
             rev = r.main;
+            /* Attach key to lease */
+            if (g_rpc_lease_mgr && lease_id > 0) {
+                cetcd_lease_attach_key(g_rpc_lease_mgr, (cetcd_lease_id)lease_id,
+                                        key, key_len);
+            }
         }
     }
     if (key) free(key);

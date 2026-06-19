@@ -558,6 +558,11 @@ int  cetcd_lease_attach_key(cetcd_lease_mgr *mgr, cetcd_lease_id id,
 int  cetcd_lease_detach_key(cetcd_lease_mgr *mgr, cetcd_lease_id id,
                              const uint8_t *key, size_t key_len);
 
+/* 查询租约附加的键列表 */
+size_t cetcd_lease_keys(const cetcd_lease_mgr *mgr, cetcd_lease_id id,
+                         const uint8_t *const **out_keys,
+                         const size_t **out_lens);
+
 void cetcd_lease_mgr_tick(cetcd_lease_mgr *mgr, int64_t elapsed_ms);
 ```
 
@@ -926,7 +931,7 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `watch [--prefix] KEY` | 观察键变更（单次响应模式） |
 | `lease grant TTL` | 授予租约 |
 | `lease revoke ID` | 撤销租约 |
-| `lease timetolive ID` | 查询租约剩余时间 |
+| `lease timetolive ID` | 查询租约剩余时间和授予 TTL |
 | `lease list` | 列出所有活跃租约 |
 | `lease keepalive ID` | 续约指定租约 |
 | `txn put KEY VALUE` | 事务写入 |

@@ -40,15 +40,31 @@ static int write_varint(uint8_t *buf, size_t cap, size_t *pos, uint64_t val) {
 
 static cetcd_rpc_bytes make_lease_response(cetcd_lease_id id, int64_t ttl) {
     /* LeaseGrantResponse:
-     *   field 1 (ID)   = varint, tag = 0x08
-     *   field 2 (TTL)  = varint, tag = 0x10
-     *   field 3 (error) = string, tag = 0x1a (omitted on success)
+     *   field 1 (header) = ResponseHeader, tag = 0x0a (length-delimited)
+     *   field 2 (ID)     = int64, tag = 0x10
+     *   field 3 (TTL)    = int64, tag = 0x18
+     *   field 4 (error)  = string, tag = 0x22 (omitted on success)
      */
-    uint8_t buf[32];
+    int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+
+    /* Build ResponseHeader inner: field 3 (revision) = varint, tag = 0x18 */
+    uint8_t hdr_buf[16];
+    size_t hpos = 0;
+    hdr_buf[hpos++] = 0x18;
+    write_varint(hdr_buf, sizeof(hdr_buf), &hpos, (uint64_t)(current_rev > 0 ? current_rev : 1));
+
+    uint8_t buf[64];
     size_t pos = 0;
-    buf[pos++] = 0x08; /* field 1 = ID */
+    /* field 1 = header (length-delimited) */
+    buf[pos++] = 0x0a;
+    write_varint(buf, sizeof(buf), &pos, (uint64_t)hpos);
+    memcpy(buf + pos, hdr_buf, hpos);
+    pos += hpos;
+    /* field 2 = ID */
+    buf[pos++] = 0x10;
     write_varint(buf, sizeof(buf), &pos, (uint64_t)id);
-    buf[pos++] = 0x10; /* field 2 = TTL */
+    /* field 3 = TTL */
+    buf[pos++] = 0x18;
     write_varint(buf, sizeof(buf), &pos, (uint64_t)(ttl > 0 ? ttl : 0));
     uint8_t *out = (uint8_t *)malloc(pos);
     if (!out) return (cetcd_rpc_bytes){NULL, 0};
@@ -128,14 +144,28 @@ cetcd_rpc_bytes lease_handle_keep_alive(cetcd_v3rpc *rpc, const uint8_t *req, si
         remaining_ttl = cetcd_lease_ttl_remaining(g_rpc_lease_mgr, (cetcd_lease_id)id);
     }
     /* LeaseKeepAliveResponse:
-     *   field 1 (ID)  = varint, tag = 0x08
-     *   field 2 (TTL) = varint, tag = 0x10
+     *   field 1 (header) = ResponseHeader, tag = 0x0a (length-delimited)
+     *   field 2 (ID)     = int64, tag = 0x10
+     *   field 3 (TTL)    = int64, tag = 0x18
      */
-    uint8_t buf[32];
+    int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+    uint8_t hdr_buf[16];
+    size_t hpos = 0;
+    hdr_buf[hpos++] = 0x18;
+    write_varint(hdr_buf, sizeof(hdr_buf), &hpos, (uint64_t)(current_rev > 0 ? current_rev : 1));
+
+    uint8_t buf[64];
     size_t bpos = 0;
-    buf[bpos++] = 0x08;
-    write_varint(buf, sizeof(buf), &bpos, (uint64_t)id);
+    /* field 1 = header */
+    buf[bpos++] = 0x0a;
+    write_varint(buf, sizeof(buf), &bpos, (uint64_t)hpos);
+    memcpy(buf + bpos, hdr_buf, hpos);
+    bpos += hpos;
+    /* field 2 = ID */
     buf[bpos++] = 0x10;
+    write_varint(buf, sizeof(buf), &bpos, (uint64_t)id);
+    /* field 3 = TTL */
+    buf[bpos++] = 0x18;
     write_varint(buf, sizeof(buf), &bpos, (uint64_t)(remaining_ttl > 0 ? remaining_ttl : 0));
     uint8_t *out = (uint8_t *)malloc(bpos);
     if (!out) return (cetcd_rpc_bytes){NULL, 0};
@@ -145,83 +175,143 @@ cetcd_rpc_bytes lease_handle_keep_alive(cetcd_v3rpc *rpc, const uint8_t *req, si
 
 cetcd_rpc_bytes lease_handle_time_to_live(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
-    size_t pos = 0; int64_t id = 0;
+    size_t pos = 0; int64_t id = 0; int want_keys = 0;
     while (pos < req_len) {
         uint8_t tag = req[pos++];
         if (tag == 0x08) { /* field 1 = ID varint */
             if (read_varint_local(req, req_len, &pos, &id) != 0) break;
+        } else if (tag == 0x10) { /* field 2 = keys (bool) */
+            int64_t tmp = 0; if (read_varint_local(req, req_len, &pos, &tmp) != 0) break; want_keys = (int)tmp;
         } else {
             if (pos < req_len) pos++;
         }
     }
     int64_t ttl = 0;
+    int64_t granted_ttl = 0;
     if (id > 0 && cetcd_lease_exists(g_rpc_lease_mgr, (cetcd_lease_id)id)) {
         ttl = cetcd_lease_ttl_remaining(g_rpc_lease_mgr, (cetcd_lease_id)id);
+        granted_ttl = cetcd_lease_granted_ttl(g_rpc_lease_mgr, (cetcd_lease_id)id);
     }
     /* LeaseTimeToLiveResponse:
-     *   field 1 (ID)  = varint, tag = 0x08
-     *   field 2 (TTL) = varint (int64), tag = 0x10
-     *   field 3 (grantedTTL) = varint, tag = 0x18 (same as TTL for simplicity)
+     *   field 1 (header)     = ResponseHeader, tag = 0x0a (length-delimited)
+     *   field 2 (ID)         = int64, tag = 0x10
+     *   field 3 (TTL)        = int64, tag = 0x18
+     *   field 4 (grantedTTL) = int64, tag = 0x20
+     *   field 5 (keys)       = repeated bytes, tag = 0x2a (length-delimited)
      */
-    uint8_t buf[32];
-    size_t bpos = 0;
-    buf[bpos++] = 0x08;
-    write_varint(buf, sizeof(buf), &bpos, (uint64_t)id);
-    if (ttl > 0) {
-        buf[bpos++] = 0x10;
-        write_varint(buf, sizeof(buf), &bpos, (uint64_t)ttl);
-        buf[bpos++] = 0x18;
-        write_varint(buf, sizeof(buf), &bpos, (uint64_t)ttl);
+    int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+    uint8_t hdr_buf[16];
+    size_t hpos = 0;
+    hdr_buf[hpos++] = 0x18;
+    write_varint(hdr_buf, sizeof(hdr_buf), &hpos, (uint64_t)(current_rev > 0 ? current_rev : 1));
+
+    /* Collect keys if requested */
+    const uint8_t *const *lease_keys = NULL;
+    const size_t *lease_key_lens = NULL;
+    size_t key_count = 0;
+    if (want_keys && id > 0) {
+        key_count = cetcd_lease_keys(g_rpc_lease_mgr, (cetcd_lease_id)id,
+                                      &lease_keys, &lease_key_lens);
     }
-    uint8_t *out = (uint8_t *)malloc(bpos);
-    if (!out) return (cetcd_rpc_bytes){NULL, 0};
-    memcpy(out, buf, bpos);
-    return (cetcd_rpc_bytes){out, bpos};
+
+    /* Estimate needed buffer: header + ID + TTL + grantedTTL + keys */
+    size_t keys_size = 0;
+    for (size_t i = 0; i < key_count; i++) {
+        keys_size += 1 + 5 + lease_key_lens[i]; /* tag + length varint + data */
+    }
+    uint8_t *buf = (uint8_t *)malloc(128 + keys_size);
+    if (!buf) return (cetcd_rpc_bytes){NULL, 0};
+    size_t bpos = 0;
+    /* field 1 = header */
+    buf[bpos++] = 0x0a;
+    write_varint(buf, 128 + keys_size, &bpos, (uint64_t)hpos);
+    memcpy(buf + bpos, hdr_buf, hpos);
+    bpos += hpos;
+    /* field 2 = ID */
+    buf[bpos++] = 0x10;
+    write_varint(buf, 128 + keys_size, &bpos, (uint64_t)id);
+    if (ttl > 0) {
+        /* field 3 = TTL */
+        buf[bpos++] = 0x18;
+        write_varint(buf, 128 + keys_size, &bpos, (uint64_t)ttl);
+    }
+    if (granted_ttl > 0) {
+        /* field 4 = grantedTTL */
+        buf[bpos++] = 0x20;
+        write_varint(buf, 128 + keys_size, &bpos, (uint64_t)granted_ttl);
+    }
+    /* field 5 = keys (repeated bytes) */
+    for (size_t i = 0; i < key_count; i++) {
+        buf[bpos++] = 0x2a;
+        write_varint(buf, 128 + keys_size, &bpos, (uint64_t)lease_key_lens[i]);
+        memcpy(buf + bpos, lease_keys[i], lease_key_lens[i]);
+        bpos += lease_key_lens[i];
+    }
+    return (cetcd_rpc_bytes){buf, bpos};
 }
 
 cetcd_rpc_bytes lease_handle_leases(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc; (void)req; (void)req_len;
     /* LeaseLeasesResponse:
-     *   field 1 (leases) = repeated LeaseStatus, tag = 0x0a (length-delimited)
+     *   field 1 (header)  = ResponseHeader, tag = 0x0a (length-delimited)
+     *   field 2 (leases)  = repeated LeaseStatus, tag = 0x12 (length-delimited)
      *     LeaseStatus: field 1 (ID) = varint, tag = 0x08
      */
+    int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+    uint8_t hdr_buf[16];
+    size_t hpos = 0;
+    hdr_buf[hpos++] = 0x18;
+    write_varint(hdr_buf, sizeof(hdr_buf), &hpos, (uint64_t)(current_rev > 0 ? current_rev : 1));
+
     size_t count = cetcd_lease_mgr_count(g_rpc_lease_mgr);
-    if (count == 0) {
-        uint8_t *out = (uint8_t *)malloc(1);
-        if (!out) return (cetcd_rpc_bytes){NULL, 0};
-        out[0] = 0;
-        return (cetcd_rpc_bytes){out, 1};
+
+    /* Build LeaseStatus entries first to know total size */
+    uint8_t *ls_data = NULL;
+    size_t ls_total = 0;
+    if (count > 0) {
+        cetcd_lease_id *ids = (cetcd_lease_id *)malloc(count * sizeof(cetcd_lease_id));
+        if (!ids) {
+            uint8_t *out = (uint8_t *)malloc(1);
+            if (!out) return (cetcd_rpc_bytes){NULL, 0};
+            out[0] = 0;
+            return (cetcd_rpc_bytes){out, 1};
+        }
+        size_t n = cetcd_lease_mgr_leases(g_rpc_lease_mgr, ids, count);
+        ls_data = (uint8_t *)malloc(n * 16 + 1);
+        if (!ls_data) { free(ids); return (cetcd_rpc_bytes){NULL, 0}; }
+        ls_total = 0;
+        for (size_t i = 0; i < n; i++) {
+            uint8_t ls_buf[16];
+            size_t ls_pos = 0;
+            ls_buf[ls_pos++] = 0x08; /* field 1 = ID */
+            uint64_t lid = ids[i];
+            do { uint8_t b = lid & 0x7F; lid >>= 7; if (lid) b |= 0x80; ls_buf[ls_pos++] = b; } while (lid);
+
+            /* Write as field 2 (leases) = LeaseStatus (length-delimited), tag = 0x12 */
+            ls_data[ls_total++] = 0x12;
+            uint64_t lslen = ls_pos;
+            do { uint8_t b = lslen & 0x7F; lslen >>= 7; if (lslen) b |= 0x80; ls_data[ls_total++] = b; } while (lslen);
+            memcpy(ls_data + ls_total, ls_buf, ls_pos);
+            ls_total += ls_pos;
+        }
+        free(ids);
     }
 
-    /* Collect lease IDs */
-    cetcd_lease_id *ids = (cetcd_lease_id *)malloc(count * sizeof(cetcd_lease_id));
-    if (!ids) {
-        uint8_t *out = (uint8_t *)malloc(1);
-        if (!out) return (cetcd_rpc_bytes){NULL, 0};
-        out[0] = 0;
-        return (cetcd_rpc_bytes){out, 1};
-    }
-    size_t n = cetcd_lease_mgr_leases(g_rpc_lease_mgr, ids, count);
-
-    /* Build response */
-    uint8_t *buf = (uint8_t *)malloc(n * 16 + 1);
-    if (!buf) { free(ids); return (cetcd_rpc_bytes){NULL, 0}; }
+    /* Build final response: header + lease status entries */
+    size_t total = 2 + hpos + ls_total; /* header tag + length + header data + leases */
+    uint8_t *buf = (uint8_t *)malloc(total);
+    if (!buf) { free(ls_data); return (cetcd_rpc_bytes){NULL, 0}; }
     size_t bpos = 0;
-    for (size_t i = 0; i < n; i++) {
-        /* Build LeaseStatus sub-message: field 1 (ID) = varint */
-        uint8_t ls_buf[16];
-        size_t ls_pos = 0;
-        ls_buf[ls_pos++] = 0x08; /* field 1 = ID */
-        uint64_t lid = ids[i];
-        do { uint8_t b = lid & 0x7F; lid >>= 7; if (lid) b |= 0x80; ls_buf[ls_pos++] = b; } while (lid);
-
-        /* Write as field 1 (leases) = LeaseStatus (length-delimited), tag = 0x0a */
-        buf[bpos++] = 0x0a;
-        uint64_t lslen = ls_pos;
-        do { uint8_t b = lslen & 0x7F; lslen >>= 7; if (lslen) b |= 0x80; buf[bpos++] = b; } while (lslen);
-        memcpy(buf + bpos, ls_buf, ls_pos);
-        bpos += ls_pos;
+    /* field 1 = header */
+    buf[bpos++] = 0x0a;
+    write_varint(buf, total, &bpos, (uint64_t)hpos);
+    memcpy(buf + bpos, hdr_buf, hpos);
+    bpos += hpos;
+    /* field 2 = leases */
+    if (ls_total > 0) {
+        memcpy(buf + bpos, ls_data, ls_total);
+        bpos += ls_total;
     }
-    free(ids);
+    free(ls_data);
     return (cetcd_rpc_bytes){buf, bpos};
 }

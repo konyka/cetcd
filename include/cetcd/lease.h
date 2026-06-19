@@ -50,6 +50,13 @@ int64_t cetcd_lease_granted_ttl(const cetcd_lease_mgr *mgr, cetcd_lease_id id);
 size_t cetcd_lease_mgr_leases(const cetcd_lease_mgr *mgr,
                                cetcd_lease_id *out, size_t cap);
 
+/* Get keys attached to a lease.
+ * Sets *out_keys to an array of pointers (do not free), *out_lens to key lengths,
+ * and returns the key count. Returns 0 if lease not found or no keys. */
+size_t cetcd_lease_keys(const cetcd_lease_mgr *mgr, cetcd_lease_id id,
+                         const uint8_t *const **out_keys,
+                         const size_t **out_lens);
+
 #ifdef __cplusplus
 }
 #endif

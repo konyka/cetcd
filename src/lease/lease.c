@@ -250,3 +250,14 @@ size_t cetcd_lease_mgr_leases(const cetcd_lease_mgr *mgr,
     }
     return n;
 }
+
+size_t cetcd_lease_keys(const cetcd_lease_mgr *mgr, cetcd_lease_id id,
+                         const uint8_t *const **out_keys,
+                         const size_t **out_lens) {
+    if (!mgr || !out_keys || !out_lens) return 0;
+    cetcd_lease *l = lease_by_id_local_(mgr, id);
+    if (!l || l->key_count == 0) return 0;
+    *out_keys = (const uint8_t *const *)l->keys;
+    *out_lens = (const size_t *)l->key_lens;
+    return l->key_count;
+}

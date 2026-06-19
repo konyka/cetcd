@@ -1038,10 +1038,10 @@ CETCD_TEST_CASE(v3rpc_lease_leases_returns_actual_leases) {
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 1);
 
-    /* Count 0x0a tags (field 1 = repeated LeaseStatus) */
+    /* Count 0x12 tags (field 2 = repeated LeaseStatus) */
     int lease_count = 0;
     for (size_t i = 0; i < resp.len; i++) {
-        if (resp.data[i] == 0x0a) lease_count++;
+        if (resp.data[i] == 0x12) lease_count++;
     }
     CETCD_ASSERT_TRUE(lease_count >= 2);
 
@@ -1072,19 +1072,31 @@ CETCD_TEST_CASE(v3rpc_lease_keep_alive_uses_granted_ttl) {
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 0);
 
-    /* Parse response: find field 2 (TTL) tag=0x10 */
+    /* Parse response: skip header (0x0a, length-delimited), find field 3 (TTL) tag=0x18 */
     int64_t resp_ttl = 0;
     size_t rpos = 0;
     while (rpos < resp.len) {
         uint8_t tag = resp.data[rpos++];
-        uint64_t v = 0; int shift = 0;
-        while (rpos < resp.len) {
-            uint8_t b = resp.data[rpos++];
-            v |= (uint64_t)(b & 0x7F) << shift;
-            if ((b & 0x80) == 0) break;
-            shift += 7;
+        if (tag == 0x0a) {
+            /* Skip header (length-delimited) */
+            uint64_t l = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                l |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) break;
+                shift += 7;
+            }
+            rpos += l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) break;
+                shift += 7;
+            }
+            if (tag == 0x18) { resp_ttl = (int64_t)v; break; }
         }
-        if (tag == 0x10) { resp_ttl = (int64_t)v; break; }
     }
     /* TTL should be close to 120 (the granted TTL, not hardcoded 60) */
     CETCD_ASSERT_TRUE(resp_ttl > 60);
@@ -1357,12 +1369,30 @@ CETCD_TEST_CASE(v3rpc_lease_revoke_has_header) {
     grant_buf[pos++] = 0x08; grant_buf[pos++] = 0x3c; /* TTL=60 */
     cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Lease/LeaseGrant", grant_buf, pos);
     CETCD_ASSERT_NOT_NULL(r.data);
-    /* Extract lease ID from response (field 1, tag 0x08) */
+    /* Extract lease ID from response: skip header (0x0a), find field 2 (ID) tag=0x10 */
     int64_t lease_id = 0;
-    for (size_t i = 0; i + 1 < r.len; i++) {
-        if (r.data[i] == 0x08) {
-            lease_id = (int64_t)r.data[i + 1];
-            break;
+    size_t rpos = 0;
+    while (rpos < r.len) {
+        uint8_t tag = r.data[rpos++];
+        if (tag == 0x0a) {
+            /* Skip header (length-delimited) */
+            uint64_t l = 0; int shift = 0;
+            while (rpos < r.len) {
+                uint8_t b = r.data[rpos++];
+                l |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) break;
+                shift += 7;
+            }
+            rpos += l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < r.len) {
+                uint8_t b = r.data[rpos++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) break;
+                shift += 7;
+            }
+            if (tag == 0x10) { lease_id = (int64_t)v; break; }
         }
     }
     cetcd_rpc_bytes_free(&r);
@@ -2007,6 +2037,232 @@ CETCD_TEST_CASE(v3rpc_auth_status_has_header) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_lease_grant_has_header) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* LeaseGrant: TTL=60, ID=0 (auto) */
+    uint8_t req[4]; size_t pos = 0;
+    req[pos++] = 0x08; req[pos++] = 0x3c; /* ttl=60 */
+    req[pos++] = 0x10; req[pos++] = 0x00; /* id=0 auto */
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseGrant", req, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    /* Response should start with header (field 1, tag 0x0a) */
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+
+    /* Verify ID at field 2 (tag 0x10) and TTL at field 3 (tag 0x18) */
+    int found_id = 0, found_ttl = 0;
+    size_t rpos = 0;
+    while (rpos < resp.len) {
+        uint8_t tag = resp.data[rpos++];
+        if (tag == 0x0a) {
+            uint64_t l = 0; int shift = 0;
+            while (rpos < resp.len) { uint8_t b = resp.data[rpos++]; l |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            rpos += (size_t)l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < resp.len) { uint8_t b = resp.data[rpos++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            if (tag == 0x10) found_id = 1;
+            if (tag == 0x18) found_ttl = 1;
+        }
+    }
+    CETCD_ASSERT_TRUE(found_id);
+    CETCD_ASSERT_TRUE(found_ttl);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_lease_keepalive_has_header) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Grant a lease first */
+    uint8_t grant_buf[4]; size_t pos = 0;
+    grant_buf[pos++] = 0x08; grant_buf[pos++] = 0x3c;
+    grant_buf[pos++] = 0x10; grant_buf[pos++] = 0x00;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseGrant", grant_buf, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* KeepAlive with ID=1 */
+    uint8_t ka_buf[2]; pos = 0;
+    ka_buf[pos++] = 0x08; ka_buf[pos++] = 0x01;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseKeepAlive", ka_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    /* Response should start with header (field 1, tag 0x0a) */
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_lease_time_to_live_has_header) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Grant a lease first */
+    uint8_t grant_buf[4]; size_t pos = 0;
+    grant_buf[pos++] = 0x08; grant_buf[pos++] = 0x78; /* ttl=120 */
+    grant_buf[pos++] = 0x10; grant_buf[pos++] = 0x00;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseGrant", grant_buf, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* TimeToLive with ID=1 */
+    uint8_t ttl_buf[2]; pos = 0;
+    ttl_buf[pos++] = 0x08; ttl_buf[pos++] = 0x01;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseTimeToLive", ttl_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    /* Response should start with header (field 1, tag 0x0a) */
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+
+    /* Verify grantedTTL at field 4 (tag 0x20) */
+    int found_granted_ttl = 0;
+    size_t rpos = 0;
+    while (rpos < resp.len) {
+        uint8_t tag = resp.data[rpos++];
+        if (tag == 0x0a) {
+            uint64_t l = 0; int shift = 0;
+            while (rpos < resp.len) { uint8_t b = resp.data[rpos++]; l |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            rpos += (size_t)l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < resp.len) { uint8_t b = resp.data[rpos++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            if (tag == 0x20) found_granted_ttl = 1;
+        }
+    }
+    CETCD_ASSERT_TRUE(found_granted_ttl);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_lease_leases_has_header) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Grant a lease first */
+    uint8_t grant_buf[4]; size_t pos = 0;
+    grant_buf[pos++] = 0x08; grant_buf[pos++] = 0x3c;
+    grant_buf[pos++] = 0x10; grant_buf[pos++] = 0x00;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseGrant", grant_buf, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* LeaseLeases */
+    uint8_t dummy[] = {0x00};
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseLeases", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    /* Response should start with header (field 1, tag 0x0a) */
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+
+    /* Verify leases at field 2 (tag 0x12) */
+    int found_lease = 0;
+    size_t rpos = 0;
+    while (rpos < resp.len) {
+        uint8_t tag = resp.data[rpos++];
+        if (tag == 0x0a) {
+            uint64_t l = 0; int shift = 0;
+            while (rpos < resp.len) { uint8_t b = resp.data[rpos++]; l |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            rpos += (size_t)l;
+        } else if (tag == 0x12) {
+            found_lease = 1;
+            break;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < resp.len) { uint8_t b = resp.data[rpos++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+        }
+    }
+    CETCD_ASSERT_TRUE(found_lease);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_lease_time_to_live_with_keys) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Grant a lease */
+    uint8_t grant_buf[4]; size_t pos = 0;
+    grant_buf[pos++] = 0x08; grant_buf[pos++] = 0x3c; /* ttl=60 */
+    grant_buf[pos++] = 0x10; grant_buf[pos++] = 0x00;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseGrant", grant_buf, pos);
+    CETCD_ASSERT_NOT_NULL(r.data);
+
+    /* Extract lease ID from field 2 (tag 0x10) */
+    int64_t lease_id = 0;
+    size_t rpos = 0;
+    while (rpos < r.len) {
+        uint8_t tag = r.data[rpos++];
+        if (tag == 0x0a) {
+            uint64_t l = 0; int shift = 0;
+            while (rpos < r.len) { uint8_t b = r.data[rpos++]; l |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            rpos += (size_t)l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < r.len) { uint8_t b = r.data[rpos++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            if (tag == 0x10) { lease_id = (int64_t)v; break; }
+        }
+    }
+    cetcd_rpc_bytes_free(&r);
+    CETCD_ASSERT_TRUE(lease_id > 0);
+
+    /* Put a key with the lease */
+    uint8_t put_buf[32]; pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x03;
+    memcpy(put_buf + pos, "lk1", 3); pos += 3;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x02;
+    memcpy(put_buf + pos, "v1", 2); pos += 2;
+    put_buf[pos++] = 0x18; /* lease */
+    uint64_t lid = (uint64_t)lease_id;
+    do { uint8_t b = lid & 0x7F; lid >>= 7; if (lid) b |= 0x80; put_buf[pos++] = b; } while (lid);
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* TimeToLive with keys=true: field 1 (ID), field 2 (keys) = true */
+    uint8_t ttl_buf[8]; pos = 0;
+    ttl_buf[pos++] = 0x08; /* field 1 = ID */
+    lid = (uint64_t)lease_id;
+    do { uint8_t b = lid & 0x7F; lid >>= 7; if (lid) b |= 0x80; ttl_buf[pos++] = b; } while (lid);
+    ttl_buf[pos++] = 0x10; /* field 2 = keys (bool) */
+    ttl_buf[pos++] = 0x01; /* true */
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseTimeToLive", ttl_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* Verify keys field (tag 0x2a) is present and contains "lk1" */
+    int found_keys = 0;
+    rpos = 0;
+    while (rpos < resp.len) {
+        uint8_t tag = resp.data[rpos++];
+        if (tag == 0x0a) {
+            uint64_t l = 0; int shift = 0;
+            while (rpos < resp.len) { uint8_t b = resp.data[rpos++]; l |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            rpos += (size_t)l;
+        } else if (tag == 0x2a) {
+            /* keys (repeated bytes) */
+            uint64_t l = 0; int shift = 0;
+            while (rpos < resp.len) { uint8_t b = resp.data[rpos++]; l |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            if (l == 3 && memcmp(resp.data + rpos, "lk1", 3) == 0) found_keys = 1;
+            rpos += (size_t)l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < resp.len) { uint8_t b = resp.data[rpos++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+        }
+    }
+    CETCD_ASSERT_TRUE(found_keys);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
@@ -2073,6 +2329,11 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_put_ignore_value),
     CETCD_TEST_ENTRY(v3rpc_put_ignore_lease),
     CETCD_TEST_ENTRY(v3rpc_auth_status_has_header),
+    CETCD_TEST_ENTRY(v3rpc_lease_grant_has_header),
+    CETCD_TEST_ENTRY(v3rpc_lease_keepalive_has_header),
+    CETCD_TEST_ENTRY(v3rpc_lease_time_to_live_has_header),
+    CETCD_TEST_ENTRY(v3rpc_lease_leases_has_header),
+    CETCD_TEST_ENTRY(v3rpc_lease_time_to_live_with_keys),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

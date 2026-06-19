@@ -251,6 +251,12 @@ The `Lease.LeaseLeases` RPC returns the actual list of active lease IDs via
 `cetcd_lease_mgr_leases()`, and `Lease.LeaseKeepAlive` uses the original granted TTL
 (obtained via `cetcd_lease_granted_ttl()`) instead of a hardcoded value, ensuring
 correct renewal behavior for leases with non-default TTLs.
+All Lease RPC responses (`LeaseGrant`, `LeaseKeepAlive`, `LeaseTimeToLive`,
+`LeaseLeases`, `LeaseRevoke`) include a `ResponseHeader` as field 1, matching the
+etcd v3.5 proto wire format. The `LeaseTimeToLive` handler also parses the `keys`
+boolean field from the request and returns attached keys (field 5) when requested,
+using the new `cetcd_lease_keys()` API. The `LeaseGrant` response also attaches keys
+to leases via `cetcd_lease_attach_key()` when a `Put` request specifies a lease ID.
 
 The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/keepalive`,
 `member add/remove/update/promote`, `user delete/change-password/grant-role/revoke-role`,
