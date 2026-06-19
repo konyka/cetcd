@@ -197,8 +197,8 @@ static void parse_range_response(const uint8_t *data, size_t len) {
     int server_count = -1;
     while (pos < len) {
         uint8_t tag = data[pos++];
-        if (tag == 0x0a) {
-            /* KeyValue (length-delimited) */
+        if (tag == 0x12) {
+            /* KeyValue (field 2 = kvs, length-delimited) */
             uint64_t kv_len = 0;
             if (read_varint(data, len, &pos, &kv_len) != 0) break;
             size_t kv_end = pos + (size_t)kv_len;
@@ -211,11 +211,11 @@ static void parse_range_response(const uint8_t *data, size_t len) {
                     uint64_t l = 0; read_varint(data, kv_end, &pos, &l);
                     key_data = data + pos; key_len = (size_t)l;
                     pos += l;
-                } else if (ktag == 0x12) {
+                } else if (ktag == 0x2a) {
                     uint64_t l = 0; read_varint(data, kv_end, &pos, &l);
                     val_data = data + pos; val_len = (size_t)l;
                     pos += l;
-                } else if (ktag == 0x18 || ktag == 0x20 || ktag == 0x28) {
+                } else if (ktag == 0x10 || ktag == 0x18 || ktag == 0x20) {
                     uint64_t v = 0; read_varint(data, kv_end, &pos, &v);
                 } else {
                     uint64_t v = 0; read_varint(data, kv_end, &pos, &v);
@@ -237,6 +237,9 @@ static void parse_range_response(const uint8_t *data, size_t len) {
         } else if (tag == 0x18) {
             /* more (bool, field 3) */
             uint64_t v = 0; read_varint(data, len, &pos, &v);
+        } else if (tag == 0x0a) {
+            /* Skip header (length-delimited, field 1) */
+            uint64_t l = 0; read_varint(data, len, &pos, &l); pos += l;
         } else {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
         }
@@ -496,12 +499,14 @@ static int cmd_put(int argc, char **argv) {
 }
 
 static int cmd_get(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--keys-only] [--count-only] [--rev N] [--limit N] KEY\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--keys-only] [--count-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY\n"); return 1; }
     bool prefix = false;
     bool keys_only = false;
     bool count_only = false;
     int64_t rev = 0;
     int64_t limit = 0;
+    int sort_order = 0;  /* 0=NONE, 1=ASCEND, 2=DESCEND */
+    int sort_target = 0; /* 0=KEY, 1=VERSION, 2=CREATE, 3=MOD, 4=VALUE */
     const char *key = NULL;
 
     for (int i = 2; i < argc; i++) {
@@ -517,11 +522,27 @@ static int cmd_get(int argc, char **argv) {
         } else if (strcmp(argv[i], "--limit") == 0) {
             if (i + 1 >= argc) { fprintf(stderr, "--limit requires a number\n"); return 1; }
             limit = atol(argv[++i]);
+        } else if (strcmp(argv[i], "--sort-by") == 0) {
+            if (i + 1 >= argc) { fprintf(stderr, "--sort-by requires a field name (key|version|create|mod|value)\n"); return 1; }
+            const char *s = argv[++i];
+            if (strcmp(s, "key") == 0) sort_target = 0;
+            else if (strcmp(s, "version") == 0) sort_target = 1;
+            else if (strcmp(s, "create") == 0) sort_target = 2;
+            else if (strcmp(s, "mod") == 0) sort_target = 3;
+            else if (strcmp(s, "value") == 0) sort_target = 4;
+            else { fprintf(stderr, "invalid --sort-by: %s (use key|version|create|mod|value)\n", s); return 1; }
+            if (sort_order == 0) sort_order = 1; /* default to ASCEND when sort-by is set */
+        } else if (strcmp(argv[i], "--sort-order") == 0) {
+            if (i + 1 >= argc) { fprintf(stderr, "--sort-order requires an order (ascend|descend)\n"); return 1; }
+            const char *s = argv[++i];
+            if (strcmp(s, "ascend") == 0) sort_order = 1;
+            else if (strcmp(s, "descend") == 0) sort_order = 2;
+            else { fprintf(stderr, "invalid --sort-order: %s (use ascend|descend)\n", s); return 1; }
         } else {
             key = argv[i];
         }
     }
-    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--keys-only] [--count-only] [--rev N] [--limit N] KEY\n"); return 1; }
+    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--keys-only] [--count-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY\n"); return 1; }
 
     size_t key_len = strlen(key);
 
@@ -553,6 +574,12 @@ static int cmd_get(int argc, char **argv) {
     if (count_only) {
         /* field 9 (count_only) = bool, tag = 0x48 */
         pos = encode_varint_field(req, sizeof(req), pos, 0x48, 1);
+    }
+    if (sort_order > 0) {
+        /* field 5 (sort_order) = enum, tag = 0x28 */
+        pos = encode_varint_field(req, sizeof(req), pos, 0x28, (uint64_t)sort_order);
+        /* field 6 (sort_target) = enum, tag = 0x30 */
+        pos = encode_varint_field(req, sizeof(req), pos, 0x30, (uint64_t)sort_target);
     }
     g_keys_only = keys_only ? 1 : 0;
     g_count_only = count_only ? 1 : 0;
@@ -631,6 +658,9 @@ static int cmd_del(int argc, char **argv) {
                 if (pv && pv_len > 0) printf(" -> %.*s", (int)pv_len, pv);
                 printf("\n");
             }
+        } else if (tag == 0x0a) {
+            /* Skip header (length-delimited) */
+            uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
         } else {
             uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
         }
@@ -833,7 +863,7 @@ static int cmd_txn(int argc, char **argv) {
 
         int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        /* Parse TxnResponse: field 2 (succeeded) = bool, tag = 0x10 */
+        /* Parse TxnResponse: field 1 (header), field 2 (succeeded) = bool, tag = 0x10 */
         bool succeeded = false;
         size_t rpos = 0;
         while (rpos < (size_t)rlen) {
@@ -842,6 +872,9 @@ static int cmd_txn(int argc, char **argv) {
                 uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
                 succeeded = (v != 0);
                 break;
+            } else if (tag == 0x0a) {
+                /* Skip header (length-delimited) */
+                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
             } else {
                 uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
             }
@@ -1241,15 +1274,24 @@ static int cmd_role(int argc, char **argv) {
 }
 
 static int cmd_watch(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl watch [--prefix] KEY\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl watch [--prefix] [--prev-kv] [--start-rev N] KEY\n"); return 1; }
     bool prefix = false;
-    int key_idx = 2;
-    if (strcmp(argv[2], "--prefix") == 0) {
-        prefix = true;
-        key_idx = 3;
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl watch --prefix KEY\n"); return 1; }
+    bool prev_kv = false;
+    int64_t start_rev = 0;
+    const char *key = NULL;
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--prefix") == 0) {
+            prefix = true;
+        } else if (strcmp(argv[i], "--prev-kv") == 0) {
+            prev_kv = true;
+        } else if (strcmp(argv[i], "--start-rev") == 0) {
+            if (i + 1 >= argc) { fprintf(stderr, "--start-rev requires a revision number\n"); return 1; }
+            start_rev = atol(argv[++i]);
+        } else {
+            key = argv[i];
+        }
     }
-    const char *key = argv[key_idx];
+    if (!key) { fprintf(stderr, "usage: cetcdctl watch [--prefix] [--prev-kv] [--start-rev N] KEY\n"); return 1; }
     size_t key_len = strlen(key);
 
     /* Build WatchCreateRequest:
@@ -1259,7 +1301,6 @@ static int cmd_watch(int argc, char **argv) {
      */
     uint8_t create_inner[512];
     size_t cpos = 0;
-    create_inner[cpos++] = 0x0a; /* field 1 = key */
     cpos = encode_bytes_field(create_inner, sizeof(create_inner), cpos, 0x0a,
                               (const uint8_t *)key, key_len);
     if (prefix) {
@@ -1269,6 +1310,14 @@ static int cmd_watch(int argc, char **argv) {
         range_end[key_len - 1]++;
         cpos = encode_bytes_field(create_inner, sizeof(create_inner), cpos, 0x12,
                                   (const uint8_t *)range_end, key_len);
+    }
+    if (start_rev > 0) {
+        /* field 3 (start_revision) = int64, tag = 0x18 */
+        cpos = encode_varint_field(create_inner, sizeof(create_inner), cpos, 0x18, (uint64_t)start_rev);
+    }
+    if (prev_kv) {
+        /* field 6 (prev_kv) = bool, tag = 0x30 */
+        cpos = encode_varint_field(create_inner, sizeof(create_inner), cpos, 0x30, 1);
     }
 
     uint8_t watch_buf[1024];
@@ -1283,13 +1332,16 @@ static int cmd_watch(int argc, char **argv) {
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
 
     /* Parse WatchResponse:
-     *   field 1 (header) = ResponseHeader
+     *   field 1 (header) = ResponseHeader, tag = 0x0a
      *   field 2 (watch_id) = int64, tag = 0x10
      *   field 3 (created) = bool, tag = 0x18
      *   field 11 (events) = repeated Event, tag = 0x5a
      *     Event: field 1 (type) = enum, tag = 0x08
      *            field 2 (kv) = KeyValue, tag = 0x12
-     *              KeyValue: field 1 (key), field 5 (value)
+     *            field 3 (prev_kv) = KeyValue, tag = 0x1a
+     *              KeyValue: field 1 (key, 0x0a), field 2 (create_rev, 0x10),
+     *                        field 3 (mod_rev, 0x18), field 4 (version, 0x20),
+     *                        field 5 (value, 0x2a)
      */
     size_t rpos = 0;
     while (rpos < (size_t)rlen) {
@@ -1326,11 +1378,38 @@ static int cmd_watch(int argc, char **argv) {
                     if (ek) printf("%.*s", (int)ekl, ek);
                     if (ev && evl > 0) printf(" -> %.*s", (int)evl, ev);
                     printf("\n");
+                } else if (etag == 0x1a) {
+                    /* prev_kv (KeyValue) */
+                    uint64_t klen = 0; read_varint(resp, eend, &rpos, &klen);
+                    size_t kend = rpos + (size_t)klen;
+                    const uint8_t *pk = NULL, *pv = NULL;
+                    size_t pkl = 0, pvl = 0;
+                    while (rpos < kend) {
+                        uint8_t ktag = resp[rpos++];
+                        if (ktag == 0x0a) {
+                            uint64_t l = 0; read_varint(resp, kend, &rpos, &l);
+                            pk = resp + rpos; pkl = (size_t)l; rpos += l;
+                        } else if (ktag == 0x2a) {
+                            uint64_t l = 0; read_varint(resp, kend, &rpos, &l);
+                            pv = resp + rpos; pvl = (size_t)l; rpos += l;
+                        } else {
+                            uint64_t v = 0; read_varint(resp, kend, &rpos, &v);
+                        }
+                    }
+                    rpos = kend;
+                    if (pk) {
+                        printf(" (prev: %.*s", (int)pkl, pk);
+                        if (pv && pvl > 0) printf(" -> %.*s", (int)pvl, pv);
+                        printf(")");
+                    }
                 } else {
                     uint64_t v = 0; read_varint(resp, eend, &rpos, &v);
                 }
             }
             rpos = eend;
+        } else if (tag == 0x0a) {
+            /* Skip header (length-delimited) */
+            uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
         } else {
             uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
         }
@@ -1415,10 +1494,10 @@ static void print_usage(void) {
     printf("  --port PORT    Server port (default: 2379)\n\n");
     printf("Commands:\n");
     printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] KEY [VALUE]  Store a key-value pair\n");
-    printf("  get [--prefix] [--keys-only] [--count-only] [--rev N] [--limit N] KEY\n");
-    printf("                         Retrieve keys (options: --prefix range, --keys-only, --count-only, --rev N, --limit N)\n");
+    printf("  get [--prefix] [--keys-only] [--count-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY\n");
+    printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
     printf("  del [--prefix] [--prev-kv] KEY  Delete a key (options: --prefix, --prev-kv)\n");
-    printf("  watch [--prefix] KEY   Watch key changes (single response)\n");
+    printf("  watch [--prefix] [--prev-kv] [--start-rev N] KEY  Watch key changes (single response)\n");
     printf("  lease grant TTL        Grant a lease (TTL in seconds)\n");
     printf("  lease revoke ID        Revoke a lease by ID\n");
     printf("  lease timetolive ID    Query remaining TTL\n");

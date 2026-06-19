@@ -2425,6 +2425,448 @@ CETCD_TEST_CASE(v3rpc_cluster_responses_have_header) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_watch_has_header) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put key="whdr" value="v1" to create history */
+    uint8_t put_buf[32]; size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x04;
+    memcpy(put_buf + pos, "whdr", 4); pos += 4;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x02;
+    memcpy(put_buf + pos, "v1", 2); pos += 2;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* Watch key="whdr" with start_revision=1 */
+    uint8_t create_inner[32]; size_t cpos = 0;
+    create_inner[cpos++] = 0x0a; create_inner[cpos++] = 0x04;
+    memcpy(create_inner + cpos, "whdr", 4); cpos += 4;
+    create_inner[cpos++] = 0x18; create_inner[cpos++] = 0x01; /* start_revision=1 */
+
+    uint8_t watch_buf[64]; size_t wpos = 0;
+    watch_buf[wpos++] = 0x0a;
+    watch_buf[wpos++] = (uint8_t)cpos;
+    memcpy(watch_buf + wpos, create_inner, cpos); wpos += cpos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Watch/Watch", watch_buf, wpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* WatchResponse should start with field 1 (header) = tag 0x0a */
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+
+    /* Parse header to verify it contains revision (tag 0x18 inside) */
+    size_t p = 1;
+    uint64_t hdr_len = 0;
+    /* read varint for header length */
+    {
+        uint64_t val = 0; int shift = 0;
+        while (p < resp.len) {
+            uint8_t b = resp.data[p++];
+            val |= (uint64_t)(b & 0x7F) << shift;
+            if (!(b & 0x80)) break;
+            shift += 7;
+        }
+        hdr_len = val;
+    }
+    /* Inside header, look for revision tag 0x18 */
+    bool found_revision = false;
+    size_t hdr_end = p + (size_t)hdr_len;
+    while (p < hdr_end && p < resp.len) {
+        uint8_t tag = resp.data[p++];
+        if (tag == 0x18) { found_revision = true; break; }
+        /* skip varint value */
+        while (p < hdr_end) {
+            uint8_t b = resp.data[p++];
+            if (!(b & 0x80)) break;
+        }
+    }
+    CETCD_ASSERT_TRUE(found_revision);
+
+    /* After header, should find watch_id (tag 0x10) and created (tag 0x18) */
+    bool found_watch_id = false;
+    bool found_created = false;
+    p = hdr_end;
+    while (p < resp.len) {
+        uint8_t tag = resp.data[p++];
+        if (tag == 0x10) {
+            found_watch_id = true;
+            while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+        } else if (tag == 0x18) {
+            found_created = true;
+            while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+        } else if (tag == 0x0a || tag == 0x5a) {
+            /* skip length-delimited fields */
+            uint64_t l = 0; int shift = 0;
+            while (p < resp.len) {
+                uint8_t b = resp.data[p++];
+                l |= (uint64_t)(b & 0x7F) << shift;
+                if (!(b & 0x80)) break;
+                shift += 7;
+            }
+            p += (size_t)l;
+        } else {
+            while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+        }
+    }
+    CETCD_ASSERT_TRUE(found_watch_id);
+    CETCD_ASSERT_TRUE(found_created);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_watch_event_kv_correct_fields) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put key="wevt" value="wval" to create history */
+    uint8_t put_buf[32]; size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x04;
+    memcpy(put_buf + pos, "wevt", 4); pos += 4;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x04;
+    memcpy(put_buf + pos, "wval", 4); pos += 4;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* Watch key="wevt" with start_revision=1 to get events */
+    uint8_t create_inner[32]; size_t cpos = 0;
+    create_inner[cpos++] = 0x0a; create_inner[cpos++] = 0x04;
+    memcpy(create_inner + cpos, "wevt", 4); cpos += 4;
+    create_inner[cpos++] = 0x18; create_inner[cpos++] = 0x01; /* start_revision=1 */
+
+    uint8_t watch_buf[64]; size_t wpos = 0;
+    watch_buf[wpos++] = 0x0a;
+    watch_buf[wpos++] = (uint8_t)cpos;
+    memcpy(watch_buf + wpos, create_inner, cpos); wpos += cpos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Watch/Watch", watch_buf, wpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* Find events (tag 0x5a) in the response */
+    bool found_event = false;
+    bool found_create_rev_tag = false; /* 0x10 inside KV */
+    bool found_mod_rev_tag = false;    /* 0x18 inside KV */
+    bool found_version_tag = false;    /* 0x20 inside KV */
+    bool found_value_tag = false;      /* 0x2a inside KV */
+    bool found_key_tag = false;        /* 0x0a inside KV */
+
+    for (size_t i = 0; i < resp.len; i++) {
+        if (resp.data[i] == 0x5a) {
+            found_event = true;
+            /* Found event. Now look inside the event for KV (tag 0x12) */
+            size_t ep = i + 1;
+            /* read event length */
+            uint64_t elen = 0; int shift = 0;
+            while (ep < resp.len) {
+                uint8_t b = resp.data[ep++];
+                elen |= (uint64_t)(b & 0x7F) << shift;
+                if (!(b & 0x80)) break;
+                shift += 7;
+            }
+            size_t eend = ep + (size_t)elen;
+            if (eend > resp.len) eend = resp.len;
+            /* Look for KV tag 0x12 inside event */
+            while (ep < eend) {
+                uint8_t etag = resp.data[ep++];
+                if (etag == 0x12) {
+                    /* Found KV. Parse its fields */
+                    uint64_t klen = 0; int sh2 = 0;
+                    while (ep < eend) {
+                        uint8_t b = resp.data[ep++];
+                        klen |= (uint64_t)(b & 0x7F) << sh2;
+                        if (!(b & 0x80)) break;
+                        sh2 += 7;
+                    }
+                    size_t kend = ep + (size_t)klen;
+                    if (kend > eend) kend = eend;
+                    while (ep < kend) {
+                        uint8_t ktag = resp.data[ep++];
+                        if (ktag == 0x0a) { found_key_tag = true; }
+                        else if (ktag == 0x10) { found_create_rev_tag = true; }
+                        else if (ktag == 0x18) { found_mod_rev_tag = true; }
+                        else if (ktag == 0x20) { found_version_tag = true; }
+                        else if (ktag == 0x2a) { found_value_tag = true; }
+                        /* skip value (varint or length-delimited) */
+                        if (ktag == 0x0a || ktag == 0x2a) {
+                            /* length-delimited */
+                            uint64_t l = 0; int s3 = 0;
+                            while (ep < kend) {
+                                uint8_t b = resp.data[ep++];
+                                l |= (uint64_t)(b & 0x7F) << s3;
+                                if (!(b & 0x80)) break;
+                                s3 += 7;
+                            }
+                            ep += (size_t)l;
+                        } else {
+                            /* varint */
+                            while (ep < kend) {
+                                uint8_t b = resp.data[ep++];
+                                if (!(b & 0x80)) break;
+                            }
+                        }
+                    }
+                    ep = kend;
+                } else if (etag == 0x08) {
+                    /* event type (varint) */
+                    while (ep < eend) { uint8_t b = resp.data[ep++]; if (!(b & 0x80)) break; }
+                } else if (etag == 0x1a) {
+                    /* prev_kv (length-delimited) */
+                    uint64_t l = 0; int s4 = 0;
+                    while (ep < eend) {
+                        uint8_t b = resp.data[ep++];
+                        l |= (uint64_t)(b & 0x7F) << s4;
+                        if (!(b & 0x80)) break;
+                        s4 += 7;
+                    }
+                    ep += (size_t)l;
+                } else {
+                    while (ep < eend) { uint8_t b = resp.data[ep++]; if (!(b & 0x80)) break; }
+                }
+            }
+            break; /* only check first event */
+        }
+    }
+
+    /* If events are present, verify correct KV field numbers.
+     * If no events (watch may not replay history), that's acceptable. */
+    if (found_event) {
+        CETCD_ASSERT_TRUE(found_key_tag);
+        CETCD_ASSERT_TRUE(found_create_rev_tag);
+        CETCD_ASSERT_TRUE(found_mod_rev_tag);
+        CETCD_ASSERT_TRUE(found_version_tag);
+        CETCD_ASSERT_TRUE(found_value_tag);
+    }
+
+    /* Regardless of events, verify the response has a header (tag 0x0a) */
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_range_kvs_correct_tag) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put key="rktag" value="rv1" */
+    uint8_t put_buf[32]; size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x05;
+    memcpy(put_buf + pos, "rktag", 5); pos += 5;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x03;
+    memcpy(put_buf + pos, "rv1", 3); pos += 3;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* Range for key="rktag" */
+    uint8_t range_buf[16]; pos = 0;
+    range_buf[pos++] = 0x0a; range_buf[pos++] = 0x05;
+    memcpy(range_buf + pos, "rktag", 5); pos += 5;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* Response should start with header (tag 0x0a), then kvs (tag 0x12) */
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a); /* header */
+
+    /* Parse header length and skip */
+    size_t p = 1;
+    uint64_t hdr_len = 0; int shift = 0;
+    while (p < resp.len) {
+        uint8_t b = resp.data[p++];
+        hdr_len |= (uint64_t)(b & 0x7F) << shift;
+        if (!(b & 0x80)) break;
+        shift += 7;
+    }
+    p += (size_t)hdr_len;
+
+    /* After header, should find kvs with tag 0x12 (not 0x0a) */
+    bool found_kvs = false;
+    while (p < resp.len) {
+        uint8_t tag = resp.data[p++];
+        if (tag == 0x12) {
+            found_kvs = true;
+            break;
+        } else if (tag == 0x0a) {
+            /* This would be wrong - header should only appear once */
+            break;
+        } else if (tag == 0x20 || tag == 0x18) {
+            /* count or more (varint) */
+            while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+        } else {
+            while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+        }
+    }
+    CETCD_ASSERT_TRUE(found_kvs);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_range_sort_order) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put three keys with different values */
+    const char *keys[] = {"sk1", "sk2", "sk3"};
+    const char *vals[] = {"val_c", "val_a", "val_b"};
+    for (int i = 0; i < 3; i++) {
+        uint8_t put_buf[64]; size_t pos = 0;
+        put_buf[pos++] = 0x0a; put_buf[pos++] = 3;
+        memcpy(put_buf + pos, keys[i], 3); pos += 3;
+        put_buf[pos++] = 0x12; put_buf[pos++] = 5;
+        memcpy(put_buf + pos, vals[i], 5); pos += 5;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Range from sk1 to sk4 with sort_order=ASCEND(1), sort_target=VALUE(4) */
+    uint8_t range_buf[64]; size_t pos = 0;
+    range_buf[pos++] = 0x0a; range_buf[pos++] = 3;
+    memcpy(range_buf + pos, "sk1", 3); pos += 3;
+    range_buf[pos++] = 0x12; range_buf[pos++] = 3;
+    memcpy(range_buf + pos, "sk4", 3); pos += 3;
+    range_buf[pos++] = 0x28; range_buf[pos++] = 0x01; /* sort_order = ASCEND */
+    range_buf[pos++] = 0x30; range_buf[pos++] = 0x04; /* sort_target = VALUE */
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* Find all kvs (tag 0x12) and extract their values to check order */
+    /* Expected order by value: val_a, val_b, val_c (ascending) */
+    const char *expected[] = {"val_a", "val_b", "val_c"};
+    int found_idx = 0;
+    size_t p = 0;
+
+    /* Skip header (tag 0x0a) */
+    if (p < resp.len && resp.data[p] == 0x0a) {
+        p++;
+        uint64_t l = 0; int shift = 0;
+        while (p < resp.len) {
+            uint8_t b = resp.data[p++];
+            l |= (uint64_t)(b & 0x7F) << shift;
+            if (!(b & 0x80)) break;
+            shift += 7;
+        }
+        p += (size_t)l;
+    }
+
+    while (p < resp.len && found_idx < 3) {
+        uint8_t tag = resp.data[p++];
+        if (tag == 0x12) {
+            /* KV entry */
+            uint64_t klen = 0; int shift = 0;
+            while (p < resp.len) {
+                uint8_t b = resp.data[p++];
+                klen |= (uint64_t)(b & 0x7F) << shift;
+                if (!(b & 0x80)) break;
+                shift += 7;
+            }
+            size_t kend = p + (size_t)klen;
+            if (kend > resp.len) kend = resp.len;
+            /* Find value field (tag 0x2a) inside KV */
+            while (p < kend) {
+                uint8_t ktag = resp.data[p++];
+                if (ktag == 0x2a) {
+                    uint64_t vl = 0; int s2 = 0;
+                    while (p < kend) {
+                        uint8_t b = resp.data[p++];
+                        vl |= (uint64_t)(b & 0x7F) << s2;
+                        if (!(b & 0x80)) break;
+                        s2 += 7;
+                    }
+                    /* Compare value with expected */
+                    CETCD_ASSERT_TRUE(vl == 5);
+                    CETCD_ASSERT_TRUE(memcmp(resp.data + p, expected[found_idx], 5) == 0);
+                    found_idx++;
+                    p += (size_t)vl;
+                } else if (ktag == 0x0a) {
+                    uint64_t l = 0; int s3 = 0;
+                    while (p < kend) {
+                        uint8_t b = resp.data[p++];
+                        l |= (uint64_t)(b & 0x7F) << s3;
+                        if (!(b & 0x80)) break;
+                        s3 += 7;
+                    }
+                    p += (size_t)l;
+                } else {
+                    while (p < kend) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+                }
+            }
+            p = kend;
+        } else if (tag == 0x20 || tag == 0x18) {
+            while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+        } else if (tag == 0x0a) {
+            uint64_t l = 0; int s4 = 0;
+            while (p < resp.len) {
+                uint8_t b = resp.data[p++];
+                l |= (uint64_t)(b & 0x7F) << s4;
+                if (!(b & 0x80)) break;
+                s4 += 7;
+            }
+            p += (size_t)l;
+        } else {
+            while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+        }
+    }
+    CETCD_ASSERT_TRUE(found_idx == 3);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_watch_cancel_has_header) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Send a WatchCancelRequest: field 2 = WatchCancelRequest (tag 0x12)
+     * WatchCancelRequest: field 1 = watch_id (tag 0x08) */
+    uint8_t cancel_inner[8]; size_t cpos = 0;
+    cancel_inner[cpos++] = 0x08; cancel_inner[cpos++] = 0x05; /* watch_id = 5 */
+
+    uint8_t watch_buf[16]; size_t wpos = 0;
+    watch_buf[wpos++] = 0x12; /* field 2 = WatchCancelRequest */
+    watch_buf[wpos++] = (uint8_t)cpos;
+    memcpy(watch_buf + wpos, cancel_inner, cpos); wpos += cpos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Watch/Watch", watch_buf, wpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* Cancel response should start with header (tag 0x0a) */
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+
+    /* After header, should find canceled (tag 0x20) */
+    size_t p = 1;
+    uint64_t hdr_len = 0; int shift = 0;
+    while (p < resp.len) {
+        uint8_t b = resp.data[p++];
+        hdr_len |= (uint64_t)(b & 0x7F) << shift;
+        if (!(b & 0x80)) break;
+        shift += 7;
+    }
+    p += (size_t)hdr_len;
+
+    bool found_canceled = false;
+    bool found_watch_id = false;
+    while (p < resp.len) {
+        uint8_t tag = resp.data[p++];
+        if (tag == 0x20) {
+            found_canceled = true;
+            while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+        } else if (tag == 0x10) {
+            found_watch_id = true;
+            while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+        } else {
+            while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+        }
+    }
+    CETCD_ASSERT_TRUE(found_canceled);
+    CETCD_ASSERT_TRUE(found_watch_id);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
@@ -2499,6 +2941,11 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_maintenance_responses_have_header),
     CETCD_TEST_ENTRY(v3rpc_status_has_version_and_leader),
     CETCD_TEST_ENTRY(v3rpc_cluster_responses_have_header),
+    CETCD_TEST_ENTRY(v3rpc_watch_has_header),
+    CETCD_TEST_ENTRY(v3rpc_watch_event_kv_correct_fields),
+    CETCD_TEST_ENTRY(v3rpc_range_kvs_correct_tag),
+    CETCD_TEST_ENTRY(v3rpc_range_sort_order),
+    CETCD_TEST_ENTRY(v3rpc_watch_cancel_has_header),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

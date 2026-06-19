@@ -198,6 +198,38 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
     return (cetcd_rpc_bytes){resp, rpos};
 }
 
+/* Comparison function for RangeRequest sorting */
+static int range_sort_cmp(const void *a, const void *b, void *ctx) {
+    const cetcd_kv *ka = (const cetcd_kv *)a;
+    const cetcd_kv *kb = (const cetcd_kv *)b;
+    int target = *(const int *)ctx;
+    int cmp = 0;
+    switch (target) {
+        case 0: { /* KEY */
+            size_t min_len = ka->key.len < kb->key.len ? ka->key.len : kb->key.len;
+            cmp = min_len > 0 ? memcmp(ka->key.data, kb->key.data, min_len) : 0;
+            if (cmp == 0) cmp = (ka->key.len < kb->key.len) ? -1 : (ka->key.len > kb->key.len) ? 1 : 0;
+            break;
+        }
+        case 1: /* VERSION */
+            cmp = (ka->version < kb->version) ? -1 : (ka->version > kb->version) ? 1 : 0;
+            break;
+        case 2: /* CREATE */
+            cmp = (ka->create_rev.main < kb->create_rev.main) ? -1 : (ka->create_rev.main > kb->create_rev.main) ? 1 : 0;
+            break;
+        case 3: /* MOD */
+            cmp = (ka->mod_rev.main < kb->mod_rev.main) ? -1 : (ka->mod_rev.main > kb->mod_rev.main) ? 1 : 0;
+            break;
+        case 4: { /* VALUE */
+            size_t min_len = ka->value.len < kb->value.len ? ka->value.len : kb->value.len;
+            cmp = min_len > 0 ? memcmp(ka->value.data, kb->value.data, min_len) : 0;
+            if (cmp == 0) cmp = (ka->value.len < kb->value.len) ? -1 : (ka->value.len > kb->value.len) ? 1 : 0;
+            break;
+        }
+    }
+    return cmp;
+}
+
 cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
     size_t pos = 0;
@@ -207,6 +239,8 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
     int64_t limit = 0;
     int keys_only = 0;
     int count_only = 0;
+    int sort_order = 0;  /* 0=NONE, 1=ASCEND, 2=DESCEND */
+    int sort_target = 0; /* 0=KEY, 1=VERSION, 2=CREATE, 3=MOD, 4=VALUE */
     while (pos < req_len) {
         uint8_t tag = req[pos++];
         if (tag == 0x0a) { /* field 1 = key */
@@ -217,6 +251,10 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
             uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; limit = (int64_t)v;
         } else if (tag == 0x20) { /* field 4 = revision */
             uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; rev = (int64_t)v;
+        } else if (tag == 0x28) { /* field 5 = sort_order */
+            uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; sort_order = (int)v;
+        } else if (tag == 0x30) { /* field 6 = sort_target */
+            uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; sort_target = (int)v;
         } else if (tag == 0x40) { /* field 8 = keys_only */
             uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; keys_only = (int)v;
         } else if (tag == 0x48) { /* field 9 = count_only */
@@ -290,7 +328,7 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
                         if (!tmp) { free(resp); if(key)free(key); if(range_end)free(range_end); return (cetcd_rpc_bytes){NULL,0}; }
                         resp = tmp;
                     }
-                    resp[rpos++] = 0x0a; /* field 2 = kvs */
+                    resp[rpos++] = 0x12; /* field 2 = kvs */
                     write_varint_local(resp, resp_cap, &rpos, (uint64_t)kpos);
                     memcpy(resp + rpos, kv_buf, kpos);
                     rpos += kpos;
@@ -306,6 +344,22 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
                              key, key_len,
                              range_end, range_end_len,
                              &kvs, &n);
+            /* Sort results if sort_order is specified (1=ASCEND, 2=DESCEND) */
+            if (sort_order > 0 && n > 1) {
+                /* Simple insertion sort using our comparison function */
+                for (size_t i = 1; i < n; i++) {
+                    cetcd_kv tmp = kvs[i];
+                    size_t j = i;
+                    while (j > 0) {
+                        int cmp = range_sort_cmp(&kvs[j - 1], &tmp, &sort_target);
+                        if (sort_order == 2) cmp = -cmp; /* DESCEND */
+                        if (cmp <= 0) break;
+                        kvs[j] = kvs[j - 1];
+                        j--;
+                    }
+                    kvs[j] = tmp;
+                }
+            }
             size_t effective_limit = (limit > 0) ? (size_t)limit : n;
             for (size_t i = 0; i < n && i < effective_limit; i++) {
                 if (count_only) continue;
@@ -333,7 +387,7 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
                     if (!tmp) { free(resp); free(kvs); if(key)free(key); if(range_end)free(range_end); return (cetcd_rpc_bytes){NULL,0}; }
                     resp = tmp;
                 }
-                resp[rpos++] = 0x0a;
+                resp[rpos++] = 0x12; /* field 2 = kvs */
                 write_varint_local(resp, resp_cap, &rpos, (uint64_t)kpos);
                 memcpy(resp + rpos, kv_buf, kpos);
                 rpos += kpos;
@@ -872,7 +926,7 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                         kvs_cap = kp + 10;
                         kvs_buf = (uint8_t *)malloc(kvs_cap);
                         if (kvs_buf) {
-                            kvs_buf[kvs_len++] = 0x0a; /* field 2 = kvs */
+                            kvs_buf[kvs_len++] = 0x12; /* field 2 = kvs */
                             write_varint_local(kvs_buf, kvs_cap, &kvs_len, (uint64_t)kp);
                             memcpy(kvs_buf + kvs_len, kv_enc, kp); kvs_len += kp;
                         }
@@ -911,7 +965,7 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                                 if (!tmp) { free(kvs_buf); kvs_buf = NULL; kvs_len = 0; break; }
                                 kvs_buf = tmp;
                             }
-                            kvs_buf[kvs_len++] = 0x0a; /* field 2 = kvs */
+                            kvs_buf[kvs_len++] = 0x12; /* field 2 = kvs */
                             write_varint_local(kvs_buf, kvs_cap, &kvs_len, (uint64_t)kp);
                             memcpy(kvs_buf + kvs_len, kv_enc, kp); kvs_len += kp;
                         }

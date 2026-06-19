@@ -50,6 +50,17 @@ static int read_bytes_w(const uint8_t *buf, size_t len, size_t *pos,
     return 0;
 }
 
+static size_t write_varint_w(uint8_t *buf, size_t cap, size_t pos, uint64_t val) {
+    while (pos < cap) {
+        uint8_t b = val & 0x7F;
+        val >>= 7;
+        if (val) b |= 0x80;
+        buf[pos++] = b;
+        if (!val) break;
+    }
+    return pos;
+}
+
 /* Global watch ID counter */
 static int64_t g_watch_id_counter = 1;
 
@@ -64,39 +75,41 @@ static void watch_event_cb(const cetcd_watch_event *ev, void *udata) {
     watch_event_collector *c = (watch_event_collector *)udata;
     if (!c || !ev) return;
 
-    /* Encode a minimal WatchResponse event:
-     *   field 11 (events) = repeated Event, tag = 0x5a (length-delimited)
-     *     Event:
-     *       field 1 (type) = enum, tag = 0x08 (PUT=0, DELETE=1)
-     *       field 2 (kv) = KeyValue, tag = 0x12 (length-delimited)
-     *         KeyValue:
-     *           field 1 (key) = bytes, tag = 0x0a
-     *           field 2 (value) = bytes, tag = 0x12
-     *           field 3 (create_revision) = varint, tag = 0x18
-     *           field 4 (mod_revision) = varint, tag = 0x20
-     *           field 5 (version) = varint, tag = 0x28
+    /* Encode WatchResponse event (field 11, tag = 0x5a):
+     *   Event:
+     *     field 1 (type) = enum, tag = 0x08 (PUT=0, DELETE=1)
+     *     field 2 (kv) = KeyValue, tag = 0x12 (length-delimited)
+     *   KeyValue (etcd v3.5 proto):
+     *     field 1 (key)             = bytes, tag = 0x0a
+     *     field 2 (create_revision) = int64, tag = 0x10
+     *     field 3 (mod_revision)    = int64, tag = 0x18
+     *     field 4 (version)         = int64, tag = 0x20
+     *     field 5 (value)           = bytes, tag = 0x2a
      */
 
     /* Build KeyValue */
     uint8_t kv_buf[4096];
     size_t kpos = 0;
-    /* key */
+    /* field 1 = key */
     kv_buf[kpos++] = 0x0a;
-    uint64_t klen = ev->kv.key.len;
-    do { uint8_t b = klen & 0x7F; klen >>= 7; if (klen) b |= 0x80; kv_buf[kpos++] = b; } while (klen);
+    kpos = write_varint_w(kv_buf, sizeof(kv_buf), kpos, (uint64_t)ev->kv.key.len);
     if (ev->kv.key.len > 0) { memcpy(kv_buf + kpos, ev->kv.key.data, ev->kv.key.len); kpos += ev->kv.key.len; }
-    /* value (only for PUT) */
+    /* field 2 = create_revision */
+    kv_buf[kpos++] = 0x10;
+    kpos = write_varint_w(kv_buf, sizeof(kv_buf), kpos, (uint64_t)ev->kv.create_rev.main);
+    /* field 3 = mod_revision */
+    kv_buf[kpos++] = 0x18;
+    kpos = write_varint_w(kv_buf, sizeof(kv_buf), kpos, (uint64_t)ev->kv.mod_rev.main);
+    /* field 4 = version */
+    kv_buf[kpos++] = 0x20;
+    kpos = write_varint_w(kv_buf, sizeof(kv_buf), kpos, (uint64_t)ev->kv.version);
+    /* field 5 = value (only for PUT) */
     if (ev->type == CETCD_EVENT_PUT && ev->kv.value.len > 0) {
-        kv_buf[kpos++] = 0x12;
-        uint64_t vlen = ev->kv.value.len;
-        do { uint8_t b = vlen & 0x7F; vlen >>= 7; if (vlen) b |= 0x80; kv_buf[kpos++] = b; } while (vlen);
+        kv_buf[kpos++] = 0x2a;
+        kpos = write_varint_w(kv_buf, sizeof(kv_buf), kpos, (uint64_t)ev->kv.value.len);
         memcpy(kv_buf + kpos, ev->kv.value.data, ev->kv.value.len);
         kpos += ev->kv.value.len;
     }
-    /* mod_revision */
-    kv_buf[kpos++] = 0x20;
-    uint64_t mrev = (uint64_t)ev->kv.mod_rev.main;
-    do { uint8_t b = mrev & 0x7F; mrev >>= 7; if (mrev) b |= 0x80; kv_buf[kpos++] = b; } while (mrev);
 
     /* Build Event */
     uint8_t ev_buf[4200];
@@ -137,6 +150,8 @@ cetcd_rpc_bytes watch_handle_watch(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
     bool is_create = false;
     bool is_cancel = false;
     int64_t cancel_id = 0;
+    int want_prev_kv = 0;
+    int64_t client_watch_id = 0;
 
     /* WatchRequest oneof request_union:
      *   field 1 = WatchCreateRequest (tag = 0x0a)
@@ -158,6 +173,10 @@ cetcd_rpc_bytes watch_handle_watch(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
                     if (read_bytes_w(req, cend, &pos, &range_end, &range_end_len) != 0) break;
                 } else if (ctag == 0x18) { /* start_revision */
                     uint64_t v = 0; if (read_varint_w(req, cend, &pos, &v) == 0) start_rev = (int64_t)v;
+                } else if (ctag == 0x30) { /* prev_kv (bool) */
+                    uint64_t v = 0; if (read_varint_w(req, cend, &pos, &v) == 0) want_prev_kv = (int)v;
+                } else if (ctag == 0x38) { /* watch_id (int64) */
+                    uint64_t v = 0; if (read_varint_w(req, cend, &pos, &v) == 0) client_watch_id = (int64_t)v;
                 } else {
                     uint64_t skip = 0; read_varint_w(req, cend, &pos, &skip);
                 }
@@ -186,19 +205,34 @@ cetcd_rpc_bytes watch_handle_watch(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
     int64_t watch_id = 0;
 
     if (is_cancel) {
-        /* Cancel: return a WatchResponse with canceled=true */
-        watch_id = cancel_id;
-        /* Response:
-         *   field 2 (watch_id) = varint, tag = 0x10
-         *   field 4 (canceled) = bool, tag = 0x20
+        /* Cancel: return a WatchResponse with header + canceled=true
+         * WatchResponse:
+         *   field 1 (header)    = ResponseHeader, tag = 0x0a
+         *   field 2 (watch_id)  = int64, tag = 0x10
+         *   field 4 (canceled)  = bool, tag = 0x20
          */
-        uint8_t resp[32];
+        watch_id = cancel_id;
+        int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+
+        /* Build ResponseHeader inner: field 3 = revision */
+        uint8_t hdr_inner[16]; size_t hip = 0;
+        hdr_inner[hip++] = 0x18;
+        hip = write_varint_w(hdr_inner, sizeof(hdr_inner), hip,
+                             (uint64_t)(current_rev > 0 ? current_rev : 1));
+
+        uint8_t resp[64];
         size_t rpos = 0;
+        /* field 1 = header */
+        resp[rpos++] = 0x0a;
+        rpos = write_varint_w(resp, sizeof(resp), rpos, (uint64_t)hip);
+        memcpy(resp + rpos, hdr_inner, hip); rpos += hip;
+        /* field 2 = watch_id */
         resp[rpos++] = 0x10;
-        uint64_t wid = (uint64_t)watch_id;
-        do { uint8_t b = wid & 0x7F; wid >>= 7; if (wid) b |= 0x80; resp[rpos++] = b; } while (wid);
-        resp[rpos++] = 0x20; /* field 4 = canceled */
+        rpos = write_varint_w(resp, sizeof(resp), rpos, (uint64_t)watch_id);
+        /* field 4 = canceled */
+        resp[rpos++] = 0x20;
         resp[rpos++] = 0x01;
+
         uint8_t *out = (uint8_t *)malloc(rpos);
         if (!out) { if (key) free(key); if (range_end) free(range_end); return (cetcd_rpc_bytes){NULL, 0}; }
         memcpy(out, resp, rpos);
@@ -208,7 +242,8 @@ cetcd_rpc_bytes watch_handle_watch(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
     }
 
     if (is_create && key && g_rpc_store) {
-        watch_id = g_watch_id_counter++;
+        /* Use client-specified watch_id if provided, otherwise auto-assign */
+        watch_id = (client_watch_id > 0) ? client_watch_id : g_watch_id_counter++;
 
         /* Collect any events from start_rev to now */
         watch_event_collector collector = {NULL, 0, 0};
@@ -225,16 +260,30 @@ cetcd_rpc_bytes watch_handle_watch(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
         }
 
         /* Build WatchResponse:
-         *   field 2 (watch_id) = varint, tag = 0x10
-         *   field 3 (created) = bool, tag = 0x18
-         *   field 11 (events) = repeated Event, tag = 0x5a
+         *   field 1 (header)    = ResponseHeader, tag = 0x0a
+         *   field 2 (watch_id)  = int64, tag = 0x10
+         *   field 3 (created)   = bool, tag = 0x18
+         *   field 11 (events)   = repeated Event, tag = 0x5a
          */
-        uint8_t header[32];
+        int64_t current_rev = cetcd_mvcc_revision(g_rpc_store);
+
+        /* Build ResponseHeader inner: field 3 = revision */
+        uint8_t hdr_inner[16]; size_t hip = 0;
+        hdr_inner[hip++] = 0x18;
+        hip = write_varint_w(hdr_inner, sizeof(hdr_inner), hip,
+                             (uint64_t)(current_rev > 0 ? current_rev : 1));
+
+        uint8_t header[64];
         size_t hpos = 0;
-        header[hpos++] = 0x10; /* field 2 = watch_id */
-        uint64_t wid = (uint64_t)watch_id;
-        do { uint8_t b = wid & 0x7F; wid >>= 7; if (wid) b |= 0x80; header[hpos++] = b; } while (wid);
-        header[hpos++] = 0x18; /* field 3 = created */
+        /* field 1 = header */
+        header[hpos++] = 0x0a;
+        hpos = write_varint_w(header, sizeof(header), hpos, (uint64_t)hip);
+        memcpy(header + hpos, hdr_inner, hip); hpos += hip;
+        /* field 2 = watch_id */
+        header[hpos++] = 0x10;
+        hpos = write_varint_w(header, sizeof(header), hpos, (uint64_t)watch_id);
+        /* field 3 = created */
+        header[hpos++] = 0x18;
         header[hpos++] = 0x01;
 
         size_t total = hpos + collector.len;

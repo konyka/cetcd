@@ -273,8 +273,8 @@ and `MemberPromote` returns a proper `ResponseHeader` with the current revision.
 The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/keepalive`,
 `member add/remove/update/promote`, `user delete/change-password/grant-role/revoke-role`,
 `role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix/--keys-only/--rev`,
-`del --prefix/--prev-kv`, `put --prev-kv`, `watch`, `txn cas` (compare-and-swap),
-`auth login` (token-based authentication), `get --count-only/--limit N`,
+`del --prefix/--prev-kv`, `put --prev-kv`, `watch --prefix/--prev-kv/--start-rev`, `txn cas` (compare-and-swap),
+`auth login` (token-based authentication), `get --count-only/--limit N/--sort-by/--sort-order`,
 `put --ignore-value/--ignore-lease`.
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
@@ -285,7 +285,10 @@ actual `KeyValue` protobuf messages (supporting both point-get and range queries
 lease when `ignore_lease=true`), `DeleteRange`
 supports `range_end` for range deletes and `prev_kv` for returning deleted key-values.
 The `Range` handler also supports `limit` (truncating results and setting the `more` flag),
-`count_only` (returning only the count without kvs), and `keys_only` (omitting values).
+`count_only` (returning only the count without kvs), `keys_only` (omitting values), and
+`sort_order`/`sort_target` (sorting results by KEY, VERSION, CREATE, MOD, or VALUE in ASCEND
+or DESCEND order before applying the limit). The `RangeResponse` kvs field correctly uses
+protobuf field 2 (tag 0x12) to avoid collision with the `ResponseHeader` (field 1, tag 0x0a).
 The `Txn` handler now evaluates `Compare` clauses against the MVCC store — supporting
 `EQUAL`/`GREATER`/`LESS`/`NOT_EQUAL` operators on `VERSION`, `CREATE`, `MOD`, `VALUE`, and
 `LEASE` targets — and executes success or failure ops accordingly, returning a complete
@@ -297,8 +300,18 @@ data instead of an empty count. The `Compact` and `LeaseRevoke` responses includ
 All Auth RPC responses now include a proper `ResponseHeader` with the current revision.
 The `Authenticate` response correctly returns the token in field 2 (tag 0x12) alongside the
 header. The `AuthStatus`, `UserList`, `RoleList`, `UserGet`, and `RoleGet` responses all
-include a `ResponseHeader` prefix. The Watch handler's fallback path returns a proper
-`WatchResponse` with header and `created=true` instead of an empty byte.
+include a `ResponseHeader` prefix.
+
+The Watch handler now includes a `ResponseHeader` (field 1, tag 0x0a) in all WatchResponse
+messages — create, cancel, and fallback paths. The Event `KeyValue` encoding uses correct
+etcd v3.5 protobuf field numbers: key (field 1, 0x0a), create_revision (field 2, 0x10),
+mod_revision (field 3, 0x18), version (field 4, 0x20), and value (field 5, 0x2a). The
+`WatchCreateRequest` parser also supports `prev_kv` (field 6) and client-specified `watch_id`
+(field 7). The cetcdctl `watch` command supports `--prev-kv` and `--start-rev` flags.
+
+The cetcdctl response parsing for `del`, `txn cas`, and `watch` now correctly skips the
+`ResponseHeader` (tag 0x0a) before parsing response-specific fields, ensuring compatibility
+with the proper protobuf encoding.
 
 ---
 
