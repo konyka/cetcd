@@ -192,3 +192,32 @@ const cetcd_peer_info *cetcd_cluster_get_peer(const cetcd_cluster *c, uint64_t i
     }
     return NULL;
 }
+
+const cetcd_peer_info *cetcd_cluster_get_peer_by_index(const cetcd_cluster *c, size_t index) {
+    if (!c || index >= c->peer_count) return NULL;
+    if (!c->peers[index]) return NULL;
+    peer_info_buf_.id = c->peers[index]->id;
+    strncpy(peer_info_buf_.addr, c->peers[index]->addr, sizeof(peer_info_buf_.addr) - 1);
+    peer_info_buf_.addr[sizeof(peer_info_buf_.addr) - 1] = '\0';
+    peer_info_buf_.port = c->peers[index]->port;
+    return &peer_info_buf_;
+}
+
+uint64_t cetcd_cluster_self_id(const cetcd_cluster *c) {
+    if (!c) return 0;
+    return c->self_id;
+}
+
+int cetcd_cluster_update_peer(cetcd_cluster *c, uint64_t id, const cetcd_peer_info *info) {
+    if (!c || !info) return CETCD_ERR_INVAL;
+    for (size_t i = 0; i < c->peer_count; i++) {
+        if (c->peers[i] && c->peers[i]->id == id) {
+            c->peers[i]->id = info->id;
+            strncpy(c->peers[i]->addr, info->addr, sizeof(c->peers[i]->addr) - 1);
+            c->peers[i]->addr[sizeof(c->peers[i]->addr) - 1] = '\0';
+            c->peers[i]->port = info->port;
+            return CETCD_OK;
+        }
+    }
+    return CETCD_ERR_NOTFOUND;
+}

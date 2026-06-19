@@ -1,7 +1,12 @@
 #include "cetcd/base.h"
 #include "cetcd/v3rpc.h"
 #include "cetcd/auth.h"
+#include "cetcd/peer.h"
 #include "cetcd_test.h"
+
+/* Globals defined in v3rpc.c — we set them to test cluster-aware handlers */
+extern cetcd_cluster *g_rpc_cluster;
+extern uint64_t       g_rpc_node_id;
 
 CETCD_TEST_CASE(v3rpc_create_destroy) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
@@ -865,6 +870,75 @@ CETCD_TEST_CASE(v3rpc_auth_role_revoke_permission) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_cluster_member_list_with_peers) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Set up a cluster with known peers */
+    cetcd_cluster *saved_cluster = g_rpc_cluster;
+    uint64_t       saved_node_id = g_rpc_node_id;
+    g_rpc_cluster = cetcd_cluster_new(1);
+    g_rpc_node_id = 1;
+    cetcd_peer_info p1 = {.id = 2, .addr = "10.0.0.2", .port = 2380};
+    cetcd_peer_info p2 = {.id = 3, .addr = "10.0.0.3", .port = 2381};
+    cetcd_cluster_add_peer(g_rpc_cluster, &p1);
+    cetcd_cluster_add_peer(g_rpc_cluster, &p2);
+
+    uint8_t dummy[] = {0x00};
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Cluster/MemberList", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+
+    /* Verify response contains multiple members by counting 0x12 tags
+     * (field 2 = repeated Member). With self + 2 peers, we expect at least 2. */
+    int member_count = 0;
+    for (size_t i = 0; i < resp.len; i++) {
+        if (resp.data[i] == 0x12) member_count++;
+    }
+    CETCD_ASSERT_TRUE(member_count >= 2);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_cluster_free(g_rpc_cluster);
+    g_rpc_cluster = saved_cluster;
+    g_rpc_node_id = saved_node_id;
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_cluster_member_update_actual) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Set up a cluster with one peer */
+    cetcd_cluster *saved_cluster = g_rpc_cluster;
+    g_rpc_cluster = cetcd_cluster_new(1);
+    cetcd_peer_info p1 = {.id = 5, .addr = "10.0.0.5", .port = 2380};
+    cetcd_cluster_add_peer(g_rpc_cluster, &p1);
+
+    /* MemberUpdateRequest: field 1 (ID) = 5, field 2 (peerURLs) = "192.168.1.5:9999" */
+    uint8_t upd_buf[64];
+    size_t pos = 0;
+    upd_buf[pos++] = 0x08; /* field 1 = ID */
+    upd_buf[pos++] = 0x05;
+    upd_buf[pos++] = 0x12; /* field 2 = peerURLs */
+    upd_buf[pos++] = 0x10; /* length = 16 */
+    memcpy(upd_buf + pos, "192.168.1.5:9999", 16); pos += 16;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Cluster/MemberUpdate", upd_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* Verify the peer was actually updated */
+    const cetcd_peer_info *pi = cetcd_cluster_get_peer(g_rpc_cluster, 5);
+    CETCD_ASSERT_NOT_NULL(pi);
+    CETCD_ASSERT_TRUE(strcmp(pi->addr, "192.168.1.5") == 0);
+    CETCD_ASSERT_EQ_INT((int)pi->port, 9999);
+
+    cetcd_cluster_free(g_rpc_cluster);
+    g_rpc_cluster = saved_cluster;
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
@@ -904,6 +978,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_auth_role_get),
     CETCD_TEST_ENTRY(v3rpc_auth_role_grant_permission),
     CETCD_TEST_ENTRY(v3rpc_auth_role_revoke_permission),
+    CETCD_TEST_ENTRY(v3rpc_cluster_member_list_with_peers),
+    CETCD_TEST_ENTRY(v3rpc_cluster_member_update_actual),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

@@ -7,6 +7,7 @@
 #include "cetcd/lease.h"
 #include "cetcd/auth.h"
 #include "cetcd/peer.h"
+#include "cetcd/raft.h"
 
 /* Forward declarations for per RPC handlers (defined in separate files) */
 cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
@@ -68,6 +69,7 @@ cetcd_mvcc_store *g_rpc_store = NULL;
 cetcd_lease_mgr  *g_rpc_lease_mgr = NULL;
 cetcd_auth_store *g_rpc_auth = NULL;
 cetcd_cluster    *g_rpc_cluster = NULL;
+cetcd_raft       *g_rpc_raft = NULL;
 uint64_t          g_rpc_node_id = 0;
 
 cetcd_v3rpc *cetcd_v3rpc_new(void) {

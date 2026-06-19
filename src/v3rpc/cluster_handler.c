@@ -149,8 +149,19 @@ cetcd_rpc_bytes cluster_handle_member_list(cetcd_v3rpc *rpc,
     if (g_rpc_cluster) {
         size_t peer_count = cetcd_cluster_peer_count(g_rpc_cluster);
         for (size_t i = 0; i < peer_count && pos < sizeof(buf) - 256; i++) {
-            /* We don't have a get_peer_by_index function, so we skip for now.
-             * The self member is already encoded above. */
+            const cetcd_peer_info *pi = cetcd_cluster_get_peer_by_index(g_rpc_cluster, i);
+            if (!pi) continue;
+            char peer_url[300];
+            snprintf(peer_url, sizeof(peer_url), "%s:%u", pi->addr, pi->port);
+            uint8_t member_buf[256];
+            size_t mlen = encode_member(member_buf, sizeof(member_buf),
+                                         pi->id, peer_url);
+            if (pos + 2 + mlen < sizeof(buf)) {
+                buf[pos++] = 0x12;
+                write_varint_c(buf, sizeof(buf), &pos, (uint64_t)mlen);
+                memcpy(buf + pos, member_buf, mlen);
+                pos += mlen;
+            }
         }
     }
 
@@ -277,8 +288,45 @@ cetcd_rpc_bytes cluster_handle_member_update(cetcd_v3rpc *rpc,
         }
     }
 
-    /* Update is essentially remove + re-add with new info.
-     * For now, return success. */
+    /* Update the peer's address and port in the cluster */
+    if (g_rpc_cluster && member_id > 0) {
+        /* Parse new peer URL from request */
+        size_t pos2 = 0;
+        char new_url[256] = {0};
+        while (pos2 < req_len) {
+            uint8_t tag = req[pos2++];
+            if (tag == 0x08) {
+                uint64_t v = 0; read_varint_c(req, req_len, &pos2, &v);
+            } else if (tag == 0x12) {
+                uint8_t *url = NULL; size_t url_len = 0;
+                if (read_bytes_c(req, req_len, &pos2, &url, &url_len) == 0 && url) {
+                    size_t copy_len = url_len < sizeof(new_url) - 1 ? url_len : sizeof(new_url) - 1;
+                    memcpy(new_url, url, copy_len);
+                    new_url[copy_len] = '\0';
+                    free(url);
+                }
+            } else {
+                uint64_t skip = 0; read_varint_c(req, req_len, &pos2, &skip);
+            }
+        }
+        if (new_url[0]) {
+            cetcd_peer_info info = {0};
+            info.id = member_id;
+            char addr[256] = {0};
+            size_t copy_len = strlen(new_url) < sizeof(addr) - 1 ? strlen(new_url) : sizeof(addr) - 1;
+            memcpy(addr, new_url, copy_len);
+            addr[copy_len] = '\0';
+            char *colon = strrchr(addr, ':');
+            if (colon) {
+                *colon = '\0';
+                info.port = (uint16_t)atoi(colon + 1);
+            } else {
+                info.port = 2380;
+            }
+            strncpy(info.addr, addr, sizeof(info.addr) - 1);
+            cetcd_cluster_update_peer(g_rpc_cluster, member_id, &info);
+        }
+    }
     return make_simple_cluster_response();
 }
 

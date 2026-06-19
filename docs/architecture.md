@@ -50,9 +50,9 @@ src/
 ├── mvcc/        libcetcd_mvcc       Revision index, watcher fan-out, compaction
 ├── lease/       libcetcd_lease      TTL min-heap + lease-keys index
 ├── auth/        libcetcd_auth       RBAC, SHA-256 password hashing
-├── peer/        libcetcd_peer       Raft transport (rafthttp-equivalent)
+├── peer/        libcetcd_peer       Raft transport, cluster membership mgmt (rafthttp-equivalent)
 ├── snap/        libcetcd_snap       Snapshot file r/w and streaming
-├── v3rpc/       libcetcd_v3rpc      gRPC handlers for all 41 RPCs
+├── v3rpc/       libcetcd_v3rpc      gRPC handlers for all 41 RPCs (cluster-aware, raft-integrated)
 └── server/      libcetcd_server     Main loop, apply pipeline, config, lifecycle
 
 cmd/
@@ -240,6 +240,12 @@ compiles and the gRPC framing helpers remain functional.
 The peer transport (`libcetcd_peer`) mirrors etcd's `rafthttp` over HTTP/2 streams. Peer URLs
 take the form `http(s)://host:peer-port/raft/stream/{message,msgapp}/{member-id}` — same as
 etcd, so cetcd nodes can act as peers in a mixed cetcd/etcd cluster (validated in Phase 7).
+The cluster management API supports peer enumeration by index (`cetcd_cluster_get_peer_by_index`),
+in-place peer info updates (`cetcd_cluster_update_peer`), and self-ID queries (`cetcd_cluster_self_id`).
+The `MemberList` RPC iterates all peers to return a complete cluster membership view, `MemberUpdate`
+actually modifies peer addresses, `Maintenance.Status` returns the real Raft leader ID and term from
+the live `cetcd_raft` instance, and `Maintenance.MoveLeader` triggers `CETCD_MSG_TRANSFER_LEADER`
+for actual leadership transfer.
 
 ---
 

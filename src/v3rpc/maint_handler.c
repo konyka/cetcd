@@ -18,8 +18,13 @@
 #include "cetcd/v3rpc.h"
 #include "cetcd/mvcc.h"
 #include "cetcd/base.h"
+#include "cetcd/raft.h"
+#include "cetcd/peer.h"
 
 extern cetcd_mvcc_store *g_rpc_store;
+extern cetcd_raft       *g_rpc_raft;
+extern cetcd_cluster    *g_rpc_cluster;
+extern uint64_t          g_rpc_node_id;
 
 /* Forward declarations */
 cetcd_rpc_bytes maint_handle_status(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
@@ -76,6 +81,9 @@ cetcd_rpc_bytes maint_handle_status(cetcd_v3rpc *rpc, const uint8_t *req, size_t
     (void)rpc; (void)req; (void)req_len;
 
     int64_t rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+    uint64_t leader = g_rpc_raft ? cetcd_raft_leader(g_rpc_raft) : 0;
+    uint64_t term   = g_rpc_raft ? cetcd_raft_term(g_rpc_raft) : 0;
+    uint64_t commit = g_rpc_raft ? cetcd_raft_committed(g_rpc_raft) : 0;
 
     uint8_t buf[128];
     size_t pos = 0;
@@ -89,13 +97,17 @@ cetcd_rpc_bytes maint_handle_status(cetcd_v3rpc *rpc, const uint8_t *req, size_t
     buf[pos++] = 0x18;
     write_varint_m(buf, sizeof(buf), &pos, 0);
 
+    /* field 4 = leader (uint64) */
+    buf[pos++] = 0x20;
+    write_varint_m(buf, sizeof(buf), &pos, leader);
+
     /* field 5 = raftIndex */
     buf[pos++] = 0x28;
-    write_varint_m(buf, sizeof(buf), &pos, (uint64_t)(rev > 0 ? rev : 0));
+    write_varint_m(buf, sizeof(buf), &pos, commit > 0 ? commit : (uint64_t)(rev > 0 ? rev : 0));
 
     /* field 6 = raftTerm */
     buf[pos++] = 0x30;
-    write_varint_m(buf, sizeof(buf), &pos, 1);
+    write_varint_m(buf, sizeof(buf), &pos, term > 0 ? term : 1);
 
     uint8_t *out = (uint8_t *)malloc(pos);
     if (!out) return (cetcd_rpc_bytes){NULL, 0};
@@ -195,7 +207,30 @@ cetcd_rpc_bytes maint_handle_alarm(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
  * MoveLeaderResponse: empty (just header)
  */
 cetcd_rpc_bytes maint_handle_move_leader(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
-    (void)rpc; (void)req; (void)req_len;
+    (void)rpc;
+
+    /* Parse target ID from request */
+    size_t pos = 0;
+    uint64_t target_id = 0;
+    while (pos < req_len) {
+        uint8_t tag = req[pos++];
+        if (tag == 0x08) {
+            if (read_varint_m(req, req_len, &pos, &target_id) != 0) break;
+        } else {
+            uint64_t skip = 0; read_varint_m(req, req_len, &pos, &skip);
+        }
+    }
+
+    /* Trigger leader transfer via raft if we have a raft instance */
+    if (g_rpc_raft && target_id > 0) {
+        cetcd_msg transfer;
+        memset(&transfer, 0, sizeof(transfer));
+        transfer.type = CETCD_MSG_TRANSFER_LEADER;
+        transfer.to   = target_id;
+        transfer.from = g_rpc_node_id;
+        cetcd_raft_step(g_rpc_raft, &transfer);
+    }
+
     return make_simple_response();
 }
 

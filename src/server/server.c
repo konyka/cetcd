@@ -322,8 +322,10 @@ cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
     /* Set global cluster handle for cluster RPC handlers */
     extern cetcd_cluster *g_rpc_cluster;
     extern uint64_t       g_rpc_node_id;
+    extern cetcd_raft    *g_rpc_raft;
     g_rpc_cluster = srv->cluster;
     g_rpc_node_id = cfg->node_id;
+    g_rpc_raft = srv->raft;
 
     srv->metrics = cetcd_metrics_new();
     if (srv->metrics) {

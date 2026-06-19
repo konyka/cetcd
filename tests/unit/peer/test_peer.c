@@ -84,6 +84,62 @@ CETCD_TEST_CASE(msg_encode_decode_roundtrip) {
     free(decoded);
 }
 
+CETCD_TEST_CASE(cluster_get_peer_by_index) {
+    cetcd_cluster *c = cetcd_cluster_new(1);
+    cetcd_peer_info p1 = {.id = 2, .addr = "10.0.0.1", .port = 2380};
+    cetcd_peer_info p2 = {.id = 3, .addr = "10.0.0.2", .port = 2381};
+    cetcd_cluster_add_peer(c, &p1);
+    cetcd_cluster_add_peer(c, &p2);
+
+    /* Index 0 → first peer */
+    const cetcd_peer_info *pi0 = cetcd_cluster_get_peer_by_index(c, 0);
+    CETCD_ASSERT_NOT_NULL(pi0);
+    CETCD_ASSERT_TRUE(pi0->id == 2);
+    CETCD_ASSERT_TRUE(strcmp(pi0->addr, "10.0.0.1") == 0);
+    CETCD_ASSERT_EQ_INT((int)pi0->port, 2380);
+
+    /* Index 1 → second peer */
+    const cetcd_peer_info *pi1 = cetcd_cluster_get_peer_by_index(c, 1);
+    CETCD_ASSERT_NOT_NULL(pi1);
+    CETCD_ASSERT_TRUE(pi1->id == 3);
+
+    /* Out-of-range → NULL */
+    CETCD_ASSERT_TRUE(cetcd_cluster_get_peer_by_index(c, 2) == NULL);
+    CETCD_ASSERT_TRUE(cetcd_cluster_get_peer_by_index(c, 99) == NULL);
+
+    cetcd_cluster_free(c);
+}
+
+CETCD_TEST_CASE(cluster_self_id) {
+    cetcd_cluster *c = cetcd_cluster_new(42);
+    CETCD_ASSERT_TRUE(cetcd_cluster_self_id(c) == 42);
+    CETCD_ASSERT_TRUE(cetcd_cluster_self_id(NULL) == 0);
+    cetcd_cluster_free(c);
+}
+
+CETCD_TEST_CASE(cluster_update_peer) {
+    cetcd_cluster *c = cetcd_cluster_new(1);
+    cetcd_peer_info p1 = {.id = 2, .addr = "10.0.0.1", .port = 2380};
+    cetcd_cluster_add_peer(c, &p1);
+
+    /* Update peer's address and port */
+    cetcd_peer_info updated = {.id = 2, .addr = "192.168.1.1", .port = 9999};
+    int rc = cetcd_cluster_update_peer(c, 2, &updated);
+    CETCD_ASSERT_EQ_INT(rc, CETCD_OK);
+
+    /* Verify the update */
+    const cetcd_peer_info *pi = cetcd_cluster_get_peer(c, 2);
+    CETCD_ASSERT_NOT_NULL(pi);
+    CETCD_ASSERT_TRUE(strcmp(pi->addr, "192.168.1.1") == 0);
+    CETCD_ASSERT_EQ_INT((int)pi->port, 9999);
+
+    /* Update non-existent peer should fail */
+    rc = cetcd_cluster_update_peer(c, 99, &updated);
+    CETCD_ASSERT_NE_INT(rc, CETCD_OK);
+
+    cetcd_cluster_free(c);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(peer_create_destroy),
     CETCD_TEST_ENTRY(cluster_create_add_remove),
@@ -91,6 +147,9 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(cluster_remove_nonexistent),
     CETCD_TEST_ENTRY(cluster_send_msg),
     CETCD_TEST_ENTRY(msg_encode_decode_roundtrip),
+    CETCD_TEST_ENTRY(cluster_get_peer_by_index),
+    CETCD_TEST_ENTRY(cluster_self_id),
+    CETCD_TEST_ENTRY(cluster_update_peer),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()
