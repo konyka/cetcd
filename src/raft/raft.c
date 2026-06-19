@@ -684,8 +684,49 @@ int cetcd_raft_propose(cetcd_raft *r, const uint8_t *data, size_t len) {
 }
 
 int cetcd_raft_propose_conf_change(cetcd_raft *r, const uint8_t *data, size_t len) {
-    (void)r; (void)data; (void)len;
-    return -1;
+    if (!r || r->role != ROLE_LEADER) return -1;
+    if (!data || len == 0) return -1;
+
+    /* Append a conf-change entry to the log, similar to a normal proposal
+     * but with type = CETCD_ENTRY_CONF_CHANGE.
+     *
+     * The data is the serialized ConfChange protobuf. We store it as the
+     * entry data so the apply pipeline can decode and apply it. */
+    r->log_last_index++;
+    cetcd_entry e;
+    memset(&e, 0, sizeof(e));
+    e.term  = r->term;
+    e.index = r->log_last_index;
+    e.type  = CETCD_ENTRY_CONF_CHANGE;
+    e.data.data = (uint8_t *)data;  /* borrowed; not freed by us */
+    e.data.len  = len;
+    r->log_last_term = r->term;
+    log_append_(r, &e);
+    queue_entry_(r, &e);
+    queue_hard_state_(r);
+
+    /* Broadcast to followers */
+    for (uint32_t i = 0; i < r->n_peers; i++) {
+        if (r->peers[i] == r->id) continue;
+        if (i >= MAX_PEERS_) break;
+        cetcd_msg app;
+        memset(&app, 0, sizeof(app));
+        app.type      = CETCD_MSG_APP;
+        app.to        = r->peers[i];
+        app.from      = r->id;
+        app.term      = r->term;
+        app.log_term  = r->log_last_term;
+        app.index     = r->log_last_index - 1;
+        app.commit    = r->commit;
+        cetcd_entry *ecopy = (cetcd_entry *)malloc(sizeof(cetcd_entry));
+        if (ecopy) { *ecopy = e; }
+        app.entries   = ecopy;
+        app.n_entries = 1;
+        queue_msg_(r, &app);
+    }
+
+    maybe_advance_commit_(r);
+    return 0;
 }
 
 void cetcd_raft_apply_conf_change(cetcd_raft *r, const cetcd_conf_state *cs) {

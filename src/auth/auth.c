@@ -224,6 +224,63 @@ size_t cetcd_auth_role_count(const cetcd_auth_store *s) {
     return s && s->roles ? cetcd_hashmap_size(s->roles) : 0;
 }
 
+/* --- Iteration helpers --- */
+
+struct auth_iter_ctx {
+    void *fn;     /* function pointer (type varies) */
+    void *udata;  /* user data */
+};
+
+static bool auth_iter_name_cb(cetcd_slice key, void *value, void *udata) {
+    (void)value;
+    struct auth_iter_ctx *ctx = (struct auth_iter_ctx *)udata;
+    cetcd_auth_user_iter_fn fn = (cetcd_auth_user_iter_fn)ctx->fn;
+    /* key.data is not null-terminated; create a temporary buffer */
+    char name[128];
+    size_t len = key.len < sizeof(name) - 1 ? key.len : sizeof(name) - 1;
+    memcpy(name, key.data, len);
+    name[len] = '\0';
+    return fn(name, ctx->udata);
+}
+
+void cetcd_auth_user_iter(const cetcd_auth_store *s, cetcd_auth_user_iter_fn fn, void *udata) {
+    if (!s || !s->users || !fn) return;
+    struct auth_iter_ctx ctx = { (void *)fn, udata };
+    cetcd_hashmap_iter(s->users, auth_iter_name_cb, &ctx);
+}
+
+static bool auth_iter_role_name_cb(cetcd_slice key, void *value, void *udata) {
+    (void)value;
+    struct auth_iter_ctx *ctx = (struct auth_iter_ctx *)udata;
+    cetcd_auth_role_iter_fn fn = (cetcd_auth_role_iter_fn)ctx->fn;
+    char name[128];
+    size_t len = key.len < sizeof(name) - 1 ? key.len : sizeof(name) - 1;
+    memcpy(name, key.data, len);
+    name[len] = '\0';
+    return fn(name, ctx->udata);
+}
+
+void cetcd_auth_role_iter(const cetcd_auth_store *s, cetcd_auth_role_iter_fn fn, void *udata) {
+    if (!s || !s->roles || !fn) return;
+    struct auth_iter_ctx ctx = { (void *)fn, udata };
+    cetcd_hashmap_iter(s->roles, auth_iter_role_name_cb, &ctx);
+}
+
+/* --- Change password --- */
+
+int cetcd_auth_change_password(cetcd_auth_store *s, const char *name,
+                                const char *new_password) {
+    if (!s || !name || !new_password) return CETCD_ERR_INVAL;
+    cetcd_user *u = cetcd_find_user(s, name);
+    if (!u) return CETCD_ERR_NOTFOUND;
+    /* Re-hash password */
+    uint8_t hash32[32];
+    hash_password_placeholder((const void *)new_password, strlen(new_password), hash32);
+    memcpy(u->password_hash, hash32, 32);
+    u->hash_len = 32;
+    return CETCD_OK;
+}
+
 /* Internal helpers implementation */
 static void hash_password_placeholder(const void *data, size_t len, uint8_t out[32]) {
     /* Deterministic, non-cryptographic placeholder hash based on input data */

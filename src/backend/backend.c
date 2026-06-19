@@ -187,6 +187,16 @@ int cetcd_txn_del(cetcd_txn *txn, const char *bucket,
 }
 
 uint64_t cetcd_backend_size(cetcd_backend *be) {
-    (void)be; /* Not strictly required for tests; return 0 if unknown */
-    return 0;
+    if (!be || !be->env) return 0;
+    MDB_stat st;
+    memset(&st, 0, sizeof(st));
+    int rc = mdb_env_stat(be->env, &st);
+    if (rc != MDB_SUCCESS) return 0;
+    /* Return the total page usage: ms_branch_pages + ms_leaf_pages +
+     * ms_overflow_pages. This gives an approximate on-disk size in pages.
+     * For actual byte size, multiply by the environment page size. */
+    uint64_t total_pages = (uint64_t)st.ms_branch_pages +
+                           (uint64_t)st.ms_leaf_pages +
+                           (uint64_t)st.ms_overflow_pages;
+    return total_pages * (uint64_t)st.ms_psize;
 }

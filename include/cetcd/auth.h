@@ -53,6 +53,18 @@ void cetcd_auth_set_enabled(cetcd_auth_store *s, bool enabled);
 size_t cetcd_auth_user_count(const cetcd_auth_store *s);
 size_t cetcd_auth_role_count(const cetcd_auth_store *s);
 
+/* Change a user's password */
+int cetcd_auth_change_password(cetcd_auth_store *s, const char *name,
+                                const char *new_password);
+
+/* Iterate users: call fn for each user, stop early if fn returns false */
+typedef bool (*cetcd_auth_user_iter_fn)(const char *name, void *udata);
+void cetcd_auth_user_iter(const cetcd_auth_store *s, cetcd_auth_user_iter_fn fn, void *udata);
+
+/* Iterate roles: call fn for each role, stop early if fn returns false */
+typedef bool (*cetcd_auth_role_iter_fn)(const char *name, void *udata);
+void cetcd_auth_role_iter(const cetcd_auth_store *s, cetcd_auth_role_iter_fn fn, void *udata);
+
 #ifdef __cplusplus
 }
 #endif

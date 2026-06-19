@@ -160,13 +160,133 @@ static void peer_send_cb_(uint64_t to_id, const uint8_t *data, size_t len, void 
     sa.sin_port = htons(pi->port);
     inet_pton(AF_INET, pi->addr, &sa.sin_addr);
     if (connect(fd, (struct sockaddr *)&sa, sizeof(sa)) == 0) {
+        /* Frame: 4-byte big-endian length prefix + payload */
+        uint8_t hdr[4];
+        hdr[0] = (uint8_t)((len >> 24) & 0xFF);
+        hdr[1] = (uint8_t)((len >> 16) & 0xFF);
+        hdr[2] = (uint8_t)((len >> 8) & 0xFF);
+        hdr[3] = (uint8_t)(len & 0xFF);
+        send(fd, hdr, 4, MSG_NOSIGNAL);
         send(fd, data, len, MSG_NOSIGNAL);
     }
     close(fd);
 }
 
+static void on_peer_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf);
+static void on_peer_alloc_(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf);
+static void on_peer_close_(uv_handle_t *handle);
+
+typedef struct peer_ctx_ {
+    cetcd_server *srv;
+    uv_stream_t  *stream;
+    uint8_t      *buf;
+    size_t        buf_pos;
+    size_t        buf_cap;
+} peer_ctx_;
+
+static void on_peer_close_(uv_handle_t *handle) {
+    peer_ctx_ *ctx = (peer_ctx_ *)handle->data;
+    if (ctx) {
+        if (ctx->buf) free(ctx->buf);
+        free(ctx);
+    }
+}
+
+static void on_peer_alloc_(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
+    (void)handle; (void)suggested_size;
+    buf->base = (char *)malloc(65536);
+    buf->len = 65536;
+}
+
+static void on_peer_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
+    peer_ctx_ *ctx = (peer_ctx_ *)stream->data;
+    if (!ctx) { if (buf->base) free(buf->base); return; }
+
+    if (nread <= 0) {
+        if (nread < 0) {
+            uv_close((uv_handle_t *)stream, on_peer_close_);
+        }
+        if (buf->base) free(buf->base);
+        return;
+    }
+
+    /* Append to peer buffer */
+    if (ctx->buf_pos + (size_t)nread > ctx->buf_cap) {
+        size_t nc = ctx->buf_cap ? ctx->buf_cap * 2 : 65536;
+        while (nc < ctx->buf_pos + (size_t)nread) nc *= 2;
+        uint8_t *nb = (uint8_t *)realloc(ctx->buf, nc);
+        if (!nb) { if (buf->base) free(buf->base); return; }
+        ctx->buf = nb;
+        ctx->buf_cap = nc;
+    }
+    memcpy(ctx->buf + ctx->buf_pos, buf->base, (size_t)nread);
+    ctx->buf_pos += (size_t)nread;
+    if (buf->base) free(buf->base);
+
+    /* Decode and feed raft messages */
+    cetcd_server *srv = ctx->srv;
+    if (!srv || !srv->raft) return;
+
+    /* Peer messages are framed: 4-byte big-endian length prefix + payload.
+     * The payload is a peer-framed raft message (from cetcd_msg_encode). */
+    size_t consumed = 0;
+    while (ctx->buf_pos - consumed >= 4) {
+        uint32_t msg_len = ((uint32_t)ctx->buf[consumed] << 24) |
+                           ((uint32_t)ctx->buf[consumed + 1] << 16) |
+                           ((uint32_t)ctx->buf[consumed + 2] << 8) |
+                           ((uint32_t)ctx->buf[consumed + 3]);
+        if (msg_len == 0 || msg_len > 16 * 1024 * 1024) {
+            /* Invalid frame size; close connection */
+            uv_close((uv_handle_t *)stream, on_peer_close_);
+            return;
+        }
+        if (ctx->buf_pos - consumed < 4 + msg_len) break; /* need more data */
+
+        const uint8_t *payload = ctx->buf + consumed + 4;
+        /* Decode peer framing (cetcd_msg_decode) to get raw raft wire bytes */
+        uint8_t *raft_wire = NULL;
+        size_t raft_wire_len = 0;
+        int rc = cetcd_msg_decode(payload, msg_len, &raft_wire, &raft_wire_len);
+        if (rc == 0 && raft_wire && raft_wire_len > 0) {
+            /* Decode raft wire format to cetcd_msg */
+            cetcd_msg *rmsg = cetcd_msg_decode_wire(raft_wire, raft_wire_len);
+            if (rmsg) {
+                /* Feed to raft state machine */
+                cetcd_raft_step(srv->raft, rmsg);
+                cetcd_msg_free(rmsg);
+                /* Process any ready state from this step */
+                process_ready_(srv);
+            }
+            free(raft_wire);
+        }
+        consumed += 4 + msg_len;
+    }
+
+    /* Compact buffer */
+    if (consumed > 0) {
+        size_t remaining = ctx->buf_pos - consumed;
+        if (remaining > 0) memmove(ctx->buf, ctx->buf + consumed, remaining);
+        ctx->buf_pos = remaining;
+    }
+}
+
 static void on_peer_incoming_(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
-    (void)server; (void)client; (void)arg;
+    (void)server;
+    cetcd_server *srv = (cetcd_server *)arg;
+    if (!client || !srv) return;
+
+    peer_ctx_ *ctx = (peer_ctx_ *)calloc(1, sizeof(*ctx));
+    if (!ctx) { cetcd_tcp_close(client); return; }
+    ctx->srv = srv;
+
+    uv_stream_t *stream = cetcd_tcp_stream(client);
+    if (stream) {
+        stream->data = ctx;
+        uv_read_start(stream, on_peer_alloc_, on_peer_read_);
+    } else {
+        free(ctx);
+        cetcd_tcp_close(client);
+    }
 }
 
 static int ensure_dir(const char *path) {

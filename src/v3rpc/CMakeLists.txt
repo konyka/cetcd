@@ -5,10 +5,13 @@ cetcd_add_module(v3rpc
         watch_handler.c
         lease_handler.c
         auth_handler.c
+        maint_handler.c
+        cluster_handler.c
     PUBLIC_DEPS
         cetcd_base
     PRIVATE_DEPS
         cetcd_mvcc
         cetcd_lease
         cetcd_auth
+        cetcd_peer
 )
