@@ -513,7 +513,7 @@ static int cmd_put(int argc, char **argv) {
 }
 
 static int cmd_get(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY [RANGE_END]\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
     bool prefix = false;
     bool from_key = false;
     bool keys_only = false;
@@ -521,6 +521,8 @@ static int cmd_get(int argc, char **argv) {
     bool print_value_only = false;
     int64_t rev = 0;
     int64_t limit = 0;
+    int64_t min_mod_rev = 0, max_mod_rev = 0;
+    int64_t min_create_rev = 0, max_create_rev = 0;
     int sort_order = 0;  /* 0=NONE, 1=ASCEND, 2=DESCEND */
     int sort_target = 0; /* 0=KEY, 1=VERSION, 2=CREATE, 3=MOD, 4=VALUE */
     const char *key = NULL;
@@ -543,6 +545,18 @@ static int cmd_get(int argc, char **argv) {
         } else if (strcmp(argv[i], "--limit") == 0) {
             if (i + 1 >= argc) { fprintf(stderr, "--limit requires a number\n"); return 1; }
             limit = atol(argv[++i]);
+        } else if (strcmp(argv[i], "--min-mod-rev") == 0) {
+            if (i + 1 >= argc) { fprintf(stderr, "--min-mod-rev requires a revision number\n"); return 1; }
+            min_mod_rev = atol(argv[++i]);
+        } else if (strcmp(argv[i], "--max-mod-rev") == 0) {
+            if (i + 1 >= argc) { fprintf(stderr, "--max-mod-rev requires a revision number\n"); return 1; }
+            max_mod_rev = atol(argv[++i]);
+        } else if (strcmp(argv[i], "--min-create-rev") == 0) {
+            if (i + 1 >= argc) { fprintf(stderr, "--min-create-rev requires a revision number\n"); return 1; }
+            min_create_rev = atol(argv[++i]);
+        } else if (strcmp(argv[i], "--max-create-rev") == 0) {
+            if (i + 1 >= argc) { fprintf(stderr, "--max-create-rev requires a revision number\n"); return 1; }
+            max_create_rev = atol(argv[++i]);
         } else if (strcmp(argv[i], "--sort-by") == 0) {
             if (i + 1 >= argc) { fprintf(stderr, "--sort-by requires a field name (key|version|create|mod|value)\n"); return 1; }
             const char *s = argv[++i];
@@ -565,7 +579,7 @@ static int cmd_get(int argc, char **argv) {
             range_end = argv[i];
         }
     }
-    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY [RANGE_END]\n"); return 1; }
+    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
 
     size_t key_len = strlen(key);
 
@@ -604,6 +618,22 @@ static int cmd_get(int argc, char **argv) {
     if (count_only) {
         /* field 9 (count_only) = bool, tag = 0x48 */
         pos = encode_varint_field(req, sizeof(req), pos, 0x48, 1);
+    }
+    if (min_mod_rev > 0) {
+        /* field 10 (min_mod_revision) = int64, tag = 0x50 */
+        pos = encode_varint_field(req, sizeof(req), pos, 0x50, (uint64_t)min_mod_rev);
+    }
+    if (max_mod_rev > 0) {
+        /* field 11 (max_mod_revision) = int64, tag = 0x58 */
+        pos = encode_varint_field(req, sizeof(req), pos, 0x58, (uint64_t)max_mod_rev);
+    }
+    if (min_create_rev > 0) {
+        /* field 12 (min_create_revision) = int64, tag = 0x60 */
+        pos = encode_varint_field(req, sizeof(req), pos, 0x60, (uint64_t)min_create_rev);
+    }
+    if (max_create_rev > 0) {
+        /* field 13 (max_create_revision) = int64, tag = 0x68 */
+        pos = encode_varint_field(req, sizeof(req), pos, 0x68, (uint64_t)max_create_rev);
     }
     if (sort_order > 0) {
         /* field 5 (sort_order) = enum, tag = 0x28 */
@@ -1539,7 +1569,7 @@ static void print_usage(void) {
     printf("  --port PORT    Server port (default: 2379)\n\n");
     printf("Commands:\n");
     printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE]  Store a key-value pair\n");
-    printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY [RANGE_END]\n");
+    printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
     printf("  del [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --prev-kv)\n");
     printf("  watch [--prefix] [--prev-kv] [--start-rev N] KEY  Watch key changes (single response)\n");
