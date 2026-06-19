@@ -15,6 +15,7 @@
  *   lease list             — list all active leases
  *   lease keepalive ID     — keep a lease alive
  *   txn put KEY VALUE      — execute a transaction (Put)
+ *   txn cas KEY EXPECTED NEW — compare-and-swap transaction
  *   compact REV            — compact MVCC history to given revision
  *   status                 — get server status
  *   alarm                  — query alarms
@@ -33,6 +34,7 @@
  *   auth enable            — enable authentication
  *   auth disable           — disable authentication
  *   auth status            — query auth status
+ *   auth login NAME PASS   — authenticate and get token
  *   user add NAME PASS     — add a user
  *   user delete NAME       — delete a user
  *   user get NAME          — get user details (roles)
@@ -223,11 +225,11 @@ static void parse_range_response(const uint8_t *data, size_t len) {
                 printf(" -> %.*s", (int)val_len, val_data);
             }
             printf("\n");
-        } else if (tag == 0x10) {
-            /* count (varint) */
+        } else if (tag == 0x20) {
+            /* count (varint, field 4) */
             uint64_t v = 0; read_varint(data, len, &pos, &v);
         } else if (tag == 0x18) {
-            /* more (bool) */
+            /* more (bool, field 3) */
             uint64_t v = 0; read_varint(data, len, &pos, &v);
         } else {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
@@ -553,36 +555,117 @@ static int cmd_compact(int argc, char **argv) {
 }
 
 static int cmd_txn(int argc, char **argv) {
-    if (argc < 5 || strcmp(argv[2], "put") != 0) {
+    if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl txn put KEY VALUE\n");
+        fprintf(stderr, "       cetcdctl txn cas KEY EXPECTED NEW\n");
         return 1;
     }
-    /* Build a TxnRequest with one success op (Put) */
-    uint8_t put_inner[1024];
-    size_t ppos = 0;
-    ppos = encode_bytes_field(put_inner, sizeof(put_inner), ppos, 0x0a,
-                               (const uint8_t *)argv[3], strlen(argv[3]));
-    ppos = encode_bytes_field(put_inner, sizeof(put_inner), ppos, 0x12,
-                               (const uint8_t *)argv[4], strlen(argv[4]));
+    if (strcmp(argv[2], "put") == 0) {
+        if (argc < 5) { fprintf(stderr, "usage: cetcdctl txn put KEY VALUE\n"); return 1; }
+        /* Build a TxnRequest with one success op (Put) */
+        uint8_t put_inner[1024];
+        size_t ppos = 0;
+        ppos = encode_bytes_field(put_inner, sizeof(put_inner), ppos, 0x0a,
+                                   (const uint8_t *)argv[3], strlen(argv[3]));
+        ppos = encode_bytes_field(put_inner, sizeof(put_inner), ppos, 0x12,
+                                   (const uint8_t *)argv[4], strlen(argv[4]));
 
-    uint8_t op_buf[1024];
-    size_t opos = 0;
-    op_buf[opos++] = 0x12; /* RequestPut tag */
-    op_buf[opos++] = (uint8_t)ppos;
-    memcpy(op_buf + opos, put_inner, ppos);
-    opos += ppos;
+        uint8_t op_buf[1024];
+        size_t opos = 0;
+        op_buf[opos++] = 0x12; /* RequestPut tag */
+        op_buf[opos++] = (uint8_t)ppos;
+        memcpy(op_buf + opos, put_inner, ppos);
+        opos += ppos;
 
-    uint8_t req[2048], resp[1024];
-    size_t pos = 0;
-    req[pos++] = 0x12; /* field 2 = success ops */
-    req[pos++] = (uint8_t)opos;
-    memcpy(req + pos, op_buf, opos);
-    pos += opos;
+        uint8_t req[2048], resp[1024];
+        size_t pos = 0;
+        req[pos++] = 0x12; /* field 2 = success ops */
+        req[pos++] = (uint8_t)opos;
+        memcpy(req + pos, op_buf, opos);
+        pos += opos;
 
-    int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
-    if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-    printf("OK\n");
-    return 0;
+        int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        printf("OK\n");
+        return 0;
+    } else if (strcmp(argv[2], "cas") == 0) {
+        /* Compare-and-swap: if KEY's value equals EXPECTED, set it to NEW */
+        if (argc < 6) { fprintf(stderr, "usage: cetcdctl txn cas KEY EXPECTED NEW\n"); return 1; }
+        const char *key = argv[3];
+        size_t key_len = strlen(key);
+        const char *expected = argv[4];
+        size_t exp_len = strlen(expected);
+        const char *new_val = argv[5];
+        size_t new_len = strlen(new_val);
+
+        /* Build Compare message:
+         *   field 1 (result) = 0 (EQUAL), tag = 0x08
+         *   field 2 (target) = 3 (VALUE), tag = 0x10
+         *   field 3 (key)    = bytes, tag = 0x1a
+         *   field 7 (value)  = bytes, tag = 0x3a
+         */
+        uint8_t cmp_buf[512];
+        size_t cpos = 0;
+        cpos = encode_varint_field(cmp_buf, sizeof(cmp_buf), cpos, 0x08, 0); /* result=EQUAL */
+        cpos = encode_varint_field(cmp_buf, sizeof(cmp_buf), cpos, 0x10, 3); /* target=VALUE */
+        cpos = encode_bytes_field(cmp_buf, sizeof(cmp_buf), cpos, 0x1a,
+                                   (const uint8_t *)key, key_len);
+        cpos = encode_bytes_field(cmp_buf, sizeof(cmp_buf), cpos, 0x3a,
+                                   (const uint8_t *)expected, exp_len);
+
+        /* Build success op: RequestPut(KEY, NEW) */
+        uint8_t put_inner[1024];
+        size_t ppos = 0;
+        ppos = encode_bytes_field(put_inner, sizeof(put_inner), ppos, 0x0a,
+                                   (const uint8_t *)key, key_len);
+        ppos = encode_bytes_field(put_inner, sizeof(put_inner), ppos, 0x12,
+                                   (const uint8_t *)new_val, new_len);
+        uint8_t op_buf[1024];
+        size_t opos = 0;
+        op_buf[opos++] = 0x12; /* RequestPut tag */
+        opos = write_varint(op_buf, sizeof(op_buf), opos, (uint64_t)ppos);
+        memcpy(op_buf + opos, put_inner, ppos);
+        opos += ppos;
+
+        /* Build TxnRequest:
+         *   field 1 (compare) = Compare, tag = 0x0a
+         *   field 2 (success) = RequestOp, tag = 0x12
+         */
+        uint8_t req[2048], resp[1024];
+        size_t pos = 0;
+        /* field 1 = compare */
+        pos = encode_bytes_field(req, sizeof(req), pos, 0x0a, cmp_buf, cpos);
+        /* field 2 = success op */
+        pos = encode_bytes_field(req, sizeof(req), pos, 0x12, op_buf, opos);
+
+        int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        /* Parse TxnResponse: field 2 (succeeded) = bool, tag = 0x10 */
+        bool succeeded = false;
+        size_t rpos = 0;
+        while (rpos < (size_t)rlen) {
+            uint8_t tag = resp[rpos++];
+            if (tag == 0x10) {
+                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+                succeeded = (v != 0);
+                break;
+            } else {
+                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            }
+        }
+        if (succeeded) {
+            printf("OK (compare succeeded)\n");
+            return 0;
+        } else {
+            printf("FAILED (compare did not match)\n");
+            return 1;
+        }
+    } else {
+        fprintf(stderr, "unknown txn subcommand: %s\n", argv[2]);
+        fprintf(stderr, "usage: cetcdctl txn put KEY VALUE\n");
+        fprintf(stderr, "       cetcdctl txn cas KEY EXPECTED NEW\n");
+        return 1;
+    }
 }
 
 static int cmd_status(int argc, char **argv) {
@@ -665,6 +748,7 @@ static int cmd_member(int argc, char **argv) {
         fprintf(stderr, "       cetcdctl member add PEER_URL\n");
         fprintf(stderr, "       cetcdctl member remove ID\n");
         fprintf(stderr, "       cetcdctl member update ID PEER_URL\n");
+        fprintf(stderr, "       cetcdctl member promote ID\n");
         return 1;
     }
     if (strcmp(argv[2], "list") == 0) {
@@ -697,6 +781,14 @@ static int cmd_member(int argc, char **argv) {
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberUpdate", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         printf("OK\n");
+    } else if (strcmp(argv[2], "promote") == 0) {
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl member promote ID\n"); return 1; }
+        uint8_t req[32], resp[256];
+        size_t pos = 0;
+        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(argv[3]));
+        int rlen = do_rpc("/etcdserverpb.Cluster/MemberPromote", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        printf("OK\n");
     } else {
         fprintf(stderr, "unknown member subcommand: %s\n", argv[2]);
         return 1;
@@ -706,8 +798,31 @@ static int cmd_member(int argc, char **argv) {
 
 static int cmd_auth(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl auth enable|disable|status\n");
+        fprintf(stderr, "usage: cetcdctl auth enable|disable|status|login\n");
         return 1;
+    }
+    if (strcmp(argv[2], "login") == 0) {
+        if (argc < 5) { fprintf(stderr, "usage: cetcdctl auth login NAME PASS\n"); return 1; }
+        uint8_t req[512], resp[1024];
+        size_t pos = 0;
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
+        int rlen = do_rpc("/etcdserverpb.Auth/Authenticate", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "authentication failed\n"); return 1; }
+        /* Parse AuthenticateResponse: field 1 (token) = bytes, tag = 0x0a */
+        size_t rpos = 0;
+        while (rpos < (size_t)rlen) {
+            uint8_t tag = resp[rpos++];
+            if (tag == 0x0a) {
+                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+                printf("token: %.*s\n", (int)l, resp + rpos);
+                return 0;
+            } else {
+                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            }
+        }
+        printf("OK (no token returned)\n");
+        return 0;
     }
     uint8_t req[] = {0x00}, resp[1024];
     const char *path = NULL;
@@ -970,7 +1085,7 @@ static int cmd_watch(int argc, char **argv) {
      *   field 1 (header) = ResponseHeader
      *   field 2 (watch_id) = int64, tag = 0x10
      *   field 3 (created) = bool, tag = 0x18
-     *   field 5 (events) = repeated Event, tag = 0x2a
+     *   field 11 (events) = repeated Event, tag = 0x5a
      *     Event: field 1 (type) = enum, tag = 0x08
      *            field 2 (kv) = KeyValue, tag = 0x12
      *              KeyValue: field 1 (key), field 5 (value)
@@ -978,7 +1093,7 @@ static int cmd_watch(int argc, char **argv) {
     size_t rpos = 0;
     while (rpos < (size_t)rlen) {
         uint8_t tag = resp[rpos++];
-        if (tag == 0x2a) {
+        if (tag == 0x5a) {
             /* Event (length-delimited) */
             uint64_t elen = 0; read_varint(resp, rlen, &rpos, &elen);
             size_t eend = rpos + (size_t)elen;
@@ -1100,6 +1215,7 @@ static void print_usage(void) {
     printf("  lease list             List all active leases\n");
     printf("  lease keepalive ID     Keep a lease alive\n");
     printf("  txn put KEY VALUE      Execute a transaction (Put)\n");
+    printf("  txn cas KEY EXP NEW    Compare-and-swap (if KEY==EXP then KEY=NEW)\n");
     printf("  compact REV            Compact MVCC history to revision\n");
     printf("  status                 Get server status\n");
     printf("  alarm                  Query alarms\n");
@@ -1111,9 +1227,11 @@ static void print_usage(void) {
     printf("  member add PEER_URL    Add a cluster member\n");
     printf("  member remove ID       Remove a cluster member\n");
     printf("  member update ID URL   Update a member's peer URL\n");
+    printf("  member promote ID      Promote a member to voting member\n");
     printf("  auth enable            Enable authentication\n");
     printf("  auth disable           Disable authentication\n");
     printf("  auth status            Query auth status\n");
+    printf("  auth login NAME PASS   Authenticate and get token\n");
     printf("  user add NAME PASS     Add a user\n");
     printf("  user delete NAME       Delete a user\n");
     printf("  user get NAME          Get user details (roles)\n");

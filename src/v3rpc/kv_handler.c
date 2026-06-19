@@ -136,7 +136,7 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
      *   field 1 (header) = ResponseHeader (with revision)
      *   field 2 (kvs) = repeated KeyValue (length-delimited), tag = 0x0a
      *   field 3 (more)  = bool, tag = 0x10
-     *   field 4 (count) = int64, tag = 0x18
+     *   field 4 (count) = int64, tag = 0x20
      *
      * KeyValue:
      *   field 1 (key)            = bytes, tag = 0x0a
@@ -252,7 +252,7 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
         if (!tmp) { free(resp); if(key)free(key); if(range_end)free(range_end); return (cetcd_rpc_bytes){NULL,0}; }
         resp = tmp;
     }
-    resp[rpos++] = 0x18; /* field 4 = count */
+    resp[rpos++] = 0x20; /* field 4 = count */
     write_varint_local(resp, resp_cap, &rpos, (uint64_t)kv_count);
 
     /* Now write the header at the beginning */
@@ -331,124 +331,322 @@ cetcd_rpc_bytes kv_handle_compact(cetcd_v3rpc *rpc, const uint8_t *req, size_t r
  *   field 2 (success)  = repeated RequestOp, tag = 0x12
  *   field 3 (failure)  = repeated RequestOp, tag = 0x1a
  *
- * RequestOp is a length-delimited oneof:
- *   field 1 = RequestRange (tag = 0x0a)
- *   field 2 = RequestPut (tag = 0x12)
- *   field 3 = RequestDeleteRange (tag = 0x1a)
+ * Compare:
+ *   field 1 (result)  = enum (EQUAL=0, GREATER=1, LESS=2, NOT_EQUAL=3), tag = 0x08
+ *   field 2 (target)  = enum (VERSION=0, CREATE=1, MOD=2, VALUE=3, LEASE=4), tag = 0x10
+ *   field 3 (key)     = bytes, tag = 0x1a
+ *   field 4 (version) = int64, tag = 0x20
+ *   field 5 (create_revision) = int64, tag = 0x28
+ *   field 6 (mod_revision)    = int64, tag = 0x30
+ *   field 7 (value)   = bytes, tag = 0x3a
+ *   field 8 (lease)   = int64, tag = 0x40
  *
  * TxnResponse:
- *   field 1 (header)   = ResponseHeader
+ *   field 1 (header)    = ResponseHeader
  *   field 2 (succeeded) = bool, tag = 0x10
  *   field 3 (responses) = repeated ResponseOp, tag = 0x1a
- *
- * For simplicity, we implement a basic version:
- *   - If there are no compare clauses, execute all success ops.
- *   - If there are compare clauses, check them; if all pass, execute success ops;
- *     otherwise execute failure ops.
- *   - Each Put/Delete op is applied to the MVCC store.
- *   - Range ops return minimal results.
  */
+
+#define TXN_MAX_COMPARES 16
+#define TXN_MAX_OPS 32
+
+typedef struct {
+    uint8_t *key;     size_t key_len;
+    int      result;  /* 0=EQUAL, 1=GREATER, 2=LESS, 3=NOT_EQUAL */
+    int      target;  /* 0=VERSION, 1=CREATE, 2=MOD, 3=VALUE, 4=LEASE */
+    int64_t  version;
+    int64_t  create_revision;
+    int64_t  mod_revision;
+    uint8_t *value;   size_t value_len;
+    int64_t  lease;
+} txn_compare_t;
+
+typedef struct {
+    const uint8_t *data;
+    size_t         len;
+} txn_op_t;
+
 cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
-    size_t pos = 0;
-    bool succeeded = true; /* default: no comparisons = succeed */
+    txn_compare_t compares[TXN_MAX_COMPARES];
+    size_t n_compares = 0;
+    txn_op_t success_ops[TXN_MAX_OPS];
+    size_t n_success = 0;
+    txn_op_t failure_ops[TXN_MAX_OPS];
+    size_t n_failure = 0;
+    memset(compares, 0, sizeof(compares));
 
-    /* We parse the request to find compare and success/failure ops.
-     * For each success op that is a Put, we apply it.
-     * For each success op that is a DeleteRange, we apply it.
-     * Compare clauses are checked against the MVCC store.
-     */
+    /* --- Phase 1: Parse the request into compares, success ops, failure ops --- */
+    size_t pos = 0;
     while (pos < req_len) {
-        if (pos >= req_len) break;
         uint8_t tag = req[pos++];
         if (tag == 0x0a) {
-            /* compare clause: length-delimited, skip for now (treat as pass) */
+            /* Compare clause */
             uint64_t clen = 0;
             if (read_varint(req, req_len, &pos, &clen) != 0) break;
-            pos += (size_t)clen;
-            /* Basic compare: always succeed */
+            size_t cend = pos + (size_t)clen;
+            if (cend > req_len) cend = req_len;
+            if (n_compares < TXN_MAX_COMPARES) {
+                txn_compare_t *c = &compares[n_compares];
+                while (pos < cend) {
+                    uint8_t ctag = req[pos++];
+                    if (ctag == 0x08) {
+                        uint64_t v = 0; read_varint(req, cend, &pos, &v); c->result = (int)v;
+                    } else if (ctag == 0x10) {
+                        uint64_t v = 0; read_varint(req, cend, &pos, &v); c->target = (int)v;
+                    } else if (ctag == 0x1a) {
+                        read_bytes(req, cend, &pos, &c->key, &c->key_len);
+                    } else if (ctag == 0x20) {
+                        uint64_t v = 0; read_varint(req, cend, &pos, &v); c->version = (int64_t)v;
+                    } else if (ctag == 0x28) {
+                        uint64_t v = 0; read_varint(req, cend, &pos, &v); c->create_revision = (int64_t)v;
+                    } else if (ctag == 0x30) {
+                        uint64_t v = 0; read_varint(req, cend, &pos, &v); c->mod_revision = (int64_t)v;
+                    } else if (ctag == 0x3a) {
+                        read_bytes(req, cend, &pos, &c->value, &c->value_len);
+                    } else if (ctag == 0x40) {
+                        uint64_t v = 0; read_varint(req, cend, &pos, &v); c->lease = (int64_t)v;
+                    } else {
+                        uint64_t skip = 0; read_varint(req, cend, &pos, &skip);
+                    }
+                }
+                n_compares++;
+            }
+            pos = cend;
         } else if (tag == 0x12) {
-            /* success op: length-delimited RequestOp */
+            /* Success op */
             uint64_t olen = 0;
             if (read_varint(req, req_len, &pos, &olen) != 0) break;
             if (pos + olen > req_len) break;
-            /* Parse the RequestOp oneof */
-            size_t op_start = pos;
-            size_t op_end = pos + (size_t)olen;
-            while (op_start < op_end) {
-                uint8_t op_tag = req[op_start++];
-                if (op_tag == 0x12) {
-                    /* RequestPut: parse key and value, apply to store */
-                    uint64_t plen = 0;
-                    size_t pp = op_start;
-                    if (read_varint(req, op_end, &pp, &plen) != 0) break;
-                    size_t put_end = pp + (size_t)plen;
-                    uint8_t *pk = NULL, *pv = NULL;
-                    size_t pk_len = 0, pv_len = 0;
-                    while (pp < put_end) {
-                        uint8_t ptag = req[pp++];
-                        if (ptag == 0x0a) {
-                            if (read_bytes(req, put_end, &pp, &pk, &pk_len) != 0) break;
-                        } else if (ptag == 0x12) {
-                            if (read_bytes(req, put_end, &pp, &pv, &pv_len) != 0) break;
-                        } else {
-                            uint64_t skip = 0; read_varint(req, put_end, &pp, &skip);
-                        }
-                    }
-                    if (pk && pv && g_rpc_store) {
-                        cetcd_mvcc_put(g_rpc_store, pk, pk_len, pv, pv_len, 0);
-                    }
-                    if (pk) free(pk);
-                    if (pv) free(pv);
-                } else if (op_tag == 0x1a) {
-                    /* RequestDeleteRange: parse key, apply delete */
-                    uint64_t dlen = 0;
-                    size_t dp = op_start;
-                    if (read_varint(req, op_end, &dp, &dlen) != 0) break;
-                    size_t del_end = dp + (size_t)dlen;
-                    uint8_t *dk = NULL; size_t dk_len = 0;
-                    while (dp < del_end) {
-                        uint8_t dtag = req[dp++];
-                        if (dtag == 0x0a) {
-                            if (read_bytes(req, del_end, &dp, &dk, &dk_len) != 0) break;
-                        } else {
-                            uint64_t skip = 0; read_varint(req, del_end, &dp, &skip);
-                        }
-                    }
-                    if (dk && g_rpc_store) {
-                        cetcd_mvcc_delete(g_rpc_store, dk, dk_len);
-                    }
-                    if (dk) free(dk);
-                } else {
-                    /* Unknown op tag: skip as varint */
-                    uint64_t skip = 0; read_varint(req, op_end, &op_start, &skip);
-                }
-                op_start = op_end;
-                break; /* only one op per RequestOp */
+            if (n_success < TXN_MAX_OPS) {
+                success_ops[n_success].data = req + pos;
+                success_ops[n_success].len  = (size_t)olen;
+                n_success++;
             }
-            pos = op_end;
+            pos += (size_t)olen;
         } else if (tag == 0x1a) {
-            /* failure op: length-delimited, skip */
+            /* Failure op */
             uint64_t flen = 0;
             if (read_varint(req, req_len, &pos, &flen) != 0) break;
+            if (pos + flen > req_len) break;
+            if (n_failure < TXN_MAX_OPS) {
+                failure_ops[n_failure].data = req + pos;
+                failure_ops[n_failure].len  = (size_t)flen;
+                n_failure++;
+            }
             pos += (size_t)flen;
         } else {
             uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
         }
     }
 
-    /* TxnResponse:
-     *   field 2 (succeeded) = bool, tag = 0x10
-     * Minimal response: succeeded=true
-     */
-    uint8_t resp[4];
+    /* --- Phase 2: Evaluate compares against the MVCC store --- */
+    bool succeeded = true;
+    for (size_t i = 0; i < n_compares; i++) {
+        txn_compare_t *c = &compares[i];
+        bool cmp_ok = false;
+
+        if (c->key && g_rpc_store) {
+            cetcd_kv kv;
+            memset(&kv, 0, sizeof(kv));
+            int found = cetcd_mvcc_get(g_rpc_store, 0, c->key, c->key_len, &kv);
+
+            if (c->target == 3) { /* VALUE: bytes comparison */
+                const uint8_t *act = (found == 0) ? kv.value.data : NULL;
+                size_t act_len = (found == 0) ? kv.value.len : 0;
+                int cmp = 0;
+                size_t min_len = act_len < c->value_len ? act_len : c->value_len;
+                if (min_len > 0) cmp = memcmp(act, c->value, min_len);
+                if (cmp == 0) {
+                    if (act_len < c->value_len) cmp = -1;
+                    else if (act_len > c->value_len) cmp = 1;
+                }
+                switch (c->result) {
+                    case 0: cmp_ok = (cmp == 0); break; /* EQUAL */
+                    case 1: cmp_ok = (cmp > 0);  break; /* GREATER */
+                    case 2: cmp_ok = (cmp < 0);  break; /* LESS */
+                    case 3: cmp_ok = (cmp != 0); break; /* NOT_EQUAL */
+                }
+            } else {
+                /* Integer comparison */
+                int64_t actual = 0;
+                int64_t target_val = 0;
+                if (found == 0) {
+                    switch (c->target) {
+                        case 0: actual = kv.version;        target_val = c->version;          break;
+                        case 1: actual = kv.create_rev.main; target_val = c->create_revision; break;
+                        case 2: actual = kv.mod_rev.main;    target_val = c->mod_revision;    break;
+                        case 4: actual = kv.lease_id;        target_val = c->lease;           break;
+                    }
+                }
+                switch (c->result) {
+                    case 0: cmp_ok = (actual == target_val); break; /* EQUAL */
+                    case 1: cmp_ok = (actual >  target_val); break; /* GREATER */
+                    case 2: cmp_ok = (actual <  target_val); break; /* LESS */
+                    case 3: cmp_ok = (actual != target_val); break; /* NOT_EQUAL */
+                }
+            }
+            free((void*)kv.key.data);
+            free((void*)kv.value.data);
+        } else {
+            cmp_ok = true; /* No key or no store: treat as pass */
+        }
+
+        if (!cmp_ok) { succeeded = false; break; }
+    }
+
+    /* --- Phase 3: Execute the appropriate ops and build response --- */
+    txn_op_t *ops = succeeded ? success_ops : failure_ops;
+    size_t n_ops  = succeeded ? n_success   : n_failure;
+
+    int64_t final_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+
+    size_t resp_cap = 4096;
+    uint8_t *resp = (uint8_t *)malloc(resp_cap);
+    if (!resp) goto txn_cleanup;
     size_t rpos = 0;
+    /* Reserve 2 bytes for header placeholder */
+    rpos += 2;
+
+    for (size_t i = 0; i < n_ops; i++) {
+        const uint8_t *od = ops[i].data;
+        size_t ol = ops[i].len;
+        if (ol == 0) continue;
+        size_t op_pos = 0;
+        uint8_t op_tag = od[op_pos++];
+
+        if (op_tag == 0x12) {
+            /* RequestPut */
+            uint64_t plen = 0;
+            if (read_varint(od, ol, &op_pos, &plen) != 0) continue;
+            size_t put_end = op_pos + (size_t)plen;
+            if (put_end > ol) put_end = ol;
+            uint8_t *pk = NULL, *pv = NULL;
+            size_t pk_len = 0, pv_len = 0;
+            int64_t lease_id = 0;
+            while (op_pos < put_end) {
+                uint8_t ptag = od[op_pos++];
+                if (ptag == 0x0a) {
+                    read_bytes(od, put_end, &op_pos, &pk, &pk_len);
+                } else if (ptag == 0x12) {
+                    read_bytes(od, put_end, &op_pos, &pv, &pv_len);
+                } else if (ptag == 0x18) {
+                    uint64_t v = 0; read_varint(od, put_end, &op_pos, &v); lease_id = (int64_t)v;
+                } else {
+                    uint64_t skip = 0; read_varint(od, put_end, &op_pos, &skip);
+                }
+            }
+            if (pk && pv && g_rpc_store) {
+                cetcd_revision r = cetcd_mvcc_put(g_rpc_store, pk, pk_len, pv, pv_len, lease_id);
+                if (r.main > final_rev) final_rev = r.main;
+            }
+            if (pk) free(pk);
+            if (pv) free(pv);
+
+            /* ResponsePut: header (field 1 = 0x0a, inner: revision 0x18) */
+            uint8_t put_inner[32]; size_t pp = 0;
+            put_inner[pp++] = 0x18;
+            write_varint_local(put_inner, sizeof(put_inner), &pp, (uint64_t)(final_rev > 0 ? final_rev : 1));
+            /* ResponseOp wrapping: field 2 (ResponsePut) tag = 0x12 */
+            if (rpos + 20 > resp_cap) { resp_cap *= 2; uint8_t *t = realloc(resp, resp_cap); if (!t) { free(resp); goto txn_cleanup; } resp = t; }
+            resp[rpos++] = 0x1a; /* field 3 = responses */
+            size_t inner_msg_len = 1 + 1 + pp; /* tag(0x12) + len + put_inner */
+            write_varint_local(resp, resp_cap, &rpos, (uint64_t)inner_msg_len);
+            resp[rpos++] = 0x12; /* field 2 = ResponsePut */
+            write_varint_local(resp, resp_cap, &rpos, (uint64_t)pp);
+            memcpy(resp + rpos, put_inner, pp); rpos += pp;
+
+        } else if (op_tag == 0x1a) {
+            /* RequestDeleteRange */
+            uint64_t dlen = 0;
+            if (read_varint(od, ol, &op_pos, &dlen) != 0) continue;
+            size_t del_end = op_pos + (size_t)dlen;
+            if (del_end > ol) del_end = ol;
+            uint8_t *dk = NULL; size_t dk_len = 0;
+            while (op_pos < del_end) {
+                uint8_t dtag = od[op_pos++];
+                if (dtag == 0x0a) {
+                    read_bytes(od, del_end, &op_pos, &dk, &dk_len);
+                } else {
+                    uint64_t skip = 0; read_varint(od, del_end, &op_pos, &skip);
+                }
+            }
+            int64_t del_rev = 0;
+            if (dk && g_rpc_store) {
+                cetcd_revision r = cetcd_mvcc_delete(g_rpc_store, dk, dk_len);
+                del_rev = r.main;
+                if (del_rev > final_rev) final_rev = del_rev;
+            }
+            if (dk) free(dk);
+
+            /* ResponseDeleteRange: header + deleted */
+            uint8_t del_inner[32]; size_t dp = 0;
+            del_inner[dp++] = 0x18;
+            write_varint_local(del_inner, sizeof(del_inner), &dp, (uint64_t)(del_rev > 0 ? del_rev : 1));
+            del_inner[dp++] = 0x10; /* field 2 = deleted */
+            write_varint_local(del_inner, sizeof(del_inner), &dp, (del_rev > 0 ? 1 : 0));
+            if (rpos + 20 > resp_cap) { resp_cap *= 2; uint8_t *t = realloc(resp, resp_cap); if (!t) { free(resp); goto txn_cleanup; } resp = t; }
+            resp[rpos++] = 0x1a; /* field 3 = responses */
+            size_t inner_msg_len = 1 + 1 + dp;
+            write_varint_local(resp, resp_cap, &rpos, (uint64_t)inner_msg_len);
+            resp[rpos++] = 0x1a; /* field 3 = ResponseDeleteRange */
+            write_varint_local(resp, resp_cap, &rpos, (uint64_t)dp);
+            memcpy(resp + rpos, del_inner, dp); rpos += dp;
+
+        } else if (op_tag == 0x0a) {
+            /* RequestRange — return minimal response */
+            uint64_t rlen_val = 0;
+            if (read_varint(od, ol, &op_pos, &rlen_val) != 0) continue;
+            op_pos += (size_t)rlen_val;
+
+            uint8_t rng_inner[32]; size_t rp = 0;
+            rng_inner[rp++] = 0x18;
+            write_varint_local(rng_inner, sizeof(rng_inner), &rp, (uint64_t)(final_rev > 0 ? final_rev : 1));
+            rng_inner[rp++] = 0x20; /* field 4 = count */
+            write_varint_local(rng_inner, sizeof(rng_inner), &rp, 0);
+            if (rpos + 20 > resp_cap) { resp_cap *= 2; uint8_t *t = realloc(resp, resp_cap); if (!t) { free(resp); goto txn_cleanup; } resp = t; }
+            resp[rpos++] = 0x1a; /* field 3 = responses */
+            size_t inner_msg_len = 1 + 1 + rp;
+            write_varint_local(resp, resp_cap, &rpos, (uint64_t)inner_msg_len);
+            resp[rpos++] = 0x0a; /* field 1 = ResponseRange */
+            write_varint_local(resp, resp_cap, &rpos, (uint64_t)rp);
+            memcpy(resp + rpos, rng_inner, rp); rpos += rp;
+        }
+    }
+
+    /* Add succeeded field */
+    if (rpos + 2 > resp_cap) { resp_cap += 8; uint8_t *t = realloc(resp, resp_cap); if (!t) { free(resp); goto txn_cleanup; } resp = t; }
     resp[rpos++] = 0x10; /* field 2 = succeeded */
     resp[rpos++] = succeeded ? 0x01 : 0x00;
-    uint8_t *out = (uint8_t *)malloc(rpos);
-    if (!out) return (cetcd_rpc_bytes){NULL, 0};
-    memcpy(out, resp, rpos);
-    return (cetcd_rpc_bytes){out, rpos};
+
+    /* Write header at the beginning */
+    {
+        uint8_t hdr_buf[32];
+        size_t hpos = 0;
+        hdr_buf[hpos++] = 0x18; /* field 3 = revision */
+        write_varint_local(hdr_buf, sizeof(hdr_buf), &hpos, (uint64_t)(final_rev > 0 ? final_rev : 1));
+
+        size_t hdr_total = 1 + 1 + hpos; /* tag + len + data (assume hpos < 128) */
+        memmove(resp + hdr_total, resp + 2, rpos - 2);
+        rpos = rpos - 2 + hdr_total;
+        resp[0] = 0x0a; /* field 1 = header */
+        resp[1] = (uint8_t)hpos;
+        memcpy(resp + 2, hdr_buf, hpos);
+    }
+
+    /* Free compares */
+    for (size_t i = 0; i < n_compares; i++) {
+        free(compares[i].key);
+        free(compares[i].value);
+    }
+    return (cetcd_rpc_bytes){resp, rpos};
+
+txn_cleanup:
+    for (size_t i = 0; i < n_compares; i++) {
+        free(compares[i].key);
+        free(compares[i].value);
+    }
+    return (cetcd_rpc_bytes){NULL, 0};
 }
 
 /*
@@ -481,9 +679,22 @@ cetcd_rpc_bytes kv_handle_compact(cetcd_v3rpc *rpc, const uint8_t *req, size_t r
     if (compact_rev > 0 && g_rpc_store) {
         cetcd_mvcc_compact(g_rpc_store, compact_rev);
     }
-    /* CompactResponse: empty (header only) */
-    uint8_t *out = (uint8_t *)malloc(1);
+    /* CompactResponse: header with revision */
+    int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+    uint8_t hdr_buf[32];
+    size_t hpos = 0;
+    hdr_buf[hpos++] = 0x18; /* field 3 = revision */
+    write_varint_local(hdr_buf, sizeof(hdr_buf), &hpos, (uint64_t)(current_rev > 0 ? current_rev : 1));
+
+    uint8_t resp[64];
+    size_t rpos = 0;
+    resp[rpos++] = 0x0a; /* field 1 = header */
+    write_varint_local(resp, sizeof(resp), &rpos, (uint64_t)hpos);
+    memcpy(resp + rpos, hdr_buf, hpos);
+    rpos += hpos;
+
+    uint8_t *out = (uint8_t *)malloc(rpos);
     if (!out) return (cetcd_rpc_bytes){NULL, 0};
-    out[0] = 0;
-    return (cetcd_rpc_bytes){out, 1};
+    memcpy(out, resp, rpos);
+    return (cetcd_rpc_bytes){out, rpos};
 }

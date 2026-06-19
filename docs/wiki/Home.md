@@ -793,14 +793,14 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 | KV | `/etcdserverpb.KV/Put` | `kv_handler.c` | 写入键值对，推进 MVCC 修订号，返回含 revision 的 PutResponse |
 | KV | `/etcdserverpb.KV/Range` | `kv_handler.c` | 范围查询，实际查询 MVCC 存储并返回匹配的 KeyValue 列表 |
 | KV | `/etcdserverpb.KV/DeleteRange` | `kv_handler.c` | 删除键，推进 MVCC 修订号，返回删除计数 |
-| KV | `/etcdserverpb.KV/Txn` | `kv_handler.c` | 事务：解析 compare/success/failure，执行 Put/Delete 操作 |
-| KV | `/etcdserverpb.KV/Compact` | `kv_handler.c` | 压缩 MVCC 历史到指定修订号 |
+| KV | `/etcdserverpb.KV/Txn` | `kv_handler.c` | 事务：解析 compare/success/failure，评估 Compare 条件（VALUE/VERSION/CREATE/MOD/LEASE），执行 success 或 failure 操作，返回含 ResponseHeader + succeeded + ResponseOps 的完整响应 |
+| KV | `/etcdserverpb.KV/Compact` | `kv_handler.c` | 压缩 MVCC 历史到指定修订号，返回含 revision 的 ResponseHeader |
 | Lease | `/etcdserverpb.Lease/LeaseGrant` | `lease_handler.c` | 授予租约，返回 ID+TTL |
-| Lease | `/etcdserverpb.Lease/LeaseRevoke` | `lease_handler.c` | 撤销租约 |
+| Lease | `/etcdserverpb.Lease/LeaseRevoke` | `lease_handler.c` | 撤销租约，返回含 revision 的 ResponseHeader |
 | Lease | `/etcdserverpb.Lease/LeaseKeepAlive` | `lease_handler.c` | 续约，使用原始授予 TTL（非硬编码），返回剩余 TTL |
 | Lease | `/etcdserverpb.Lease/LeaseTimeToLive` | `lease_handler.c` | 查询租约剩余时间和授予 TTL |
 | Lease | `/etcdserverpb.Lease/LeaseLeases` | `lease_handler.c` | 列出所有活跃租约（返回实际租约 ID 列表） |
-| Watch | `/etcdserverpb.Watch/Watch` | `watch_handler.c` | 创建/取消观察者，返回 watch_id+事件 |
+| Watch | `/etcdserverpb.Watch/Watch` | `watch_handler.c` | 创建/取消观察者，返回 watch_id（field 2）+ created（field 3）+ events（field 11, tag 0x5a），事件包含完整的 KeyValue |
 | Auth | `/etcdserverpb.Auth/AuthEnable` | `auth_handler.c` | 启用认证 |
 | Auth | `/etcdserverpb.Auth/AuthDisable` | `auth_handler.c` | 禁用认证 |
 | Auth | `/etcdserverpb.Auth/AuthStatus` | `auth_handler.c` | 查询认证状态（enabled/disabled） |
@@ -930,6 +930,7 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `lease list` | 列出所有活跃租约 |
 | `lease keepalive ID` | 续约指定租约 |
 | `txn put KEY VALUE` | 事务写入 |
+| `txn cas KEY EXPECTED NEW` | 条件事务（CAS）：当 KEY 的值等于 EXPECTED 时设为 NEW |
 | `compact REV` | 压缩 MVCC 历史到指定修订号 |
 | `status` | 获取服务器状态 |
 | `alarm` | 查询告警 |
@@ -941,7 +942,9 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `member add PEER_URL` | 添加集群成员 |
 | `member remove ID` | 移除集群成员 |
 | `member update ID URL` | 更新成员地址 |
+| `member promote ID` | 提升成员为投票节点 |
 | `auth enable/disable/status` | 认证管理 |
+| `auth login NAME PASS` | 认证并获取 token |
 | `user add/get/list` | 用户管理（add 添加、get 查看详情、list 列表） |
 | `user delete NAME` | 删除用户 |
 | `user change-password NAME PASS` | 修改用户密码 |

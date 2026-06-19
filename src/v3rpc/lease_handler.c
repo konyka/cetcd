@@ -88,11 +88,24 @@ cetcd_rpc_bytes lease_handle_revoke(cetcd_v3rpc *rpc, const uint8_t *req, size_t
     if (id > 0) {
         cetcd_lease_revoke(g_rpc_lease_mgr, (cetcd_lease_id)id);
     }
-    /* LeaseRevokeResponse: header only, minimal empty response */
-    uint8_t *out = (uint8_t *)malloc(1);
+    /* LeaseRevokeResponse: header with revision */
+    int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+    uint8_t hdr_buf[32];
+    size_t hpos = 0;
+    hdr_buf[hpos++] = 0x18; /* field 3 = revision */
+    write_varint(hdr_buf, sizeof(hdr_buf), &hpos, (uint64_t)(current_rev > 0 ? current_rev : 1));
+
+    uint8_t resp[64];
+    size_t rpos = 0;
+    resp[rpos++] = 0x0a; /* field 1 = header */
+    write_varint(resp, sizeof(resp), &rpos, (uint64_t)hpos);
+    memcpy(resp + rpos, hdr_buf, hpos);
+    rpos += hpos;
+
+    uint8_t *out = (uint8_t *)malloc(rpos);
     if (!out) return (cetcd_rpc_bytes){NULL, 0};
-    out[0] = 0;
-    return (cetcd_rpc_bytes){out, 1};
+    memcpy(out, resp, rpos);
+    return (cetcd_rpc_bytes){out, rpos};
 }
 
 cetcd_rpc_bytes lease_handle_keep_alive(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {

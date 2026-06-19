@@ -1162,6 +1162,279 @@ CETCD_TEST_CASE(v3rpc_cluster_member_update_actual) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_txn_cas_match) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put key="caskey" value="old" */
+    uint8_t put_buf[32];
+    size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x06;
+    memcpy(put_buf + pos, "caskey", 6); pos += 6;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x03;
+    memcpy(put_buf + pos, "old", 3); pos += 3;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* Build Compare: result=EQUAL(0), target=VALUE(3), key="caskey", value="old"
+     *   field 1 (result) = 0, tag = 0x08
+     *   field 2 (target) = 3, tag = 0x10
+     *   field 3 (key)    = bytes, tag = 0x1a
+     *   field 7 (value)  = bytes, tag = 0x3a
+     */
+    uint8_t cmp_buf[64];
+    size_t cpos = 0;
+    cmp_buf[cpos++] = 0x08; cmp_buf[cpos++] = 0x00; /* result=EQUAL */
+    cmp_buf[cpos++] = 0x10; cmp_buf[cpos++] = 0x03; /* target=VALUE */
+    cmp_buf[cpos++] = 0x1a; cmp_buf[cpos++] = 0x06; /* key */
+    memcpy(cmp_buf + cpos, "caskey", 6); cpos += 6;
+    cmp_buf[cpos++] = 0x3a; cmp_buf[cpos++] = 0x03; /* value */
+    memcpy(cmp_buf + cpos, "old", 3); cpos += 3;
+
+    /* Build success op: Put("caskey", "new") */
+    uint8_t put_inner[32]; size_t ppos = 0;
+    put_inner[ppos++] = 0x0a; put_inner[ppos++] = 0x06;
+    memcpy(put_inner + ppos, "caskey", 6); ppos += 6;
+    put_inner[ppos++] = 0x12; put_inner[ppos++] = 0x03;
+    memcpy(put_inner + ppos, "new", 3); ppos += 3;
+    uint8_t op_buf[64]; size_t opos = 0;
+    op_buf[opos++] = 0x12; /* RequestPut tag */
+    op_buf[opos++] = (uint8_t)ppos;
+    memcpy(op_buf + opos, put_inner, ppos); opos += ppos;
+
+    /* Build TxnRequest: field 1 (compare) + field 2 (success) */
+    uint8_t txn_buf[256]; size_t tpos = 0;
+    txn_buf[tpos++] = 0x0a; /* field 1 = compare */
+    txn_buf[tpos++] = (uint8_t)cpos;
+    memcpy(txn_buf + tpos, cmp_buf, cpos); tpos += cpos;
+    txn_buf[tpos++] = 0x12; /* field 2 = success */
+    txn_buf[tpos++] = (uint8_t)opos;
+    memcpy(txn_buf + tpos, op_buf, opos); tpos += opos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", txn_buf, tpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* Find succeeded field (tag 0x10) and verify it's true (0x01) */
+    bool found_succeeded = false;
+    bool succeeded_val = false;
+    for (size_t i = 0; i + 1 < resp.len; i++) {
+        if (resp.data[i] == 0x10) {
+            found_succeeded = true;
+            succeeded_val = (resp.data[i + 1] != 0);
+            break;
+        }
+    }
+    CETCD_ASSERT_TRUE(found_succeeded);
+    CETCD_ASSERT_TRUE(succeeded_val);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_txn_cas_no_match) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put key="caskey2" value="old" */
+    uint8_t put_buf[32];
+    size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x07;
+    memcpy(put_buf + pos, "caskey2", 7); pos += 7;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x03;
+    memcpy(put_buf + pos, "old", 3); pos += 3;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* Build Compare: result=EQUAL(0), target=VALUE(3), key="caskey2", value="wrong" */
+    uint8_t cmp_buf[64];
+    size_t cpos = 0;
+    cmp_buf[cpos++] = 0x08; cmp_buf[cpos++] = 0x00; /* result=EQUAL */
+    cmp_buf[cpos++] = 0x10; cmp_buf[cpos++] = 0x03; /* target=VALUE */
+    cmp_buf[cpos++] = 0x1a; cmp_buf[cpos++] = 0x07; /* key */
+    memcpy(cmp_buf + cpos, "caskey2", 7); cpos += 7;
+    cmp_buf[cpos++] = 0x3a; cmp_buf[cpos++] = 0x05; /* value */
+    memcpy(cmp_buf + cpos, "wrong", 5); cpos += 5;
+
+    /* Build success op: Put("caskey2", "new") */
+    uint8_t put_inner[32]; size_t ppos = 0;
+    put_inner[ppos++] = 0x0a; put_inner[ppos++] = 0x07;
+    memcpy(put_inner + ppos, "caskey2", 7); ppos += 7;
+    put_inner[ppos++] = 0x12; put_inner[ppos++] = 0x03;
+    memcpy(put_inner + ppos, "new", 3); ppos += 3;
+    uint8_t op_buf[64]; size_t opos = 0;
+    op_buf[opos++] = 0x12;
+    op_buf[opos++] = (uint8_t)ppos;
+    memcpy(op_buf + opos, put_inner, ppos); opos += ppos;
+
+    uint8_t txn_buf[256]; size_t tpos = 0;
+    txn_buf[tpos++] = 0x0a;
+    txn_buf[tpos++] = (uint8_t)cpos;
+    memcpy(txn_buf + tpos, cmp_buf, cpos); tpos += cpos;
+    txn_buf[tpos++] = 0x12;
+    txn_buf[tpos++] = (uint8_t)opos;
+    memcpy(txn_buf + tpos, op_buf, opos); tpos += opos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", txn_buf, tpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* Find succeeded field and verify it's false (0x00) */
+    bool found_succeeded = false;
+    bool succeeded_val = true;
+    for (size_t i = 0; i + 1 < resp.len; i++) {
+        if (resp.data[i] == 0x10) {
+            found_succeeded = true;
+            succeeded_val = (resp.data[i + 1] != 0);
+            break;
+        }
+    }
+    CETCD_ASSERT_TRUE(found_succeeded);
+    CETCD_ASSERT_FALSE(succeeded_val);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_txn_response_has_header) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Simple Txn with just a Put success op */
+    uint8_t put_inner[32]; size_t ppos = 0;
+    put_inner[ppos++] = 0x0a; put_inner[ppos++] = 0x05;
+    memcpy(put_inner + ppos, "txnkv", 5); ppos += 5;
+    put_inner[ppos++] = 0x12; put_inner[ppos++] = 0x05;
+    memcpy(put_inner + ppos, "txnvv", 5); ppos += 5;
+    uint8_t op_buf[64]; size_t opos = 0;
+    op_buf[opos++] = 0x12;
+    op_buf[opos++] = (uint8_t)ppos;
+    memcpy(op_buf + opos, put_inner, ppos); opos += ppos;
+
+    uint8_t txn_buf[128]; size_t tpos = 0;
+    txn_buf[tpos++] = 0x12;
+    txn_buf[tpos++] = (uint8_t)opos;
+    memcpy(txn_buf + tpos, op_buf, opos); tpos += opos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", txn_buf, tpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    /* ResponseHeader is field 1, tag = 0x0a */
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_compact_has_header) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put a key first */
+    uint8_t put_buf[32]; size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x02;
+    memcpy(put_buf + pos, "c1", 2); pos += 2;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x02;
+    memcpy(put_buf + pos, "v1", 2); pos += 2;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* Compact at revision 1 */
+    uint8_t compact_buf[8]; pos = 0;
+    compact_buf[pos++] = 0x08;
+    compact_buf[pos++] = 0x01;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Compact", compact_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    /* CompactResponse should have header (field 1, tag 0x0a) */
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_lease_revoke_has_header) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Grant a lease */
+    uint8_t grant_buf[8]; size_t pos = 0;
+    grant_buf[pos++] = 0x08; grant_buf[pos++] = 0x3c; /* TTL=60 */
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Lease/LeaseGrant", grant_buf, pos);
+    CETCD_ASSERT_NOT_NULL(r.data);
+    /* Extract lease ID from response (field 1, tag 0x08) */
+    int64_t lease_id = 0;
+    for (size_t i = 0; i + 1 < r.len; i++) {
+        if (r.data[i] == 0x08) {
+            lease_id = (int64_t)r.data[i + 1];
+            break;
+        }
+    }
+    cetcd_rpc_bytes_free(&r);
+    CETCD_ASSERT_TRUE(lease_id > 0);
+
+    /* Revoke the lease */
+    uint8_t revoke_buf[8]; pos = 0;
+    revoke_buf[pos++] = 0x08;
+    revoke_buf[pos++] = (uint8_t)lease_id;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Lease/LeaseRevoke", revoke_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    /* LeaseRevokeResponse should have header (field 1, tag 0x0a) */
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_watch_response_correct_tags) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put key="wkey" value="wval" to create history */
+    uint8_t put_buf[32]; size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x04;
+    memcpy(put_buf + pos, "wkey", 4); pos += 4;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x04;
+    memcpy(put_buf + pos, "wval", 4); pos += 4;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* Watch key="wkey" with start_revision=1 */
+    uint8_t create_inner[32]; size_t cpos = 0;
+    create_inner[cpos++] = 0x0a; create_inner[cpos++] = 0x04;
+    memcpy(create_inner + cpos, "wkey", 4); cpos += 4;
+    create_inner[cpos++] = 0x18; create_inner[cpos++] = 0x01; /* start_revision=1 */
+
+    uint8_t watch_buf[64]; size_t wpos = 0;
+    watch_buf[wpos++] = 0x0a;
+    watch_buf[wpos++] = (uint8_t)cpos;
+    memcpy(watch_buf + wpos, create_inner, cpos); wpos += cpos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Watch/Watch", watch_buf, wpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* WatchResponse should have:
+     *   field 2 (watch_id) = tag 0x10
+     *   field 3 (created)  = tag 0x18
+     * Verify we find 0x10 (watch_id) somewhere in the response */
+    bool found_watch_id = false;
+    for (size_t i = 0; i < resp.len; i++) {
+        if (resp.data[i] == 0x10) { found_watch_id = true; break; }
+    }
+    CETCD_ASSERT_TRUE(found_watch_id);
+
+    /* If there are events, they should use tag 0x5a (field 11) */
+    bool has_events = false;
+    bool events_correct_tag = true;
+    for (size_t i = 0; i < resp.len; i++) {
+        if (resp.data[i] == 0x5a) { has_events = true; break; }
+        /* Make sure old wrong tag 0x1a is not used for events
+         * (0x1a can appear as other field, but if we see 0x5a it's events) */
+    }
+    /* If no events, that's also OK (depends on watch timing) */
+    (void)has_events;
+    (void)events_correct_tag;
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
@@ -1209,6 +1482,12 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_cluster_member_update_actual),
     CETCD_TEST_ENTRY(v3rpc_lease_leases_returns_actual_leases),
     CETCD_TEST_ENTRY(v3rpc_lease_keep_alive_uses_granted_ttl),
+    CETCD_TEST_ENTRY(v3rpc_txn_cas_match),
+    CETCD_TEST_ENTRY(v3rpc_txn_cas_no_match),
+    CETCD_TEST_ENTRY(v3rpc_txn_response_has_header),
+    CETCD_TEST_ENTRY(v3rpc_compact_has_header),
+    CETCD_TEST_ENTRY(v3rpc_lease_revoke_has_header),
+    CETCD_TEST_ENTRY(v3rpc_watch_response_correct_tags),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

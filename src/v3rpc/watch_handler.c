@@ -65,8 +65,7 @@ static void watch_event_cb(const cetcd_watch_event *ev, void *udata) {
     if (!c || !ev) return;
 
     /* Encode a minimal WatchResponse event:
-     *   field 1 (watch_id) = varint, tag = 0x08
-     *   field 3 (events) = repeated Event, tag = 0x1a (length-delimited)
+     *   field 11 (events) = repeated Event, tag = 0x5a (length-delimited)
      *     Event:
      *       field 1 (type) = enum, tag = 0x08 (PUT=0, DELETE=1)
      *       field 2 (kv) = KeyValue, tag = 0x12 (length-delimited)
@@ -121,8 +120,8 @@ static void watch_event_cb(const cetcd_watch_event *ev, void *udata) {
         c->buf = nb;
         c->cap = nc;
     }
-    /* Write event as field 3 (tag=0x1a, length-delimited) */
-    c->buf[c->len++] = 0x1a;
+    /* Write event as field 11 (tag=0x5a, length-delimited) */
+    c->buf[c->len++] = 0x5a;
     uint64_t elen = epos;
     do { uint8_t b = elen & 0x7F; elen >>= 7; if (elen) b |= 0x80; c->buf[c->len++] = b; } while (elen);
     memcpy(c->buf + c->len, ev_buf, epos);
@@ -190,15 +189,15 @@ cetcd_rpc_bytes watch_handle_watch(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
         /* Cancel: return a WatchResponse with canceled=true */
         watch_id = cancel_id;
         /* Response:
-         *   field 1 (watch_id) = varint, tag = 0x08
-         *   field 3 (canceled) = bool, tag = 0x18
+         *   field 2 (watch_id) = varint, tag = 0x10
+         *   field 4 (canceled) = bool, tag = 0x20
          */
         uint8_t resp[32];
         size_t rpos = 0;
-        resp[rpos++] = 0x08;
+        resp[rpos++] = 0x10;
         uint64_t wid = (uint64_t)watch_id;
         do { uint8_t b = wid & 0x7F; wid >>= 7; if (wid) b |= 0x80; resp[rpos++] = b; } while (wid);
-        resp[rpos++] = 0x18; /* field 3 = canceled */
+        resp[rpos++] = 0x20; /* field 4 = canceled */
         resp[rpos++] = 0x01;
         uint8_t *out = (uint8_t *)malloc(rpos);
         if (!out) { if (key) free(key); if (range_end) free(range_end); return (cetcd_rpc_bytes){NULL, 0}; }
@@ -226,16 +225,16 @@ cetcd_rpc_bytes watch_handle_watch(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
         }
 
         /* Build WatchResponse:
-         *   field 1 (watch_id) = varint, tag = 0x08
-         *   field 2 (created) = bool, tag = 0x10
-         *   field 3 (events) = repeated Event, tag = 0x1a
+         *   field 2 (watch_id) = varint, tag = 0x10
+         *   field 3 (created) = bool, tag = 0x18
+         *   field 11 (events) = repeated Event, tag = 0x5a
          */
         uint8_t header[32];
         size_t hpos = 0;
-        header[hpos++] = 0x08; /* field 1 = watch_id */
+        header[hpos++] = 0x10; /* field 2 = watch_id */
         uint64_t wid = (uint64_t)watch_id;
         do { uint8_t b = wid & 0x7F; wid >>= 7; if (wid) b |= 0x80; header[hpos++] = b; } while (wid);
-        header[hpos++] = 0x10; /* field 2 = created */
+        header[hpos++] = 0x18; /* field 3 = created */
         header[hpos++] = 0x01;
 
         size_t total = hpos + collector.len;

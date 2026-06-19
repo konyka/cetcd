@@ -253,14 +253,23 @@ The `Lease.LeaseLeases` RPC returns the actual list of active lease IDs via
 correct renewal behavior for leases with non-default TTLs.
 
 The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/keepalive`,
-`member add/remove/update`, `user delete/change-password/grant-role/revoke-role`,
+`member add/remove/update/promote`, `user delete/change-password/grant-role/revoke-role`,
 `role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix`, `del --prefix`,
-and `watch`.
+`watch`, `txn cas` (compare-and-swap), and `auth login` (token-based authentication).
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
 `range_end`), `Put` returns a proper `PutResponse` with header revision, and `DeleteRange`
-returns the count of deleted keys.
+returns the count of deleted keys. The `Txn` handler now evaluates `Compare` clauses against
+the MVCC store — supporting `EQUAL`/`GREATER`/`LESS`/`NOT_EQUAL` operators on `VERSION`,
+`CREATE`, `MOD`, `VALUE`, and `LEASE` targets — and executes success or failure ops
+accordingly, returning a complete `TxnResponse` with `ResponseHeader`, `succeeded` flag,
+and `ResponseOp` entries. The `Compact` and `LeaseRevoke` responses now include proper
+`ResponseHeader` with the current revision.
+
+The Watch handler uses correct protobuf field numbers: `watch_id` at field 2 (tag 0x10),
+`created` at field 3 (tag 0x18), `canceled` at field 4 (tag 0x20), and `events` at
+field 11 (tag 0x5a), ensuring compatibility with standard protobuf decoders.
 
 ---
 
