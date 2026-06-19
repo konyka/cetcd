@@ -459,11 +459,11 @@ static int cmd_put(int argc, char **argv) {
     int rlen = do_rpc("/etcdserverpb.KV/Put", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
     if (prev_kv) {
-        /* Parse PutResponse for prev_kv (field 4, tag 0x22) */
+        /* Parse PutResponse for prev_kv (field 2, tag 0x12) */
         size_t rpos = 0;
         while (rpos < (size_t)rlen) {
             uint8_t tag = resp[rpos++];
-            if (tag == 0x22) {
+            if (tag == 0x12) {
                 uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
                 size_t kv_end = rpos + (size_t)l;
                 const uint8_t *pk = NULL; size_t pk_len = 0;

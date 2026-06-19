@@ -49,6 +49,8 @@ typedef struct cetcd_watch_event {
     cetcd_event_type type;
     cetcd_kv         kv;
     cetcd_revision   rev;
+    cetcd_kv         prev_kv;   /* previous value (for PUT updates / DELETE) */
+    int              has_prev_kv;
 } cetcd_watch_event;
 
 /* Forward declarations */

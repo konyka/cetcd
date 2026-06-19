@@ -280,21 +280,34 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
 `range_end`), `Put` returns a proper `PutResponse` with header revision and supports `prev_kv`
-(returning the previous key-value when `prev_kv=true` is set in the request), `ignore_value`
+(returning the previous key-value when `prev_kv=true` is set in the request, encoded as field 2
+tag 0x12 per etcd v3.5 proto), `ignore_value`
 (keeping the existing value when `ignore_value=true`), and `ignore_lease` (keeping the existing
 lease when `ignore_lease=true`), `DeleteRange`
 supports `range_end` for range deletes and `prev_kv` for returning deleted key-values.
-The `Range` handler also supports `limit` (truncating results and setting the `more` flag),
-`count_only` (returning only the count without kvs), `keys_only` (omitting values), and
+The `Range` handler also supports `limit` (truncating results and setting the `more` flag as
+field 3 tag 0x18), `count_only` (returning only the count without kvs), `keys_only` (omitting values), and
 `sort_order`/`sort_target` (sorting results by KEY, VERSION, CREATE, MOD, or VALUE in ASCEND
-or DESCEND order before applying the limit). The `RangeResponse` kvs field correctly uses
-protobuf field 2 (tag 0x12) to avoid collision with the `ResponseHeader` (field 1, tag 0x0a).
+or DESCEND order before applying the limit). The `Range` handler also supports `min_mod_revision`,
+`max_mod_revision`, `min_create_revision`, and `max_create_revision` filters (fields 10–13),
+which allow filtering results by revision range before sorting and applying limits.
+The `RangeResponse` kvs field correctly uses
+protobuf field 2 (tag 0x12) to avoid collision with the `ResponseHeader` (field 1, tag 0x0a),
+and the `more` flag correctly uses field 3 (tag 0x18).
 The `Txn` handler now evaluates `Compare` clauses against the MVCC store — supporting
 `EQUAL`/`GREATER`/`LESS`/`NOT_EQUAL` operators on `VERSION`, `CREATE`, `MOD`, `VALUE`, and
 `LEASE` targets — and executes success or failure ops accordingly, returning a complete
 `TxnResponse` with `ResponseHeader`, `succeeded` flag, and `ResponseOp` entries. The
 `RequestRange` op within transactions now queries the MVCC store and returns actual key-value
-data instead of an empty count. The `Compact` and `LeaseRevoke` responses include proper
+data instead of an empty count. The `RequestPut` op within transactions supports `prev_kv`
+(field 4, tag 0x20) and the `ResponsePut` includes the previous key-value (field 2, tag 0x12)
+when requested. The `RequestDeleteRange` op within transactions supports `range_end` (field 2,
+tag 0x12) for range deletes and `prev_kv` (field 3, tag 0x18) for returning deleted key-values;
+the `ResponseDeleteRange` includes a proper `ResponseHeader` (field 1), `deleted` count
+(field 2, tag 0x10), and `prev_kvs` (field 3, tag 0x1a). The `Compare` clause also supports
+`range_end` (field 9, tag 0x4a) for range-based comparisons where all keys in [key, range_end)
+must satisfy the condition.
+The `Compact` and `LeaseRevoke` responses include proper
 `ResponseHeader` with the current revision. The `Snapshot` response includes a `ResponseHeader`.
 
 All Auth RPC responses now include a proper `ResponseHeader` with the current revision.
@@ -308,6 +321,10 @@ etcd v3.5 protobuf field numbers: key (field 1, 0x0a), create_revision (field 2,
 mod_revision (field 3, 0x18), version (field 4, 0x20), and value (field 5, 0x2a). The
 `WatchCreateRequest` parser also supports `prev_kv` (field 6) and client-specified `watch_id`
 (field 7). The cetcdctl `watch` command supports `--prev-kv` and `--start-rev` flags.
+The Watch handler encodes `prev_kv` (field 3, tag 0x1a) in Event messages when the watcher
+requests it via `prev_kv=true` and a previous value exists. The MVCC layer captures the
+previous key-value before each `Put` and `Delete` operation, passing it through the watcher
+callback so the Watch handler can include it in the event.
 
 The cetcdctl response parsing for `del`, `txn cas`, and `watch` now correctly skips the
 `ResponseHeader` (tag 0x0a) before parsing response-specific fields, ensuring compatibility

@@ -69,6 +69,7 @@ typedef struct {
     uint8_t *buf;
     size_t len;
     size_t cap;
+    int want_prev_kv;
 } watch_event_collector;
 
 static void watch_event_cb(const cetcd_watch_event *ev, void *udata) {
@@ -123,6 +124,38 @@ static void watch_event_cb(const cetcd_watch_event *ev, void *udata) {
     do { uint8_t b = kvlen & 0x7F; kvlen >>= 7; if (kvlen) b |= 0x80; ev_buf[epos++] = b; } while (kvlen);
     memcpy(ev_buf + epos, kv_buf, kpos);
     epos += kpos;
+
+    /* Encode prev_kv (field 3, tag 0x1a) if requested and available */
+    if (c->want_prev_kv && ev->has_prev_kv) {
+        uint8_t pkv_buf[4096];
+        size_t pkpos = 0;
+        /* field 1 = key */
+        pkv_buf[pkpos++] = 0x0a;
+        pkpos = write_varint_w(pkv_buf, sizeof(pkv_buf), pkpos, (uint64_t)ev->prev_kv.key.len);
+        if (ev->prev_kv.key.len > 0) { memcpy(pkv_buf + pkpos, ev->prev_kv.key.data, ev->prev_kv.key.len); pkpos += ev->prev_kv.key.len; }
+        /* field 2 = create_revision */
+        pkv_buf[pkpos++] = 0x10;
+        pkpos = write_varint_w(pkv_buf, sizeof(pkv_buf), pkpos, (uint64_t)ev->prev_kv.create_rev.main);
+        /* field 3 = mod_revision */
+        pkv_buf[pkpos++] = 0x18;
+        pkpos = write_varint_w(pkv_buf, sizeof(pkv_buf), pkpos, (uint64_t)ev->prev_kv.mod_rev.main);
+        /* field 4 = version */
+        pkv_buf[pkpos++] = 0x20;
+        pkpos = write_varint_w(pkv_buf, sizeof(pkv_buf), pkpos, (uint64_t)ev->prev_kv.version);
+        /* field 5 = value */
+        if (ev->prev_kv.value.len > 0) {
+            pkv_buf[pkpos++] = 0x2a;
+            pkpos = write_varint_w(pkv_buf, sizeof(pkv_buf), pkpos, (uint64_t)ev->prev_kv.value.len);
+            memcpy(pkv_buf + pkpos, ev->prev_kv.value.data, ev->prev_kv.value.len);
+            pkpos += ev->prev_kv.value.len;
+        }
+        /* Write as field 3 (prev_kv, tag 0x1a, length-delimited) */
+        ev_buf[epos++] = 0x1a;
+        uint64_t pklen = pkpos;
+        do { uint8_t b = pklen & 0x7F; pklen >>= 7; if (pklen) b |= 0x80; ev_buf[epos++] = b; } while (pklen);
+        memcpy(ev_buf + epos, pkv_buf, pkpos);
+        epos += pkpos;
+    }
 
     /* Append to collector buffer */
     if (c->len + epos + 10 > c->cap) {
@@ -246,7 +279,7 @@ cetcd_rpc_bytes watch_handle_watch(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
         watch_id = (client_watch_id > 0) ? client_watch_id : g_watch_id_counter++;
 
         /* Collect any events from start_rev to now */
-        watch_event_collector collector = {NULL, 0, 0};
+        watch_event_collector collector = {NULL, 0, 0, want_prev_kv};
 
         /* Register a watcher */
         cetcd_watcher *w = NULL;

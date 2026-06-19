@@ -1488,10 +1488,10 @@ CETCD_TEST_CASE(v3rpc_put_prev_kv) {
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 2);
 
-    /* PutResponse should contain field 4 (prev_kv) with tag 0x22 */
+    /* PutResponse should contain field 2 (prev_kv) with tag 0x12 */
     bool found_prev_kv = false;
     for (size_t i = 0; i < resp.len; i++) {
-        if (resp.data[i] == 0x22) { found_prev_kv = true; break; }
+        if (resp.data[i] == 0x12) { found_prev_kv = true; break; }
     }
     CETCD_ASSERT_TRUE(found_prev_kv);
 
@@ -2867,6 +2867,340 @@ CETCD_TEST_CASE(v3rpc_watch_cancel_has_header) {
     cetcd_v3rpc_free(rpc);
 }
 
+/* === Round 10 tests: proto field number fixes + new features === */
+
+CETCD_TEST_CASE(v3rpc_range_more_correct_tag) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put 3 keys: mta, mtb, mtc */
+    const char *keys[] = {"mta", "mtb", "mtc"};
+    const char *vals[] = {"va", "vb", "vc"};
+    for (int i = 0; i < 3; i++) {
+        uint8_t req[64]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 3;
+        memcpy(req + pos, keys[i], 3); pos += 3;
+        req[pos++] = 0x12; req[pos++] = 2;
+        memcpy(req + pos, vals[i], 2); pos += 2;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Range [mta, mtd) with limit=2 */
+    uint8_t range_req[64]; size_t rp = 0;
+    range_req[rp++] = 0x0a; range_req[rp++] = 3;
+    memcpy(range_req + rp, "mta", 3); rp += 3;
+    range_req[rp++] = 0x12; range_req[rp++] = 3;
+    memcpy(range_req + rp, "mtd", 3); rp += 3;
+    range_req[rp++] = 0x18; range_req[rp++] = 0x02; /* limit=2 */
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_req, rp);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* Parse response: skip header (0x0a), find more (0x18) */
+    size_t p = 0;
+    bool found_more = false;
+    bool more_val = false;
+    while (p < resp.len) {
+        uint8_t tag = resp.data[p++];
+        if (tag == 0x0a || tag == 0x12) {
+            /* length-delimited */
+            uint64_t l = 0; int shift = 0;
+            while (p < resp.len) { uint8_t b = resp.data[p++]; l |= (uint64_t)(b & 0x7F) << shift; if (!(b & 0x80)) break; shift += 7; }
+            p += (size_t)l;
+        } else if (tag == 0x18) {
+            /* more (varint) */
+            found_more = true;
+            uint64_t v = 0; int shift = 0;
+            while (p < resp.len) { uint8_t b = resp.data[p++]; v |= (uint64_t)(b & 0x7F) << shift; if (!(b & 0x80)) break; shift += 7; }
+            more_val = (v != 0);
+        } else if (tag == 0x20) {
+            /* count (varint) */
+            while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+        } else {
+            while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+        }
+    }
+    CETCD_ASSERT_TRUE(found_more);
+    CETCD_ASSERT_TRUE(more_val); /* more should be true since 3 keys > limit 2 */
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_watch_prev_kv_flag) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Build WatchCreateRequest with prev_kv=true (field 6, tag 0x30) */
+    uint8_t create_inner[32]; size_t cpos = 0;
+    create_inner[cpos++] = 0x0a; create_inner[cpos++] = 0x04;
+    memcpy(create_inner + cpos, "wpkv", 4); cpos += 4;
+    create_inner[cpos++] = 0x18; create_inner[cpos++] = 0x01; /* start_revision=1 */
+    create_inner[cpos++] = 0x30; create_inner[cpos++] = 0x01; /* prev_kv=true */
+
+    uint8_t watch_buf[64]; size_t wpos = 0;
+    watch_buf[wpos++] = 0x0a;
+    watch_buf[wpos++] = (uint8_t)cpos;
+    memcpy(watch_buf + wpos, create_inner, cpos); wpos += cpos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Watch/Watch", watch_buf, wpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* Verify response has header (0x0a), watch_id (0x10), created (0x18) */
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+
+    bool found_created = false;
+    size_t p = 1;
+    uint64_t hdr_len = 0; int shift = 0;
+    while (p < resp.len) { uint8_t b = resp.data[p++]; hdr_len |= (uint64_t)(b & 0x7F) << shift; if (!(b & 0x80)) break; shift += 7; }
+    p += (size_t)hdr_len;
+    while (p < resp.len) {
+        uint8_t tag = resp.data[p++];
+        if (tag == 0x18) { found_created = true; while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; } }
+        else if (tag == 0x10) { while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; } }
+        else if (tag == 0x0a || tag == 0x5a) { uint64_t l = 0; int s = 0; while (p < resp.len) { uint8_t b = resp.data[p++]; l |= (uint64_t)(b & 0x7F) << s; if (!(b & 0x80)) break; s += 7; } p += (size_t)l; }
+        else { while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; } }
+    }
+    CETCD_ASSERT_TRUE(found_created);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_txn_compare_range_end) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put key="trk1" value="v1", key="trk2" value="v2" */
+    const char *tkeys[] = {"trk1", "trk2"};
+    const char *tvals[] = {"v1", "v2"};
+    for (int i = 0; i < 2; i++) {
+        uint8_t req[32]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 4;
+        memcpy(req + pos, tkeys[i], 4); pos += 4;
+        req[pos++] = 0x12; req[pos++] = 2;
+        memcpy(req + pos, tvals[i], 2); pos += 2;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Build Compare: result=EQUAL(0), target=VERSION(0), key="trk1",
+     * range_end="trk3" (field 9, tag 0x4a), version=1
+     * All keys in [trk1, trk3) have version=1, so compare should succeed */
+    uint8_t cmp_buf[64]; size_t cpos = 0;
+    cmp_buf[cpos++] = 0x08; cmp_buf[cpos++] = 0x00; /* result=EQUAL */
+    cmp_buf[cpos++] = 0x10; cmp_buf[cpos++] = 0x00; /* target=VERSION */
+    cmp_buf[cpos++] = 0x1a; cmp_buf[cpos++] = 0x04; /* key */
+    memcpy(cmp_buf + cpos, "trk1", 4); cpos += 4;
+    cmp_buf[cpos++] = 0x4a; cmp_buf[cpos++] = 0x04; /* range_end (field 9) */
+    memcpy(cmp_buf + cpos, "trk3", 4); cpos += 4;
+    cmp_buf[cpos++] = 0x20; cmp_buf[cpos++] = 0x01; /* version=1 */
+
+    /* Build success op: Put("trk1", "updated") */
+    uint8_t put_inner[32]; size_t ppos = 0;
+    put_inner[ppos++] = 0x0a; put_inner[ppos++] = 0x04;
+    memcpy(put_inner + ppos, "trk1", 4); ppos += 4;
+    put_inner[ppos++] = 0x12; put_inner[ppos++] = 0x07;
+    memcpy(put_inner + ppos, "updated", 7); ppos += 7;
+    uint8_t op_buf[64]; size_t opos = 0;
+    op_buf[opos++] = 0x12; /* RequestPut tag */
+    op_buf[opos++] = (uint8_t)ppos;
+    memcpy(op_buf + opos, put_inner, ppos); opos += ppos;
+
+    /* Build TxnRequest: field 1 (compare) + field 2 (success) */
+    uint8_t txn_buf[256]; size_t tpos = 0;
+    txn_buf[tpos++] = 0x0a; txn_buf[tpos++] = (uint8_t)cpos;
+    memcpy(txn_buf + tpos, cmp_buf, cpos); tpos += cpos;
+    txn_buf[tpos++] = 0x12; txn_buf[tpos++] = (uint8_t)opos;
+    memcpy(txn_buf + tpos, op_buf, opos); tpos += opos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", txn_buf, tpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* Find succeeded (tag 0x10) and verify it's true */
+    bool found_succeeded = false;
+    bool succeeded_val = false;
+    for (size_t i = 0; i + 1 < resp.len; i++) {
+        if (resp.data[i] == 0x10) {
+            found_succeeded = true;
+            succeeded_val = (resp.data[i + 1] != 0);
+            break;
+        }
+    }
+    CETCD_ASSERT_TRUE(found_succeeded);
+    CETCD_ASSERT_TRUE(succeeded_val);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_txn_put_prev_kv) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put key="tpk" value="oldval" */
+    uint8_t put_buf[32]; size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x03;
+    memcpy(put_buf + pos, "tpk", 3); pos += 3;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x06;
+    memcpy(put_buf + pos, "oldval", 6); pos += 6;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* Build Txn with no compare (always succeed),
+     * success op = RequestPut("tpk", "newval", prev_kv=true) */
+    uint8_t put_inner[32]; size_t ppos = 0;
+    put_inner[ppos++] = 0x0a; put_inner[ppos++] = 0x03;
+    memcpy(put_inner + ppos, "tpk", 3); ppos += 3;
+    put_inner[ppos++] = 0x12; put_inner[ppos++] = 0x06;
+    memcpy(put_inner + ppos, "newval", 6); ppos += 6;
+    put_inner[ppos++] = 0x20; put_inner[ppos++] = 0x01; /* prev_kv=true (field 4) */
+
+    uint8_t op_buf[64]; size_t opos = 0;
+    op_buf[opos++] = 0x12; /* RequestPut tag */
+    op_buf[opos++] = (uint8_t)ppos;
+    memcpy(op_buf + opos, put_inner, ppos); opos += ppos;
+
+    /* TxnRequest: only field 2 (success), no compare */
+    uint8_t txn_buf[128]; size_t tpos = 0;
+    txn_buf[tpos++] = 0x12; txn_buf[tpos++] = (uint8_t)opos;
+    memcpy(txn_buf + tpos, op_buf, opos); tpos += opos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", txn_buf, tpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* Verify response contains "oldval" (the prev_kv value in ResponsePut) */
+    bool found_oldval = false;
+    for (size_t i = 0; i + 6 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "oldval", 6) == 0) { found_oldval = true; break; }
+    }
+    CETCD_ASSERT_TRUE(found_oldval);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_txn_delete_range_prev_kv) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put key="tdr1" value="dv1", key="tdr2" value="dv2" */
+    const char *dkeys[] = {"tdr1", "tdr2"};
+    const char *dvals[] = {"dv1", "dv2"};
+    for (int i = 0; i < 2; i++) {
+        uint8_t req[32]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 4;
+        memcpy(req + pos, dkeys[i], 4); pos += 4;
+        req[pos++] = 0x12; req[pos++] = 3;
+        memcpy(req + pos, dvals[i], 3); pos += 3;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Build Txn with no compare,
+     * success op = RequestDeleteRange(key="tdr1", range_end="tdr3", prev_kv=true)
+     * DeleteRangeRequest: field 1 (key) tag 0x0a, field 2 (range_end) tag 0x12,
+     *                     field 3 (prev_kv) tag 0x18 */
+    uint8_t del_inner[32]; size_t dpos = 0;
+    del_inner[dpos++] = 0x0a; del_inner[dpos++] = 0x04;
+    memcpy(del_inner + dpos, "tdr1", 4); dpos += 4;
+    del_inner[dpos++] = 0x12; del_inner[dpos++] = 0x04; /* range_end */
+    memcpy(del_inner + dpos, "tdr3", 4); dpos += 4;
+    del_inner[dpos++] = 0x18; del_inner[dpos++] = 0x01; /* prev_kv=true */
+
+    uint8_t op_buf[64]; size_t opos = 0;
+    op_buf[opos++] = 0x1a; /* RequestDeleteRange tag */
+    op_buf[opos++] = (uint8_t)dpos;
+    memcpy(op_buf + opos, del_inner, dpos); opos += dpos;
+
+    uint8_t txn_buf[128]; size_t tpos = 0;
+    txn_buf[tpos++] = 0x12; txn_buf[tpos++] = (uint8_t)opos;
+    memcpy(txn_buf + tpos, op_buf, opos); tpos += opos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", txn_buf, tpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* Verify response contains both "dv1" and "dv2" (prev_kvs values) */
+    bool found_dv1 = false, found_dv2 = false;
+    for (size_t i = 0; i + 3 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "dv1", 3) == 0) found_dv1 = true;
+        if (memcmp(resp.data + i, "dv2", 3) == 0) found_dv2 = true;
+    }
+    CETCD_ASSERT_TRUE(found_dv1);
+    CETCD_ASSERT_TRUE(found_dv2);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_range_min_max_revision) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put 3 keys: rmm1 (rev 1), rmm2 (rev 2), rmm3 (rev 3) */
+    const char *keys[] = {"rmm1", "rmm2", "rmm3"};
+    const char *vals[] = {"v1", "v2", "v3"};
+    for (int i = 0; i < 3; i++) {
+        uint8_t req[64]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 4;
+        memcpy(req + pos, keys[i], 4); pos += 4;
+        req[pos++] = 0x12; req[pos++] = 2;
+        memcpy(req + pos, vals[i], 2); pos += 2;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Range [rmm1, rmm4) with min_mod_revision=2 (field 10, tag 0x50) */
+    uint8_t range_req[64]; size_t rp = 0;
+    range_req[rp++] = 0x0a; range_req[rp++] = 4;
+    memcpy(range_req + rp, "rmm1", 4); rp += 4;
+    range_req[rp++] = 0x12; range_req[rp++] = 4;
+    memcpy(range_req + rp, "rmm4", 4); rp += 4;
+    range_req[rp++] = 0x50; range_req[rp++] = 0x02; /* min_mod_revision=2 */
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_req, rp);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* Should only get rmm2 and rmm3 (mod_revision >= 2), NOT rmm1 */
+    bool found_rmm1 = false, found_rmm2 = false, found_rmm3 = false;
+    for (size_t i = 0; i + 4 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "rmm1", 4) == 0) found_rmm1 = true;
+        if (memcmp(resp.data + i, "rmm2", 4) == 0) found_rmm2 = true;
+        if (memcmp(resp.data + i, "rmm3", 4) == 0) found_rmm3 = true;
+    }
+    CETCD_ASSERT_TRUE(!found_rmm1);  /* rmm1 should be filtered out */
+    CETCD_ASSERT_TRUE(found_rmm2);
+    CETCD_ASSERT_TRUE(found_rmm3);
+
+    cetcd_rpc_bytes_free(&resp);
+
+    /* Also test max_mod_revision=2: should get rmm1 and rmm2, NOT rmm3 */
+    rp = 0;
+    range_req[rp++] = 0x0a; range_req[rp++] = 4;
+    memcpy(range_req + rp, "rmm1", 4); rp += 4;
+    range_req[rp++] = 0x12; range_req[rp++] = 4;
+    memcpy(range_req + rp, "rmm4", 4); rp += 4;
+    range_req[rp++] = 0x58; range_req[rp++] = 0x02; /* max_mod_revision=2 */
+
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_req, rp);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    found_rmm1 = false; found_rmm2 = false; found_rmm3 = false;
+    for (size_t i = 0; i + 4 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "rmm1", 4) == 0) found_rmm1 = true;
+        if (memcmp(resp.data + i, "rmm2", 4) == 0) found_rmm2 = true;
+        if (memcmp(resp.data + i, "rmm3", 4) == 0) found_rmm3 = true;
+    }
+    CETCD_ASSERT_TRUE(found_rmm1);
+    CETCD_ASSERT_TRUE(found_rmm2);
+    CETCD_ASSERT_TRUE(!found_rmm3);  /* rmm3 should be filtered out */
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
@@ -2946,6 +3280,12 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_range_kvs_correct_tag),
     CETCD_TEST_ENTRY(v3rpc_range_sort_order),
     CETCD_TEST_ENTRY(v3rpc_watch_cancel_has_header),
+    CETCD_TEST_ENTRY(v3rpc_range_more_correct_tag),
+    CETCD_TEST_ENTRY(v3rpc_watch_prev_kv_flag),
+    CETCD_TEST_ENTRY(v3rpc_txn_compare_range_end),
+    CETCD_TEST_ENTRY(v3rpc_txn_put_prev_kv),
+    CETCD_TEST_ENTRY(v3rpc_txn_delete_range_prev_kv),
+    CETCD_TEST_ENTRY(v3rpc_range_min_max_revision),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

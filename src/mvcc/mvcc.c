@@ -34,7 +34,8 @@ typedef struct {
 static cetcd_slice dup_slice(cetcd_slice s);
 static void free_key_generation(key_generation *g);
 static void mvcc_notify_watchers(cetcd_mvcc_store *s, const cetcd_kv *kv,
-                                  const cetcd_revision *rev, cetcd_event_type type);
+                                  const cetcd_revision *rev, cetcd_event_type type,
+                                  const cetcd_kv *prev_kv);
 static bool range_collect_cb(cetcd_slice key, void *val, void *udata);
 static bool free_kg_iter(cetcd_slice key, void *value, void *udata);
 
@@ -126,12 +127,19 @@ static bool watch_match(const cetcd_watcher *w, const uint8_t *key, size_t key_l
 }
 
 static void mvcc_notify_watchers(cetcd_mvcc_store *s, const cetcd_kv *kv,
-                                  const cetcd_revision *rev, cetcd_event_type type) {
+                                  const cetcd_revision *rev, cetcd_event_type type,
+                                  const cetcd_kv *prev_kv) {
     if (!s || !kv || !rev) return;
     cetcd_watch_event ev;
     ev.type = type;
     ev.kv = *kv;
     ev.rev = *rev;
+    ev.has_prev_kv = 0;
+    memset(&ev.prev_kv, 0, sizeof(ev.prev_kv));
+    if (prev_kv) {
+        ev.prev_kv = *prev_kv;
+        ev.has_prev_kv = 1;
+    }
     for (size_t i = 0; i < s->watcher_count; i++) {
         cetcd_watcher *w = s->watchers[i];
         if (w->start_rev > 0 && rev->main < w->start_rev) continue;
@@ -187,8 +195,23 @@ cetcd_revision cetcd_mvcc_put(cetcd_mvcc_store *s,
     void *existing = NULL;
     key_generation *kg;
 
+    /* Capture previous KV for watch events before modifying */
+    cetcd_kv prev_evkv;
+    memset(&prev_evkv, 0, sizeof(prev_evkv));
+    int has_prev = 0;
+
     if (cetcd_treap_get(s->index, kslice, &existing)) {
         kg = (key_generation*)existing;
+        /* Save old value for prev_kv before freeing */
+        if (!kg->deleted) {
+            prev_evkv.key = dup_slice(kslice);
+            prev_evkv.value = dup_slice(kg->value);
+            prev_evkv.create_rev = kg->create_rev;
+            prev_evkv.mod_rev = kg->mod_rev;
+            prev_evkv.version = kg->version;
+            prev_evkv.lease_id = kg->lease_id;
+            has_prev = 1;
+        }
         if (kg->value.data) free((void*)kg->value.data);
         kg->value = dup_slice(vslice);
         kg->version++;
@@ -224,9 +247,14 @@ cetcd_revision cetcd_mvcc_put(cetcd_mvcc_store *s,
     evkv.mod_rev = new_rev;
     evkv.version = kg->version;
     evkv.lease_id = kg->lease_id;
-    mvcc_notify_watchers(s, &evkv, &new_rev, CETCD_EVENT_PUT);
+    mvcc_notify_watchers(s, &evkv, &new_rev, CETCD_EVENT_PUT,
+                         has_prev ? &prev_evkv : NULL);
     free((void*)evkv.key.data);
     free((void*)evkv.value.data);
+    if (has_prev) {
+        free((void*)prev_evkv.key.data);
+        free((void*)prev_evkv.value.data);
+    }
     return new_rev;
 }
 
@@ -242,6 +270,21 @@ cetcd_revision cetcd_mvcc_delete(cetcd_mvcc_store *s,
 
     if (cetcd_treap_get(s->index, kslice, &existing)) {
         key_generation *kg = (key_generation*)existing;
+
+        /* Capture prev_kv for delete event BEFORE marking deleted */
+        cetcd_kv prev_evkv;
+        memset(&prev_evkv, 0, sizeof(prev_evkv));
+        int has_prev = 0;
+        if (!kg->deleted) {
+            prev_evkv.key = dup_slice(kslice);
+            prev_evkv.value = dup_slice(kg->value);
+            prev_evkv.create_rev = kg->create_rev;
+            prev_evkv.mod_rev = kg->mod_rev;
+            prev_evkv.version = kg->version;
+            prev_evkv.lease_id = kg->lease_id;
+            has_prev = 1;
+        }
+
         kg->deleted = true;
         kg->mod_rev = new_rev;
 
@@ -262,8 +305,13 @@ cetcd_revision cetcd_mvcc_delete(cetcd_mvcc_store *s,
         evkv.mod_rev = new_rev;
         evkv.version = kg->version;
         evkv.lease_id = kg->lease_id;
-        mvcc_notify_watchers(s, &evkv, &new_rev, CETCD_EVENT_DELETE);
+        mvcc_notify_watchers(s, &evkv, &new_rev, CETCD_EVENT_DELETE,
+                             has_prev ? &prev_evkv : NULL);
         free((void*)evkv.key.data);
+        if (has_prev) {
+            free((void*)prev_evkv.key.data);
+            free((void*)prev_evkv.value.data);
+        }
     }
     return new_rev;
 }
