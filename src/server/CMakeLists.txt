@@ -19,5 +19,6 @@ cetcd_add_module(server
 target_compile_definitions(cetcd_server PRIVATE _POSIX_C_SOURCE=200809L)
 target_include_directories(cetcd_server PRIVATE
     ${CMAKE_SOURCE_DIR}/third_party/libuv/include
+    ${CMAKE_SOURCE_DIR}/third_party/libco
     ${CMAKE_SOURCE_DIR}/src/io
 )

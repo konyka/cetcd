@@ -1,6 +1,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <uv.h>
+#include <unistd.h>     /* read/write */
+#include <sys/socket.h> /* recv/send */
 
 #include "cetcd/io.h"
 #include "cetcd/base.h"
@@ -77,16 +79,40 @@ static void on_new_connection(uv_stream_t *server, int status) {
     }
 }
 
+int cetcd_tcp_fd(cetcd_tcp *tcp) {
+    if (!tcp) return -1;
+    int fd = -1;
+    if (uv_fileno((uv_handle_t *)&tcp->handle, (uv_os_fd_t *)&fd) != 0)
+        return -1;
+    return fd;
+}
+
 int cetcd_tcp_read(cetcd_tcp *tcp, void *buf, size_t len) {
-    (void)tcp; (void)buf; (void)len;
-    /* Real async I/O would be wired up here; not used by Phase 0 tests. */
-    return 0;
+    if (!tcp || !buf || len == 0) return -1;
+    int fd = cetcd_tcp_fd(tcp);
+    if (fd < 0) return -1;
+    /*
+     * Synchronous read using recv().  In a full coroutine-integrated
+     * build this would yield the current coroutine and resume when
+     * libuv signals readability.  For now we do a blocking read which
+     * is correct for simple sequential clients (e.g. cetcdctl).
+     */
+    ssize_t n = recv(fd, buf, len, 0);
+    if (n < 0) return -1;
+    return (int)n;
 }
 
 int cetcd_tcp_write(cetcd_tcp *tcp, const void *buf, size_t len) {
-    (void)tcp; (void)buf; (void)len;
-    /* Real async I/O would be wired up here; not used by Phase 0 tests. */
-    return 0;
+    if (!tcp || !buf || len == 0) return -1;
+    int fd = cetcd_tcp_fd(tcp);
+    if (fd < 0) return -1;
+    /*
+     * Synchronous write using send().  See note in cetcd_tcp_read
+     * regarding coroutine integration.
+     */
+    ssize_t n = send(fd, buf, len, 0);
+    if (n < 0) return -1;
+    return (int)n;
 }
 
 void cetcd_tcp_close(cetcd_tcp *tcp) {

@@ -12,6 +12,12 @@ cetcd_loop *cetcd_loop_new(void) {
         free(l);
         return NULL;
     }
+    l->co_sched = coroutine_open();
+    if (!l->co_sched) {
+        uv_loop_close(&l->uv);
+        free(l);
+        return NULL;
+    }
     return l;
 }
 
@@ -29,5 +35,9 @@ void cetcd_loop_free(cetcd_loop *loop) {
     if (!loop) return;
     uv_run(&loop->uv, UV_RUN_DEFAULT);
     uv_loop_close(&loop->uv);
+    if (loop->co_sched) {
+        coroutine_close(loop->co_sched);
+        loop->co_sched = NULL;
+    }
     free(loop);
 }

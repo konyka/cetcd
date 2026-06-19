@@ -225,7 +225,9 @@ typedef enum cetcd_status {
 **源码**：`src/io/`（`loop.c`, `co.c`, `tcp.c`, `timer.c`, `async.c`）
 **依赖**：libuv、libco
 
-将 **libuv** 事件循环与 **libco** 栈式协程结合，提供同步风格的异步 I/O API：
+将 **libuv** 事件循环与 **libco** 栈式协程结合，提供同步风格的异步 I/O API。
+
+`cetcd_loop` 内部持有 libco 的 `struct schedule` 调度器，`cetcd_co_spawn` 创建协程并立即执行，遇到 `cetcd_co_yield` 时挂起，后续可通过 `cetcd_co_resume` 恢复。TCP 读写通过 `recv`/`send` 系统调用实现同步 I/O。
 
 ```c
 // 事件循环
@@ -238,12 +240,12 @@ cetcd_co *cetcd_co_spawn(cetcd_loop *loop, cetcd_co_fn fn, void *arg);
 void      cetcd_co_yield(cetcd_loop *loop);      // 让出执行权
 void      cetcd_co_resume(cetcd_co *co);         // 恢复特定协程
 
-// TCP（协程感知，读写自动让出）
+// TCP（同步 I/O，未来集成协程 yield）
 cetcd_tcp *cetcd_tcp_new(cetcd_loop *loop);
 int        cetcd_tcp_bind(cetcd_tcp *tcp, const char *addr, uint16_t port);
 int        cetcd_tcp_listen(cetcd_tcp *tcp, cetcd_tcp_conn_cb cb, void *arg);
-int        cetcd_tcp_read(cetcd_tcp *tcp, void *buf, size_t len);   // 让出直到数据可用
-int        cetcd_tcp_write(cetcd_tcp *tcp, const void *buf, size_t len);
+int        cetcd_tcp_read(cetcd_tcp *tcp, void *buf, size_t len);   // recv 同步读取
+int        cetcd_tcp_write(cetcd_tcp *tcp, const void *buf, size_t len); // send 同步写入
 
 // 定时器（协程感知）
 cetcd_timer *cetcd_timer_new(cetcd_loop *loop);
@@ -256,6 +258,8 @@ void         cetcd_async_send(cetcd_async *async);   // 线程安全
 ```
 
 **设计决策**：选择栈式协程而非回调或线程模型，使得 gRPC 双向流处理代码可读性如同同步代码。详见 [ADR 0003](../adr/0003-coroutines-on-libuv.md)。
+
+> **注意**：协程基于 libco 的 ucontext 实现，ASan 不完全支持 `makecontext`/`swapcontext`，因此 yield/resume 测试在 ASan 构建下跳过。基础 spawn（无 yield）在 ASan 下正常工作。
 
 ---
 
