@@ -302,7 +302,11 @@ The `Txn` handler now evaluates `Compare` clauses against the MVCC store — sup
 data instead of an empty count. It also supports `limit` (field 3, tag 0x18) for result
 truncation with the `more` flag, `keys_only` (field 8, tag 0x40) to omit values, and
 `count_only` (field 9, tag 0x48) to return only the count without kvs — matching the
-standalone `Range` handler. The `ResponseRange` within transactions includes a proper
+standalone `Range` handler. It also supports `sort_order` (field 5, tag 0x28) and
+`sort_target` (field 6, tag 0x30) for sorting results by KEY, VERSION, CREATE, MOD, or VALUE
+in ASCEND or DESCEND order, and `min_mod_revision`/`max_mod_revision`/`min_create_revision`/
+`max_create_revision` (fields 10–13, tags 0x50–0x68) for filtering results by revision range —
+again matching the standalone `Range` handler. The `ResponseRange` within transactions includes a proper
 `ResponseHeader` (field 1, tag 0x0a) with the current revision, `kvs` (field 2, tag 0x12),
 `more` (field 3, tag 0x18), and `count` (field 4, tag 0x20) — matching the standalone
 `RangeResponse` wire format. The `RequestPut` op within transactions supports `prev_kv`

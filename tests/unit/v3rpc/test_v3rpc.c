@@ -3406,6 +3406,113 @@ CETCD_TEST_CASE(v3rpc_txn_range_keys_only) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_txn_range_sort_order) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put 3 keys: trs1="va", trs2="vb", trs3="vc" */
+    const char *keys[] = {"trs1", "trs2", "trs3"};
+    const char *vals[] = {"va", "vb", "vc"};
+    for (int i = 0; i < 3; i++) {
+        uint8_t req[64]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 4;
+        memcpy(req + pos, keys[i], 4); pos += 4;
+        req[pos++] = 0x12; req[pos++] = 2;
+        memcpy(req + pos, vals[i], 2); pos += 2;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Build Txn with success op: RequestRange("trs1", "trs4", sort_order=DESCEND, sort_target=KEY)
+     * sort_order=2 (DESCEND) is field 5 tag 0x28
+     * sort_target=0 (KEY) is field 6 tag 0x30 */
+    uint8_t range_inner[32]; size_t rip = 0;
+    range_inner[rip++] = 0x0a; range_inner[rip++] = 4;
+    memcpy(range_inner + rip, "trs1", 4); rip += 4;
+    range_inner[rip++] = 0x12; range_inner[rip++] = 4;
+    memcpy(range_inner + rip, "trs4", 4); rip += 4;
+    range_inner[rip++] = 0x28; range_inner[rip++] = 0x02; /* sort_order=DESCEND */
+    range_inner[rip++] = 0x30; range_inner[rip++] = 0x00; /* sort_target=KEY */
+
+    uint8_t op_buf[64]; size_t opos = 0;
+    op_buf[opos++] = 0x0a; /* RequestRange */
+    op_buf[opos++] = (uint8_t)rip;
+    memcpy(op_buf + opos, range_inner, rip); opos += rip;
+
+    uint8_t txn_buf[128]; size_t tpos = 0;
+    txn_buf[tpos++] = 0x12; txn_buf[tpos++] = (uint8_t)opos;
+    memcpy(txn_buf + tpos, op_buf, opos); tpos += opos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", txn_buf, tpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 5);
+
+    /* With DESCEND sort by KEY, trs3 should appear before trs1 in response */
+    int pos_trs1 = -1, pos_trs3 = -1;
+    for (size_t i = 0; i + 4 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "trs1", 4) == 0 && pos_trs1 < 0) pos_trs1 = (int)i;
+        if (memcmp(resp.data + i, "trs3", 4) == 0 && pos_trs3 < 0) pos_trs3 = (int)i;
+    }
+    CETCD_ASSERT_TRUE(pos_trs1 >= 0);
+    CETCD_ASSERT_TRUE(pos_trs3 >= 0);
+    CETCD_ASSERT_TRUE(pos_trs3 < pos_trs1); /* trs3 before trs1 */
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_txn_range_revision_filter) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put 3 keys: trf1 (rev 1), trf2 (rev 2), trf3 (rev 3) */
+    const char *keys[] = {"trf1", "trf2", "trf3"};
+    const char *vals[] = {"v1", "v2", "v3"};
+    for (int i = 0; i < 3; i++) {
+        uint8_t req[64]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 4;
+        memcpy(req + pos, keys[i], 4); pos += 4;
+        req[pos++] = 0x12; req[pos++] = 2;
+        memcpy(req + pos, vals[i], 2); pos += 2;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Build Txn with success op: RequestRange("trf1", "trf4", min_mod_revision=2)
+     * min_mod_revision=2 is field 10 tag 0x50 */
+    uint8_t range_inner[32]; size_t rip = 0;
+    range_inner[rip++] = 0x0a; range_inner[rip++] = 4;
+    memcpy(range_inner + rip, "trf1", 4); rip += 4;
+    range_inner[rip++] = 0x12; range_inner[rip++] = 4;
+    memcpy(range_inner + rip, "trf4", 4); rip += 4;
+    range_inner[rip++] = 0x50; range_inner[rip++] = 0x02; /* min_mod_revision=2 */
+
+    uint8_t op_buf[64]; size_t opos = 0;
+    op_buf[opos++] = 0x0a; /* RequestRange */
+    op_buf[opos++] = (uint8_t)rip;
+    memcpy(op_buf + opos, range_inner, rip); opos += rip;
+
+    uint8_t txn_buf[128]; size_t tpos = 0;
+    txn_buf[tpos++] = 0x12; txn_buf[tpos++] = (uint8_t)opos;
+    memcpy(txn_buf + tpos, op_buf, opos); tpos += opos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", txn_buf, tpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* Should only get trf2 and trf3 (mod_revision >= 2), NOT trf1 */
+    bool found_trf1 = false, found_trf2 = false, found_trf3 = false;
+    for (size_t i = 0; i + 4 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "trf1", 4) == 0) found_trf1 = true;
+        if (memcmp(resp.data + i, "trf2", 4) == 0) found_trf2 = true;
+        if (memcmp(resp.data + i, "trf3", 4) == 0) found_trf3 = true;
+    }
+    CETCD_ASSERT_TRUE(!found_trf1);
+    CETCD_ASSERT_TRUE(found_trf2);
+    CETCD_ASSERT_TRUE(found_trf3);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
@@ -3495,6 +3602,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_txn_range_limit),
     CETCD_TEST_ENTRY(v3rpc_txn_range_count_only),
     CETCD_TEST_ENTRY(v3rpc_txn_range_keys_only),
+    CETCD_TEST_ENTRY(v3rpc_txn_range_sort_order),
+    CETCD_TEST_ENTRY(v3rpc_txn_range_revision_filter),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

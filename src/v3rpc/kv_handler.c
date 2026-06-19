@@ -1123,12 +1123,18 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
             op_pos += (size_t)rlen_val;
 
             /* Parse RequestRange: key (0x0a), range_end (0x12), limit (0x18),
-             *   revision (0x20), keys_only (0x40), count_only (0x48) */
+             *   revision (0x20), sort_order (0x28), sort_target (0x30),
+             *   serializable (0x38), keys_only (0x40), count_only (0x48),
+             *   min_mod_rev (0x50), max_mod_rev (0x58),
+             *   min_create_rev (0x60), max_create_rev (0x68) */
             uint8_t *rkey = NULL; size_t rkey_len = 0;
             uint8_t *rrange_end = NULL; size_t rrange_end_len = 0;
             int64_t rrev = 0;
             int64_t rlimit = 0;
             int rkeys_only = 0, rcount_only = 0;
+            int rsort_order = 0, rsort_target = 0;
+            int64_t rmin_mod_rev = 0, rmax_mod_rev = 0;
+            int64_t rmin_create_rev = 0, rmax_create_rev = 0;
             size_t rp_pos = 0;
             while (rp_pos < rl) {
                 uint8_t rtag = rd[rp_pos++];
@@ -1140,10 +1146,24 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                     uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rlimit = (int64_t)v;
                 } else if (rtag == 0x20) {
                     uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rrev = (int64_t)v;
+                } else if (rtag == 0x28) {
+                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rsort_order = (int)v;
+                } else if (rtag == 0x30) {
+                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rsort_target = (int)v;
+                } else if (rtag == 0x38) {
+                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); /* serializable, no-op */
                 } else if (rtag == 0x40) {
                     uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rkeys_only = (int)v;
                 } else if (rtag == 0x48) {
                     uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rcount_only = (int)v;
+                } else if (rtag == 0x50) {
+                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rmin_mod_rev = (int64_t)v;
+                } else if (rtag == 0x58) {
+                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rmax_mod_rev = (int64_t)v;
+                } else if (rtag == 0x60) {
+                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rmin_create_rev = (int64_t)v;
+                } else if (rtag == 0x68) {
+                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rmax_create_rev = (int64_t)v;
                 } else {
                     uint64_t skip = 0; read_varint(rd, rl, &rp_pos, &skip);
                 }
@@ -1193,6 +1213,40 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                     cetcd_kv *kvs = NULL; size_t n = 0;
                     cetcd_mvcc_range(g_rpc_store, rrev, rkey, rkey_len,
                                      rrange_end, rrange_end_len, &kvs, &n);
+                    /* Apply min/max revision filters (fields 10-13) */
+                    if (n > 0 && (rmin_mod_rev > 0 || rmax_mod_rev > 0 || rmin_create_rev > 0 || rmax_create_rev > 0)) {
+                        size_t w = 0;
+                        for (size_t i = 0; i < n; i++) {
+                            int keep = 1;
+                            if (rmin_mod_rev > 0 && kvs[i].mod_rev.main < rmin_mod_rev) keep = 0;
+                            if (keep && rmax_mod_rev > 0 && kvs[i].mod_rev.main > rmax_mod_rev) keep = 0;
+                            if (keep && rmin_create_rev > 0 && kvs[i].create_rev.main < rmin_create_rev) keep = 0;
+                            if (keep && rmax_create_rev > 0 && kvs[i].create_rev.main > rmax_create_rev) keep = 0;
+                            if (keep) {
+                                if (w != i) kvs[w] = kvs[i];
+                                w++;
+                            } else {
+                                free((void*)kvs[i].key.data);
+                                free((void*)kvs[i].value.data);
+                            }
+                        }
+                        n = w;
+                    }
+                    /* Sort results if sort_order is specified (1=ASCEND, 2=DESCEND) */
+                    if (rsort_order > 0 && n > 1) {
+                        for (size_t i = 1; i < n; i++) {
+                            cetcd_kv tmp = kvs[i];
+                            size_t j = i;
+                            while (j > 0) {
+                                int cmp = range_sort_cmp(&kvs[j - 1], &tmp, &rsort_target);
+                                if (rsort_order == 2) cmp = -cmp;
+                                if (cmp <= 0) break;
+                                kvs[j] = kvs[j - 1];
+                                j--;
+                            }
+                            kvs[j] = tmp;
+                        }
+                    }
                     rng_count = n;
                     /* Apply limit */
                     size_t eff_n = n;
