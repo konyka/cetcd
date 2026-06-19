@@ -417,6 +417,7 @@ static int cmd_put(int argc, char **argv) {
     bool prev_kv = false;
     bool ignore_value = false;
     bool ignore_lease = false;
+    int64_t lease_id = 0;
     const char *key = NULL;
     const char *val = NULL;
 
@@ -427,6 +428,9 @@ static int cmd_put(int argc, char **argv) {
             ignore_value = true;
         } else if (strcmp(argv[i], "--ignore-lease") == 0) {
             ignore_lease = true;
+        } else if (strcmp(argv[i], "--lease") == 0) {
+            if (i + 1 >= argc) { fprintf(stderr, "--lease requires a lease ID\n"); return 1; }
+            lease_id = strtoll(argv[++i], NULL, 10);
         } else if (!key) {
             key = argv[i];
         } else if (!val) {
@@ -434,11 +438,11 @@ static int cmd_put(int argc, char **argv) {
         }
     }
     if (!key) {
-        fprintf(stderr, "usage: cetcdctl put [--prev-kv] [--ignore-value] [--ignore-lease] KEY [VALUE]\n");
+        fprintf(stderr, "usage: cetcdctl put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE]\n");
         return 1;
     }
     if (!val && !ignore_value) {
-        fprintf(stderr, "usage: cetcdctl put [--prev-kv] [--ignore-value] [--ignore-lease] KEY [VALUE]\n");
+        fprintf(stderr, "usage: cetcdctl put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE]\n");
         return 1;
     }
 
@@ -449,6 +453,10 @@ static int cmd_put(int argc, char **argv) {
     if (val) {
         pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
                                  (const uint8_t *)val, strlen(val));
+    }
+    if (lease_id > 0) {
+        /* field 3 (lease) = int64, tag = 0x18 */
+        pos = encode_varint_field(req, sizeof(req), pos, 0x18, (uint64_t)lease_id);
     }
     if (prev_kv) {
         /* field 4 (prev_kv) = bool, tag = 0x20 */
@@ -1530,7 +1538,7 @@ static void print_usage(void) {
     printf("  --host ADDR    Server address (default: 127.0.0.1)\n");
     printf("  --port PORT    Server port (default: 2379)\n\n");
     printf("Commands:\n");
-    printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] KEY [VALUE]  Store a key-value pair\n");
+    printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE]  Store a key-value pair\n");
     printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
     printf("  del [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --prev-kv)\n");

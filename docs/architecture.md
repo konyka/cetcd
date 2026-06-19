@@ -275,7 +275,8 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix/--keys-only/--rev`,
 `del --prefix/--prev-kv`, `put --prev-kv`, `watch --prefix/--prev-kv/--start-rev`, `txn cas` (compare-and-swap),
 `auth login` (token-based authentication), `get --count-only/--limit N/--sort-by/--sort-order/--print-value-only`,
-`put --ignore-value/--ignore-lease`, `get/del KEY RANGE_END` (positional range_end argument).
+`put --ignore-value/--ignore-lease`, `get/del KEY RANGE_END` (positional range_end argument),
+`get/del --from-key` (unbounded range queries), `put --lease ID` (attach lease to key).
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
