@@ -505,8 +505,9 @@ static int cmd_put(int argc, char **argv) {
 }
 
 static int cmd_get(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY [RANGE_END]\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY [RANGE_END]\n"); return 1; }
     bool prefix = false;
+    bool from_key = false;
     bool keys_only = false;
     bool count_only = false;
     bool print_value_only = false;
@@ -520,6 +521,8 @@ static int cmd_get(int argc, char **argv) {
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--prefix") == 0) {
             prefix = true;
+        } else if (strcmp(argv[i], "--from-key") == 0) {
+            from_key = true;
         } else if (strcmp(argv[i], "--keys-only") == 0) {
             keys_only = true;
         } else if (strcmp(argv[i], "--print-value-only") == 0) {
@@ -554,7 +557,7 @@ static int cmd_get(int argc, char **argv) {
             range_end = argv[i];
         }
     }
-    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY [RANGE_END]\n"); return 1; }
+    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY [RANGE_END]\n"); return 1; }
 
     size_t key_len = strlen(key);
 
@@ -570,6 +573,10 @@ static int cmd_get(int argc, char **argv) {
         prefix_end[key_len - 1]++;
         pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
                                  (const uint8_t *)prefix_end, key_len);
+    } else if (from_key) {
+        /* range_end = \0 means all keys >= key */
+        uint8_t zero = 0;
+        pos = encode_bytes_field(req, sizeof(req), pos, 0x12, &zero, 1);
     } else if (range_end) {
         pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
                                  (const uint8_t *)range_end, strlen(range_end));
@@ -609,8 +616,9 @@ static int cmd_get(int argc, char **argv) {
 }
 
 static int cmd_del(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--prev-kv] KEY [RANGE_END]\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]\n"); return 1; }
     bool prefix = false;
+    bool from_key = false;
     bool prev_kv = false;
     const char *key = NULL;
     const char *range_end = NULL;
@@ -618,6 +626,8 @@ static int cmd_del(int argc, char **argv) {
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--prefix") == 0) {
             prefix = true;
+        } else if (strcmp(argv[i], "--from-key") == 0) {
+            from_key = true;
         } else if (strcmp(argv[i], "--prev-kv") == 0) {
             prev_kv = true;
         } else if (!key) {
@@ -626,7 +636,7 @@ static int cmd_del(int argc, char **argv) {
             range_end = argv[i];
         }
     }
-    if (!key) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--prev-kv] KEY [RANGE_END]\n"); return 1; }
+    if (!key) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]\n"); return 1; }
     size_t key_len = strlen(key);
 
     uint8_t req[1024], resp[4096];
@@ -640,6 +650,10 @@ static int cmd_del(int argc, char **argv) {
         prefix_end[key_len - 1]++;
         pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
                                  (const uint8_t *)prefix_end, key_len);
+    } else if (from_key) {
+        /* range_end = \0 means all keys >= key */
+        uint8_t zero = 0;
+        pos = encode_bytes_field(req, sizeof(req), pos, 0x12, &zero, 1);
     } else if (range_end) {
         pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
                                  (const uint8_t *)range_end, strlen(range_end));
@@ -1517,9 +1531,9 @@ static void print_usage(void) {
     printf("  --port PORT    Server port (default: 2379)\n\n");
     printf("Commands:\n");
     printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] KEY [VALUE]  Store a key-value pair\n");
-    printf("  get [--prefix] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY [RANGE_END]\n");
+    printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
-    printf("  del [--prefix] [--prev-kv] KEY [RANGE_END]  Delete a key (options: --prefix, --prev-kv)\n");
+    printf("  del [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --prev-kv)\n");
     printf("  watch [--prefix] [--prev-kv] [--start-rev N] KEY  Watch key changes (single response)\n");
     printf("  lease grant TTL        Grant a lease (TTL in seconds)\n");
     printf("  lease revoke ID        Revoke a lease by ID\n");
