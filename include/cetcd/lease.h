@@ -42,6 +42,14 @@ void cetcd_lease_mgr_tick(cetcd_lease_mgr *mgr, int64_t elapsed_ms);
 
 size_t cetcd_lease_mgr_count(const cetcd_lease_mgr *mgr);
 
+/* Get the granted TTL (original) for a lease. Returns 0 if not found. */
+int64_t cetcd_lease_granted_ttl(const cetcd_lease_mgr *mgr, cetcd_lease_id id);
+
+/* Get all lease IDs. Caller provides an array of capacity `cap`.
+ * Returns the number of IDs written (up to cap), or total count if cap is 0. */
+size_t cetcd_lease_mgr_leases(const cetcd_lease_mgr *mgr,
+                               cetcd_lease_id *out, size_t cap);
+
 #ifdef __cplusplus
 }
 #endif

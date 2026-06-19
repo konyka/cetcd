@@ -546,6 +546,13 @@ cetcd_lease_id cetcd_lease_grant(cetcd_lease_mgr *mgr, int64_t ttl_seconds);
 int            cetcd_lease_revoke(cetcd_lease_mgr *mgr, cetcd_lease_id id);
 int            cetcd_lease_keep_alive(cetcd_lease_mgr *mgr, cetcd_lease_id id, int64_t ttl_seconds);
 
+/* 查询租约的原始授予 TTL */
+int64_t        cetcd_lease_granted_ttl(const cetcd_lease_mgr *mgr, cetcd_lease_id id);
+
+/* 获取所有租约 ID 列表 */
+size_t         cetcd_lease_mgr_leases(const cetcd_lease_mgr *mgr,
+                                       cetcd_lease_id *out, size_t cap);
+
 int  cetcd_lease_attach_key(cetcd_lease_mgr *mgr, cetcd_lease_id id,
                              const uint8_t *key, size_t key_len);
 int  cetcd_lease_detach_key(cetcd_lease_mgr *mgr, cetcd_lease_id id,
@@ -790,9 +797,9 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 | KV | `/etcdserverpb.KV/Compact` | `kv_handler.c` | 压缩 MVCC 历史到指定修订号 |
 | Lease | `/etcdserverpb.Lease/LeaseGrant` | `lease_handler.c` | 授予租约，返回 ID+TTL |
 | Lease | `/etcdserverpb.Lease/LeaseRevoke` | `lease_handler.c` | 撤销租约 |
-| Lease | `/etcdserverpb.Lease/LeaseKeepAlive` | `lease_handler.c` | 续约，返回剩余 TTL |
-| Lease | `/etcdserverpb.Lease/LeaseTimeToLive` | `lease_handler.c` | 查询租约剩余时间 |
-| Lease | `/etcdserverpb.Lease/LeaseLeases` | `lease_handler.c` | 列出所有租约 |
+| Lease | `/etcdserverpb.Lease/LeaseKeepAlive` | `lease_handler.c` | 续约，使用原始授予 TTL（非硬编码），返回剩余 TTL |
+| Lease | `/etcdserverpb.Lease/LeaseTimeToLive` | `lease_handler.c` | 查询租约剩余时间和授予 TTL |
+| Lease | `/etcdserverpb.Lease/LeaseLeases` | `lease_handler.c` | 列出所有活跃租约（返回实际租约 ID 列表） |
 | Watch | `/etcdserverpb.Watch/Watch` | `watch_handler.c` | 创建/取消观察者，返回 watch_id+事件 |
 | Auth | `/etcdserverpb.Auth/AuthEnable` | `auth_handler.c` | 启用认证 |
 | Auth | `/etcdserverpb.Auth/AuthDisable` | `auth_handler.c` | 禁用认证 |
@@ -919,14 +926,28 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `lease grant TTL` | 授予租约 |
 | `lease revoke ID` | 撤销租约 |
 | `lease timetolive ID` | 查询租约剩余时间 |
+| `lease list` | 列出所有活跃租约 |
+| `lease keepalive ID` | 续约指定租约 |
 | `txn put KEY VALUE` | 事务写入 |
 | `compact REV` | 压缩 MVCC 历史到指定修订号 |
 | `status` | 获取服务器状态 |
 | `alarm` | 查询告警 |
+| `hash` | 获取 KV 存储哈希值 |
+| `hashkv` | 获取 KV 存储哈希值和压缩修订号 |
+| `defrag` | 碎片整理（LMDB 自动管理，no-op） |
+| `move-leader TARGET_ID` | 领导者转移到指定节点 |
 | `member list` | 列出集群成员 |
+| `member add PEER_URL` | 添加集群成员 |
+| `member remove ID` | 移除集群成员 |
+| `member update ID URL` | 更新成员地址 |
 | `auth enable/disable/status` | 认证管理 |
 | `user add/get/list` | 用户管理（add 添加、get 查看详情、list 列表） |
+| `user delete NAME` | 删除用户 |
+| `user change-password NAME PASS` | 修改用户密码 |
+| `user grant-role NAME ROLE` | 授予用户角色 |
+| `user revoke-role NAME ROLE` | 撤销用户角色 |
 | `role add/get/list` | 角色管理（add 添加、get 查看详情、list 列表） |
+| `role delete NAME` | 删除角色 |
 | `role grant-permission ROLE TYPE KEY` | 授予角色权限（TYPE: read/write/readwrite） |
 | `role revoke-permission ROLE` | 撤销角色权限 |
 | `snapshot save [FILE]` | 保存快照到文件 |

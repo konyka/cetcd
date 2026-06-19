@@ -12,18 +12,40 @@
  *   lease grant TTL        — grant a lease with given TTL (seconds)
  *   lease revoke ID        — revoke a lease by ID
  *   lease timetolive ID    — query remaining TTL of a lease
+ *   lease list             — list all active leases
+ *   lease keepalive ID     — keep a lease alive
  *   txn put KEY VALUE      — execute a transaction (Put)
  *   compact REV            — compact MVCC history to given revision
  *   status                 — get server status
  *   alarm                  — query alarms
+ *   hash                   — get KV store hash
+ *   hashkv                 — get KV store hash + compact revision
+ *   defrag                 — defragment the database (no-op for LMDB)
+ *   move-leader TARGET_ID  — transfer leadership to target node
  *   member list            — list cluster members
+ *   member add PEER_URL    — add a cluster member
+ *   member remove ID       — remove a cluster member
+ *   member update ID URL   — update a member's peer URL
+ *   snapshot save [FILE]   — save a snapshot to file
+ *   downgrade enable VER   — enable cluster downgrade
+ *   downgrade cancel       — cancel cluster downgrade
+ *   downgrade validate VER — validate downgrade version
  *   auth enable            — enable authentication
  *   auth disable           — disable authentication
  *   auth status            — query auth status
  *   user add NAME PASS     — add a user
+ *   user delete NAME       — delete a user
+ *   user get NAME          — get user details (roles)
  *   user list              — list all users
+ *   user change-password NAME PASS — change user password
+ *   user grant-role NAME ROLE — grant role to user
+ *   user revoke-role NAME ROLE — revoke role from user
  *   role add NAME          — add a role
+ *   role delete NAME       — delete a role
+ *   role get NAME          — get role details (permissions)
  *   role list              — list all roles
+ *   role grant-permission ROLE TYPE KEY — grant permission
+ *   role revoke-permission ROLE — revoke all permissions from role
  */
 
 #include <stdio.h>
@@ -383,6 +405,8 @@ static int cmd_lease(int argc, char **argv) {
         fprintf(stderr, "usage: cetcdctl lease grant TTL\n");
         fprintf(stderr, "       cetcdctl lease revoke ID\n");
         fprintf(stderr, "       cetcdctl lease timetolive ID\n");
+        fprintf(stderr, "       cetcdctl lease list\n");
+        fprintf(stderr, "       cetcdctl lease keepalive ID\n");
         return 1;
     }
     if (strcmp(argv[2], "grant") == 0) {
@@ -410,6 +434,55 @@ static int cmd_lease(int argc, char **argv) {
         int rlen = do_rpc("/etcdserverpb.Lease/LeaseTimeToLive", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         parse_lease_ttl_response(resp, rlen);
+    } else if (strcmp(argv[2], "list") == 0) {
+        uint8_t req[] = {0x00}, resp[4096];
+        int rlen = do_rpc("/etcdserverpb.Lease/LeaseLeases", req, 1, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        /* Parse LeaseLeasesResponse: field 1 (leases) = repeated LeaseStatus */
+        size_t rpos = 0;
+        int count = 0;
+        while (rpos < (size_t)rlen) {
+            uint8_t tag = resp[rpos++];
+            if (tag == 0x0a) {
+                uint64_t lslen = 0; read_varint(resp, rlen, &rpos, &lslen);
+                size_t lend = rpos + (size_t)lslen;
+                while (rpos < lend) {
+                    uint8_t ltag = resp[rpos++];
+                    if (ltag == 0x08) {
+                        uint64_t id = 0; read_varint(resp, lend, &rpos, &id);
+                        printf("lease ID: %llu\n", (unsigned long long)id);
+                        count++;
+                    } else {
+                        uint64_t v = 0; read_varint(resp, lend, &rpos, &v);
+                    }
+                }
+                rpos = lend;
+            } else {
+                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            }
+        }
+        if (count == 0) printf("(no leases)\n");
+    } else if (strcmp(argv[2], "keepalive") == 0) {
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl lease keepalive ID\n"); return 1; }
+        uint8_t req[32], resp[256];
+        size_t pos = 0;
+        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(argv[3]));
+        int rlen = do_rpc("/etcdserverpb.Lease/LeaseKeepAlive", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        /* Parse KeepAliveResponse: field 1 (ID), field 2 (TTL) */
+        size_t rpos = 0;
+        while (rpos < (size_t)rlen) {
+            uint8_t tag = resp[rpos++];
+            if (tag == 0x08) {
+                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+                printf("lease ID: %llu\n", (unsigned long long)v);
+            } else if (tag == 0x10) {
+                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+                printf("TTL: %llu seconds\n", (unsigned long long)v);
+            } else {
+                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            }
+        }
     } else {
         fprintf(stderr, "unknown lease subcommand: %s\n", argv[2]);
         return 1;
@@ -536,14 +609,47 @@ static int cmd_downgrade(int argc, char **argv) {
 }
 
 static int cmd_member(int argc, char **argv) {
-    if (argc < 3 || strcmp(argv[2], "list") != 0) {
+    if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl member list\n");
+        fprintf(stderr, "       cetcdctl member add PEER_URL\n");
+        fprintf(stderr, "       cetcdctl member remove ID\n");
+        fprintf(stderr, "       cetcdctl member update ID PEER_URL\n");
         return 1;
     }
-    uint8_t req[] = {0x00}, resp[4096];
-    int rlen = do_rpc("/etcdserverpb.Cluster/MemberList", req, 1, resp, sizeof(resp));
-    if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-    parse_member_list_response(resp, rlen);
+    if (strcmp(argv[2], "list") == 0) {
+        uint8_t req[] = {0x00}, resp[4096];
+        int rlen = do_rpc("/etcdserverpb.Cluster/MemberList", req, 1, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        parse_member_list_response(resp, rlen);
+    } else if (strcmp(argv[2], "add") == 0) {
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl member add PEER_URL\n"); return 1; }
+        uint8_t req[512], resp[4096];
+        size_t pos = 0;
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        int rlen = do_rpc("/etcdserverpb.Cluster/MemberAdd", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        parse_member_list_response(resp, rlen);
+    } else if (strcmp(argv[2], "remove") == 0) {
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl member remove ID\n"); return 1; }
+        uint8_t req[32], resp[256];
+        size_t pos = 0;
+        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(argv[3]));
+        int rlen = do_rpc("/etcdserverpb.Cluster/MemberRemove", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        printf("OK\n");
+    } else if (strcmp(argv[2], "update") == 0) {
+        if (argc < 5) { fprintf(stderr, "usage: cetcdctl member update ID PEER_URL\n"); return 1; }
+        uint8_t req[512], resp[256];
+        size_t pos = 0;
+        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(argv[3]));
+        pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
+        int rlen = do_rpc("/etcdserverpb.Cluster/MemberUpdate", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        printf("OK\n");
+    } else {
+        fprintf(stderr, "unknown member subcommand: %s\n", argv[2]);
+        return 1;
+    }
     return 0;
 }
 
@@ -577,8 +683,12 @@ static int cmd_auth(int argc, char **argv) {
 static int cmd_user(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl user add NAME PASS\n");
+        fprintf(stderr, "       cetcdctl user delete NAME\n");
         fprintf(stderr, "       cetcdctl user get NAME\n");
         fprintf(stderr, "       cetcdctl user list\n");
+        fprintf(stderr, "       cetcdctl user change-password NAME PASS\n");
+        fprintf(stderr, "       cetcdctl user grant-role NAME ROLE\n");
+        fprintf(stderr, "       cetcdctl user revoke-role NAME ROLE\n");
         return 1;
     }
     if (strcmp(argv[2], "add") == 0) {
@@ -588,6 +698,14 @@ static int cmd_user(int argc, char **argv) {
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
         pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
         int rlen = do_rpc("/etcdserverpb.Auth/UserAdd", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        printf("OK\n");
+    } else if (strcmp(argv[2], "delete") == 0) {
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl user delete NAME\n"); return 1; }
+        uint8_t req[256], resp[256];
+        size_t pos = 0;
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        int rlen = do_rpc("/etcdserverpb.Auth/UserDelete", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         printf("OK\n");
     } else if (strcmp(argv[2], "get") == 0) {
@@ -604,6 +722,33 @@ static int cmd_user(int argc, char **argv) {
         int rlen = do_rpc("/etcdserverpb.Auth/UserList", req, 1, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         parse_string_list_response(resp, rlen, "users");
+    } else if (strcmp(argv[2], "change-password") == 0) {
+        if (argc < 5) { fprintf(stderr, "usage: cetcdctl user change-password NAME PASS\n"); return 1; }
+        uint8_t req[512], resp[256];
+        size_t pos = 0;
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
+        int rlen = do_rpc("/etcdserverpb.Auth/UserChangePassword", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        printf("OK\n");
+    } else if (strcmp(argv[2], "grant-role") == 0) {
+        if (argc < 5) { fprintf(stderr, "usage: cetcdctl user grant-role NAME ROLE\n"); return 1; }
+        uint8_t req[512], resp[256];
+        size_t pos = 0;
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
+        int rlen = do_rpc("/etcdserverpb.Auth/UserGrantRole", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        printf("OK\n");
+    } else if (strcmp(argv[2], "revoke-role") == 0) {
+        if (argc < 5) { fprintf(stderr, "usage: cetcdctl user revoke-role NAME ROLE\n"); return 1; }
+        uint8_t req[512], resp[256];
+        size_t pos = 0;
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
+        int rlen = do_rpc("/etcdserverpb.Auth/UserRevokeRole", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        printf("OK\n");
     } else {
         fprintf(stderr, "unknown user subcommand: %s\n", argv[2]);
         return 1;
@@ -626,6 +771,14 @@ static int cmd_role(int argc, char **argv) {
         size_t pos = 0;
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
         int rlen = do_rpc("/etcdserverpb.Auth/RoleAdd", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        printf("OK\n");
+    } else if (strcmp(argv[2], "delete") == 0) {
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl role delete NAME\n"); return 1; }
+        uint8_t req[256], resp[256];
+        size_t pos = 0;
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        int rlen = do_rpc("/etcdserverpb.Auth/RoleDelete", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         printf("OK\n");
     } else if (strcmp(argv[2], "list") == 0) {
@@ -720,6 +873,67 @@ static int cmd_role(int argc, char **argv) {
     return 0;
 }
 
+static int cmd_hash(int argc, char **argv) {
+    (void)argc; (void)argv;
+    uint8_t req[] = {0x00}, resp[256];
+    int rlen = do_rpc("/etcdserverpb.Maintenance/Hash", req, 1, resp, sizeof(resp));
+    if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+    /* HashResponse: field 2 (hash) = uint32, tag = 0x10 */
+    size_t rpos = 0;
+    while (rpos < (size_t)rlen) {
+        uint8_t tag = resp[rpos++];
+        if (tag == 0x10) {
+            uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            printf("hash: %llu\n", (unsigned long long)v);
+        } else {
+            uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+        }
+    }
+    return 0;
+}
+
+static int cmd_hashkv(int argc, char **argv) {
+    (void)argc; (void)argv;
+    uint8_t req[] = {0x00}, resp[256];
+    int rlen = do_rpc("/etcdserverpb.Maintenance/HashKV", req, 1, resp, sizeof(resp));
+    if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+    /* HashKVResponse: field 2 (hash), field 3 (compact_revision) */
+    size_t rpos = 0;
+    while (rpos < (size_t)rlen) {
+        uint8_t tag = resp[rpos++];
+        if (tag == 0x10) {
+            uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            printf("hash: %llu\n", (unsigned long long)v);
+        } else if (tag == 0x18) {
+            uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            printf("compact_revision: %llu\n", (unsigned long long)v);
+        } else {
+            uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+        }
+    }
+    return 0;
+}
+
+static int cmd_defrag(int argc, char **argv) {
+    (void)argc; (void)argv;
+    uint8_t req[] = {0x00}, resp[256];
+    int rlen = do_rpc("/etcdserverpb.Maintenance/Defragment", req, 1, resp, sizeof(resp));
+    if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+    printf("OK\n");
+    return 0;
+}
+
+static int cmd_move_leader(int argc, char **argv) {
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl move-leader TARGET_ID\n"); return 1; }
+    uint8_t req[32], resp[256];
+    size_t pos = 0;
+    pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(argv[2]));
+    int rlen = do_rpc("/etcdserverpb.Maintenance/MoveLeader", req, pos, resp, sizeof(resp));
+    if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+    printf("OK\n");
+    return 0;
+}
+
 static void print_usage(void) {
     printf("cetcdctl — command-line client for cetcd\n\n");
     printf("Usage: cetcdctl [global options] COMMAND [args]\n\n");
@@ -733,18 +947,32 @@ static void print_usage(void) {
     printf("  lease grant TTL        Grant a lease (TTL in seconds)\n");
     printf("  lease revoke ID        Revoke a lease by ID\n");
     printf("  lease timetolive ID    Query remaining TTL\n");
+    printf("  lease list             List all active leases\n");
+    printf("  lease keepalive ID     Keep a lease alive\n");
     printf("  txn put KEY VALUE      Execute a transaction (Put)\n");
     printf("  compact REV            Compact MVCC history to revision\n");
     printf("  status                 Get server status\n");
     printf("  alarm                  Query alarms\n");
+    printf("  hash                   Get KV store hash\n");
+    printf("  hashkv                 Get KV store hash + compact revision\n");
+    printf("  defrag                 Defragment database (no-op for LMDB)\n");
+    printf("  move-leader TARGET_ID  Transfer leadership to target node\n");
     printf("  member list            List cluster members\n");
+    printf("  member add PEER_URL    Add a cluster member\n");
+    printf("  member remove ID       Remove a cluster member\n");
+    printf("  member update ID URL   Update a member's peer URL\n");
     printf("  auth enable            Enable authentication\n");
     printf("  auth disable           Disable authentication\n");
     printf("  auth status            Query auth status\n");
     printf("  user add NAME PASS     Add a user\n");
+    printf("  user delete NAME       Delete a user\n");
     printf("  user get NAME          Get user details (roles)\n");
     printf("  user list              List all users\n");
+    printf("  user change-password NAME PASS  Change user password\n");
+    printf("  user grant-role NAME ROLE       Grant role to user\n");
+    printf("  user revoke-role NAME ROLE      Revoke role from user\n");
     printf("  role add NAME          Add a role\n");
+    printf("  role delete NAME       Delete a role\n");
     printf("  role get NAME          Get role details (permissions)\n");
     printf("  role list              List all roles\n");
     printf("  role grant-permission ROLE TYPE KEY\n");
@@ -793,6 +1021,10 @@ int main(int argc, char **argv) {
     if (strcmp(cmd, "txn") == 0)         return cmd_txn(new_argc, new_argv);
     if (strcmp(cmd, "status") == 0)      return cmd_status(new_argc, new_argv);
     if (strcmp(cmd, "alarm") == 0)       return cmd_alarm(new_argc, new_argv);
+    if (strcmp(cmd, "hash") == 0)        return cmd_hash(new_argc, new_argv);
+    if (strcmp(cmd, "hashkv") == 0)      return cmd_hashkv(new_argc, new_argv);
+    if (strcmp(cmd, "defrag") == 0)      return cmd_defrag(new_argc, new_argv);
+    if (strcmp(cmd, "move-leader") == 0) return cmd_move_leader(new_argc, new_argv);
     if (strcmp(cmd, "member") == 0)      return cmd_member(new_argc, new_argv);
     if (strcmp(cmd, "auth") == 0)        return cmd_auth(new_argc, new_argv);
     if (strcmp(cmd, "user") == 0)        return cmd_user(new_argc, new_argv);

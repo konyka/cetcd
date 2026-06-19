@@ -231,3 +231,22 @@ void cetcd_lease_mgr_tick(cetcd_lease_mgr *mgr, int64_t elapsed_ms) {
 size_t cetcd_lease_mgr_count(const cetcd_lease_mgr *mgr) {
     return mgr ? mgr->count : 0;
 }
+
+int64_t cetcd_lease_granted_ttl(const cetcd_lease_mgr *mgr, cetcd_lease_id id) {
+    if (!mgr) return 0;
+    for (size_t i = 0; i < mgr->count; ++i) {
+        if (mgr->leases[i].id == id) return mgr->leases[i].ttl_seconds;
+    }
+    return 0;
+}
+
+size_t cetcd_lease_mgr_leases(const cetcd_lease_mgr *mgr,
+                               cetcd_lease_id *out, size_t cap) {
+    if (!mgr) return 0;
+    if (!out || cap == 0) return mgr->count;
+    size_t n = (mgr->count < cap) ? mgr->count : cap;
+    for (size_t i = 0; i < n; ++i) {
+        out[i] = mgr->leases[i].id;
+    }
+    return n;
+}

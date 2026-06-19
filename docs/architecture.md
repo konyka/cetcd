@@ -48,7 +48,7 @@ src/
 ├── wal/         libcetcd_wal        Append-only log, byte-compatible with etcd WAL
 ├── backend/     libcetcd_backend    LMDB-backed transactional key-value
 ├── mvcc/        libcetcd_mvcc       Revision index, watcher fan-out, compaction
-├── lease/       libcetcd_lease      TTL min-heap + lease-keys index
+├── lease/       libcetcd_lease      TTL tracking + lease-keys index + lease enumeration
 ├── auth/        libcetcd_auth       RBAC, SHA-256 password hashing
 ├── peer/        libcetcd_peer       Raft transport, cluster membership mgmt (rafthttp-equivalent)
 ├── snap/        libcetcd_snap       Snapshot file r/w and streaming
@@ -57,7 +57,7 @@ src/
 
 cmd/
 ├── cetcd/         daemon binary
-└── cetcdctl/      client CLI
+└── cetcdctl/      client CLI (put/get/del/lease/member/auth/user/role/snapshot/hash/defrag/move-leader)
 ```
 
 ### Dependency direction
@@ -246,6 +246,15 @@ The `MemberList` RPC iterates all peers to return a complete cluster membership 
 actually modifies peer addresses, `Maintenance.Status` returns the real Raft leader ID and term from
 the live `cetcd_raft` instance, and `Maintenance.MoveLeader` triggers `CETCD_MSG_TRANSFER_LEADER`
 for actual leadership transfer.
+
+The `Lease.LeaseLeases` RPC returns the actual list of active lease IDs via
+`cetcd_lease_mgr_leases()`, and `Lease.LeaseKeepAlive` uses the original granted TTL
+(obtained via `cetcd_lease_granted_ttl()`) instead of a hardcoded value, ensuring
+correct renewal behavior for leases with non-default TTLs.
+
+The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/keepalive`,
+`member add/remove/update`, `user delete/change-password/grant-role/revoke-role`,
+`role delete`, `hash`, `hashkv`, `defrag`, and `move-leader`.
 
 ---
 

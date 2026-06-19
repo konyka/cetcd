@@ -870,6 +870,89 @@ CETCD_TEST_CASE(v3rpc_auth_role_revoke_permission) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_lease_leases_returns_actual_leases) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Grant two leases first */
+    uint8_t grant_buf[8];
+    size_t pos = 0;
+    grant_buf[pos++] = 0x08; grant_buf[pos++] = 0x3c; /* ttl=60 */
+    grant_buf[pos++] = 0x10; grant_buf[pos++] = 0x00; /* id=0 auto */
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseGrant", grant_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+
+    pos = 0;
+    grant_buf[pos++] = 0x08; grant_buf[pos++] = 0x78; /* ttl=120 */
+    grant_buf[pos++] = 0x10; grant_buf[pos++] = 0x00;
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseGrant", grant_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* Now call LeaseLeases — should contain at least 2 LeaseStatus entries */
+    uint8_t dummy[] = {0x00};
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseLeases", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 1);
+
+    /* Count 0x0a tags (field 1 = repeated LeaseStatus) */
+    int lease_count = 0;
+    for (size_t i = 0; i < resp.len; i++) {
+        if (resp.data[i] == 0x0a) lease_count++;
+    }
+    CETCD_ASSERT_TRUE(lease_count >= 2);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_lease_keep_alive_uses_granted_ttl) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Grant a lease with ttl=120 */
+    uint8_t grant_buf[8];
+    size_t pos = 0;
+    grant_buf[pos++] = 0x08; grant_buf[pos++] = 0x78; /* ttl=120 */
+    grant_buf[pos++] = 0x10; grant_buf[pos++] = 0x00; /* id=0 auto */
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseGrant", grant_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* KeepAlive with ID=1 — response TTL should be positive (refreshed to ~120) */
+    uint8_t ka_buf[8];
+    pos = 0;
+    ka_buf[pos++] = 0x08; /* field 1 = ID */
+    ka_buf[pos++] = 0x01; /* ID = 1 */
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseKeepAlive", ka_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+
+    /* Parse response: find field 2 (TTL) tag=0x10 */
+    int64_t resp_ttl = 0;
+    size_t rpos = 0;
+    while (rpos < resp.len) {
+        uint8_t tag = resp.data[rpos++];
+        uint64_t v = 0; int shift = 0;
+        while (rpos < resp.len) {
+            uint8_t b = resp.data[rpos++];
+            v |= (uint64_t)(b & 0x7F) << shift;
+            if ((b & 0x80) == 0) break;
+            shift += 7;
+        }
+        if (tag == 0x10) { resp_ttl = (int64_t)v; break; }
+    }
+    /* TTL should be close to 120 (the granted TTL, not hardcoded 60) */
+    CETCD_ASSERT_TRUE(resp_ttl > 60);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_cluster_member_list_with_peers) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -980,6 +1063,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_auth_role_revoke_permission),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_list_with_peers),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_update_actual),
+    CETCD_TEST_ENTRY(v3rpc_lease_leases_returns_actual_leases),
+    CETCD_TEST_ENTRY(v3rpc_lease_keep_alive_uses_granted_ttl),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

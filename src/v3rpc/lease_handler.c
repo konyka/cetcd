@@ -108,8 +108,10 @@ cetcd_rpc_bytes lease_handle_keep_alive(cetcd_v3rpc *rpc, const uint8_t *req, si
     }
     int64_t remaining_ttl = 0;
     if (id > 0 && cetcd_lease_exists(g_rpc_lease_mgr, (cetcd_lease_id)id)) {
-        /* Keep alive with default TTL of 60s */
-        cetcd_lease_keep_alive(g_rpc_lease_mgr, (cetcd_lease_id)id, 60);
+        /* Use the original granted TTL for keep-alive */
+        int64_t granted = cetcd_lease_granted_ttl(g_rpc_lease_mgr, (cetcd_lease_id)id);
+        if (granted <= 0) granted = 60; /* fallback */
+        cetcd_lease_keep_alive(g_rpc_lease_mgr, (cetcd_lease_id)id, granted);
         remaining_ttl = cetcd_lease_ttl_remaining(g_rpc_lease_mgr, (cetcd_lease_id)id);
     }
     /* LeaseKeepAliveResponse:
@@ -169,16 +171,44 @@ cetcd_rpc_bytes lease_handle_leases(cetcd_v3rpc *rpc, const uint8_t *req, size_t
     /* LeaseLeasesResponse:
      *   field 1 (leases) = repeated LeaseStatus, tag = 0x0a (length-delimited)
      *     LeaseStatus: field 1 (ID) = varint, tag = 0x08
-     * We return count of leases.
      */
     size_t count = cetcd_lease_mgr_count(g_rpc_lease_mgr);
-    uint8_t buf[256];
+    if (count == 0) {
+        uint8_t *out = (uint8_t *)malloc(1);
+        if (!out) return (cetcd_rpc_bytes){NULL, 0};
+        out[0] = 0;
+        return (cetcd_rpc_bytes){out, 1};
+    }
+
+    /* Collect lease IDs */
+    cetcd_lease_id *ids = (cetcd_lease_id *)malloc(count * sizeof(cetcd_lease_id));
+    if (!ids) {
+        uint8_t *out = (uint8_t *)malloc(1);
+        if (!out) return (cetcd_rpc_bytes){NULL, 0};
+        out[0] = 0;
+        return (cetcd_rpc_bytes){out, 1};
+    }
+    size_t n = cetcd_lease_mgr_leases(g_rpc_lease_mgr, ids, count);
+
+    /* Build response */
+    uint8_t *buf = (uint8_t *)malloc(n * 16 + 1);
+    if (!buf) { free(ids); return (cetcd_rpc_bytes){NULL, 0}; }
     size_t bpos = 0;
-    /* Minimal response: just the count as a varint in a dummy header */
-    buf[bpos++] = 0; /* minimal payload */
-    (void)count; /* count available via API; serialized minimally */
-    uint8_t *out = (uint8_t *)malloc(bpos);
-    if (!out) return (cetcd_rpc_bytes){NULL, 0};
-    memcpy(out, buf, bpos);
-    return (cetcd_rpc_bytes){out, bpos};
+    for (size_t i = 0; i < n; i++) {
+        /* Build LeaseStatus sub-message: field 1 (ID) = varint */
+        uint8_t ls_buf[16];
+        size_t ls_pos = 0;
+        ls_buf[ls_pos++] = 0x08; /* field 1 = ID */
+        uint64_t lid = ids[i];
+        do { uint8_t b = lid & 0x7F; lid >>= 7; if (lid) b |= 0x80; ls_buf[ls_pos++] = b; } while (lid);
+
+        /* Write as field 1 (leases) = LeaseStatus (length-delimited), tag = 0x0a */
+        buf[bpos++] = 0x0a;
+        uint64_t lslen = ls_pos;
+        do { uint8_t b = lslen & 0x7F; lslen >>= 7; if (lslen) b |= 0x80; buf[bpos++] = b; } while (lslen);
+        memcpy(buf + bpos, ls_buf, ls_pos);
+        bpos += ls_pos;
+    }
+    free(ids);
+    return (cetcd_rpc_bytes){buf, bpos};
 }
