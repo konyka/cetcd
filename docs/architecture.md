@@ -274,7 +274,7 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `member add/remove/update/promote`, `user delete/change-password/grant-role/revoke-role`,
 `role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix/--keys-only/--rev`,
 `del --prefix/--prev-kv`, `put --prev-kv`, `watch --prefix/--prev-kv/--start-rev`, `txn cas` (compare-and-swap),
-`auth login` (token-based authentication), `get --count-only/--limit N/--sort-by/--sort-order`,
+`auth login` (token-based authentication), `get --count-only/--limit N/--sort-by/--sort-order/--print-value-only`,
 `put --ignore-value/--ignore-lease`.
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
@@ -299,14 +299,21 @@ The `Txn` handler now evaluates `Compare` clauses against the MVCC store — sup
 `LEASE` targets — and executes success or failure ops accordingly, returning a complete
 `TxnResponse` with `ResponseHeader`, `succeeded` flag, and `ResponseOp` entries. The
 `RequestRange` op within transactions now queries the MVCC store and returns actual key-value
-data instead of an empty count. The `RequestPut` op within transactions supports `prev_kv`
-(field 4, tag 0x20) and the `ResponsePut` includes the previous key-value (field 2, tag 0x12)
-when requested. The `RequestDeleteRange` op within transactions supports `range_end` (field 2,
-tag 0x12) for range deletes and `prev_kv` (field 3, tag 0x18) for returning deleted key-values;
-the `ResponseDeleteRange` includes a proper `ResponseHeader` (field 1), `deleted` count
-(field 2, tag 0x10), and `prev_kvs` (field 3, tag 0x1a). The `Compare` clause also supports
-`range_end` (field 9, tag 0x4a) for range-based comparisons where all keys in [key, range_end)
-must satisfy the condition.
+data instead of an empty count. It also supports `limit` (field 3, tag 0x18) for result
+truncation with the `more` flag, `keys_only` (field 8, tag 0x40) to omit values, and
+`count_only` (field 9, tag 0x48) to return only the count without kvs — matching the
+standalone `Range` handler. The `ResponseRange` within transactions includes a proper
+`ResponseHeader` (field 1, tag 0x0a) with the current revision, `kvs` (field 2, tag 0x12),
+`more` (field 3, tag 0x18), and `count` (field 4, tag 0x20) — matching the standalone
+`RangeResponse` wire format. The `RequestPut` op within transactions supports `prev_kv`
+(field 4, tag 0x20), `ignore_value` (field 5, tag 0x28) to keep the existing value, and
+`ignore_lease` (field 6, tag 0x30) to keep the existing lease; the `ResponsePut` includes the
+previous key-value (field 2, tag 0x12) when `prev_kv` is requested. The `RequestDeleteRange`
+op within transactions supports `range_end` (field 2, tag 0x12) for range deletes and `prev_kv`
+(field 3, tag 0x18) for returning deleted key-values; the `ResponseDeleteRange` includes a
+proper `ResponseHeader` (field 1), `deleted` count (field 2, tag 0x10), and `prev_kvs`
+(field 3, tag 0x1a). The `Compare` clause also supports `range_end` (field 9, tag 0x4a) for
+range-based comparisons where all keys in [key, range_end) must satisfy the condition.
 The `Compact` and `LeaseRevoke` responses include proper
 `ResponseHeader` with the current revision. The `Snapshot` response includes a `ResponseHeader`.
 

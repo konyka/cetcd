@@ -63,6 +63,7 @@ static const char *g_host = "127.0.0.1";
 static uint16_t    g_port = 2379;
 static int         g_keys_only = 0; /* flag for get --keys-only */
 static int         g_count_only = 0; /* flag for get --count-only */
+static int         g_print_value_only = 0; /* flag for get --print-value-only */
 
 /* --- Protobuf helpers --- */
 
@@ -224,11 +225,16 @@ static void parse_range_response(const uint8_t *data, size_t len) {
             pos = kv_end;
             count++;
             if (!g_count_only) {
-                printf("%.*s", (int)key_len, key_data);
-                if (!g_keys_only && val_data && val_len > 0) {
-                    printf(" -> %.*s", (int)val_len, val_data);
+                if (g_print_value_only) {
+                    if (val_data && val_len > 0)
+                        printf("%.*s\n", (int)val_len, val_data);
+                } else {
+                    printf("%.*s", (int)key_len, key_data);
+                    if (!g_keys_only && val_data && val_len > 0) {
+                        printf(" -> %.*s", (int)val_len, val_data);
+                    }
+                    printf("\n");
                 }
-                printf("\n");
             }
         } else if (tag == 0x20) {
             /* count (varint, field 4) */
@@ -499,10 +505,11 @@ static int cmd_put(int argc, char **argv) {
 }
 
 static int cmd_get(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--keys-only] [--count-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY\n"); return 1; }
     bool prefix = false;
     bool keys_only = false;
     bool count_only = false;
+    bool print_value_only = false;
     int64_t rev = 0;
     int64_t limit = 0;
     int sort_order = 0;  /* 0=NONE, 1=ASCEND, 2=DESCEND */
@@ -514,6 +521,8 @@ static int cmd_get(int argc, char **argv) {
             prefix = true;
         } else if (strcmp(argv[i], "--keys-only") == 0) {
             keys_only = true;
+        } else if (strcmp(argv[i], "--print-value-only") == 0) {
+            print_value_only = true;
         } else if (strcmp(argv[i], "--count-only") == 0) {
             count_only = true;
         } else if (strcmp(argv[i], "--rev") == 0) {
@@ -542,7 +551,7 @@ static int cmd_get(int argc, char **argv) {
             key = argv[i];
         }
     }
-    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--keys-only] [--count-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY\n"); return 1; }
+    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY\n"); return 1; }
 
     size_t key_len = strlen(key);
 
@@ -583,11 +592,13 @@ static int cmd_get(int argc, char **argv) {
     }
     g_keys_only = keys_only ? 1 : 0;
     g_count_only = count_only ? 1 : 0;
+    g_print_value_only = print_value_only ? 1 : 0;
     int rlen = do_rpc("/etcdserverpb.KV/Range", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
     parse_range_response(resp, rlen);
     g_keys_only = 0;
     g_count_only = 0;
+    g_print_value_only = 0;
     return 0;
 }
 
@@ -1494,7 +1505,7 @@ static void print_usage(void) {
     printf("  --port PORT    Server port (default: 2379)\n\n");
     printf("Commands:\n");
     printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] KEY [VALUE]  Store a key-value pair\n");
-    printf("  get [--prefix] [--keys-only] [--count-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY\n");
+    printf("  get [--prefix] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] KEY\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
     printf("  del [--prefix] [--prev-kv] KEY  Delete a key (options: --prefix, --prev-kv)\n");
     printf("  watch [--prefix] [--prev-kv] [--start-rev N] KEY  Watch key changes (single response)\n");
