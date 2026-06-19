@@ -256,12 +256,15 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `member add/remove/update/promote`, `user delete/change-password/grant-role/revoke-role`,
 `role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix/--keys-only/--rev`,
 `del --prefix/--prev-kv`, `put --prev-kv`, `watch`, `txn cas` (compare-and-swap),
-`auth login` (token-based authentication), `get --count-only/--limit N`.
+`auth login` (token-based authentication), `get --count-only/--limit N`,
+`put --ignore-value/--ignore-lease`.
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
 `range_end`), `Put` returns a proper `PutResponse` with header revision and supports `prev_kv`
-(returning the previous key-value when `prev_kv=true` is set in the request), `DeleteRange`
+(returning the previous key-value when `prev_kv=true` is set in the request), `ignore_value`
+(keeping the existing value when `ignore_value=true`), and `ignore_lease` (keeping the existing
+lease when `ignore_lease=true`), `DeleteRange`
 supports `range_end` for range deletes and `prev_kv` for returning deleted key-values.
 The `Range` handler also supports `limit` (truncating results and setting the `more` flag),
 `count_only` (returning only the count without kvs), and `keys_only` (omitting values).

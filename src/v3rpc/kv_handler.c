@@ -61,6 +61,8 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
     uint8_t *val = NULL; size_t val_len = 0;
     int64_t  lease_id = 0;
     int      prev_kv_flag = 0;
+    int      ignore_value = 0;
+    int      ignore_lease = 0;
     size_t pos = 0;
     while (pos < req_len) {
         uint8_t tag = req[pos++];
@@ -72,25 +74,50 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
             uint64_t tmp = 0; if (read_varint(req, req_len, &pos, &tmp) != 0) break; lease_id = (int64_t)tmp;
         } else if (tag == 0x20) { /* prev_kv (bool) */
             uint64_t tmp = 0; if (read_varint(req, req_len, &pos, &tmp) != 0) break; prev_kv_flag = (int)tmp;
+        } else if (tag == 0x28) { /* ignore_value (bool) */
+            uint64_t tmp = 0; if (read_varint(req, req_len, &pos, &tmp) != 0) break; ignore_value = (int)tmp;
+        } else if (tag == 0x30) { /* ignore_lease (bool) */
+            uint64_t tmp = 0; if (read_varint(req, req_len, &pos, &tmp) != 0) break; ignore_lease = (int)tmp;
         } else {
             uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
         }
     }
 
-    /* If prev_kv requested, get the old value before overwriting */
+    /* If prev_kv requested, or ignore_value/ignore_lease set, get the old value */
     cetcd_kv old_kv;
     memset(&old_kv, 0, sizeof(old_kv));
     int has_old = 0;
-    if (prev_kv_flag && key && g_rpc_store) {
+    if ((prev_kv_flag || ignore_value || ignore_lease) && key && g_rpc_store) {
         if (cetcd_mvcc_get(g_rpc_store, 0, key, key_len, &old_kv) == 0) {
             has_old = 1;
         }
     }
 
+    /* If ignore_value and key exists, use the existing value */
+    if (ignore_value && has_old) {
+        if (val) free(val);
+        val = (uint8_t *)malloc(old_kv.value.len + 1);
+        if (val) {
+            memcpy(val, old_kv.value.data, old_kv.value.len);
+            val[old_kv.value.len] = '\0';
+            val_len = old_kv.value.len;
+        }
+    }
+
+    /* If ignore_lease and key exists, use the existing lease */
+    if (ignore_lease && has_old) {
+        lease_id = old_kv.lease_id;
+    }
+
     int64_t rev = 0;
-    if (key && val && g_rpc_store) {
-        cetcd_revision r = cetcd_mvcc_put(g_rpc_store, key, key_len, val, val_len, lease_id);
-        rev = r.main;
+    if (key && g_rpc_store) {
+        /* Allow put even without value if ignore_value is set */
+        if (val || ignore_value) {
+            cetcd_revision r = cetcd_mvcc_put(g_rpc_store, key, key_len,
+                                               val ? val : (const uint8_t*)"", val ? val_len : 0,
+                                               lease_id);
+            rev = r.main;
+        }
     }
     if (key) free(key);
     if (val) free(val);
@@ -107,7 +134,7 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
     /* Build prev_kv KeyValue if requested and old value existed */
     uint8_t *pkv_buf = NULL;
     size_t pkv_len = 0;
-    if (has_old) {
+    if (prev_kv_flag && has_old) {
         size_t cap = 256 + old_kv.key.len + old_kv.value.len;
         pkv_buf = (uint8_t *)malloc(cap);
         if (pkv_buf) {
@@ -130,6 +157,10 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
             }
             pkv_len = kp;
         }
+        free((void*)old_kv.key.data);
+        free((void*)old_kv.value.data);
+    } else if (has_old) {
+        /* old_kv was fetched for ignore_value/ignore_lease but not prev_kv */
         free((void*)old_kv.key.data);
         free((void*)old_kv.value.data);
     }

@@ -350,6 +350,10 @@ static void parse_auth_status_response(const uint8_t *data, size_t len) {
         if (tag == 0x10) {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
             printf("auth enabled: %s\n", v ? "true" : "false");
+        } else if (tag == 0x0a) {
+            /* Skip header (length-delimited) */
+            uint64_t l = 0; read_varint(data, len, &pos, &l);
+            pos += l;
         } else {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
         }
@@ -366,6 +370,10 @@ static void parse_string_list_response(const uint8_t *data, size_t len, const ch
             printf("%.*s\n", (int)l, data + pos);
             pos += l;
             count++;
+        } else if (tag == 0x0a) {
+            /* Skip header (length-delimited) */
+            uint64_t l = 0; read_varint(data, len, &pos, &l);
+            pos += l;
         } else {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
         }
@@ -376,23 +384,53 @@ static void parse_string_list_response(const uint8_t *data, size_t len, const ch
 /* --- Commands --- */
 
 static int cmd_put(int argc, char **argv) {
-    if (argc < 4) { fprintf(stderr, "usage: cetcdctl put [--prev-kv] KEY VALUE\n"); return 1; }
     bool prev_kv = false;
-    int key_idx = 2, val_idx = 3;
-    if (strcmp(argv[2], "--prev-kv") == 0) {
-        prev_kv = true;
-        key_idx = 3; val_idx = 4;
-        if (argc < 5) { fprintf(stderr, "usage: cetcdctl put --prev-kv KEY VALUE\n"); return 1; }
+    bool ignore_value = false;
+    bool ignore_lease = false;
+    const char *key = NULL;
+    const char *val = NULL;
+
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--prev-kv") == 0) {
+            prev_kv = true;
+        } else if (strcmp(argv[i], "--ignore-value") == 0) {
+            ignore_value = true;
+        } else if (strcmp(argv[i], "--ignore-lease") == 0) {
+            ignore_lease = true;
+        } else if (!key) {
+            key = argv[i];
+        } else if (!val) {
+            val = argv[i];
+        }
     }
+    if (!key) {
+        fprintf(stderr, "usage: cetcdctl put [--prev-kv] [--ignore-value] [--ignore-lease] KEY [VALUE]\n");
+        return 1;
+    }
+    if (!val && !ignore_value) {
+        fprintf(stderr, "usage: cetcdctl put [--prev-kv] [--ignore-value] [--ignore-lease] KEY [VALUE]\n");
+        return 1;
+    }
+
     uint8_t req[4096], resp[4096];
     size_t pos = 0;
     pos = encode_bytes_field(req, sizeof(req), pos, 0x0a,
-                             (const uint8_t *)argv[key_idx], strlen(argv[key_idx]));
-    pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
-                             (const uint8_t *)argv[val_idx], strlen(argv[val_idx]));
+                             (const uint8_t *)key, strlen(key));
+    if (val) {
+        pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
+                                 (const uint8_t *)val, strlen(val));
+    }
     if (prev_kv) {
         /* field 4 (prev_kv) = bool, tag = 0x20 */
         pos = encode_varint_field(req, sizeof(req), pos, 0x20, 1);
+    }
+    if (ignore_value) {
+        /* field 5 (ignore_value) = bool, tag = 0x28 */
+        pos = encode_varint_field(req, sizeof(req), pos, 0x28, 1);
+    }
+    if (ignore_lease) {
+        /* field 6 (ignore_lease) = bool, tag = 0x30 */
+        pos = encode_varint_field(req, sizeof(req), pos, 0x30, 1);
     }
     int rlen = do_rpc("/etcdserverpb.KV/Put", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
@@ -935,14 +973,18 @@ static int cmd_auth(int argc, char **argv) {
         pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
         int rlen = do_rpc("/etcdserverpb.Auth/Authenticate", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "authentication failed\n"); return 1; }
-        /* Parse AuthenticateResponse: field 1 (token) = bytes, tag = 0x0a */
+        /* Parse AuthenticateResponse: field 1 (header) = bytes tag=0x0a, field 2 (token) = bytes tag=0x12 */
         size_t rpos = 0;
         while (rpos < (size_t)rlen) {
             uint8_t tag = resp[rpos++];
-            if (tag == 0x0a) {
+            if (tag == 0x12) {
                 uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
                 printf("token: %.*s\n", (int)l, resp + rpos);
                 return 0;
+            } else if (tag == 0x0a) {
+                /* Skip header (length-delimited) */
+                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+                rpos += l;
             } else {
                 uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
             }
@@ -1108,6 +1150,10 @@ static int cmd_role(int argc, char **argv) {
                     }
                 }
                 rpos = pend;
+            } else if (tag == 0x0a) {
+                /* Skip header (length-delimited) */
+                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+                rpos += l;
             } else {
                 uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
             }
@@ -1331,7 +1377,7 @@ static void print_usage(void) {
     printf("  --host ADDR    Server address (default: 127.0.0.1)\n");
     printf("  --port PORT    Server port (default: 2379)\n\n");
     printf("Commands:\n");
-    printf("  put [--prev-kv] KEY VALUE  Store a key-value pair (--prev-kv shows old value)\n");
+    printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] KEY [VALUE]  Store a key-value pair\n");
     printf("  get [--prefix] [--keys-only] [--count-only] [--rev N] [--limit N] KEY\n");
     printf("                         Retrieve keys (options: --prefix range, --keys-only, --count-only, --rev N, --limit N)\n");
     printf("  del [--prefix] [--prev-kv] KEY  Delete a key (options: --prefix, --prev-kv)\n");

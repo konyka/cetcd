@@ -1864,6 +1864,149 @@ CETCD_TEST_CASE(v3rpc_authenticate_has_token_field2) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_put_ignore_value) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put key="ivkey" value="original" */
+    {
+        uint8_t req[64]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 5;
+        memcpy(req + pos, "ivkey", 5); pos += 5;
+        req[pos++] = 0x12; req[pos++] = 8;
+        memcpy(req + pos, "original", 8); pos += 8;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Put key="ivkey" with ignore_value=true (tag 0x28) and value="ignored" */
+    {
+        uint8_t req[64]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 5;
+        memcpy(req + pos, "ivkey", 5); pos += 5;
+        req[pos++] = 0x12; req[pos++] = 7;
+        memcpy(req + pos, "ignored", 7); pos += 7;
+        req[pos++] = 0x28; /* ignore_value = true */
+        req[pos++] = 0x01;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Range key="ivkey" — should return "original", not "ignored" */
+    {
+        uint8_t req[32]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 5;
+        memcpy(req + pos, "ivkey", 5); pos += 5;
+        cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", req, pos);
+        CETCD_ASSERT_NOT_NULL(resp.data);
+        CETCD_ASSERT_TRUE(resp.len > 0);
+        /* Search for "original" in response */
+        int found_original = 0;
+        for (size_t i = 0; i + 8 <= resp.len; i++) {
+            if (memcmp(resp.data + i, "original", 8) == 0) { found_original = 1; break; }
+        }
+        CETCD_ASSERT_TRUE(found_original);
+        /* Search for "ignored" — should NOT be found */
+        int found_ignored = 0;
+        for (size_t i = 0; i + 7 <= resp.len; i++) {
+            if (memcmp(resp.data + i, "ignored", 7) == 0) { found_ignored = 1; break; }
+        }
+        CETCD_ASSERT_TRUE(!found_ignored);
+        cetcd_rpc_bytes_free(&resp);
+    }
+
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_put_ignore_lease) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put key="ilkey" value="v1" with lease_id=12345 */
+    {
+        uint8_t req[64]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 5;
+        memcpy(req + pos, "ilkey", 5); pos += 5;
+        req[pos++] = 0x12; req[pos++] = 2;
+        memcpy(req + pos, "v1", 2); pos += 2;
+        req[pos++] = 0x18; /* lease = 12345 */
+        req[pos++] = 0xb9;
+        req[pos++] = 0x60;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Put key="ilkey" value="v2" with ignore_lease=true (tag 0x30) and lease=99999 */
+    {
+        uint8_t req[64]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 5;
+        memcpy(req + pos, "ilkey", 5); pos += 5;
+        req[pos++] = 0x12; req[pos++] = 2;
+        memcpy(req + pos, "v2", 2); pos += 2;
+        req[pos++] = 0x18; /* lease = 99999 (should be ignored) */
+        req[pos++] = 0x9f;
+        req[pos++] = 0x8d;
+        req[pos++] = 0x06;
+        req[pos++] = 0x30; /* ignore_lease = true */
+        req[pos++] = 0x01;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Range key="ilkey" — value should be "v2" (updated), lease should still be 12345 */
+    {
+        uint8_t req[32]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 5;
+        memcpy(req + pos, "ilkey", 5); pos += 5;
+        cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", req, pos);
+        CETCD_ASSERT_NOT_NULL(resp.data);
+        CETCD_ASSERT_TRUE(resp.len > 0);
+        /* Verify value is "v2" */
+        int found_v2 = 0;
+        for (size_t i = 0; i + 2 <= resp.len; i++) {
+            if (memcmp(resp.data + i, "v2", 2) == 0) { found_v2 = 1; break; }
+        }
+        CETCD_ASSERT_TRUE(found_v2);
+        cetcd_rpc_bytes_free(&resp);
+    }
+
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_auth_status_has_header) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    uint8_t dummy[] = {0x00};
+
+    /* AuthStatus response should start with header (tag 0x0a) */
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Auth/AuthStatus", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    /* First byte should be 0x0a (header field) */
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+
+    /* Verify enabled field (tag 0x10) is present after header */
+    int found_enabled = 0;
+    size_t pos = 0;
+    while (pos < resp.len) {
+        uint8_t tag = resp.data[pos++];
+        if (tag == 0x10) {
+            uint64_t v = 0; int shift = 0;
+            while (pos < resp.len) { uint8_t b = resp.data[pos++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            found_enabled = 1;
+        } else if (tag == 0x0a) {
+            uint64_t l = 0; int shift = 0;
+            while (pos < resp.len) { uint8_t b = resp.data[pos++]; l |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            pos += (size_t)l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (pos < resp.len) { uint8_t b = resp.data[pos++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+        }
+    }
+    CETCD_ASSERT_TRUE(found_enabled);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
@@ -1927,6 +2070,9 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_range_keys_only),
     CETCD_TEST_ENTRY(v3rpc_auth_responses_have_header),
     CETCD_TEST_ENTRY(v3rpc_authenticate_has_token_field2),
+    CETCD_TEST_ENTRY(v3rpc_put_ignore_value),
+    CETCD_TEST_ENTRY(v3rpc_put_ignore_lease),
+    CETCD_TEST_ENTRY(v3rpc_auth_status_has_header),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()
