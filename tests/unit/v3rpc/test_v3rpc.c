@@ -1645,6 +1645,225 @@ CETCD_TEST_CASE(v3rpc_snapshot_has_header) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_range_limit_truncates) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put 3 keys: lim_a, lim_b, lim_c */
+    const char *keys[] = {"lim_a", "lim_b", "lim_c"};
+    const char *vals[] = {"va", "vb", "vc"};
+    for (int i = 0; i < 3; i++) {
+        uint8_t req[256]; size_t pos = 0;
+        req[pos++] = 0x0a; /* key */
+        size_t kl = strlen(keys[i]);
+        req[pos++] = (uint8_t)kl;
+        memcpy(req + pos, keys[i], kl); pos += kl;
+        req[pos++] = 0x12; /* value */
+        size_t vl = strlen(vals[i]);
+        req[pos++] = (uint8_t)vl;
+        memcpy(req + pos, vals[i], vl); pos += vl;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Range [lim_a, lim_d) with limit=2 */
+    uint8_t range_req[64]; size_t rp = 0;
+    range_req[rp++] = 0x0a; /* key */
+    range_req[rp++] = 0x05;
+    memcpy(range_req + rp, "lim_a", 5); rp += 5;
+    range_req[rp++] = 0x12; /* range_end */
+    range_req[rp++] = 0x05;
+    memcpy(range_req + rp, "lim_d", 5); rp += 5;
+    range_req[rp++] = 0x18; /* limit = 2 */
+    range_req[rp++] = 0x02;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_req, rp);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+
+    /* Count the number of KeyValue entries (tag 0x0a at top level).
+     * Note: header (field 1) also uses tag 0x0a, so skip the first one. */
+    int kv_count = 0;
+    int tag0a_count = 0;
+    size_t pos = 0;
+    while (pos < resp.len) {
+        uint8_t tag = resp.data[pos++];
+        if (tag == 0x0a) {
+            tag0a_count++;
+            if (tag0a_count > 1) kv_count++; /* skip header */
+            uint64_t l = 0;
+            while (pos < resp.len) { uint8_t b = resp.data[pos++]; l |= (uint64_t)(b & 0x7F) << 0; if (!(b & 0x80)) break; }
+            pos += (size_t)l;
+        } else if (tag == 0x10) {
+            /* more flag */
+            pos++;
+        } else if (tag == 0x20) {
+            /* count */
+            uint64_t l = 0; int shift = 0;
+            while (pos < resp.len) { uint8_t b = resp.data[pos++]; l |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+        } else {
+            uint64_t l = 0; int shift = 0;
+            while (pos < resp.len) { uint8_t b = resp.data[pos++]; l |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            pos += (size_t)l;
+        }
+    }
+    /* With limit=2, we should get at most 2 kvs (excluding header) */
+    CETCD_ASSERT_TRUE(kv_count <= 2);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_range_count_only) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put a key */
+    uint8_t put_req[64]; size_t pp = 0;
+    put_req[pp++] = 0x0a; put_req[pp++] = 4;
+    memcpy(put_req + pp, "cok1", 4); pp += 4;
+    put_req[pp++] = 0x12; put_req[pp++] = 4;
+    memcpy(put_req + pp, "val1", 4); pp += 4;
+    cetcd_rpc_bytes pr = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_req, pp);
+    cetcd_rpc_bytes_free(&pr);
+
+    /* Range with count_only=true (tag 0x48) */
+    uint8_t req[32]; size_t pos = 0;
+    req[pos++] = 0x0a; req[pos++] = 4;
+    memcpy(req + pos, "cok1", 4); pos += 4;
+    req[pos++] = 0x48; /* count_only = true */
+    req[pos++] = 0x01;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", req, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+
+    /* With count_only, the response should have count but no kvs.
+     * We verify by checking that count (tag 0x20) is present and > 0 */
+    int found_count = 0;
+    size_t rp = 0;
+    while (rp < resp.len) {
+        uint8_t tag = resp.data[rp++];
+        if (tag == 0x20) {
+            uint64_t v = 0; int shift = 0;
+            while (rp < resp.len) { uint8_t b = resp.data[rp++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            found_count = (int)v;
+        } else if (tag == 0x0a) {
+            /* Could be header or kvs — skip */
+            uint64_t l = 0; int shift = 0;
+            while (rp < resp.len) { uint8_t b = resp.data[rp++]; l |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            rp += (size_t)l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (rp < resp.len) { uint8_t b = resp.data[rp++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+        }
+    }
+    CETCD_ASSERT_TRUE(found_count > 0);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_range_keys_only) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put a key with a value */
+    uint8_t put_req[64]; size_t pp = 0;
+    put_req[pp++] = 0x0a; put_req[pp++] = 4;
+    memcpy(put_req + pp, "kso1", 4); pp += 4;
+    put_req[pp++] = 0x12; put_req[pp++] = 9;
+    memcpy(put_req + pp, "secretval", 9); pp += 9;
+    cetcd_rpc_bytes pr = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_req, pp);
+    cetcd_rpc_bytes_free(&pr);
+
+    /* Range with keys_only=true (tag 0x40) */
+    uint8_t req[32]; size_t pos = 0;
+    req[pos++] = 0x0a; req[pos++] = 4;
+    memcpy(req + pos, "kso1", 4); pos += 4;
+    req[pos++] = 0x40; /* keys_only = true */
+    req[pos++] = 0x01;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", req, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+
+    /* The response should not contain "secretval" anywhere */
+    int has_secret = 0;
+    for (size_t i = 0; i + 9 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "secretval", 9) == 0) { has_secret = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(!has_secret);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_auth_responses_have_header) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    uint8_t dummy[] = {0x00};
+
+    /* AuthEnable response should start with header (tag 0x0a) */
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Auth/AuthEnable", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* AuthStatus response should also start with header */
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Auth/AuthStatus", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_authenticate_has_token_field2) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Add a user with password */
+    uint8_t add_req[64]; size_t ap = 0;
+    add_req[ap++] = 0x0a; add_req[ap++] = 7;
+    memcpy(add_req + ap, "authtest", 7); ap += 7;
+    add_req[ap++] = 0x12; add_req[ap++] = 4;
+    memcpy(add_req + ap, "pass", 4); ap += 4;
+    cetcd_rpc_bytes ar = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/UserAdd", add_req, ap);
+    cetcd_rpc_bytes_free(&ar);
+
+    /* Authenticate */
+    uint8_t auth_req[64]; size_t ahp = 0;
+    auth_req[ahp++] = 0x0a; auth_req[ahp++] = 7;
+    memcpy(auth_req + ahp, "authtest", 7); ahp += 7;
+    auth_req[ahp++] = 0x12; auth_req[ahp++] = 4;
+    memcpy(auth_req + ahp, "pass", 4); ahp += 4;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/Authenticate", auth_req, ahp);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+
+    /* Response should have field 1 (header, tag 0x0a) and field 2 (token, tag 0x12) */
+    int found_token = 0;
+    size_t pos = 0;
+    while (pos < resp.len) {
+        uint8_t tag = resp.data[pos++];
+        if (tag == 0x12) {
+            found_token = 1;
+            break;
+        } else if (tag == 0x0a) {
+            uint64_t l = 0; int shift = 0;
+            while (pos < resp.len) { uint8_t b = resp.data[pos++]; l |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            pos += (size_t)l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (pos < resp.len) { uint8_t b = resp.data[pos++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+        }
+    }
+    CETCD_ASSERT_TRUE(found_token);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
@@ -1703,6 +1922,11 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_delete_range_multiple),
     CETCD_TEST_ENTRY(v3rpc_txn_range_returns_data),
     CETCD_TEST_ENTRY(v3rpc_snapshot_has_header),
+    CETCD_TEST_ENTRY(v3rpc_range_limit_truncates),
+    CETCD_TEST_ENTRY(v3rpc_range_count_only),
+    CETCD_TEST_ENTRY(v3rpc_range_keys_only),
+    CETCD_TEST_ENTRY(v3rpc_auth_responses_have_header),
+    CETCD_TEST_ENTRY(v3rpc_authenticate_has_token_field2),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

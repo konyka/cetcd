@@ -1,9 +1,11 @@
 #include "cetcd/v3rpc.h"
 #include "cetcd/auth.h"
+#include "cetcd/mvcc.h"
 #include <stdlib.h>
 #include <string.h>
 
 extern cetcd_auth_store *g_rpc_auth;
+extern cetcd_mvcc_store *g_rpc_store;
 
 cetcd_rpc_bytes auth_handle_enable(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes auth_handle_disable(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
@@ -53,15 +55,46 @@ static int read_bytes_field(const uint8_t *buf, size_t len, size_t *pos,
 }
 
 static cetcd_rpc_bytes simple_ok_response(void) {
-    uint8_t *b = (uint8_t *)malloc(1);
-    b[0] = 0;
-    return (cetcd_rpc_bytes){b, 1};
+    /* Return a ResponseHeader with current revision.
+     * ResponseHeader: field 1 (header) = length-delimited, tag = 0x0a
+     *   field 3 (revision) = int64, tag = 0x18 */
+    int64_t rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+    uint8_t hdr_buf[32]; size_t hp = 0;
+    hdr_buf[hp++] = 0x18; /* revision */
+    uint64_t rv = (uint64_t)(rev > 0 ? rev : 1);
+    while (hp < sizeof(hdr_buf)) {
+        uint8_t b = rv & 0x7F; rv >>= 7;
+        if (rv) b |= 0x80;
+        hdr_buf[hp++] = b;
+        if (!rv) break;
+    }
+    uint8_t *b = (uint8_t *)malloc(hp + 2);
+    if (!b) return (cetcd_rpc_bytes){NULL, 0};
+    size_t pos = 0;
+    b[pos++] = 0x0a; /* field 1 = header */
+    b[pos++] = (uint8_t)hp;
+    memcpy(b + pos, hdr_buf, hp); pos += hp;
+    return (cetcd_rpc_bytes){b, pos};
 }
 
 static cetcd_rpc_bytes make_response(const uint8_t *data, size_t len) {
     uint8_t *b = (uint8_t *)malloc(len);
     memcpy(b, data, len);
     return (cetcd_rpc_bytes){b, len};
+}
+
+/* Write a ResponseHeader (field 1, tag 0x0a) with current revision to buf at pos.
+ * Returns the new position after the header. */
+static size_t write_header_prefix(uint8_t *buf, size_t cap, size_t pos) {
+    int64_t rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+    uint8_t hdr[16]; size_t hp = 0;
+    hdr[hp++] = 0x18; /* revision */
+    uint64_t rv = (uint64_t)(rev > 0 ? rev : 1);
+    do { uint8_t b = rv & 0x7F; rv >>= 7; if (rv) b |= 0x80; hdr[hp++] = b; } while (rv);
+    buf[pos++] = 0x0a; /* field 1 = header */
+    buf[pos++] = (uint8_t)hp;
+    memcpy(buf + pos, hdr, hp); pos += hp;
+    return pos;
 }
 
 cetcd_rpc_bytes auth_handle_enable(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
@@ -97,9 +130,13 @@ cetcd_rpc_bytes auth_handle_authenticate(cetcd_v3rpc *rpc, const uint8_t *req, s
     }
     free(name); free(pass);
     if (!ok) return (cetcd_rpc_bytes){NULL, 0};
-    /* protobuf: field 1 (bytes) tag=0x0a, len=5, value="token" */
-    uint8_t resp[] = {0x0a, 0x05, 't','o','k','e','n'};
-    return make_response(resp, sizeof(resp));
+    /* AuthenticateResponse: field 1 (header) + field 2 (token) */
+    uint8_t buf[64];
+    size_t bpos = write_header_prefix(buf, sizeof(buf), 0);
+    buf[bpos++] = 0x12; /* field 2 = token */
+    buf[bpos++] = 0x05; /* length = 5 */
+    memcpy(buf + bpos, "token", 5); bpos += 5;
+    return make_response(buf, bpos);
 }
 
 cetcd_rpc_bytes auth_handle_user_add(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
@@ -202,8 +239,17 @@ cetcd_rpc_bytes auth_handle_role_grant(cetcd_v3rpc *rpc, const uint8_t *req, siz
 cetcd_rpc_bytes auth_handle_status(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc; (void)req; (void)req_len;
     bool enabled = g_rpc_auth ? cetcd_auth_is_enabled(g_rpc_auth) : false;
-    uint8_t buf[4];
+    int64_t rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+    uint8_t buf[64];
     size_t pos = 0;
+    /* field 1 = header (ResponseHeader with revision) */
+    uint8_t hdr_buf[16]; size_t hp = 0;
+    hdr_buf[hp++] = 0x18; /* revision */
+    uint64_t rv = (uint64_t)(rev > 0 ? rev : 1);
+    do { uint8_t b = rv & 0x7F; rv >>= 7; if (rv) b |= 0x80; hdr_buf[hp++] = b; } while (rv);
+    buf[pos++] = 0x0a;
+    buf[pos++] = (uint8_t)hp;
+    memcpy(buf + pos, hdr_buf, hp); pos += hp;
     buf[pos++] = 0x10; /* field 2 = enabled */
     buf[pos++] = enabled ? 0x01 : 0x00;
     uint8_t *out = (uint8_t *)malloc(pos);
@@ -243,12 +289,17 @@ static bool collect_user_name(const char *name, void *udata) {
 cetcd_rpc_bytes auth_handle_user_list(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc; (void)req; (void)req_len;
     uint8_t buf[1024];
-    struct user_list_ctx ctx = { buf, sizeof(buf), 0 };
+    size_t start = write_header_prefix(buf, sizeof(buf), 0);
+    struct user_list_ctx ctx = { buf, sizeof(buf), start };
     if (g_rpc_auth) {
         cetcd_auth_user_iter(g_rpc_auth, collect_user_name, &ctx);
     }
-    if (ctx.pos == 0) {
-        return simple_ok_response();
+    if (ctx.pos == start) {
+        /* No users collected — return just the header */
+        uint8_t *out = (uint8_t *)malloc(start);
+        if (!out) return (cetcd_rpc_bytes){NULL, 0};
+        memcpy(out, buf, start);
+        return (cetcd_rpc_bytes){out, start};
     }
     uint8_t *out = (uint8_t *)malloc(ctx.pos);
     if (!out) return (cetcd_rpc_bytes){NULL, 0};
@@ -294,14 +345,18 @@ cetcd_rpc_bytes auth_handle_user_change_password(cetcd_v3rpc *rpc, const uint8_t
 cetcd_rpc_bytes auth_handle_role_list(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc; (void)req; (void)req_len;
     uint8_t buf[1024];
-    size_t pos = 0;
+    size_t start = write_header_prefix(buf, sizeof(buf), 0);
     /* Use the same collector pattern as user_list */
-    struct user_list_ctx ctx = { buf, sizeof(buf), 0 };
+    struct user_list_ctx ctx = { buf, sizeof(buf), start };
     if (g_rpc_auth) {
         cetcd_auth_role_iter(g_rpc_auth, collect_user_name, &ctx);
     }
-    if (ctx.pos == 0) {
-        return simple_ok_response();
+    if (ctx.pos == start) {
+        /* No roles collected — return just the header */
+        uint8_t *out = (uint8_t *)malloc(start);
+        if (!out) return (cetcd_rpc_bytes){NULL, 0};
+        memcpy(out, buf, start);
+        return (cetcd_rpc_bytes){out, start};
     }
     uint8_t *out = (uint8_t *)malloc(ctx.pos);
     if (!out) return (cetcd_rpc_bytes){NULL, 0};
@@ -392,7 +447,8 @@ cetcd_rpc_bytes auth_handle_user_get(cetcd_v3rpc *rpc, const uint8_t *req, size_
 
     /* Encode roles: field 2 = repeated string, tag = 0x12 */
     uint8_t buf[1024];
-    size_t bpos = 0;
+    size_t header_end = write_header_prefix(buf, sizeof(buf), 0);
+    size_t bpos = header_end;
     if (u->roles && u->n_roles > 0) {
         const char *p = u->roles;
         for (size_t i = 0; i < u->n_roles && bpos < sizeof(buf) - 128; i++) {
@@ -408,7 +464,7 @@ cetcd_rpc_bytes auth_handle_user_get(cetcd_v3rpc *rpc, const uint8_t *req, size_
             p += rlen + 1;
         }
     }
-    if (bpos == 0) return simple_ok_response();
+    /* Return response with header (even if no roles) */
     uint8_t *out = (uint8_t *)malloc(bpos);
     if (!out) return (cetcd_rpc_bytes){NULL, 0};
     memcpy(out, buf, bpos);
@@ -465,10 +521,10 @@ cetcd_rpc_bytes auth_handle_role_get(cetcd_v3rpc *rpc, const uint8_t *req, size_
         ppos += r->key_prefix_len;
     }
 
-    /* Wrap in field 2 (perm) of RoleGetResponse */
-    uint8_t *out = (uint8_t *)malloc(ppos + 4);
+    /* Wrap in field 2 (perm) of RoleGetResponse, with header prefix */
+    uint8_t *out = (uint8_t *)malloc(ppos + 16);
     if (!out) return (cetcd_rpc_bytes){NULL, 0};
-    size_t opos = 0;
+    size_t opos = write_header_prefix(out, ppos + 16, 0);
     out[opos++] = 0x12; /* field 2 = perm */
     uint64_t l = ppos;
     while (l >= 0x80) { out[opos++] = (uint8_t)(l | 0x80); l >>= 7; }

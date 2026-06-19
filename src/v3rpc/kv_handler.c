@@ -161,14 +161,23 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
     uint8_t *key = NULL; size_t key_len = 0;
     uint8_t *range_end = NULL; size_t range_end_len = 0;
     int64_t rev = 0;
+    int64_t limit = 0;
+    int keys_only = 0;
+    int count_only = 0;
     while (pos < req_len) {
         uint8_t tag = req[pos++];
         if (tag == 0x0a) { /* field 1 = key */
             if (read_bytes(req, req_len, &pos, &key, &key_len) != 0) break;
         } else if (tag == 0x12) { /* field 2 = range_end */
             if (read_bytes(req, req_len, &pos, &range_end, &range_end_len) != 0) break;
-        } else if (tag == 0x18) { /* field 3 = revision */
+        } else if (tag == 0x18) { /* field 3 = limit */
+            uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; limit = (int64_t)v;
+        } else if (tag == 0x20) { /* field 4 = revision */
             uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; rev = (int64_t)v;
+        } else if (tag == 0x40) { /* field 8 = keys_only */
+            uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; keys_only = (int)v;
+        } else if (tag == 0x48) { /* field 9 = count_only */
+            uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; count_only = (int)v;
         } else {
             uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
         }
@@ -206,41 +215,43 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
             cetcd_kv out_kv;
             memset(&out_kv, 0, sizeof(out_kv));
             if (cetcd_mvcc_get(g_rpc_store, rev, key, key_len, &out_kv) == 0) {
-                /* Encode KeyValue */
-                uint8_t kv_buf[1024];
-                size_t kpos = 0;
-                /* key */
-                kv_buf[kpos++] = 0x0a;
-                write_varint_local(kv_buf, sizeof(kv_buf), &kpos, out_kv.key.len);
-                memcpy(kv_buf + kpos, out_kv.key.data, out_kv.key.len);
-                kpos += out_kv.key.len;
-                /* create_revision */
-                kv_buf[kpos++] = 0x10;
-                write_varint_local(kv_buf, sizeof(kv_buf), &kpos, (uint64_t)out_kv.create_rev.main);
-                /* mod_revision */
-                kv_buf[kpos++] = 0x18;
-                write_varint_local(kv_buf, sizeof(kv_buf), &kpos, (uint64_t)out_kv.mod_rev.main);
-                /* version */
-                kv_buf[kpos++] = 0x20;
-                write_varint_local(kv_buf, sizeof(kv_buf), &kpos, (uint64_t)out_kv.version);
-                /* value */
-                if (out_kv.value.len > 0) {
-                    kv_buf[kpos++] = 0x2a;
-                    write_varint_local(kv_buf, sizeof(kv_buf), &kpos, out_kv.value.len);
-                    memcpy(kv_buf + kpos, out_kv.value.data, out_kv.value.len);
-                    kpos += out_kv.value.len;
+                if (!count_only) {
+                    /* Encode KeyValue */
+                    uint8_t kv_buf[1024];
+                    size_t kpos = 0;
+                    /* key */
+                    kv_buf[kpos++] = 0x0a;
+                    write_varint_local(kv_buf, sizeof(kv_buf), &kpos, out_kv.key.len);
+                    memcpy(kv_buf + kpos, out_kv.key.data, out_kv.key.len);
+                    kpos += out_kv.key.len;
+                    /* create_revision */
+                    kv_buf[kpos++] = 0x10;
+                    write_varint_local(kv_buf, sizeof(kv_buf), &kpos, (uint64_t)out_kv.create_rev.main);
+                    /* mod_revision */
+                    kv_buf[kpos++] = 0x18;
+                    write_varint_local(kv_buf, sizeof(kv_buf), &kpos, (uint64_t)out_kv.mod_rev.main);
+                    /* version */
+                    kv_buf[kpos++] = 0x20;
+                    write_varint_local(kv_buf, sizeof(kv_buf), &kpos, (uint64_t)out_kv.version);
+                    /* value (skip if keys_only) */
+                    if (!keys_only && out_kv.value.len > 0) {
+                        kv_buf[kpos++] = 0x2a;
+                        write_varint_local(kv_buf, sizeof(kv_buf), &kpos, out_kv.value.len);
+                        memcpy(kv_buf + kpos, out_kv.value.data, out_kv.value.len);
+                        kpos += out_kv.value.len;
+                    }
+                    /* Write as field 2 (kvs) */
+                    if (rpos + 1 + 5 + kpos > resp_cap) {
+                        resp_cap = rpos + kpos + 64;
+                        uint8_t *tmp = (uint8_t *)realloc(resp, resp_cap);
+                        if (!tmp) { free(resp); if(key)free(key); if(range_end)free(range_end); return (cetcd_rpc_bytes){NULL,0}; }
+                        resp = tmp;
+                    }
+                    resp[rpos++] = 0x0a; /* field 2 = kvs */
+                    write_varint_local(resp, resp_cap, &rpos, (uint64_t)kpos);
+                    memcpy(resp + rpos, kv_buf, kpos);
+                    rpos += kpos;
                 }
-                /* Write as field 2 (kvs) */
-                if (rpos + 1 + 5 + kpos > resp_cap) {
-                    resp_cap = rpos + kpos + 64;
-                    uint8_t *tmp = (uint8_t *)realloc(resp, resp_cap);
-                    if (!tmp) { free(resp); if(key)free(key); if(range_end)free(range_end); return (cetcd_rpc_bytes){NULL,0}; }
-                    resp = tmp;
-                }
-                resp[rpos++] = 0x0a; /* field 2 = kvs */
-                write_varint_local(resp, resp_cap, &rpos, (uint64_t)kpos);
-                memcpy(resp + rpos, kv_buf, kpos);
-                rpos += kpos;
                 kv_count = 1;
             }
             free((void*)out_kv.key.data);
@@ -252,7 +263,9 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
                              key, key_len,
                              range_end, range_end_len,
                              &kvs, &n);
-            for (size_t i = 0; i < n; i++) {
+            size_t effective_limit = (limit > 0) ? (size_t)limit : n;
+            for (size_t i = 0; i < n && i < effective_limit; i++) {
+                if (count_only) continue;
                 uint8_t kv_buf[1024];
                 size_t kpos = 0;
                 kv_buf[kpos++] = 0x0a; /* key */
@@ -265,7 +278,7 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
                 write_varint_local(kv_buf, sizeof(kv_buf), &kpos, (uint64_t)kvs[i].mod_rev.main);
                 kv_buf[kpos++] = 0x20; /* version */
                 write_varint_local(kv_buf, sizeof(kv_buf), &kpos, (uint64_t)kvs[i].version);
-                if (kvs[i].value.len > 0) {
+                if (!keys_only && kvs[i].value.len > 0) {
                     kv_buf[kpos++] = 0x2a; /* value */
                     write_varint_local(kv_buf, sizeof(kv_buf), &kpos, kvs[i].value.len);
                     memcpy(kv_buf + kpos, kvs[i].value.data, kvs[i].value.len);
@@ -283,6 +296,18 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
                 rpos += kpos;
             }
             kv_count = n;
+            /* Set more flag if limit truncated results */
+            if (limit > 0 && n > (size_t)limit) {
+                kv_count = (size_t)limit;
+                if (rpos + 10 > resp_cap) {
+                    resp_cap = rpos + 16;
+                    uint8_t *tmp = (uint8_t *)realloc(resp, resp_cap);
+                    if (!tmp) { free(resp); free(kvs); if(key)free(key); if(range_end)free(range_end); return (cetcd_rpc_bytes){NULL,0}; }
+                    resp = tmp;
+                }
+                resp[rpos++] = 0x10; /* field 3 = more */
+                resp[rpos++] = 0x01; /* true */
+            }
             if (kvs) cetcd_kv_free_contents(kvs, n);
         }
     }

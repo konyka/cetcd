@@ -62,6 +62,7 @@
 static const char *g_host = "127.0.0.1";
 static uint16_t    g_port = 2379;
 static int         g_keys_only = 0; /* flag for get --keys-only */
+static int         g_count_only = 0; /* flag for get --count-only */
 
 /* --- Protobuf helpers --- */
 
@@ -193,6 +194,7 @@ static int do_rpc(const char *path, const uint8_t *req, size_t req_len,
 static void parse_range_response(const uint8_t *data, size_t len) {
     size_t pos = 0;
     int count = 0;
+    int server_count = -1;
     while (pos < len) {
         uint8_t tag = data[pos++];
         if (tag == 0x0a) {
@@ -221,14 +223,17 @@ static void parse_range_response(const uint8_t *data, size_t len) {
             }
             pos = kv_end;
             count++;
-            printf("%.*s", (int)key_len, key_data);
-            if (!g_keys_only && val_data && val_len > 0) {
-                printf(" -> %.*s", (int)val_len, val_data);
+            if (!g_count_only) {
+                printf("%.*s", (int)key_len, key_data);
+                if (!g_keys_only && val_data && val_len > 0) {
+                    printf(" -> %.*s", (int)val_len, val_data);
+                }
+                printf("\n");
             }
-            printf("\n");
         } else if (tag == 0x20) {
             /* count (varint, field 4) */
             uint64_t v = 0; read_varint(data, len, &pos, &v);
+            server_count = (int)v;
         } else if (tag == 0x18) {
             /* more (bool, field 3) */
             uint64_t v = 0; read_varint(data, len, &pos, &v);
@@ -236,7 +241,11 @@ static void parse_range_response(const uint8_t *data, size_t len) {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
         }
     }
-    if (count == 0) printf("(empty)\n");
+    if (g_count_only) {
+        printf("%d\n", server_count >= 0 ? server_count : count);
+    } else if (count == 0) {
+        printf("(empty)\n");
+    }
 }
 
 static void parse_status_response(const uint8_t *data, size_t len) {
@@ -428,10 +437,12 @@ static int cmd_put(int argc, char **argv) {
 }
 
 static int cmd_get(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--keys-only] [--rev N] KEY\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--keys-only] [--count-only] [--rev N] [--limit N] KEY\n"); return 1; }
     bool prefix = false;
     bool keys_only = false;
+    bool count_only = false;
     int64_t rev = 0;
+    int64_t limit = 0;
     const char *key = NULL;
 
     for (int i = 2; i < argc; i++) {
@@ -439,14 +450,19 @@ static int cmd_get(int argc, char **argv) {
             prefix = true;
         } else if (strcmp(argv[i], "--keys-only") == 0) {
             keys_only = true;
+        } else if (strcmp(argv[i], "--count-only") == 0) {
+            count_only = true;
         } else if (strcmp(argv[i], "--rev") == 0) {
             if (i + 1 >= argc) { fprintf(stderr, "--rev requires a revision number\n"); return 1; }
             rev = atol(argv[++i]);
+        } else if (strcmp(argv[i], "--limit") == 0) {
+            if (i + 1 >= argc) { fprintf(stderr, "--limit requires a number\n"); return 1; }
+            limit = atol(argv[++i]);
         } else {
             key = argv[i];
         }
     }
-    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--keys-only] [--rev N] KEY\n"); return 1; }
+    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--keys-only] [--count-only] [--rev N] [--limit N] KEY\n"); return 1; }
 
     size_t key_len = strlen(key);
 
@@ -463,15 +479,29 @@ static int cmd_get(int argc, char **argv) {
         pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
                                  (const uint8_t *)range_end, key_len);
     }
+    if (limit > 0) {
+        /* field 3 (limit) = int64, tag = 0x18 */
+        pos = encode_varint_field(req, sizeof(req), pos, 0x18, (uint64_t)limit);
+    }
     if (rev > 0) {
         /* field 4 (revision) = int64, tag = 0x20 */
         pos = encode_varint_field(req, sizeof(req), pos, 0x20, (uint64_t)rev);
     }
+    if (keys_only) {
+        /* field 8 (keys_only) = bool, tag = 0x40 */
+        pos = encode_varint_field(req, sizeof(req), pos, 0x40, 1);
+    }
+    if (count_only) {
+        /* field 9 (count_only) = bool, tag = 0x48 */
+        pos = encode_varint_field(req, sizeof(req), pos, 0x48, 1);
+    }
     g_keys_only = keys_only ? 1 : 0;
+    g_count_only = count_only ? 1 : 0;
     int rlen = do_rpc("/etcdserverpb.KV/Range", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
     parse_range_response(resp, rlen);
     g_keys_only = 0;
+    g_count_only = 0;
     return 0;
 }
 
@@ -1302,8 +1332,8 @@ static void print_usage(void) {
     printf("  --port PORT    Server port (default: 2379)\n\n");
     printf("Commands:\n");
     printf("  put [--prev-kv] KEY VALUE  Store a key-value pair (--prev-kv shows old value)\n");
-    printf("  get [--prefix] [--keys-only] [--rev N] KEY\n");
-    printf("                         Retrieve a key (options: --prefix range, --keys-only, --rev N historical)\n");
+    printf("  get [--prefix] [--keys-only] [--count-only] [--rev N] [--limit N] KEY\n");
+    printf("                         Retrieve keys (options: --prefix range, --keys-only, --count-only, --rev N, --limit N)\n");
     printf("  del [--prefix] [--prev-kv] KEY  Delete a key (options: --prefix, --prev-kv)\n");
     printf("  watch [--prefix] KEY   Watch key changes (single response)\n");
     printf("  lease grant TTL        Grant a lease (TTL in seconds)\n");

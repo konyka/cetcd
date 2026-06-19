@@ -260,11 +260,22 @@ cetcd_rpc_bytes watch_handle_watch(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
         return (cetcd_rpc_bytes){out, total};
     }
 
-    /* Fallback: empty response */
+    /* Fallback: return WatchResponse with header + created=true + no events */
     if (key) free(key);
     if (range_end) free(range_end);
-    uint8_t *out = (uint8_t *)malloc(1);
+    int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+    uint8_t hdr_buf[32]; size_t hp = 0;
+    hdr_buf[hp++] = 0x18; /* revision */
+    uint64_t rv = (uint64_t)(current_rev > 0 ? current_rev : 1);
+    do { uint8_t b = rv & 0x7F; rv >>= 7; if (rv) b |= 0x80; hdr_buf[hp++] = b; } while (rv);
+    uint8_t resp[64]; size_t rpos = 0;
+    resp[rpos++] = 0x0a; /* field 1 = header */
+    resp[rpos++] = (uint8_t)hp;
+    memcpy(resp + rpos, hdr_buf, hp); rpos += hp;
+    resp[rpos++] = 0x18; /* field 3 = created */
+    resp[rpos++] = 0x01;
+    uint8_t *out = (uint8_t *)malloc(rpos);
     if (!out) return (cetcd_rpc_bytes){NULL, 0};
-    out[0] = 0;
-    return (cetcd_rpc_bytes){out, 1};
+    memcpy(out, resp, rpos);
+    return (cetcd_rpc_bytes){out, rpos};
 }

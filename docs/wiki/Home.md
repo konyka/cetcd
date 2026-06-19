@@ -921,7 +921,7 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | 命令 | 说明 |
 |------|------|
 | `put [--prev-kv] KEY VALUE` | 存储键值对（--prev-kv 返回旧值） |
-| `get [--prefix] [--keys-only] [--rev N] KEY` | 获取键值（支持前缀查询、仅键、历史版本） |
+| `get [--prefix] [--keys-only] [--count-only] [--rev N] [--limit N] KEY` | 获取键值（支持前缀查询、仅键、仅计数、历史版本、数量限制） |
 | `del [--prefix] [--prev-kv] KEY` | 删除键（支持前缀删除、返回旧值、删除计数） |
 | `watch [--prefix] KEY` | 观察键变更（单次响应模式） |
 | `lease grant TTL` | 授予租约 |

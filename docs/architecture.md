@@ -255,14 +255,16 @@ correct renewal behavior for leases with non-default TTLs.
 The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/keepalive`,
 `member add/remove/update/promote`, `user delete/change-password/grant-role/revoke-role`,
 `role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix/--keys-only/--rev`,
-`del --prefix/--prev-kv`, `put --prev-kv`, `watch`, `txn cas` (compare-and-swap), and
-`auth login` (token-based authentication).
+`del --prefix/--prev-kv`, `put --prev-kv`, `watch`, `txn cas` (compare-and-swap),
+`auth login` (token-based authentication), `get --count-only/--limit N`.
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
 `range_end`), `Put` returns a proper `PutResponse` with header revision and supports `prev_kv`
 (returning the previous key-value when `prev_kv=true` is set in the request), `DeleteRange`
 supports `range_end` for range deletes and `prev_kv` for returning deleted key-values.
+The `Range` handler also supports `limit` (truncating results and setting the `more` flag),
+`count_only` (returning only the count without kvs), and `keys_only` (omitting values).
 The `Txn` handler now evaluates `Compare` clauses against the MVCC store — supporting
 `EQUAL`/`GREATER`/`LESS`/`NOT_EQUAL` operators on `VERSION`, `CREATE`, `MOD`, `VALUE`, and
 `LEASE` targets — and executes success or failure ops accordingly, returning a complete
@@ -271,9 +273,11 @@ The `Txn` handler now evaluates `Compare` clauses against the MVCC store — sup
 data instead of an empty count. The `Compact` and `LeaseRevoke` responses include proper
 `ResponseHeader` with the current revision. The `Snapshot` response includes a `ResponseHeader`.
 
-The Watch handler uses correct protobuf field numbers: `watch_id` at field 2 (tag 0x10),
-`created` at field 3 (tag 0x18), `canceled` at field 4 (tag 0x20), and `events` at
-field 11 (tag 0x5a), ensuring compatibility with standard protobuf decoders.
+All Auth RPC responses now include a proper `ResponseHeader` with the current revision.
+The `Authenticate` response correctly returns the token in field 2 (tag 0x12) alongside the
+header. The `AuthStatus`, `UserList`, `RoleList`, `UserGet`, and `RoleGet` responses all
+include a `ResponseHeader` prefix. The Watch handler's fallback path returns a proper
+`WatchResponse` with header and `created=true` instead of an empty byte.
 
 ---
 
