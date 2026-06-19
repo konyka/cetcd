@@ -57,6 +57,7 @@ dkms.conf
 # ---------- cetcd: CMake / build artifacts ----------
 /build/
 /build-*/
+/build_*/
 /out/
 /cmake-build-*/
 CMakeCache.txt
