@@ -254,7 +254,13 @@ correct renewal behavior for leases with non-default TTLs.
 
 The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/keepalive`,
 `member add/remove/update`, `user delete/change-password/grant-role/revoke-role`,
-`role delete`, `hash`, `hashkv`, `defrag`, and `move-leader`.
+`role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix`, `del --prefix`,
+and `watch`.
+
+The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
+actual `KeyValue` protobuf messages (supporting both point-get and range queries with
+`range_end`), `Put` returns a proper `PutResponse` with header revision, and `DeleteRange`
+returns the count of deleted keys.
 
 ---
 

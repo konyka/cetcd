@@ -55,6 +55,146 @@ CETCD_TEST_CASE(v3rpc_put_range) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_range_returns_actual_kv) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put key="foo" value="bar" */
+    uint8_t put_buf[32];
+    size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x03;
+    memcpy(put_buf + pos, "foo", 3); pos += 3;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x03;
+    memcpy(put_buf + pos, "bar", 3); pos += 3;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* Range for key="foo" */
+    uint8_t range_buf[16];
+    pos = 0;
+    range_buf[pos++] = 0x0a; /* field 1 = key */
+    range_buf[pos++] = 0x03;
+    memcpy(range_buf + pos, "foo", 3); pos += 3;
+
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* Verify response contains "foo" and "bar" */
+    bool found_foo = false, found_bar = false;
+    for (size_t i = 0; i + 3 <= resp.len; i++) {
+        if (resp.data[i] == 'f' && resp.data[i+1] == 'o' && resp.data[i+2] == 'o')
+            found_foo = true;
+        if (resp.data[i] == 'b' && resp.data[i+1] == 'a' && resp.data[i+2] == 'r')
+            found_bar = true;
+    }
+    CETCD_ASSERT_TRUE(found_foo);
+    CETCD_ASSERT_TRUE(found_bar);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_range_query_multiple_keys) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put three keys: k1, k2, k3 */
+    const char *keys[] = {"k1", "k2", "k3"};
+    const char *vals[] = {"v1", "v2", "v3"};
+    for (int i = 0; i < 3; i++) {
+        uint8_t put_buf[32];
+        size_t pos = 0;
+        put_buf[pos++] = 0x0a; put_buf[pos++] = 0x02;
+        memcpy(put_buf + pos, keys[i], 2); pos += 2;
+        put_buf[pos++] = 0x12; put_buf[pos++] = 0x02;
+        memcpy(put_buf + pos, vals[i], 2); pos += 2;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Range from "k1" to "k4" (exclusive end) */
+    uint8_t range_buf[32];
+    size_t pos = 0;
+    range_buf[pos++] = 0x0a; /* field 1 = key (start) */
+    range_buf[pos++] = 0x02;
+    memcpy(range_buf + pos, "k1", 2); pos += 2;
+    range_buf[pos++] = 0x12; /* field 2 = range_end */
+    range_buf[pos++] = 0x02;
+    memcpy(range_buf + pos, "k4", 2); pos += 2;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 5);
+
+    /* Count KeyValue entries (tag 0x0a = field 2 = kvs) — but we need to be careful
+     * since the header also uses 0x0a. Instead, count occurrences of "v1", "v2", "v3" */
+    int val_count = 0;
+    for (size_t i = 0; i + 1 < resp.len; i++) {
+        if (resp.data[i] == 'v' && resp.data[i+1] >= '1' && resp.data[i+1] <= '3')
+            val_count++;
+    }
+    CETCD_ASSERT_TRUE(val_count >= 3);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_put_response_has_revision) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    uint8_t put_buf[32];
+    size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x04;
+    memcpy(put_buf + pos, "test", 4); pos += 4;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x04;
+    memcpy(put_buf + pos, "data", 4); pos += 4;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* PutResponse should contain a header with revision (tag 0x18 inside header sub-message) */
+    /* The header is field 1 (tag 0x0a, length-delimited) at the start */
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a); /* header tag */
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_delete_returns_count) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put a key first */
+    uint8_t put_buf[32];
+    size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x04;
+    memcpy(put_buf + pos, "gone", 4); pos += 4;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x04;
+    memcpy(put_buf + pos, "data", 4); pos += 4;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* Delete the key */
+    uint8_t del_buf[16];
+    pos = 0;
+    del_buf[pos++] = 0x0a; /* field 1 = key */
+    del_buf[pos++] = 0x04;
+    memcpy(del_buf + pos, "gone", 4); pos += 4;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/DeleteRange", del_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* DeleteRangeResponse should have field 2 (deleted) = tag 0x10 somewhere */
+    bool found_deleted = false;
+    for (size_t i = 0; i < resp.len; i++) {
+        if (resp.data[i] == 0x10) { found_deleted = true; break; }
+    }
+    CETCD_ASSERT_TRUE(found_deleted);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_unknown_path) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
     uint8_t dummy[] = {0x00};
@@ -1025,6 +1165,10 @@ CETCD_TEST_CASE(v3rpc_cluster_member_update_actual) {
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
+    CETCD_TEST_ENTRY(v3rpc_range_returns_actual_kv),
+    CETCD_TEST_ENTRY(v3rpc_range_query_multiple_keys),
+    CETCD_TEST_ENTRY(v3rpc_put_response_has_revision),
+    CETCD_TEST_ENTRY(v3rpc_delete_returns_count),
     CETCD_TEST_ENTRY(v3rpc_unknown_path),
     CETCD_TEST_ENTRY(v3rpc_lease_grant_revoke),
     CETCD_TEST_ENTRY(v3rpc_delete_range),

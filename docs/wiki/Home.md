@@ -790,9 +790,9 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 
 | 服务 | RPC | 处理器文件 | 说明 |
 |------|-----|-----------|------|
-| KV | `/etcdserverpb.KV/Put` | `kv_handler.c` | 写入键值对，推进 MVCC 修订号 |
-| KV | `/etcdserverpb.KV/Range` | `kv_handler.c` | 范围查询 |
-| KV | `/etcdserverpb.KV/DeleteRange` | `kv_handler.c` | 删除键，推进 MVCC 修订号 |
+| KV | `/etcdserverpb.KV/Put` | `kv_handler.c` | 写入键值对，推进 MVCC 修订号，返回含 revision 的 PutResponse |
+| KV | `/etcdserverpb.KV/Range` | `kv_handler.c` | 范围查询，实际查询 MVCC 存储并返回匹配的 KeyValue 列表 |
+| KV | `/etcdserverpb.KV/DeleteRange` | `kv_handler.c` | 删除键，推进 MVCC 修订号，返回删除计数 |
 | KV | `/etcdserverpb.KV/Txn` | `kv_handler.c` | 事务：解析 compare/success/failure，执行 Put/Delete 操作 |
 | KV | `/etcdserverpb.KV/Compact` | `kv_handler.c` | 压缩 MVCC 历史到指定修订号 |
 | Lease | `/etcdserverpb.Lease/LeaseGrant` | `lease_handler.c` | 授予租约，返回 ID+TTL |
@@ -921,8 +921,9 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | 命令 | 说明 |
 |------|------|
 | `put KEY VALUE` | 存储键值对 |
-| `get KEY` | 获取键值 |
-| `del KEY` | 删除键 |
+| `get [--prefix] KEY` | 获取键值（支持前缀查询） |
+| `del [--prefix] KEY` | 删除键（支持前缀删除，返回删除计数） |
+| `watch [--prefix] KEY` | 观察键变更（单次响应模式） |
 | `lease grant TTL` | 授予租约 |
 | `lease revoke ID` | 撤销租约 |
 | `lease timetolive ID` | 查询租约剩余时间 |

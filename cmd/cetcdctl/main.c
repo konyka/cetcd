@@ -51,6 +51,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -377,11 +378,31 @@ static int cmd_put(int argc, char **argv) {
 }
 
 static int cmd_get(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get KEY\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] KEY\n"); return 1; }
+    /* Check for --prefix flag */
+    bool prefix = false;
+    int key_idx = 2;
+    if (strcmp(argv[2], "--prefix") == 0) {
+        prefix = true;
+        key_idx = 3;
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl get --prefix KEY\n"); return 1; }
+    }
+    const char *key = argv[key_idx];
+    size_t key_len = strlen(key);
+
     uint8_t req[1024], resp[8192];
     size_t pos = 0;
     pos = encode_bytes_field(req, sizeof(req), pos, 0x0a,
-                             (const uint8_t *)argv[2], strlen(argv[2]));
+                             (const uint8_t *)key, key_len);
+    if (prefix) {
+        /* range_end = key with last byte incremented (standard etcd prefix semantics) */
+        char range_end[256];
+        if (key_len >= sizeof(range_end)) { fprintf(stderr, "key too long\n"); return 1; }
+        memcpy(range_end, key, key_len);
+        range_end[key_len - 1]++;
+        pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
+                                 (const uint8_t *)range_end, key_len);
+    }
     int rlen = do_rpc("/etcdserverpb.KV/Range", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
     parse_range_response(resp, rlen);
@@ -389,13 +410,43 @@ static int cmd_get(int argc, char **argv) {
 }
 
 static int cmd_del(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl del KEY\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl del [--prefix] KEY\n"); return 1; }
+    bool prefix = false;
+    int key_idx = 2;
+    if (strcmp(argv[2], "--prefix") == 0) {
+        prefix = true;
+        key_idx = 3;
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl del --prefix KEY\n"); return 1; }
+    }
+    const char *key = argv[key_idx];
+    size_t key_len = strlen(key);
+
     uint8_t req[1024], resp[4096];
     size_t pos = 0;
     pos = encode_bytes_field(req, sizeof(req), pos, 0x0a,
-                             (const uint8_t *)argv[2], strlen(argv[2]));
+                             (const uint8_t *)key, key_len);
+    if (prefix) {
+        char range_end[256];
+        if (key_len >= sizeof(range_end)) { fprintf(stderr, "key too long\n"); return 1; }
+        memcpy(range_end, key, key_len);
+        range_end[key_len - 1]++;
+        pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
+                                 (const uint8_t *)range_end, key_len);
+    }
     int rlen = do_rpc("/etcdserverpb.KV/DeleteRange", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+    /* Parse DeleteRangeResponse: field 2 (deleted) = int64, tag=0x10 */
+    size_t rpos = 0;
+    while (rpos < (size_t)rlen) {
+        uint8_t tag = resp[rpos++];
+        if (tag == 0x10) {
+            uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            printf("%llu key(s) deleted\n", (unsigned long long)v);
+            return 0;
+        } else {
+            uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+        }
+    }
     printf("OK\n");
     return 0;
 }
@@ -873,6 +924,104 @@ static int cmd_role(int argc, char **argv) {
     return 0;
 }
 
+static int cmd_watch(int argc, char **argv) {
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl watch [--prefix] KEY\n"); return 1; }
+    bool prefix = false;
+    int key_idx = 2;
+    if (strcmp(argv[2], "--prefix") == 0) {
+        prefix = true;
+        key_idx = 3;
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl watch --prefix KEY\n"); return 1; }
+    }
+    const char *key = argv[key_idx];
+    size_t key_len = strlen(key);
+
+    /* Build WatchCreateRequest:
+     *   field 1 (request_union) = WatchCreateRequest, tag = 0x0a
+     *     WatchCreateRequest: field 1 (key) = bytes, tag = 0x0a
+     *                         field 2 (range_end) = bytes, tag = 0x12 (if prefix)
+     */
+    uint8_t create_inner[512];
+    size_t cpos = 0;
+    create_inner[cpos++] = 0x0a; /* field 1 = key */
+    cpos = encode_bytes_field(create_inner, sizeof(create_inner), cpos, 0x0a,
+                              (const uint8_t *)key, key_len);
+    if (prefix) {
+        char range_end[256];
+        if (key_len >= sizeof(range_end)) { fprintf(stderr, "key too long\n"); return 1; }
+        memcpy(range_end, key, key_len);
+        range_end[key_len - 1]++;
+        cpos = encode_bytes_field(create_inner, sizeof(create_inner), cpos, 0x12,
+                                  (const uint8_t *)range_end, key_len);
+    }
+
+    uint8_t watch_buf[1024];
+    size_t wpos = 0;
+    watch_buf[wpos++] = 0x0a; /* field 1 = create request */
+    wpos = write_varint(watch_buf, sizeof(watch_buf), wpos, (uint64_t)cpos);
+    memcpy(watch_buf + wpos, create_inner, cpos);
+    wpos += cpos;
+
+    uint8_t resp[8192];
+    int rlen = do_rpc("/etcdserverpb.Watch/Watch", watch_buf, wpos, resp, sizeof(resp));
+    if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+
+    /* Parse WatchResponse:
+     *   field 1 (header) = ResponseHeader
+     *   field 2 (watch_id) = int64, tag = 0x10
+     *   field 3 (created) = bool, tag = 0x18
+     *   field 5 (events) = repeated Event, tag = 0x2a
+     *     Event: field 1 (type) = enum, tag = 0x08
+     *            field 2 (kv) = KeyValue, tag = 0x12
+     *              KeyValue: field 1 (key), field 5 (value)
+     */
+    size_t rpos = 0;
+    while (rpos < (size_t)rlen) {
+        uint8_t tag = resp[rpos++];
+        if (tag == 0x2a) {
+            /* Event (length-delimited) */
+            uint64_t elen = 0; read_varint(resp, rlen, &rpos, &elen);
+            size_t eend = rpos + (size_t)elen;
+            while (rpos < eend) {
+                uint8_t etag = resp[rpos++];
+                if (etag == 0x08) {
+                    /* event type */
+                    uint64_t t = 0; read_varint(resp, eend, &rpos, &t);
+                    printf("%s: ", t == 0 ? "PUT" : "DELETE");
+                } else if (etag == 0x12) {
+                    /* KeyValue */
+                    uint64_t klen = 0; read_varint(resp, eend, &rpos, &klen);
+                    size_t kend = rpos + (size_t)klen;
+                    const uint8_t *ek = NULL, *ev = NULL;
+                    size_t ekl = 0, evl = 0;
+                    while (rpos < kend) {
+                        uint8_t ktag = resp[rpos++];
+                        if (ktag == 0x0a) {
+                            uint64_t l = 0; read_varint(resp, kend, &rpos, &l);
+                            ek = resp + rpos; ekl = (size_t)l; rpos += l;
+                        } else if (ktag == 0x2a) {
+                            uint64_t l = 0; read_varint(resp, kend, &rpos, &l);
+                            ev = resp + rpos; evl = (size_t)l; rpos += l;
+                        } else {
+                            uint64_t v = 0; read_varint(resp, kend, &rpos, &v);
+                        }
+                    }
+                    rpos = kend;
+                    if (ek) printf("%.*s", (int)ekl, ek);
+                    if (ev && evl > 0) printf(" -> %.*s", (int)evl, ev);
+                    printf("\n");
+                } else {
+                    uint64_t v = 0; read_varint(resp, eend, &rpos, &v);
+                }
+            }
+            rpos = eend;
+        } else {
+            uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+        }
+    }
+    return 0;
+}
+
 static int cmd_hash(int argc, char **argv) {
     (void)argc; (void)argv;
     uint8_t req[] = {0x00}, resp[256];
@@ -942,8 +1091,9 @@ static void print_usage(void) {
     printf("  --port PORT    Server port (default: 2379)\n\n");
     printf("Commands:\n");
     printf("  put KEY VALUE          Store a key-value pair\n");
-    printf("  get KEY                Retrieve a key\n");
-    printf("  del KEY                Delete a key\n");
+    printf("  get [--prefix] KEY      Retrieve a key (or all keys with prefix)\n");
+    printf("  del [--prefix] KEY      Delete a key (or all keys with prefix)\n");
+    printf("  watch [--prefix] KEY   Watch key changes (single response)\n");
     printf("  lease grant TTL        Grant a lease (TTL in seconds)\n");
     printf("  lease revoke ID        Revoke a lease by ID\n");
     printf("  lease timetolive ID    Query remaining TTL\n");
@@ -1019,6 +1169,7 @@ int main(int argc, char **argv) {
     if (strcmp(cmd, "lease") == 0)       return cmd_lease(new_argc, new_argv);
     if (strcmp(cmd, "compact") == 0)     return cmd_compact(new_argc, new_argv);
     if (strcmp(cmd, "txn") == 0)         return cmd_txn(new_argc, new_argv);
+    if (strcmp(cmd, "watch") == 0)      return cmd_watch(new_argc, new_argv);
     if (strcmp(cmd, "status") == 0)      return cmd_status(new_argc, new_argv);
     if (strcmp(cmd, "alarm") == 0)       return cmd_alarm(new_argc, new_argv);
     if (strcmp(cmd, "hash") == 0)        return cmd_hash(new_argc, new_argv);
