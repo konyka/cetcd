@@ -59,10 +59,21 @@ static int write_varint_m(uint8_t *buf, size_t cap, size_t *pos, uint64_t val) {
 }
 
 static cetcd_rpc_bytes make_simple_response(void) {
-    uint8_t *b = (uint8_t *)malloc(1);
+    /* Return a ResponseHeader (field 1) with current revision */
+    int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+    uint8_t hdr_buf[16];
+    size_t hp = 0;
+    hdr_buf[hp++] = 0x18; /* field 3 = revision */
+    write_varint_m(hdr_buf, sizeof(hdr_buf), &hp, (uint64_t)(current_rev > 0 ? current_rev : 1));
+
+    uint8_t *b = (uint8_t *)malloc(2 + hp);
     if (!b) return (cetcd_rpc_bytes){NULL, 0};
-    b[0] = 0;
-    return (cetcd_rpc_bytes){b, 1};
+    size_t pos = 0;
+    b[pos++] = 0x0a; /* field 1 = header */
+    write_varint_m(b, 2 + hp, &pos, (uint64_t)hp);
+    memcpy(b + pos, hdr_buf, hp);
+    pos += hp;
+    return (cetcd_rpc_bytes){b, pos};
 }
 
 /*
@@ -85,8 +96,18 @@ cetcd_rpc_bytes maint_handle_status(cetcd_v3rpc *rpc, const uint8_t *req, size_t
     uint64_t term   = g_rpc_raft ? cetcd_raft_term(g_rpc_raft) : 0;
     uint64_t commit = g_rpc_raft ? cetcd_raft_committed(g_rpc_raft) : 0;
 
-    uint8_t buf[128];
+    uint8_t buf[256];
     size_t pos = 0;
+
+    /* field 1 = header (ResponseHeader with revision) */
+    {
+        uint8_t hdr_buf[16]; size_t hp = 0;
+        hdr_buf[hp++] = 0x18; /* revision */
+        write_varint_m(hdr_buf, sizeof(hdr_buf), &hp, (uint64_t)(rev > 0 ? rev : 1));
+        buf[pos++] = 0x0a;
+        write_varint_m(buf, sizeof(buf), &pos, (uint64_t)hp);
+        memcpy(buf + pos, hdr_buf, hp); pos += hp;
+    }
 
     /* field 2 = version (string "0.1.0") */
     buf[pos++] = 0x12; /* tag */
@@ -138,8 +159,17 @@ cetcd_rpc_bytes maint_handle_hash(cetcd_v3rpc *rpc, const uint8_t *req, size_t r
     int64_t rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
     uint32_t hash = (uint32_t)(rev * 2654435761u);
 
-    uint8_t buf[16];
+    uint8_t buf[32];
     size_t pos = 0;
+    /* field 1 = header */
+    {
+        uint8_t hdr_buf[16]; size_t hp = 0;
+        hdr_buf[hp++] = 0x18;
+        write_varint_m(hdr_buf, sizeof(hdr_buf), &hp, (uint64_t)(rev > 0 ? rev : 1));
+        buf[pos++] = 0x0a;
+        write_varint_m(buf, sizeof(buf), &pos, (uint64_t)hp);
+        memcpy(buf + pos, hdr_buf, hp); pos += hp;
+    }
     buf[pos++] = 0x10; /* field 2 = hash */
     write_varint_m(buf, sizeof(buf), &pos, (uint64_t)hash);
 
@@ -163,8 +193,17 @@ cetcd_rpc_bytes maint_handle_hash_kv(cetcd_v3rpc *rpc, const uint8_t *req, size_
     int64_t compact_rev = g_rpc_store ? cetcd_mvcc_compacted_revision(g_rpc_store) : 0;
     uint32_t hash = (uint32_t)(rev * 2654435761u);
 
-    uint8_t buf[16];
+    uint8_t buf[32];
     size_t pos = 0;
+    /* field 1 = header */
+    {
+        uint8_t hdr_buf[16]; size_t hp = 0;
+        hdr_buf[hp++] = 0x18;
+        write_varint_m(hdr_buf, sizeof(hdr_buf), &hp, (uint64_t)(rev > 0 ? rev : 1));
+        buf[pos++] = 0x0a;
+        write_varint_m(buf, sizeof(buf), &pos, (uint64_t)hp);
+        memcpy(buf + pos, hdr_buf, hp); pos += hp;
+    }
     buf[pos++] = 0x10; /* field 2 = hash */
     write_varint_m(buf, sizeof(buf), &pos, (uint64_t)hash);
     buf[pos++] = 0x18; /* field 3 = compact_revision */
@@ -357,12 +396,17 @@ cetcd_rpc_bytes maint_handle_downgrade(cetcd_v3rpc *rpc, const uint8_t *req, siz
         }
     }
 
-    /* Response: field 1 (version) = "0.1.0" */
-    uint8_t buf[16];
+    /* Response: field 1 = header (ResponseHeader) */
+    int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+    uint8_t hdr_buf[16]; size_t hp = 0;
+    hdr_buf[hp++] = 0x18;
+    write_varint_m(hdr_buf, sizeof(hdr_buf), &hp, (uint64_t)(current_rev > 0 ? current_rev : 1));
+
+    uint8_t buf[32];
     size_t bpos = 0;
-    buf[bpos++] = 0x0a; /* field 1 = version */
-    buf[bpos++] = 0x05;
-    memcpy(buf + bpos, "0.1.0", 5); bpos += 5;
+    buf[bpos++] = 0x0a; /* field 1 = header */
+    write_varint_m(buf, sizeof(buf), &bpos, (uint64_t)hp);
+    memcpy(buf + bpos, hdr_buf, hp); bpos += hp;
 
     uint8_t *out = (uint8_t *)malloc(bpos);
     if (!out) return (cetcd_rpc_bytes){NULL, 0};

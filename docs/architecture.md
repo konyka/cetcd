@@ -258,6 +258,13 @@ boolean field from the request and returns attached keys (field 5) when requeste
 using the new `cetcd_lease_keys()` API. The `LeaseGrant` response also attaches keys
 to leases via `cetcd_lease_attach_key()` when a `Put` request specifies a lease ID.
 
+All Maintenance RPC responses (`Status`, `Hash`, `HashKV`, `Defragment`, `Alarm`,
+`MoveLeader`, `Snapshot`, `Downgrade`) include a `ResponseHeader` as field 1, matching the
+etcd v3.5 proto wire format. The `DowngradeResponse` now correctly returns only a header
+(field 1) instead of a version string. The `make_simple_response()` helper used by
+`Defragment`, `Alarm`, and `MoveLeader` returns a proper `ResponseHeader` with the current
+revision.
+
 The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/keepalive`,
 `member add/remove/update/promote`, `user delete/change-password/grant-role/revoke-role`,
 `role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix/--keys-only/--rev`,

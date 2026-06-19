@@ -273,6 +273,10 @@ static void parse_status_response(const uint8_t *data, size_t len) {
             /* raftTerm (uint64) */
             uint64_t v = 0; read_varint(data, len, &pos, &v);
             printf("raftTerm: %llu\n", (unsigned long long)v);
+        } else if (tag == 0x0a) {
+            /* Skip header (length-delimited) */
+            uint64_t l = 0; read_varint(data, len, &pos, &l);
+            pos += l;
         } else {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
         }
@@ -1335,13 +1339,17 @@ static int cmd_hash(int argc, char **argv) {
     uint8_t req[] = {0x00}, resp[256];
     int rlen = do_rpc("/etcdserverpb.Maintenance/Hash", req, 1, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-    /* HashResponse: field 2 (hash) = uint32, tag = 0x10 */
+    /* HashResponse: field 1 (header), field 2 (hash) = uint32, tag = 0x10 */
     size_t rpos = 0;
     while (rpos < (size_t)rlen) {
         uint8_t tag = resp[rpos++];
         if (tag == 0x10) {
             uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
             printf("hash: %llu\n", (unsigned long long)v);
+        } else if (tag == 0x0a) {
+            /* Skip header (length-delimited) */
+            uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+            rpos += l;
         } else {
             uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
         }
@@ -1354,7 +1362,7 @@ static int cmd_hashkv(int argc, char **argv) {
     uint8_t req[] = {0x00}, resp[256];
     int rlen = do_rpc("/etcdserverpb.Maintenance/HashKV", req, 1, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-    /* HashKVResponse: field 2 (hash), field 3 (compact_revision) */
+    /* HashKVResponse: field 1 (header), field 2 (hash), field 3 (compact_revision) */
     size_t rpos = 0;
     while (rpos < (size_t)rlen) {
         uint8_t tag = resp[rpos++];
@@ -1364,6 +1372,10 @@ static int cmd_hashkv(int argc, char **argv) {
         } else if (tag == 0x18) {
             uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
             printf("compact_revision: %llu\n", (unsigned long long)v);
+        } else if (tag == 0x0a) {
+            /* Skip header (length-delimited) */
+            uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+            rpos += l;
         } else {
             uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
         }

@@ -2263,6 +2263,110 @@ CETCD_TEST_CASE(v3rpc_lease_time_to_live_with_keys) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_maintenance_responses_have_header) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    uint8_t dummy[] = {0x00};
+
+    /* Status response should start with header (tag 0x0a) */
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Status", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* Hash response should start with header (tag 0x0a) */
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Hash", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* HashKV response should start with header (tag 0x0a) */
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/HashKV", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* Defragment response should start with header (tag 0x0a) */
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Defragment", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* Alarm response should start with header (tag 0x0a) */
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Alarm", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* MoveLeader response should start with header (tag 0x0a) */
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/MoveLeader", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* Downgrade response should start with header (tag 0x0a) */
+    uint8_t dg_buf[16]; size_t pos = 0;
+    dg_buf[pos++] = 0x08; dg_buf[pos++] = 0x01; /* ENABLE */
+    dg_buf[pos++] = 0x12; dg_buf[pos++] = 0x05;
+    memcpy(dg_buf + pos, "0.1.0", 5); pos += 5;
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Downgrade", dg_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_status_has_version_and_leader) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    uint8_t dummy[] = {0x00};
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Status", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* Verify version (field 2, tag 0x12) and leader (field 4, tag 0x20) are present */
+    int found_version = 0, found_leader = 0;
+    size_t rpos = 0;
+    while (rpos < resp.len) {
+        uint8_t tag = resp.data[rpos++];
+        if (tag == 0x0a) {
+            /* Skip header (length-delimited) */
+            uint64_t l = 0; int shift = 0;
+            while (rpos < resp.len) { uint8_t b = resp.data[rpos++]; l |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            rpos += (size_t)l;
+        } else if (tag == 0x12) {
+            /* version (string) */
+            uint64_t l = 0; int shift = 0;
+            while (rpos < resp.len) { uint8_t b = resp.data[rpos++]; l |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            rpos += (size_t)l;
+            found_version = 1;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < resp.len) { uint8_t b = resp.data[rpos++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            if (tag == 0x20) found_leader = 1;
+        }
+    }
+    CETCD_ASSERT_TRUE(found_version);
+    CETCD_ASSERT_TRUE(found_leader);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
@@ -2334,6 +2438,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_lease_time_to_live_has_header),
     CETCD_TEST_ENTRY(v3rpc_lease_leases_has_header),
     CETCD_TEST_ENTRY(v3rpc_lease_time_to_live_with_keys),
+    CETCD_TEST_ENTRY(v3rpc_maintenance_responses_have_header),
+    CETCD_TEST_ENTRY(v3rpc_status_has_version_and_leader),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()
