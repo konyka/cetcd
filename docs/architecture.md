@@ -1,6 +1,6 @@
 # cetcd Architecture
 
-> **Status**: living document. Last revised at Phase 0. See `notes.html` for delta history.
+> **Status**: living document. See `notes.html` for delta history.
 
 cetcd is a from-scratch reimplementation of [etcd](https://github.com/etcd-io/etcd) in pure C
 (C99 floor with required C11 `<stdatomic.h>`). It targets wire compatibility with the
@@ -17,7 +17,7 @@ internals are organised. For deeper rationale on individual decisions, see
 
 ### Goals
 
-- **Wire compatibility** with the etcd v3.5 gRPC API — all 48 RPCs across KV, Watch, Lease,
+- **Wire compatibility** with the etcd v3.5 gRPC API — all 41 RPCs across KV, Watch, Lease,
   Cluster, Auth, Maintenance.
 - **Cross-platform**: Linux (primary), macOS, FreeBSD, Windows (MSVC + MinGW-w64).
 - **Performance** parity or better with Go etcd on a 3-node 70/30 Put/Range workload.
@@ -47,13 +47,12 @@ src/
 ├── raft/        libcetcd_raft       Raft logic core (no I/O, no threads)
 ├── wal/         libcetcd_wal        Append-only log, byte-compatible with etcd WAL
 ├── backend/     libcetcd_backend    LMDB-backed transactional key-value
-├── schema/      libcetcd_schema     bucket layout and migrations
 ├── mvcc/        libcetcd_mvcc       Revision index, watcher fan-out, compaction
 ├── lease/       libcetcd_lease      TTL min-heap + lease-keys index
-├── auth/        libcetcd_auth       RBAC, JWT, bcrypt password hashing
+├── auth/        libcetcd_auth       RBAC, SHA-256 password hashing
 ├── peer/        libcetcd_peer       Raft transport (rafthttp-equivalent)
 ├── snap/        libcetcd_snap       Snapshot file r/w and streaming
-├── v3rpc/       libcetcd_v3rpc      gRPC handlers for all 48 RPCs
+├── v3rpc/       libcetcd_v3rpc      gRPC handlers for all 41 RPCs
 └── server/      libcetcd_server     Main loop, apply pipeline, config, lifecycle
 
 cmd/
@@ -80,7 +79,7 @@ cetcd (daemon)
        ├─ libcetcd_snap
        └─ libcetcd_io          ─── libuv + libco
 
-libcetcd_base   (zero deps except libc and mimalloc)
+libcetcd_base   (zero deps except libc)
 ```
 
 No back edges. `libcetcd_base` is a leaf. Tests live alongside each module under
@@ -225,7 +224,7 @@ The Raft module **does no I/O and spawns no threads**. The embedder owns persist
 cetcd speaks etcd v3 gRPC over HTTP/2:
 
 - 6 services: `KV`, `Watch`, `Lease`, `Cluster`, `Maintenance`, `Auth`.
-- 48 RPCs (full catalogue in [`docs/api.md`](./api.md)).
+- 41 RPCs (full catalogue in [`docs/wiki/Home.md`](../docs/wiki/Home.md)).
 - 4 streaming RPCs: `RangeStream`, `Watch` (bidi), `LeaseKeepAlive` (bidi), `Snapshot` (server-stream).
 - Protobuf wire-types are generated from etcd v3.5's `.proto` files vendored under
   `proto/v3.5/`.
@@ -241,7 +240,7 @@ etcd, so cetcd nodes can act as peers in a mixed cetcd/etcd cluster (validated i
 ### Build
 
 CMake 3.21+. All third-party libraries are **vendored** under `third_party/` (pinned).
-OpenSSL is the one exception: discovered via `find_package(OpenSSL 3.0 REQUIRED)`.
+OpenSSL is the one exception: discovered via `pkg_check_modules(OPENSSL IMPORTED_TARGET openssl)`.
 
 ```sh
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCETCD_SANITIZERS=address,undefined

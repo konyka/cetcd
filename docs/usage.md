@@ -1,6 +1,6 @@
 # cetcd Usage
 
-> **Status**: skeleton (Phase 0). Sections marked _stub_ fill in as features land.
+> **Status**: actively developed. cetcd supports the full etcd v3.5 gRPC API (41 RPCs).
 
 ## 1. Building from source
 
@@ -16,7 +16,7 @@
 - OpenSSL 3.0+ development headers (only system dependency)
 - Python 3.8+ (for protobuf-c codegen at build time)
 
-Everything else (libuv, nghttp2, LMDB, protobuf-c, libco, mimalloc, Unity, CMock) is vendored
+Everything else (libuv, LMDB, protobuf-c, libco) is vendored
 under `third_party/`.
 
 ### Configure + build
@@ -44,94 +44,178 @@ cmake --build build
 ### Sanitized debug build (developer default)
 
 ```sh
-cmake -B build-asan -G Ninja \
+cmake -B build -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCETCD_SANITIZERS=address,undefined
-cmake --build build-asan
-ctest --test-dir build-asan --output-on-failure
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
 ---
 
 ## 2. Running `cetcd`
 
-_stub — will be filled in at Phase 6 when the daemon first runs._
-
-Planned single-node smoke test:
+### Single-node server
 
 ```sh
-./build/bin/cetcd \
-  --name node1 \
-  --data-dir /var/lib/cetcd/node1 \
-  --listen-client-urls http://0.0.0.0:2379 \
-  --listen-peer-urls   http://0.0.0.0:2380
+./build/bin/cetcd --data-dir ./data --listen 127.0.0.1 --port 2379
 ```
 
-Planned three-node static cluster:
+This starts a single-node cetcd server listening on port 2379 for client
+requests and port 2380 for peer-to-peer (Raft) communication.
+
+### Three-node static cluster
 
 ```sh
-./build/bin/cetcd \
-  --name node1 \
-  --initial-cluster node1=http://10.0.0.1:2380,node2=http://10.0.0.2:2380,node3=http://10.0.0.3:2380 \
-  --initial-cluster-state new \
-  ...
+# Node 1
+./build/bin/cetcd --name node1 --data-dir ./data1 \
+  --listen 127.0.0.1 --port 2379 --peer-port 2380 \
+  --initial-cluster node1=127.0.0.1:2380,node2=127.0.0.1:2382,node3=127.0.0.1:2384
+
+# Node 2
+./build/bin/cetcd --name node2 --data-dir ./data2 \
+  --listen 127.0.0.1 --port 2381 --peer-port 2382 \
+  --initial-cluster node1=127.0.0.1:2380,node2=127.0.0.1:2382,node3=127.0.0.1:2384
+
+# Node 3
+./build/bin/cetcd --name node3 --data-dir ./data3 \
+  --listen 127.0.0.1 --port 2383 --peer-port 2384 \
+  --initial-cluster node1=127.0.0.1:2380,node2=127.0.0.1:2382,node3=127.0.0.1:2384
 ```
 
-CLI flags will be a strict subset of upstream `etcd`'s flags for v0.1; the unsupported flags
-will be documented and produce a clear error rather than silent fallback.
+The cluster uses Raft consensus for replication. Leader election happens
+automatically within ~1 second of startup.
 
 ---
 
 ## 3. Using `cetcdctl`
 
-_stub — Phase 6._
+`cetcdctl` is a command-line client that speaks cetcd's gRPC protocol.
+It mirrors `etcdctl` command structure for familiarity.
 
-`cetcdctl` is a thin client that speaks etcd v3 gRPC. Behaviour intentionally mirrors
-`etcdctl` so muscle memory transfers.
+### KV operations
 
 ```sh
 ./build/bin/cetcdctl put foo bar
 ./build/bin/cetcdctl get foo
-./build/bin/cetcdctl watch foo
+./build/bin/cetcdctl del foo
 ```
 
-You can also point upstream `etcdctl` at cetcd — it's wire-compatible:
+### Lease management
 
 ```sh
-ETCDCTL_API=3 etcdctl --endpoints=localhost:2379 put hello world
+./build/bin/cetcdctl lease grant 60        # Grant a 60-second lease
+./build/bin/cetcdctl lease revoke 1        # Revoke lease ID 1
+./build/bin/cetcdctl lease timetolive 1    # Check remaining TTL
 ```
+
+### Transactions
+
+```sh
+./build/bin/cetcdctl txn put foo bar       # Transactional put
+```
+
+### Compaction
+
+```sh
+./build/bin/cetcdctl compact 100           # Compact MVCC history to revision 100
+```
+
+### Cluster management
+
+```sh
+./build/bin/cetcdctl status                # Server status (version, raft index, etc.)
+./build/bin/cetcdctl alarm                 # Query active alarms
+./build/bin/cetcdctl member list           # List cluster members
+```
+
+### Authentication (RBAC)
+
+```sh
+# Enable authentication
+./build/bin/cetcdctl auth enable
+
+# User management
+./build/bin/cetcdctl user add root         # Create user
+./build/bin/cetcdctl user get root         # View user details (roles)
+./build/bin/cetcdctl user list             # List all users
+
+# Role management
+./build/bin/cetcdctl role add admin        # Create role
+./build/bin/cetcdctl role get admin        # View role permissions
+./build/bin/cetcdctl role list             # List all roles
+
+# Permission management
+./build/bin/cetcdctl role grant-permission admin readwrite /foo
+./build/bin/cetcdctl role revoke-permission admin
+
+# Disable authentication
+./build/bin/cetcdctl auth disable
+```
+
+### Snapshot and maintenance
+
+```sh
+./build/bin/cetcdctl snapshot save backup.snap   # Save KV snapshot to file
+./build/bin/cetcdctl downgrade enable             # Enable cluster downgrade
+./build/bin/cetcdctl downgrade cancel             # Cancel downgrade
+./build/bin/cetcdctl downgrade validate           # Validate downgrade state
+```
+
+### Global options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--host ADDR` | 127.0.0.1 | Server address |
+| `--port PORT` | 2379 | Server port |
 
 ---
 
 ## 4. Migrating from etcd
 
-_stub — Phase 9._
-
-A one-way migration tool will be provided:
+A one-way migration tool (`cetcd-migrate`) is planned for a future release.
+It will read etcd's bbolt + WAL + snap and write a cetcd-native LMDB env
+plus a compatible WAL.
 
 ```sh
+# Planned (not yet available)
 ./build/bin/cetcd-migrate \
   --src /var/lib/etcd/member \
   --dst /var/lib/cetcd/member
 ```
 
-It reads etcd's bbolt + WAL + snap and writes a cetcd-native LMDB env plus a compatible WAL.
-
 ---
 
 ## 5. Observability
 
-_stub — Phase 8._
+### Logs
 
-- Logs: structured JSON to stderr, level controlled by `--log-level`.
-- Metrics: Prometheus exposition on `--listen-metrics-urls` (default `:2381/metrics`).
-- Profiling: pprof-style endpoints on the metrics listener.
+cetcd outputs structured logs to stderr. Log level can be controlled at
+build time via compile definitions.
+
+### Metrics
+
+Prometheus-compatible metrics are planned for a future release, exposed on
+a dedicated metrics listener.
+
+### Profiling
+
+pprof-style profiling endpoints are planned for a future release.
 
 ---
 
 ## 6. Troubleshooting
 
-_stub._
+### Common issues
 
-For now, see `docs/architecture.md` for the system design, or open an issue with the output
-of `cetcd --version` and the failing command.
+**Connection refused**: Ensure the cetcd daemon is running and listening
+on the expected port (`./build/bin/cetcd --data-dir ./data`).
+
+**Tests fail with ASan errors**: Ensure you're using a debug build with
+sanitizers enabled (`-DCMAKE_BUILD_TYPE=Debug -DCETCD_SANITIZERS=address,undefined`).
+
+**Build fails on OpenSSL**: Ensure OpenSSL 3.0+ development headers are
+installed (`pkg-config --modversion openssl`).
+
+For further help, see `docs/architecture.md` for the system design, or
+open an issue at <https://github.com/konyka/cetcd/issues>.

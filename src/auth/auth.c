@@ -7,15 +7,18 @@
 #include <string.h>
 
 /*
- * Lightweight, self-contained authentication store implementation used by tests.
- * NOTE: This implementation uses a simple in-process storage backed by
- * cetcd_hashmap. Passwords are hashed with a tiny, deterministic placeholder
- * hash function to satisfy the tests. This is not cryptographically secure and
- * is intended only for unit testing purposes.
+ * Authentication store implementation with RBAC support.
+ * Uses cetcd_hashmap for in-process storage.
+ * When OpenSSL is available, passwords are hashed with SHA-256 via the EVP API.
+ * Otherwise, a deterministic non-cryptographic fallback hash is used.
  */
 
+#if CETCD_HAS_OPENSSL
+#include <openssl/evp.h>
+#endif
+
 /* Forward declarations of internal helpers */
-static void hash_password_placeholder(const void *data, size_t len, uint8_t out[32]);
+static void hash_password(const void *data, size_t len, uint8_t out[32]);
 static size_t cetcd_user_roles_total_len(const cetcd_user *u);
 
 struct cetcd_auth_store {
@@ -33,7 +36,7 @@ static cetcd_user *cetcd_user_new(const char *name, const char *password_hash_so
     u->name[sizeof(u->name) - 1] = '\0';
     /* hash password */
     uint8_t hash32[32];
-    hash_password_placeholder((const void *)password_hash_source, strlen(password_hash_source), hash32);
+    hash_password((const void *)password_hash_source, strlen(password_hash_source), hash32);
     memcpy(u->password_hash, hash32, 32);
     u->hash_len = 32;
     u->n_roles = 0;
@@ -202,7 +205,7 @@ bool cetcd_auth_check_password(const cetcd_auth_store *s,
     if (!cetcd_hashmap_get((cetcd_hashmap *)s->users, key, &v)) return false;
     u = (cetcd_user *)v;
     uint8_t hash32[32];
-    hash_password_placeholder((const void *)password, strlen(password), hash32);
+    hash_password((const void *)password, strlen(password), hash32);
     /* constant-time style compare simplified */
     int match = 1; for (size_t i = 0; i < 32; ++i) { if (u->password_hash[i] != hash32[i]) { match = 0; break; } }
     return match != 0;
@@ -275,27 +278,43 @@ int cetcd_auth_change_password(cetcd_auth_store *s, const char *name,
     if (!u) return CETCD_ERR_NOTFOUND;
     /* Re-hash password */
     uint8_t hash32[32];
-    hash_password_placeholder((const void *)new_password, strlen(new_password), hash32);
+    hash_password((const void *)new_password, strlen(new_password), hash32);
     memcpy(u->password_hash, hash32, 32);
     u->hash_len = 32;
     return CETCD_OK;
 }
 
 /* Internal helpers implementation */
-static void hash_password_placeholder(const void *data, size_t len, uint8_t out[32]) {
-    /* Deterministic, non-cryptographic placeholder hash based on input data */
+
+#if CETCD_HAS_OPENSSL
+/* SHA-256 password hashing via OpenSSL EVP API */
+static void hash_password(const void *data, size_t len, uint8_t out[32]) {
+    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    if (ctx == NULL) {
+        /* Fallback: zero-fill on allocation failure */
+        memset(out, 0, 32);
+        return;
+    }
+    unsigned int md_len = 32;
+    EVP_DigestInit_ex(ctx, EVP_sha256(), NULL);
+    EVP_DigestUpdate(ctx, data, len);
+    EVP_DigestFinal_ex(ctx, out, &md_len);
+    EVP_MD_CTX_free(ctx);
+}
+#else
+/* Deterministic, non-cryptographic fallback hash (when OpenSSL unavailable) */
+static void hash_password(const void *data, size_t len, uint8_t out[32]) {
     const unsigned char *p = (const unsigned char *)data;
-    /* Initialize with a simple digest derived from length and bytes */
     for (size_t i = 0; i < 32; ++i) out[i] = 0;
     for (size_t i = 0; i < len; ++i) {
         out[i % 32] ^= p[i];
         out[i % 32] ^= (uint8_t)((i * 13) & 0xFF);
     }
-    /* Add a tiny mixing pass to reduce obvious collisions for different lengths */
     for (size_t i = 0; i < 32; ++i) {
         out[i] = out[i] ^ (uint8_t)((len + i) & 0xFF);
     }
 }
+#endif
 
 static size_t cetcd_user_roles_total_len(const cetcd_user *u) {
     if (u == NULL || u->n_roles == 0 || u->roles == NULL) return 0;
