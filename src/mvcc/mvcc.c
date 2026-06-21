@@ -50,6 +50,10 @@ struct cetcd_mvcc_store {
     cetcd_watcher **watchers;
     size_t          watcher_count;
     size_t          watcher_cap;
+    /* Streaming watchers (notification-channel based) */
+    cetcd_stream_watcher **stream_watchers;
+    size_t                stream_watcher_count;
+    size_t                stream_watcher_cap;
 };
 
 
@@ -60,6 +64,22 @@ struct cetcd_watcher {
     int64_t        start_rev;
     cetcd_watch_cb cb;
     void          *udata;
+};
+
+
+/* ── Streaming watcher ─────────────────────────────────────────────────── */
+
+struct cetcd_stream_watcher {
+    uint8_t       *pattern;
+    size_t         pattern_len;
+    bool           is_prefix;
+    bool           is_range;
+    uint8_t       *range_end;
+    size_t         range_end_len;
+    int64_t        start_rev;
+    int64_t        watch_id;
+    int            want_prev_kv;
+    cetcd_mvcc_watch_notify *notify;
 };
 
 
@@ -126,6 +146,52 @@ static bool watch_match(const cetcd_watcher *w, const uint8_t *key, size_t key_l
     return key_len == w->pattern_len && memcmp(key, w->pattern, key_len) == 0;
 }
 
+static bool stream_watch_match(const cetcd_stream_watcher *w,
+                                const uint8_t *key, size_t key_len) {
+    if (w->is_range) {
+        /* Range watch: key >= pattern AND key < range_end */
+        if (key_len < w->pattern_len) return false;
+        if (memcmp(key, w->pattern, w->pattern_len) < 0) return false;
+        if (w->range_end && w->range_end_len > 0) {
+            size_t cmp_len = key_len < w->range_end_len ? key_len : w->range_end_len;
+            int c = memcmp(key, w->range_end, cmp_len);
+            if (c >= 0) {
+                if (c == 0 && key_len < w->range_end_len) return true;
+                return false;
+            }
+        }
+        return true;
+    }
+    if (w->is_prefix) {
+        if (key_len < w->pattern_len) return false;
+        return memcmp(key, w->pattern, w->pattern_len) == 0;
+    }
+    return key_len == w->pattern_len && memcmp(key, w->pattern, key_len) == 0;
+}
+
+/* Push a copy of an event into a notification channel and wake the consumer. */
+static void notify_push(cetcd_mvcc_watch_notify *n, const cetcd_watch_event *ev) {
+    if (!n || !ev) return;
+    cetcd_mvcc_watch_event_node *node =
+        (cetcd_mvcc_watch_event_node *)calloc(1, sizeof(*node));
+    if (!node) return;
+    node->event = *ev;
+    /* Deep-copy slice data so the event is independent of the MVCC store. */
+    node->event.kv.key   = dup_slice(ev->kv.key);
+    node->event.kv.value = dup_slice(ev->kv.value);
+    if (ev->has_prev_kv) {
+        node->event.prev_kv.key   = dup_slice(ev->prev_kv.key);
+        node->event.prev_kv.value = dup_slice(ev->prev_kv.value);
+    }
+    node->next = NULL;
+    if (n->tail) n->tail->next = node;
+    else        n->head = node;
+    n->tail = node;
+    n->count++;
+    /* Wake the consumer (typically uv_async_send). */
+    if (n->wake_cb) n->wake_cb(n->wake_cb_udata);
+}
+
 static void mvcc_notify_watchers(cetcd_mvcc_store *s, const cetcd_kv *kv,
                                   const cetcd_revision *rev, cetcd_event_type type,
                                   const cetcd_kv *prev_kv) {
@@ -140,11 +206,26 @@ static void mvcc_notify_watchers(cetcd_mvcc_store *s, const cetcd_kv *kv,
         ev.prev_kv = *prev_kv;
         ev.has_prev_kv = 1;
     }
+    /* Callback-based watchers */
     for (size_t i = 0; i < s->watcher_count; i++) {
         cetcd_watcher *w = s->watchers[i];
         if (w->start_rev > 0 && rev->main < w->start_rev) continue;
         if (watch_match(w, kv->key.data, kv->key.len)) {
             w->cb(&ev, w->udata);
+        }
+    }
+    /* Streaming / notification-channel watchers */
+    for (size_t i = 0; i < s->stream_watcher_count; i++) {
+        cetcd_stream_watcher *sw = s->stream_watchers[i];
+        if (sw->start_rev > 0 && rev->main < sw->start_rev) continue;
+        if (stream_watch_match(sw, kv->key.data, kv->key.len)) {
+            /* Filter prev_kv based on want_prev_kv */
+            cetcd_watch_event ev_copy = ev;
+            if (!sw->want_prev_kv) {
+                ev_copy.has_prev_kv = 0;
+                memset(&ev_copy.prev_kv, 0, sizeof(ev_copy.prev_kv));
+            }
+            notify_push(sw->notify, &ev_copy);
         }
     }
 }
@@ -174,6 +255,13 @@ void cetcd_mvcc_store_free(cetcd_mvcc_store *s) {
         free(s->watchers[i]);
     }
     free(s->watchers);
+    /* Free streaming watchers */
+    for (size_t i = 0; i < s->stream_watcher_count; i++) {
+        free(s->stream_watchers[i]->pattern);
+        free(s->stream_watchers[i]->range_end);
+        free(s->stream_watchers[i]);
+    }
+    free(s->stream_watchers);
     free(s);
 }
 
@@ -430,6 +518,148 @@ void cetcd_mvcc_watch_cancel(cetcd_mvcc_store *s, cetcd_watcher *w) {
             return;
         }
     }
+}
+
+/* ── Streaming watch (notification-channel based) ─────────────────────── */
+
+void cetcd_mvcc_watch_notify_init(cetcd_mvcc_watch_notify *n,
+                                   void (*wake_cb)(void *), void *udata) {
+    if (!n) return;
+    n->head = NULL;
+    n->tail = NULL;
+    n->count = 0;
+    n->wake_cb = wake_cb;
+    n->wake_cb_udata = udata;
+}
+
+void cetcd_mvcc_watch_notify_destroy(cetcd_mvcc_watch_notify *n) {
+    if (!n) return;
+    cetcd_mvcc_watch_event_node *cur = n->head;
+    while (cur) {
+        cetcd_mvcc_watch_event_node *next = cur->next;
+        free((void*)cur->event.kv.key.data);
+        free((void*)cur->event.kv.value.data);
+        if (cur->event.has_prev_kv) {
+            free((void*)cur->event.prev_kv.key.data);
+            free((void*)cur->event.prev_kv.value.data);
+        }
+        free(cur);
+        cur = next;
+    }
+    n->head = NULL;
+    n->tail = NULL;
+    n->count = 0;
+}
+
+cetcd_stream_watcher *cetcd_mvcc_watch_subscribe(
+    cetcd_mvcc_store *store, int64_t watch_id,
+    const uint8_t *key, size_t key_len,
+    const uint8_t *range_end, size_t range_end_len,
+    int64_t start_rev, int want_prev_kv,
+    cetcd_mvcc_watch_notify *notify)
+{
+    if (!store || !key || !notify) return NULL;
+
+    cetcd_stream_watcher *sw = (cetcd_stream_watcher *)calloc(1, sizeof(*sw));
+    if (!sw) return NULL;
+
+    sw->pattern = (uint8_t *)malloc(key_len);
+    if (!sw->pattern) { free(sw); return NULL; }
+    memcpy(sw->pattern, key, key_len);
+    sw->pattern_len = key_len;
+    sw->watch_id = watch_id;
+    sw->start_rev = start_rev;
+    sw->want_prev_kv = want_prev_kv;
+    sw->notify = notify;
+
+    /* Determine watch type */
+    if (range_end && range_end_len > 0) {
+        if (range_end_len == 1 && range_end[0] == '\0') {
+            /* Single '\0' byte means prefix watch */
+            sw->is_prefix = true;
+            sw->is_range = false;
+            sw->range_end = NULL;
+            sw->range_end_len = 0;
+        } else {
+            /* Range watch [key, range_end) */
+            sw->is_prefix = false;
+            sw->is_range = true;
+            sw->range_end = (uint8_t *)malloc(range_end_len);
+            if (!sw->range_end) { free(sw->pattern); free(sw); return NULL; }
+            memcpy(sw->range_end, range_end, range_end_len);
+            sw->range_end_len = range_end_len;
+        }
+    } else {
+        /* Exact key watch */
+        sw->is_prefix = false;
+        sw->is_range = false;
+        sw->range_end = NULL;
+        sw->range_end_len = 0;
+    }
+
+    /* Add to the store's streaming watcher list */
+    if (store->stream_watcher_count == store->stream_watcher_cap) {
+        size_t nc = store->stream_watcher_cap ? store->stream_watcher_cap * 2 : 4;
+        cetcd_stream_watcher **tmp =
+            (cetcd_stream_watcher **)realloc(store->stream_watchers, nc * sizeof(*tmp));
+        if (!tmp) {
+            free(sw->pattern);
+            free(sw->range_end);
+            free(sw);
+            return NULL;
+        }
+        store->stream_watchers = tmp;
+        store->stream_watcher_cap = nc;
+    }
+    store->stream_watchers[store->stream_watcher_count++] = sw;
+    return sw;
+}
+
+void cetcd_mvcc_watch_unsubscribe(cetcd_mvcc_store *store,
+                                   cetcd_stream_watcher *w) {
+    if (!store || !w) return;
+    for (size_t i = 0; i < store->stream_watcher_count; i++) {
+        if (store->stream_watchers[i] == w) {
+            free(w->pattern);
+            free(w->range_end);
+            free(w);
+            store->stream_watchers[i] =
+                store->stream_watchers[--store->stream_watcher_count];
+            return;
+        }
+    }
+}
+
+int cetcd_mvcc_watch_recv(cetcd_mvcc_watch_notify *notify,
+                           cetcd_watch_event **events_out,
+                           size_t *count_out) {
+    if (!notify || !events_out || !count_out) return CETCD_ERR_INVAL;
+
+    size_t n = notify->count;
+    if (n == 0) {
+        *events_out = NULL;
+        *count_out = 0;
+        return CETCD_OK;
+    }
+
+    cetcd_watch_event *arr = (cetcd_watch_event *)calloc(n, sizeof(*arr));
+    if (!arr) return CETCD_ERR_NOMEM;
+
+    size_t idx = 0;
+    cetcd_mvcc_watch_event_node *cur = notify->head;
+    while (cur) {
+        cetcd_mvcc_watch_event_node *next = cur->next;
+        arr[idx++] = cur->event;
+        free(cur);  /* Free the node, but NOT the event data (owned by arr now) */
+        cur = next;
+    }
+    notify->head = NULL;
+    notify->tail = NULL;
+    notify->count = 0;
+
+    *events_out = arr;
+    *count_out = idx;
+    return CETCD_OK;
 }
 
 int cetcd_mvcc_compact(cetcd_mvcc_store *s, int64_t compact_rev) {

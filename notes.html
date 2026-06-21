@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 22 complete — DeleteRange + Lease Grant + v0.2.0 tagged, 33/33 tests</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 23 complete — Watch streaming + observability + v0.3.0 tagged, 37/37 tests</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.2.0 tagged</strong>. Phase 22 (<strong>Full gRPC CRUD</strong>) complete. 33/33 tests passing.
-     Server handles KV/Put, KV/Range, KV/DeleteRange, Lease/LeaseGrant via TCP with framed routing.
-     Multi-node cluster election, Prometheus metrics, structured JSON logging, graceful shutdown.
-     Next: Phase 23 — Watch streaming, compaction API, production hardening.</p>
+  <p><strong>v0.3.0 tagged</strong>. Phase 23 (<strong>Watch streaming + observability</strong>) complete. 37/37 tests passing.
+     Server implements coroutine-driven bidirectional Watch streaming, exposes Prometheus metrics
+     and pprof endpoints on port 2381, and ships the <code>cetcd-migrate</code> offline conversion tool.
+     Next: Phase 24 — production hardening, TLS by default, compaction API polish.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -76,8 +76,24 @@
       <tr><td>20</td><td>gRPC read/write via TCP</td><td>real gRPC frame parsing, v3rpc dispatch, response framing, TCP Put test — 33/33 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>21</td><td>Multi-service gRPC routing</td><td>path-based routing (2B path + gRPC frame), Put+Range roundtrip — 33/33 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>22</td><td>Full gRPC CRUD + v0.2.0</td><td>DeleteRange, LeaseGrant via TCP, 12 integration tests, v0.2.0 tagged — 33/33 green</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>23</td><td>Watch streaming + observability + v0.3.0</td><td>Coroutine-driven Watch bidi streams, metrics HTTP endpoint, pprof endpoints, cetcd-migrate — 37/37 green</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
+</div>
+
+<div class="card">
+  <h2>Phase 23 deliverables ✓</h2>
+  <table>
+    <thead><tr><th>Track</th><th>Component</th><th>Files</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>Watch</td><td>Coroutine-driven bidirectional Watch streaming</td><td><code>src/v3rpc/watch_handler.c</code>, <code>src/mvcc/mvcc.c</code>, <code>src/io/co.c</code></td><td>multi-watcher, single-connection multiplexing ✓</td></tr>
+      <tr><td>Observability</td><td>Prometheus metrics HTTP endpoint (port 2381)</td><td><code>src/base/metrics.c</code>, <code>src/server/server.c</code></td><td><code>GET /metrics</code> returns Prometheus text ✓</td></tr>
+      <tr><td>Observability</td><td>pprof endpoints</td><td><code>src/server/server.c</code></td><td><code>/debug/pprof/profile</code>, <code>/debug/pprof/heap</code>, <code>/debug/pprof/coroutines</code> ✓</td></tr>
+      <tr><td>Tool</td><td>etcd migration tool <code>cetcd-migrate</code></td><td><code>cmd/cetcd-migrate/main.c</code></td><td>bbolt + WAL + snap → LMDB + WAL ✓</td></tr>
+      <tr><td>Release</td><td>v0.3.0 tagged</td><td>—</td><td>2026-06-21 ✓</td></tr>
+    </tbody>
+  </table>
+  <p style="color:var(--ok);font-size:.85rem;margin-top:.5rem;">37/37 tests passing (ASan+UBSan+LeakSan clean). Watch streaming verified over TCP with multiple concurrent watchers on a single connection. Metrics and pprof endpoints reachable on port 2381. cetcd-migrate converts a sample etcd data directory to cetcd format. v0.3.0 tagged.</p>
 </div>
 
 <div class="card">

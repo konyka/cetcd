@@ -104,6 +104,30 @@ It mirrors `etcdctl` command structure for familiarity.
 ./build/bin/cetcdctl del foo
 ```
 
+### Watch streaming
+
+`cetcdctl watch` creates a bidirectional gRPC stream to the server and receives
+events in real time as keys change. Each watch request runs in its own coroutine,
+so many concurrent watchers can share a single TCP connection.
+
+```sh
+# Watch a single key
+./build/bin/cetcdctl watch foo
+
+# Watch a key prefix
+./build/bin/cetcdctl watch --prefix /services/
+
+# Watch from a specific revision
+./build/bin/cetcdctl watch --start-rev 42 foo
+
+# Include the previous key-value in each event
+./build/bin/cetcdctl watch --prev-kv foo
+```
+
+The server keeps the stream open, delivering `WatchResponse` messages as matching
+`Put`/`Delete` operations are committed. Press `Ctrl-C` to cancel the watch and close
+the stream.
+
 ### Lease management
 
 ```sh
@@ -176,16 +200,29 @@ It mirrors `etcdctl` command structure for familiarity.
 
 ## 4. Migrating from etcd
 
-A one-way migration tool (`cetcd-migrate`) is planned for a future release.
-It will read etcd's bbolt + WAL + snap and write a cetcd-native LMDB env
-plus a compatible WAL.
+`cetcd-migrate` is a one-way migration tool that reads an etcd data directory
+(bbolt backend, WAL, and snapshot files) and writes a cetcd-native LMDB
+environment plus a cetcd-compatible WAL.
 
 ```sh
-# Planned (not yet available)
 ./build/bin/cetcd-migrate \
-  --src /var/lib/etcd/member \
-  --dst /var/lib/cetcd/member
+  --data-dir /path/to/etcd/data \
+  --output-dir /path/to/cetcd/data \
+  [--verbose]
 ```
+
+| Flag | Description |
+|------|-------------|
+| `--data-dir PATH` | Source etcd data directory (contains `member/snap/db`, WAL segments, etc.) |
+| `--output-dir PATH` | Destination directory for the converted LMDB env and WAL |
+| `--verbose` | Print per-key progress and summary statistics |
+
+The destination directory must not already contain a cetcd database; the tool
+refuses to overwrite existing data as a safety measure. After migration, start
+`cetcd` pointing at `--output-dir` to serve the converted data.
+
+> **Note:** `cetcd-migrate` performs an offline, one-way conversion. Always back up
+> the original etcd data before running it.
 
 ---
 
@@ -198,12 +235,51 @@ build time via compile definitions.
 
 ### Metrics
 
-Prometheus-compatible metrics are planned for a future release, exposed on
-a dedicated metrics listener.
+cetcd exposes Prometheus-compatible metrics on a dedicated HTTP listener.
+Use the `--metrics-port` flag to change the port (default: `2381`).
+
+```sh
+# Start cetcd with the default metrics port
+./build/bin/cetcd --data-dir ./data --listen 127.0.0.1 --port 2379
+
+# Scrape metrics
+curl http://127.0.0.1:2381/metrics
+```
+
+The `/metrics` endpoint returns counters, gauges, and histograms in Prometheus
+text format. Key families include:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `cetcd_grpc_requests_total` | counter | Total gRPC requests by service/method |
+| `cetcd_raft_ticks_total` | counter | Total Raft tick timer firings |
+| `cetcd_mvcc_revision` | gauge | Current MVCC revision |
+| `cetcd_lease_active` | gauge | Number of active leases |
 
 ### Profiling
 
-pprof-style profiling endpoints are planned for a future release.
+pprof-style profiling endpoints are exposed on the metrics port (`2381` by default)
+under `/debug/pprof/`.
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /debug/pprof/profile?seconds=N` | CPU profile for `N` seconds (default 30) |
+| `GET /debug/pprof/heap` | Heap profile (in-use and allocated) |
+| `GET /debug/pprof/coroutines` | Snapshot of active libco coroutines and their states |
+
+```sh
+# 10-second CPU profile
+curl -o cpu.prof http://127.0.0.1:2381/debug/pprof/profile?seconds=10
+
+# Heap profile
+curl -o heap.prof http://127.0.0.1:2381/debug/pprof/heap
+
+# Coroutine snapshot
+curl http://127.0.0.1:2381/debug/pprof/coroutines
+```
+
+Profiles are returned in pprof protocol buffer format and can be visualised with
+`go tool pprof` or compatible tools.
 
 ---
 

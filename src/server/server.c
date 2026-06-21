@@ -49,10 +49,12 @@ struct cetcd_server {
     cetcd_loop          *loop;
     cetcd_tcp           *listener;
     cetcd_tcp           *peer_listener;
+    uv_tcp_t             metrics_listener;
     cetcd_timer         *tick_timer;
     cetcd_metrics       *metrics;
     int                  peer_fd;
     bool                 started;
+    bool                 metrics_listener_init;
 };
 
 static int  ensure_dir(const char *path);
@@ -61,6 +63,12 @@ static void process_ready_(cetcd_server *srv);
 static void peer_send_cb_(uint64_t to_id, const uint8_t *data, size_t len, void *udata);
 static void on_peer_incoming_(cetcd_tcp *server, cetcd_tcp *client, void *arg);
 static void on_client_conn_(cetcd_tcp *server, cetcd_tcp *client, void *arg);
+
+static void on_metrics_connection_(uv_stream_t *server, int status);
+static void on_metrics_alloc_(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf);
+static void on_metrics_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf);
+static void on_metrics_write_(uv_write_t *req, int status);
+static void on_metrics_close_(uv_handle_t *handle);
 
 typedef struct client_ctx_ {
     cetcd_server *srv;
@@ -72,6 +80,245 @@ typedef struct client_ctx_ {
 static void client_close_cb_(uv_handle_t *handle) {
     client_ctx_ *ctx = (client_ctx_ *)handle->data;
     if (ctx) free(ctx);
+}
+
+typedef struct metrics_conn_ctx_ {
+    cetcd_server *srv;
+    uv_tcp_t      client;
+    char          req[4096];
+    size_t        req_len;
+    cetcd_buf_t   resp;
+    uv_write_t    write_req;
+    int           pprof_seconds;  /* for /debug/pprof/profile?seconds=N */
+} metrics_conn_ctx_;
+
+static void on_metrics_close_(uv_handle_t *handle) {
+    metrics_conn_ctx_ *ctx = (metrics_conn_ctx_ *)handle->data;
+    if (!ctx) return;
+    cetcd_buf_free(&ctx->resp);
+    free(ctx);
+}
+
+static void on_metrics_write_(uv_write_t *req, int status) {
+    (void)status;
+    metrics_conn_ctx_ *ctx = (metrics_conn_ctx_ *)req->data;
+    if (!ctx) return;
+    uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
+}
+
+static void metrics_send_response_(metrics_conn_ctx_ *ctx, int code,
+                                    const char *status_text,
+                                    const char *content_type,
+                                    const uint8_t *body, size_t body_len) {
+    cetcd_buf_free(&ctx->resp);
+    cetcd_buf_init(&ctx->resp);
+    cetcd_buf_printf(&ctx->resp,
+        "HTTP/1.1 %d %s\r\n"
+        "Content-Type: %s\r\n"
+        "Content-Length: %zu\r\n"
+        "Connection: close\r\n"
+        "\r\n",
+        code, status_text, content_type, body_len);
+    if (body && body_len > 0) {
+        cetcd_buf_append(&ctx->resp, body, body_len);
+    }
+    ctx->write_req.data = ctx;
+    uv_buf_t wbuf = uv_buf_init((char *)ctx->resp.data, (unsigned int)ctx->resp.len);
+    uv_write(&ctx->write_req, (uv_stream_t *)&ctx->client, &wbuf, 1, on_metrics_write_);
+}
+
+static void metrics_serve_metrics_(metrics_conn_ctx_ *ctx) {
+    cetcd_buf_t body;
+    cetcd_buf_init(&body);
+    int rc = cetcd_metrics_render(ctx->srv->metrics, &body);
+    if (rc != 0) {
+        cetcd_buf_free(&body);
+        const char *msg = "Internal Server Error\n";
+        metrics_send_response_(ctx, 500, "Internal Server Error",
+                               "text/plain",
+                               (const uint8_t *)msg, strlen(msg));
+        return;
+    }
+    metrics_send_response_(ctx, 200, "OK",
+                           "text/plain; version=0.0.4; charset=utf-8",
+                           body.data, body.len);
+    cetcd_buf_free(&body);
+}
+
+static int metrics_parse_request_(metrics_conn_ctx_ *ctx) {
+    /* Minimal parser: find the end of the request line. */
+    char *end = NULL;
+    size_t i;
+    for (i = 0; i + 1 < ctx->req_len; i++) {
+        if (ctx->req[i] == '\r' && ctx->req[i + 1] == '\n') {
+            end = ctx->req + i;
+            break;
+        }
+        if (ctx->req[i] == '\n' && (i == 0 || ctx->req[i - 1] != '\r')) {
+            end = ctx->req + i;
+            break;
+        }
+    }
+    if (!end) return 0; /* need more data */
+
+    /* Request line format: METHOD PATH HTTP/VERSION */
+    char *space1 = strchr(ctx->req, ' ');
+    if (!space1 || space1 >= end) return -1;
+    char *space2 = strchr(space1 + 1, ' ');
+    if (!space2 || space2 >= end) return -1;
+
+    size_t path_len = (size_t)(space2 - space1 - 1);
+    const char *path = space1 + 1;
+
+    if (path_len == 8 && memcmp(path, "/metrics", 8) == 0) {
+        return 1;  /* /metrics */
+    }
+    if (path_len >= 20 && memcmp(path, "/debug/pprof/profile", 20) == 0) {
+        /* Parse ?seconds=N query parameter */
+        ctx->pprof_seconds = 5;  /* default */
+        if (path_len > 20 && path[20] == '?') {
+            const char *qs = path + 21;
+            size_t qs_len = path_len - 21;
+            if (qs_len > 8 && memcmp(qs, "seconds=", 8) == 0) {
+                int secs = atoi(qs + 8);
+                if (secs > 0 && secs <= 300) ctx->pprof_seconds = secs;
+            }
+        }
+        return 3;  /* /debug/pprof/profile */
+    }
+    if (path_len == 18 && memcmp(path, "/debug/pprof/heap", 18) == 0) {
+        return 4;  /* /debug/pprof/heap */
+    }
+    if (path_len == 24 && memcmp(path, "/debug/pprof/coroutines", 24) == 0) {
+        return 5;  /* /debug/pprof/coroutines */
+    }
+    return 2; /* not found */
+}
+
+static void on_metrics_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
+    metrics_conn_ctx_ *ctx = (metrics_conn_ctx_ *)stream->data;
+    if (!ctx) {
+        if (buf->base) free(buf->base);
+        return;
+    }
+
+    if (nread <= 0) {
+        if (buf->base) free(buf->base);
+        if (nread < 0) {
+            uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
+        }
+        return;
+    }
+
+    if (ctx->req_len + (size_t)nread > sizeof(ctx->req)) {
+        if (buf->base) free(buf->base);
+        uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
+        return;
+    }
+    memcpy(ctx->req + ctx->req_len, buf->base, (size_t)nread);
+    ctx->req_len += (size_t)nread;
+    if (buf->base) free(buf->base);
+
+    int parsed = metrics_parse_request_(ctx);
+    if (parsed == 0) {
+        /* Need more data; keep reading. */
+        return;
+    }
+    if (parsed < 0) {
+        const char *msg = "Bad Request\n";
+        metrics_send_response_(ctx, 400, "Bad Request",
+                               "text/plain",
+                               (const uint8_t *)msg, strlen(msg));
+        return;
+    }
+    if (parsed == 1) {
+        metrics_serve_metrics_(ctx);
+    } else if (parsed == 3) {
+        /* /debug/pprof/profile — CPU profiling (blocks for N seconds) */
+        cetcd_buf_t body;
+        cetcd_buf_init(&body);
+        int rc = cetcd_pprof_profile_render(&body, ctx->pprof_seconds);
+        if (rc != 0) {
+            cetcd_buf_free(&body);
+            const char *msg = "Internal Server Error\n";
+            metrics_send_response_(ctx, 500, "Internal Server Error",
+                                   "text/plain",
+                                   (const uint8_t *)msg, strlen(msg));
+        } else {
+            metrics_send_response_(ctx, 200, "OK", "text/plain",
+                                   body.data, body.len);
+            cetcd_buf_free(&body);
+        }
+    } else if (parsed == 4) {
+        /* /debug/pprof/heap */
+        cetcd_buf_t body;
+        cetcd_buf_init(&body);
+        int rc = cetcd_pprof_heap_render(&body);
+        if (rc != 0) {
+            cetcd_buf_free(&body);
+            const char *msg = "Internal Server Error\n";
+            metrics_send_response_(ctx, 500, "Internal Server Error",
+                                   "text/plain",
+                                   (const uint8_t *)msg, strlen(msg));
+        } else {
+            metrics_send_response_(ctx, 200, "OK", "text/plain",
+                                   body.data, body.len);
+            cetcd_buf_free(&body);
+        }
+    } else if (parsed == 5) {
+        /* /debug/pprof/coroutines */
+        cetcd_buf_t body;
+        cetcd_buf_init(&body);
+        int rc = cetcd_pprof_coroutines_render(&body);
+        if (rc != 0) {
+            cetcd_buf_free(&body);
+            const char *msg = "Internal Server Error\n";
+            metrics_send_response_(ctx, 500, "Internal Server Error",
+                                   "text/plain",
+                                   (const uint8_t *)msg, strlen(msg));
+        } else {
+            metrics_send_response_(ctx, 200, "OK", "text/plain",
+                                   body.data, body.len);
+            cetcd_buf_free(&body);
+        }
+    } else {
+        const char *msg = "Not Found\n";
+        metrics_send_response_(ctx, 404, "Not Found",
+                               "text/plain",
+                               (const uint8_t *)msg, strlen(msg));
+    }
+}
+
+static void on_metrics_alloc_(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
+    (void)handle;
+    size_t cap = suggested_size > 0 ? suggested_size : 4096;
+    char *slab = (char *)malloc(cap);
+    if (!slab) {
+        buf->base = NULL;
+        buf->len  = 0;
+        return;
+    }
+    *buf = uv_buf_init(slab, (unsigned int)cap);
+}
+
+static void on_metrics_connection_(uv_stream_t *server, int status) {
+    if (status < 0) return;
+    cetcd_server *srv = (cetcd_server *)server->data;
+    if (!srv) return;
+
+    metrics_conn_ctx_ *ctx = (metrics_conn_ctx_ *)calloc(1, sizeof(*ctx));
+    if (!ctx) return;
+    ctx->srv = srv;
+    cetcd_buf_init(&ctx->resp);
+
+    uv_loop_t *loop = cetcd_loop_uv(srv->loop);
+    uv_tcp_init(loop, &ctx->client);
+    if (uv_accept(server, (uv_stream_t *)&ctx->client) != 0) {
+        uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
+        return;
+    }
+    ctx->client.data = ctx;
+    uv_read_start((uv_stream_t *)&ctx->client, on_metrics_alloc_, on_metrics_read_);
 }
 
 static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
@@ -376,6 +623,10 @@ void cetcd_server_free(cetcd_server *srv) {
     if (srv->tick_timer) { cetcd_timer_stop(srv->tick_timer); cetcd_timer_free(srv->tick_timer); }
     if (srv->peer_listener) { cetcd_tcp_free(srv->peer_listener); srv->peer_listener = NULL; }
     if (srv->listener) { cetcd_tcp_free(srv->listener); srv->listener = NULL; }
+    if (srv->metrics_listener_init) {
+        uv_close((uv_handle_t *)&srv->metrics_listener, NULL);
+        srv->metrics_listener_init = false;
+    }
     if (srv->loop) { cetcd_loop_free(srv->loop); srv->loop = NULL; }
     if (srv->wal_enc) { cetcd_wal_encoder_flush(srv->wal_enc); cetcd_wal_encoder_free(srv->wal_enc); }
     if (srv->backend) cetcd_backend_close(srv->backend);
@@ -522,6 +773,31 @@ int cetcd_server_serve(cetcd_server *srv) {
             if (rc == 0) {
                 cetcd_tcp_listen(srv->peer_listener, on_peer_incoming_, srv);
             }
+        }
+    }
+
+    if (srv->cfg.metrics_port > 0) {
+        uv_loop_t *loop = cetcd_loop_uv(srv->loop);
+        uv_tcp_init(loop, &srv->metrics_listener);
+        srv->metrics_listener.data = srv;
+        srv->metrics_listener_init = true;
+
+        struct sockaddr_in addr_in;
+        rc = uv_ip4_addr(srv->cfg.listen_addr, srv->cfg.metrics_port, &addr_in);
+        if (rc == 0) {
+            rc = uv_tcp_bind(&srv->metrics_listener, (const struct sockaddr *)&addr_in, 0);
+        }
+        if (rc == 0) {
+            rc = uv_listen((uv_stream_t *)&srv->metrics_listener, 128, on_metrics_connection_);
+        }
+        if (rc != 0) {
+            CETCD_WARN("failed to start metrics listener on %s:%u: %s",
+                       srv->cfg.listen_addr, srv->cfg.metrics_port, uv_strerror(rc));
+            uv_close((uv_handle_t *)&srv->metrics_listener, NULL);
+            srv->metrics_listener_init = false;
+        } else {
+            CETCD_INFO("metrics server listening on %s:%u",
+                       srv->cfg.listen_addr, srv->cfg.metrics_port);
         }
     }
 

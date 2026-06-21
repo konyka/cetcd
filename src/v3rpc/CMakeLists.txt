@@ -10,6 +10,7 @@ cetcd_add_module(v3rpc
     PUBLIC_DEPS
         cetcd_base
     PRIVATE_DEPS
+        cetcd_io
         cetcd_mvcc
         cetcd_lease
         cetcd_auth

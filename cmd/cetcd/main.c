@@ -26,6 +26,7 @@ static void print_usage(const char *prog) {
     printf("  --port PORT      Client listen port (default: 2379)\n");
     printf("  --peer ADDR      Peer listen address (default: 127.0.0.1)\n");
     printf("  --peer-port PORT Peer listen port (default: 2380)\n");
+    printf("  --metrics-port PORT Metrics listen port (default: 2381, 0 to disable)\n");
     printf("  --node-id ID     Node ID (default: 1)\n");
     printf("  --initial-cluster NODE1=ADDR:PORT,NODE2=...  Initial cluster membership\n");
     printf("  --log-level LVL  Log level: trace,debug,info,warn,error (default: info)\n");
@@ -44,6 +45,7 @@ int main(int argc, char **argv) {
     cfg.listen_port = 2379;
     strncpy(cfg.peer_addr, "127.0.0.1", sizeof(cfg.peer_addr) - 1);
     cfg.peer_port = 2380;
+    cfg.metrics_port = 2381;
     cfg.election_tick = 10;
     cfg.heartbeat_tick = 1;
 
@@ -60,6 +62,8 @@ int main(int argc, char **argv) {
             strncpy(cfg.peer_addr, argv[++i], sizeof(cfg.peer_addr) - 1);
         } else if (strcmp(argv[i], "--peer-port") == 0 && i + 1 < argc) {
             cfg.peer_port = (uint16_t)atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--metrics-port") == 0 && i + 1 < argc) {
+            cfg.metrics_port = (uint16_t)atoi(argv[++i]);
         } else if (strcmp(argv[i], "--node-id") == 0 && i + 1 < argc) {
             cfg.node_id = (uint64_t)atol(argv[++i]);
         } else if (strcmp(argv[i], "--initial-cluster") == 0 && i + 1 < argc) {
@@ -117,6 +121,7 @@ int main(int argc, char **argv) {
     CETCD_INFO("  data-dir  : %s", cfg.data_dir);
     CETCD_INFO("  listen    : %s:%u", cfg.listen_addr, cfg.listen_port);
     CETCD_INFO("  peer      : %s:%u", cfg.peer_addr, cfg.peer_port);
+    CETCD_INFO("  metrics   : %s:%u", cfg.listen_addr, cfg.metrics_port);
     CETCD_INFO("  cluster   : %u peer(s)", cfg.n_initial_peers);
 
     cetcd_server *srv = cetcd_server_new(&cfg);

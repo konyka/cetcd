@@ -16,6 +16,8 @@ typedef struct cetcd_buf {
     size_t   cap;
 } cetcd_buf;
 
+typedef cetcd_buf cetcd_buf_t;
+
 void        cetcd_buf_init(cetcd_buf *b);
 void        cetcd_buf_free(cetcd_buf *b);
 int         cetcd_buf_reserve(cetcd_buf *b, size_t cap);

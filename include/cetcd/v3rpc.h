@@ -12,21 +12,39 @@ extern "C" {
 #endif
 
 typedef struct cetcd_v3rpc cetcd_v3rpc;
+typedef struct cetcd_loop  cetcd_loop;   /* defined in cetcd/io.h */
 
 typedef struct {
     uint8_t *data;
     size_t   len;
 } cetcd_rpc_bytes;
 
+/* Callback used by streaming RPC handlers (e.g. Watch) to write a
+ * single raw protobuf message back to the client.  The callback is
+ * responsible for framing the message if required by the transport. */
+typedef void (*cetcd_stream_write_fn)(const uint8_t *data, size_t len, void *ctx);
+
 cetcd_v3rpc *cetcd_v3rpc_new(void);
 void         cetcd_v3rpc_free(cetcd_v3rpc *rpc);
 
+/* Dispatch a single unary request and return a single response.
+ * For streaming RPCs this returns the initial control response only
+ * (e.g. WatchCreateRequest confirmation); subsequent messages are
+ * emitted via the registered stream writer callback. */
 cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
                                       const char *path,
                                       const uint8_t *req_data,
                                       size_t req_len);
 
 void cetcd_rpc_bytes_free(cetcd_rpc_bytes *b);
+
+/* Streaming support: associate the event loop and a writer callback.
+ * When these are set, the Watch handler runs in bidirectional streaming
+ * mode; otherwise it falls back to legacy single-shot behaviour. */
+CETCD_API void cetcd_v3rpc_set_loop(cetcd_v3rpc *rpc, cetcd_loop *loop);
+CETCD_API void cetcd_v3rpc_set_stream_writer(cetcd_v3rpc *rpc,
+                                              cetcd_stream_write_fn fn,
+                                              void *ctx);
 
 #ifdef __cplusplus
 }

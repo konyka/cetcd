@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "cetcd/base.h"
 #include "cetcd/slice.h"
 
 #ifdef __cplusplus
@@ -89,7 +90,7 @@ int cetcd_mvcc_range(cetcd_mvcc_store *s, int64_t rev,
 
 void cetcd_kv_free_contents(cetcd_kv *kvs, size_t count);
 
-/* --- Watch --- */
+/* --- Watch (callback-based, single-shot) --- */
 
 typedef void (*cetcd_watch_cb)(const cetcd_watch_event *ev, void *udata);
 
@@ -106,6 +107,66 @@ cetcd_watcher *cetcd_mvcc_watch_prefix(cetcd_mvcc_store *s,
                                         cetcd_watch_cb cb, void *udata);
 
 void cetcd_mvcc_watch_cancel(cetcd_mvcc_store *s, cetcd_watcher *w);
+
+/* --- Watch (streaming / notification-channel based) --- */
+
+/* Singly-linked list node for pending watch events. */
+typedef struct cetcd_mvcc_watch_event_node {
+    cetcd_watch_event                  event;
+    struct cetcd_mvcc_watch_event_node *next;
+} cetcd_mvcc_watch_event_node;
+
+/*
+ * Notification channel: a queue of watch events plus a wake-up callback
+ * (typically wrapping uv_async_send).  Single-producer (MVCC store thread),
+ * single-consumer (watcher coroutine).
+ */
+typedef struct cetcd_mvcc_watch_notify {
+    cetcd_mvcc_watch_event_node *head;
+    cetcd_mvcc_watch_event_node *tail;
+    size_t                       count;
+    void                       (*wake_cb)(void *udata);
+    void                        *wake_cb_udata;
+} cetcd_mvcc_watch_notify;
+
+/* Initialize / destroy a notification channel. */
+CETCD_API void cetcd_mvcc_watch_notify_init(cetcd_mvcc_watch_notify *n,
+                                             void (*wake_cb)(void *), void *udata);
+CETCD_API void cetcd_mvcc_watch_notify_destroy(cetcd_mvcc_watch_notify *n);
+
+/* Opaque streaming watcher handle. */
+typedef struct cetcd_stream_watcher cetcd_stream_watcher;
+
+/*
+ * Subscribe with a notification channel.
+ * Events matching (key, range_end, start_rev) are pushed into *notify
+ * and wake_cb is called after each push so the event loop can resume
+ * the watcher coroutine.
+ *
+ * range_end == NULL / range_end_len == 0  ->  exact-key watch
+ * range_end points to a single '\0' byte   ->  prefix watch
+ * otherwise                                ->  range [key, range_end)
+ */
+CETCD_API cetcd_stream_watcher *cetcd_mvcc_watch_subscribe(
+    cetcd_mvcc_store *store, int64_t watch_id,
+    const uint8_t *key, size_t key_len,
+    const uint8_t *range_end, size_t range_end_len,
+    int64_t start_rev, int want_prev_kv,
+    cetcd_mvcc_watch_notify *notify);
+
+/* Unsubscribe a streaming watcher. */
+CETCD_API void cetcd_mvcc_watch_unsubscribe(cetcd_mvcc_store *store,
+                                             cetcd_stream_watcher *w);
+
+/*
+ * Dequeue all pending events from a notification channel.
+ * Caller must free each event's kv.key.data, kv.value.data, prev_kv data
+ * and finally free the events array itself.
+ * Returns CETCD_OK on success, CETCD_ERR_INVAL on bad args.
+ */
+CETCD_API int cetcd_mvcc_watch_recv(cetcd_mvcc_watch_notify *notify,
+                                     cetcd_watch_event **events_out,
+                                     size_t *count_out);
 
 /* --- Compaction --- */
 

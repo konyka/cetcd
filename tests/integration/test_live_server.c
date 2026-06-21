@@ -229,10 +229,12 @@ CETCD_TEST_CASE(live_server_raft_tick_timer) {
 
     cetcd_metrics *m = cetcd_server_metrics(srv);
     CETCD_ASSERT_NOT_NULL(m);
-    char buf[4096];
-    size_t len = cetcd_metrics_render(m, buf, sizeof(buf));
-    CETCD_ASSERT_TRUE(len > 0);
-    CETCD_ASSERT_TRUE(strstr(buf, "cetcd_server_info 1") != NULL);
+    cetcd_buf_t buf;
+    cetcd_buf_init(&buf);
+    CETCD_ASSERT_EQ_INT(cetcd_metrics_render(m, &buf), 0);
+    CETCD_ASSERT_TRUE(buf.len > 0);
+    CETCD_ASSERT_TRUE(strstr((char *)buf.data, "cetcd_server_info 1") != NULL);
+    cetcd_buf_free(&buf);
 
     cetcd_server_stop(srv);
     cetcd_server_free(srv);

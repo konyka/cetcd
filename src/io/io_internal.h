@@ -6,10 +6,19 @@
 
 /* Forward declaration — defined in cetcd/io.h as opaque typedef */
 struct cetcd_tcp;
+struct cetcd_co;
+
+/* Entry in the coroutine resume queue (linked list) */
+typedef struct cetcd_resume_entry_ {
+    struct cetcd_co *co;
+    struct cetcd_resume_entry_ *next;
+} cetcd_resume_entry_;
 
 struct cetcd_loop {
-    uv_loop_t uv;
-    struct schedule *co_sched;  /* libco coroutine scheduler */
+    uv_loop_t             uv;
+    struct schedule      *co_sched;      /* libco coroutine scheduler */
+    uv_async_t            resume_async;  /* async handle for scheduled resumes */
+    cetcd_resume_entry_  *resume_queue;  /* pending coroutines to resume  */
 };
 
 static inline uv_loop_t *cetcd_loop_uv(struct cetcd_loop *loop) {

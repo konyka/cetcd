@@ -24,6 +24,7 @@ typedef struct cetcd_server_config {
     uint16_t        listen_port;
     char            peer_addr[256];
     uint16_t        peer_port;
+    uint16_t        metrics_port;
     uint64_t        election_tick;
     uint64_t        heartbeat_tick;
     bool            auth_enabled;

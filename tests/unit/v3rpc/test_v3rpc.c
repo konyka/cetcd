@@ -2,11 +2,16 @@
 #include "cetcd/v3rpc.h"
 #include "cetcd/auth.h"
 #include "cetcd/peer.h"
+#include "cetcd/io.h"
+#include "cetcd/mvcc.h"
 #include "cetcd_test.h"
 
 /* Globals defined in v3rpc.c — we set them to test cluster-aware handlers */
 extern cetcd_cluster *g_rpc_cluster;
 extern uint64_t       g_rpc_node_id;
+extern cetcd_loop           *g_rpc_loop;
+extern cetcd_stream_write_fn g_rpc_stream_write_fn;
+extern void                 *g_rpc_stream_write_ctx;
 
 CETCD_TEST_CASE(v3rpc_create_destroy) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
@@ -3513,6 +3518,174 @@ CETCD_TEST_CASE(v3rpc_txn_range_revision_filter) {
     cetcd_v3rpc_free(rpc);
 }
 
+/* ── Streaming Watch tests ─────────────────────────────────────────────── */
+
+/* Mock stream writer: records whether it was invoked. */
+static int mock_write_called = 0;
+static void mock_stream_write_fn(const uint8_t *data, size_t len, void *ctx) {
+    (void)data; (void)len; (void)ctx;
+    mock_write_called++;
+}
+
+/* Reset the global streaming state before/after each test. */
+static void reset_streaming_globals(void) {
+    g_rpc_loop = NULL;
+    g_rpc_stream_write_fn = NULL;
+    g_rpc_stream_write_ctx = NULL;
+}
+
+CETCD_TEST_CASE(test_watch_create_streaming) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    CETCD_ASSERT_NOT_NULL(rpc);
+
+    /* Activate streaming mode by setting loop + stream writer */
+    cetcd_loop *loop = cetcd_loop_new();
+    cetcd_v3rpc_set_loop(rpc, loop);
+    cetcd_v3rpc_set_stream_writer(rpc, mock_stream_write_fn, NULL);
+
+    /* Build WatchCreateRequest: key="skey", client_watch_id=100 (field 7, tag 0x38) */
+    uint8_t create_inner[32]; size_t cpos = 0;
+    create_inner[cpos++] = 0x0a; /* field 1 = key */
+    create_inner[cpos++] = 0x04;
+    memcpy(create_inner + cpos, "skey", 4); cpos += 4;
+    create_inner[cpos++] = 0x38; /* field 7 = watch_id */
+    create_inner[cpos++] = 0x64; /* 100 */
+
+    uint8_t watch_buf[64]; size_t wpos = 0;
+    watch_buf[wpos++] = 0x0a; /* field 1 = WatchCreateRequest */
+    watch_buf[wpos++] = (uint8_t)cpos;
+    memcpy(watch_buf + wpos, create_inner, cpos); wpos += cpos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Watch/Watch", watch_buf, wpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* Verify the response has header (0x0a) and created=true (0x18 0x01) */
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+
+    /* Parse past the header */
+    size_t p = 1;
+    uint64_t hdr_len = 0; int shift = 0;
+    while (p < resp.len) {
+        uint8_t b = resp.data[p++];
+        hdr_len |= (uint64_t)(b & 0x7F) << shift;
+        if (!(b & 0x80)) break;
+        shift += 7;
+    }
+    p += (size_t)hdr_len;
+
+    /* After header, look for created flag (tag 0x18) and watch_id (tag 0x10) */
+    int found_created = 0;
+    int found_watch_id = 0;
+    while (p < resp.len) {
+        uint8_t tag = resp.data[p++];
+        if (tag == 0x18) { /* created */
+            found_created = 1;
+            while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+        } else if (tag == 0x10) { /* watch_id */
+            found_watch_id = 1;
+            while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+        } else if (tag == 0x0a || tag == 0x5a) {
+            /* length-delimited: skip body */
+            uint64_t l = 0; int s = 0;
+            while (p < resp.len) { uint8_t b = resp.data[p++]; l |= (uint64_t)(b & 0x7F) << s; if (!(b & 0x80)) break; s += 7; }
+            p += (size_t)l;
+        } else {
+            while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+        }
+    }
+    CETCD_ASSERT_TRUE(found_created);
+    CETCD_ASSERT_TRUE(found_watch_id);
+
+    cetcd_rpc_bytes_free(&resp);
+    reset_streaming_globals();
+    cetcd_v3rpc_free(rpc);
+    cetcd_loop_free(loop);
+}
+
+CETCD_TEST_CASE(test_watch_cancel) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    CETCD_ASSERT_NOT_NULL(rpc);
+
+    /* Activate streaming mode */
+    cetcd_loop *loop = cetcd_loop_new();
+    cetcd_v3rpc_set_loop(rpc, loop);
+    cetcd_v3rpc_set_stream_writer(rpc, mock_stream_write_fn, NULL);
+
+    /* First, create a streaming watcher: key="ckey", watch_id=200 */
+    uint8_t create_inner[16]; size_t cpos = 0;
+    create_inner[cpos++] = 0x0a; /* field 1 = key */
+    create_inner[cpos++] = 0x04;
+    memcpy(create_inner + cpos, "ckey", 4); cpos += 4;
+    create_inner[cpos++] = 0x38; /* field 7 = watch_id */
+    create_inner[cpos++] = 0xc8; /* 200 = 0xc8 (single-byte varint) */
+
+    uint8_t create_buf[32]; size_t cwpos = 0;
+    create_buf[cwpos++] = 0x0a;
+    create_buf[cwpos++] = (uint8_t)cpos;
+    memcpy(create_buf + cwpos, create_inner, cpos); cwpos += cpos;
+
+    cetcd_rpc_bytes create_resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Watch/Watch", create_buf, cwpos);
+    CETCD_ASSERT_NOT_NULL(create_resp.data);
+    cetcd_rpc_bytes_free(&create_resp);
+
+    /* Now cancel the watcher: watch_id=200 */
+    uint8_t cancel_inner[8]; size_t xpos = 0;
+    cancel_inner[xpos++] = 0x08; /* field 1 = watch_id */
+    cancel_inner[xpos++] = 0xc8; /* 200 */
+
+    uint8_t cancel_buf[16]; size_t xwpos = 0;
+    cancel_buf[xwpos++] = 0x12; /* field 2 = WatchCancelRequest */
+    cancel_buf[xwpos++] = (uint8_t)xpos;
+    memcpy(cancel_buf + xwpos, cancel_inner, xpos); xwpos += xpos;
+
+    cetcd_rpc_bytes cancel_resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Watch/Watch", cancel_buf, xwpos);
+    CETCD_ASSERT_NOT_NULL(cancel_resp.data);
+    CETCD_ASSERT_TRUE(cancel_resp.len > 2);
+
+    /* Verify cancel response has header (0x0a) and canceled=true (0x20 0x01) */
+    CETCD_ASSERT_TRUE(cancel_resp.data[0] == 0x0a);
+
+    size_t p = 1;
+    uint64_t hdr_len = 0; int shift = 0;
+    while (p < cancel_resp.len) {
+        uint8_t b = cancel_resp.data[p++];
+        hdr_len |= (uint64_t)(b & 0x7F) << shift;
+        if (!(b & 0x80)) break;
+        shift += 7;
+    }
+    p += (size_t)hdr_len;
+
+    int found_canceled = 0;
+    int found_cancel_watch_id = 0;
+    while (p < cancel_resp.len) {
+        uint8_t tag = cancel_resp.data[p++];
+        if (tag == 0x20) { /* canceled */
+            found_canceled = 1;
+            while (p < cancel_resp.len) { uint8_t b = cancel_resp.data[p++]; if (!(b & 0x80)) break; }
+        } else if (tag == 0x10) { /* watch_id */
+            found_cancel_watch_id = 1;
+            while (p < cancel_resp.len) { uint8_t b = cancel_resp.data[p++]; if (!(b & 0x80)) break; }
+        } else if (tag == 0x0a || tag == 0x5a) {
+            uint64_t l = 0; int s = 0;
+            while (p < cancel_resp.len) { uint8_t b = cancel_resp.data[p++]; l |= (uint64_t)(b & 0x7F) << s; if (!(b & 0x80)) break; s += 7; }
+            p += (size_t)l;
+        } else {
+            while (p < cancel_resp.len) { uint8_t b = cancel_resp.data[p++]; if (!(b & 0x80)) break; }
+        }
+    }
+    CETCD_ASSERT_TRUE(found_canceled);
+    CETCD_ASSERT_TRUE(found_cancel_watch_id);
+
+    cetcd_rpc_bytes_free(&cancel_resp);
+    reset_streaming_globals();
+    cetcd_v3rpc_free(rpc);
+    cetcd_loop_free(loop);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
@@ -3604,6 +3777,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_txn_range_keys_only),
     CETCD_TEST_ENTRY(v3rpc_txn_range_sort_order),
     CETCD_TEST_ENTRY(v3rpc_txn_range_revision_filter),
+    CETCD_TEST_ENTRY(test_watch_create_streaming),
+    CETCD_TEST_ENTRY(test_watch_cancel),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

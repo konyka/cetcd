@@ -344,7 +344,101 @@ with the proper protobuf encoding.
 
 ---
 
-## 7. Build, test, ship
+## 7. Watch streaming architecture
+
+The etcd `Watch` RPC is a long-lived, bidirectional gRPC stream. cetcd implements it
+with one libco coroutine per active watcher, integrated into the libuv reactor via
+`uv_async_t` handles.
+
+### Per-watcher flow
+
+```
+Client HTTP/2 stream
+  ├─ WatchCreateRequest arrives on reactor
+  │     └─ spawn watch coroutine
+  │           ├─ subscribe watcher to MVCC key/range
+  │           ├─ encode WatchResponse (created=true, watch_id)
+  │           ├─ cetcd_co_write() → yield
+  │           │
+  │           ▼
+  │     event arrives from MVCC / another reactor
+  │     uv_async_send() wakes the coroutine
+  │           ├─ encode WatchResponse(events)
+  │           ├─ cetcd_co_write() → yield
+  │           └─ loop until cancelled or stream closed
+```
+
+1. The gRPC layer receives a `WatchCreateRequest` on an HTTP/2 stream.
+2. A dedicated coroutine is spawned from the per-connection scheduler.
+3. The coroutine registers a watcher with the MVCC store for the requested key or
+   prefix and immediately sends the `created` response.
+4. The coroutine yields; the reactor continues processing other streams.
+5. When a matching `Put` or `Delete` is committed, MVCC invokes the watcher callback,
+   which calls `uv_async_send()` on the async handle associated with that coroutine.
+6. libuv fires the async callback on the reactor thread, resumes the coroutine, and
+   the coroutine encodes a `WatchResponse` containing the event(s).
+7. `cetcd_co_write()` yields until the TCP write completes, then the coroutine waits
+   again for the next event.
+
+### Multi-watcher multiplexing
+
+A single client connection may carry many concurrent `Watch` streams, each mapped to
+one HTTP/2 stream ID and one coroutine. The MVCC watcher registry is keyed by
+key/prefix; a single committed modification can fan out to many watcher coroutines,
+each notified independently through its own `uv_async_t`. No polling is required: an
+unblocked watcher coroutine consumes no CPU until an event arrives.
+
+### Performance characteristics
+
+- **4 KiB coroutine stacks** by default — tens of thousands of idle watchers cost
+  only a few hundred megabytes of virtual address space.
+- **Lock-free scheduling** between MVCC and the reactor via `uv_async_send()`; the
+  hot path is a memory write + event-loop wakeup.
+- **No kernel context switches** per event: yield/resume stays in user space.
+- Backpressure is natural: a slow consumer blocks its own coroutine on `co_write`,
+  but does not stall other watchers or RPCs on the same connection.
+
+---
+
+## 8. Observability architecture
+
+All observability endpoints are served from a dedicated HTTP listener on port `2381`
+by default. The listener is a separate `uv_tcp_t` within the same libuv loop as the
+gRPC listener, so it shares the reactor thread without contending with the client
+port.
+
+### Prometheus metrics
+
+`libcetcd_base` provides a metrics registry (`cetcd_metrics`) that supports
+counters, gauges, and histograms. The server updates metrics during request
+processing and Raft ticks. The `/metrics` handler serialises the registry to
+Prometheus text exposition format on demand.
+
+Key metric families:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `cetcd_grpc_requests_total` | counter | Total gRPC requests by service and method |
+| `cetcd_raft_ticks_total` | counter | Total Raft tick timer firings |
+| `cetcd_mvcc_revision` | gauge | Current MVCC revision |
+| `cetcd_lease_active` | gauge | Number of active leases |
+
+### pprof endpoints
+
+The same port exposes pprof-compatible endpoints under `/debug/pprof/`:
+
+- `/debug/pprof/profile?seconds=N` — CPU profile sampled for `N` seconds.
+- `/debug/pprof/heap` — heap profile in pprof protobuf format.
+- `/debug/pprof/coroutines` — snapshot of active coroutines (libco) and their
+  scheduling state.
+
+These endpoints are intended for development and production troubleshooting. In
+production deployments the metrics port should be bound to localhost or protected
+by network policy.
+
+---
+
+## 9. Build, test, ship
 
 ### Build
 
@@ -371,7 +465,7 @@ Windows-MinGW, FreeBSD, Linux-cross-aarch64}. Coverage uploaded to codecov.
 
 ---
 
-## 8. Cross-platform abstractions
+## 10. Cross-platform abstractions
 
 Platform-specific code is guarded with `#ifdef _WIN32` directly in the modules that
 need it (`libcetcd_base/clock.c`, `libcetcd_io/tcp.c`, `libcetcd_server/server.c`).
@@ -397,7 +491,7 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 
 ---
 
-## 9. Glossary
+## 11. Glossary
 
 - **Revision**: monotonic global commit counter (etcd MVCC's universal clock).
 - **Lease**: a TTL-bound handle keys can attach to; expires together.
@@ -408,7 +502,7 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 
 ---
 
-## 10. References
+## 12. References
 
 - Diego Ongaro, John Ousterhout — *In Search of an Understandable Consensus Algorithm* (Raft paper), 2014.
 - The etcd source tree: <https://github.com/etcd-io/etcd>.

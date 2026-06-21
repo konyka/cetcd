@@ -15,9 +15,46 @@ void        cetcd_loop_stop(cetcd_loop *loop);
 
 /* Coroutine creation and scheduling */
 typedef void (*cetcd_co_fn)(void *arg);
-cetcd_co *cetcd_co_spawn(cetcd_loop *loop, cetcd_co_fn fn, void *arg);
-void      cetcd_co_yield(cetcd_loop *loop);         /* yield back to scheduler */
-void      cetcd_co_resume(cetcd_co *co);            /* resume a specific coroutine */
+
+/* Default coroutine stack size (advisory; libco uses a shared stack). */
+#define CETCD_CO_DEFAULT_STACK_SIZE 4096
+
+/* Create a coroutine without starting it. stack_size is advisory. */
+CETCD_API cetcd_co *cetcd_co_create(cetcd_loop *loop, cetcd_co_fn fn, void *arg,
+                                     size_t stack_size);
+
+/* Create and immediately start a coroutine (convenience wrapper). */
+CETCD_API cetcd_co *cetcd_co_spawn(cetcd_loop *loop, cetcd_co_fn fn, void *arg);
+
+/* Yield current coroutine back to the event loop. */
+CETCD_API void      cetcd_co_yield(void);
+
+/* Resume a specific coroutine. */
+CETCD_API void      cetcd_co_resume(cetcd_co *co);
+
+/* Get the currently running coroutine (NULL if none). */
+CETCD_API cetcd_co *cetcd_co_current(void);
+
+/* Check if a coroutine has finished executing. Returns 1 if dead. */
+CETCD_API int       cetcd_co_dead(cetcd_co *co);
+
+/* Set a human-readable name for a coroutine (used by profiling/diagnostics). */
+CETCD_API void cetcd_co_set_name(cetcd_co *co, const char *name);
+
+/* Coroutine info for profiling — populated by cetcd_co_walk callback. */
+typedef struct cetcd_co_info {
+    int         id;
+    int         state;          /* COROUTINE_DEAD/READY/RUNNING/SUSPEND */
+    const char *name;           /* optional name set via cetcd_co_set_name */
+    void       *fn_addr;        /* function pointer (for symbol resolution) */
+} cetcd_co_info;
+
+typedef void (*cetcd_co_walk_fn)(const cetcd_co_info *info, void *ud);
+CETCD_API void cetcd_co_walk(cetcd_co_walk_fn fn, void *ud);
+
+/* Schedule a coroutine for resumption from a libuv callback.
+ * The coroutine will be resumed in the next event loop iteration. */
+CETCD_API void cetcd_loop_schedule_resume(cetcd_loop *loop, cetcd_co *co);
 
 /* TCP server/client */
 typedef struct cetcd_tcp cetcd_tcp;
