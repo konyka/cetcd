@@ -373,8 +373,10 @@ Windows-MinGW, FreeBSD, Linux-cross-aarch64}. Coverage uploaded to codecov.
 
 ## 8. Cross-platform abstractions
 
-`libcetcd_base/platform.h` is the only place with `#ifdef _WIN32` etc. Public headers never
-include OS-specific headers.
+Platform-specific code is guarded with `#ifdef _WIN32` directly in the modules that
+need it (`libcetcd_base/clock.c`, `libcetcd_io/tcp.c`, `libcetcd_server/server.c`).
+Public headers never include OS-specific headers — all such includes are confined
+to `.c` implementation files behind preprocessor guards.
 
 | Abstraction         | POSIX                | Windows                 |
 | ------------------- | -------------------- | ----------------------- |
@@ -383,9 +385,15 @@ include OS-specific headers.
 | Mutex / condvar     | `pthread_mutex_t`    | `SRWLOCK` / `CONDITION_VARIABLE` |
 | Atomics             | C11 `<stdatomic.h>`  | C11 `<stdatomic.h>` (MSVC ≥ 2022) |
 | File I/O            | `open` / `pread`     | `CreateFileW` / `ReadFileEx` |
-| Sockets / event     | via libuv            | via libuv (IOCP)        |
+| Directory creation  | `mkdir`              | `_mkdir`                |
+| Sockets / event     | via libuv + `sys/socket` | via libuv + Winsock2 (IOCP) |
 | Coroutines          | libco (ASM per-arch) | libco (Windows fibers)  |
 | Dynamic loading     | `dlopen`             | `LoadLibraryW`          |
+
+The CRC32C lookup table in `libcetcd_base/hash.c` is initialised lazily using
+C11 atomics (`memory_order_release`/`acquire`) to remain thread-safe without a
+mutex. The per-key watcher fan-out and cluster membership queries use
+`_Thread_local` storage where re-entrancy is a concern.
 
 ---
 

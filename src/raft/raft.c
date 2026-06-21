@@ -90,10 +90,15 @@ static uint64_t log_term_at_(cetcd_raft *r, uint64_t index) {
 static void log_append_(cetcd_raft *r, const cetcd_entry *e) {
     uint64_t needed = e->index + 1;
     if (needed > r->log_cap) {
-        uint32_t new_cap = r->log_cap;
-        while (new_cap < (uint32_t)needed) new_cap *= 2;
-        r->log = (cetcd_entry *)realloc(r->log, new_cap * sizeof(cetcd_entry));
-        memset(r->log + r->log_cap, 0, (new_cap - r->log_cap) * sizeof(cetcd_entry));
+        uint32_t new_cap = r->log_cap ? r->log_cap : 64;
+        while (new_cap < (uint32_t)needed) {
+            if (new_cap > (uint32_t)-1 / 2) { new_cap = (uint32_t)needed; break; }
+            new_cap *= 2;
+        }
+        cetcd_entry *new_log = (cetcd_entry *)realloc(r->log, new_cap * sizeof(cetcd_entry));
+        if (new_log == NULL) return; /* allocation failure; entry not stored */
+        memset(new_log + r->log_cap, 0, (new_cap - r->log_cap) * sizeof(cetcd_entry));
+        r->log = new_log;
         r->log_cap = new_cap;
     }
     r->log[e->index] = *e;
@@ -128,10 +133,14 @@ static bool has_peer_(cetcd_raft *r, uint64_t id) {
 static void add_peer_(cetcd_raft *r, uint64_t id) {
     if (has_peer_(r, id)) return;
     if (r->n_peers >= r->peers_cap) {
-        r->peers_cap = r->peers_cap ? r->peers_cap * 2 : 8;
-        r->peers = (uint64_t *)realloc(r->peers, r->peers_cap * sizeof(uint64_t));
-        r->votes_granted = (uint64_t *)realloc(r->votes_granted,
-                                                 r->peers_cap * sizeof(uint64_t));
+        uint32_t new_cap = r->peers_cap ? r->peers_cap * 2 : 8;
+        uint64_t *new_peers = (uint64_t *)realloc(r->peers, new_cap * sizeof(uint64_t));
+        if (new_peers == NULL) return;
+        uint64_t *new_votes = (uint64_t *)realloc(r->votes_granted, new_cap * sizeof(uint64_t));
+        if (new_votes == NULL) { r->peers = new_peers; r->peers_cap = new_cap; return; }
+        r->peers = new_peers;
+        r->votes_granted = new_votes;
+        r->peers_cap = new_cap;
     }
     r->peers[r->n_peers++] = id;
 }
@@ -156,9 +165,12 @@ static void queue_hard_state_(cetcd_raft *r) {
 
 static void queue_entry_(cetcd_raft *r, const cetcd_entry *e) {
     if (r->n_pending_entries >= r->cap_pending_entries) {
-        r->cap_pending_entries *= 2;
-        r->pending_entries = (cetcd_entry *)realloc(r->pending_entries,
-            r->cap_pending_entries * sizeof(cetcd_entry));
+        uint32_t new_cap = r->cap_pending_entries ? r->cap_pending_entries * 2 : 16;
+        cetcd_entry *new_buf = (cetcd_entry *)realloc(r->pending_entries,
+            new_cap * sizeof(cetcd_entry));
+        if (new_buf == NULL) return; /* drop entry on OOM */
+        r->pending_entries = new_buf;
+        r->cap_pending_entries = new_cap;
     }
     r->pending_entries[r->n_pending_entries++] = *e;
     r->has_pending = true;
@@ -166,9 +178,12 @@ static void queue_entry_(cetcd_raft *r, const cetcd_entry *e) {
 
 static void queue_msg_(cetcd_raft *r, const cetcd_msg *m) {
     if (r->n_pending_msgs >= r->cap_pending_msgs) {
-        r->cap_pending_msgs *= 2;
-        r->pending_msgs = (cetcd_msg *)realloc(r->pending_msgs,
-            r->cap_pending_msgs * sizeof(cetcd_msg));
+        uint32_t new_cap = r->cap_pending_msgs ? r->cap_pending_msgs * 2 : 32;
+        cetcd_msg *new_buf = (cetcd_msg *)realloc(r->pending_msgs,
+            new_cap * sizeof(cetcd_msg));
+        if (new_buf == NULL) return; /* drop msg on OOM */
+        r->pending_msgs = new_buf;
+        r->cap_pending_msgs = new_cap;
     }
     r->pending_msgs[r->n_pending_msgs++] = *m;
     r->has_pending = true;
@@ -369,7 +384,8 @@ static int handle_vote_resp_(cetcd_raft *r, cetcd_msg *msg) {
     if (r->role != ROLE_CANDIDATE) return 0;
 
     if (!msg->reject) {
-        r->votes_granted[r->n_votes_granted++] = msg->from;
+        if (r->n_votes_granted < r->peers_cap)
+            r->votes_granted[r->n_votes_granted++] = msg->from;
         if (r->n_votes_granted >= quorum_(cluster_size_(r))) {
             become_leader_(r);
             queue_hard_state_(r);
@@ -868,7 +884,18 @@ static uint32_t dec_u32_(const uint8_t *buf, size_t len, size_t *pos) {
 
 size_t cetcd_msg_encode_wire(const cetcd_msg *msg, uint8_t **out) {
     if (!msg || !out) return 0;
-    uint8_t buf[65536];
+
+    /* Calculate upper bound for the encoded size to avoid stack overflow. */
+    size_t need = 128; /* fixed fields (type, to, from, term, log_term, index, commit, reject) */
+    if (msg->snapshot) need += 16;
+    if (msg->context_len > 0 && msg->context) need += 10 + msg->context_len;
+    for (uint32_t i = 0; i < msg->n_entries; i++) {
+        const cetcd_entry *e = &msg->entries[i];
+        need += 1 + 5 + 40 + e->data.len; /* tag + len-prefix + fields + data */
+    }
+
+    uint8_t *buf = (uint8_t *)malloc(need);
+    if (!buf) return 0;
     uint8_t *p = buf;
 
     TAG_U32(1, (uint32_t)msg->type);
@@ -888,26 +915,27 @@ size_t cetcd_msg_encode_wire(const cetcd_msg *msg, uint8_t **out) {
     for (uint32_t i = 0; i < msg->n_entries; i++) {
         const cetcd_entry *e = &msg->entries[i];
 
-        *p++ = (uint8_t)((11) << 3 | 2);
-        uint8_t entry_tmp[4096];
-        uint8_t *etp = entry_tmp;
+        /* Encode entry into a temporary heap buffer, then write length-prefixed. */
+        size_t entry_need = 40 + e->data.len; /* upper bound for term+index+type+data */
+        uint8_t *entry_buf = (uint8_t *)malloc(entry_need);
+        if (!entry_buf) { free(buf); return 0; }
+        uint8_t *etp = entry_buf;
         do { *etp++ = (uint8_t)((1) << 3 | 0); etp += wire_u64_(etp, e->term); } while(0);
         do { *etp++ = (uint8_t)((2) << 3 | 0); etp += wire_u64_(etp, e->index); } while(0);
         do { *etp++ = (uint8_t)((3) << 3 | 0); etp += wire_u32_(etp, (uint32_t)e->type); } while(0);
         if (e->data.len > 0 && e->data.data) {
             do { *etp++ = (uint8_t)((4) << 3 | 2); etp += wire_u32_(etp, e->data.len); memcpy(etp, e->data.data, e->data.len); etp += e->data.len; } while(0);
         }
-        uint32_t elen = (uint32_t)(etp - entry_tmp);
+        uint32_t elen = (uint32_t)(etp - entry_buf);
+        *p++ = (uint8_t)((11) << 3 | 2);
         p += wire_u32_(p, elen);
-        memcpy(p, entry_tmp, elen);
+        memcpy(p, entry_buf, elen);
         p += elen;
+        free(entry_buf);
     }
 
     size_t total = (size_t)(p - buf);
-    uint8_t *result = (uint8_t *)malloc(total);
-    if (!result) return 0;
-    memcpy(result, buf, total);
-    *out = result;
+    *out = buf;
     return total;
 }
 

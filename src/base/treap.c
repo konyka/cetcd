@@ -265,7 +265,6 @@ void cetcd_treap_iter(const cetcd_treap *t, cetcd_treap_iter_fn fn, void *udata)
 
 void cetcd_treap_range(const cetcd_treap *t, cetcd_slice lo, cetcd_slice hi, cetcd_treap_iter_fn fn, void *udata) {
     if (t == NULL || fn == NULL) return;
-    (void)udata;
     /* In-order traversal with range filtering using a helper that is defined
      * above. */
     treap_inorder_range_(t->root, lo, hi, fn, udata);

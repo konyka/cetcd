@@ -1,10 +1,8 @@
-#define _POSIX_C_SOURCE 200809L
 #include "cetcd/backend.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <lmdb.h>
-#include <sys/stat.h>
 
 /* Internal structures */
 struct cetcd_backend {
@@ -170,7 +168,8 @@ int cetcd_txn_get(cetcd_txn *txn, const char *bucket,
     if (rc != MDB_SUCCESS) return CETCD_ERR_NOTFOUND;
     *val_len = (size_t)mval.mv_size;
     *val = (uint8_t*)malloc(*val_len);
-    memcpy(*val, mval.mv_data, *val_len);
+    if (*val == NULL) return CETCD_ERR_NOMEM;
+    if (mval.mv_data && *val_len > 0) memcpy(*val, mval.mv_data, *val_len);
     return CETCD_OK;
 }
 

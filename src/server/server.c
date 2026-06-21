@@ -14,15 +14,30 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <fcntl.h>
 #include <errno.h>
 #include <uv.h>
 #include "io_internal.h"
+
+#if defined(_WIN32)
+#  define WIN32_LEAN_AND_MEAN
+#  include <winsock2.h>
+#  include <ws2tcpip.h>
+#  include <direct.h>
+#  include <sys/stat.h>
+#  define cetcd_mkdir(path) _mkdir(path)
+#  define cetcd_close_socket(fd) closesocket(fd)
+#  define CETCD_MSG_NOSIGNAL 0
+#else
+#  include <sys/stat.h>
+#  include <unistd.h>
+#  include <sys/socket.h>
+#  include <netinet/in.h>
+#  include <arpa/inet.h>
+#  include <fcntl.h>
+#  define cetcd_mkdir(path) mkdir(path, 0755)
+#  define cetcd_close_socket(fd) close(fd)
+#  define CETCD_MSG_NOSIGNAL MSG_NOSIGNAL
+#endif
 
 struct cetcd_server {
     cetcd_server_config  cfg;
@@ -64,14 +79,17 @@ static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *
     if (!ctx) return;
     if (nread <= 0) {
         if (nread < 0) uv_close((uv_handle_t *)stream, client_close_cb_);
+        if (buf->base) free(buf->base);
         return;
     }
     if (ctx->buf_pos + (size_t)nread > sizeof(ctx->buf)) {
+        if (buf->base) free(buf->base);
         uv_close((uv_handle_t *)stream, client_close_cb_);
         return;
     }
     memcpy(ctx->buf + ctx->buf_pos, buf->base, (size_t)nread);
     ctx->buf_pos += (size_t)nread;
+    if (buf->base) free(buf->base);
 
     while (ctx->buf_pos >= 2) {
         uint16_t path_len = ((uint16_t)ctx->buf[0] << 8) | ctx->buf[1];
@@ -125,9 +143,15 @@ static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *
 
 static void alloc_cb_(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
     (void)handle;
-    static char slab[65536];
-    *buf = uv_buf_init(slab, sizeof(slab));
-    (void)suggested_size;
+    /* Allocate a fresh buffer per read to avoid sharing across connections. */
+    size_t cap = suggested_size > 0 ? suggested_size : 65536;
+    char *slab = (char *)malloc(cap);
+    if (slab == NULL) {
+        buf->base = NULL;
+        buf->len  = 0;
+        return;
+    }
+    *buf = uv_buf_init(slab, (unsigned int)cap);
 }
 
 static void on_client_conn_(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
@@ -166,10 +190,10 @@ static void peer_send_cb_(uint64_t to_id, const uint8_t *data, size_t len, void 
         hdr[1] = (uint8_t)((len >> 16) & 0xFF);
         hdr[2] = (uint8_t)((len >> 8) & 0xFF);
         hdr[3] = (uint8_t)(len & 0xFF);
-        send(fd, hdr, 4, MSG_NOSIGNAL);
-        send(fd, data, len, MSG_NOSIGNAL);
+        send(fd, hdr, 4, CETCD_MSG_NOSIGNAL);
+        send(fd, data, len, CETCD_MSG_NOSIGNAL);
     }
-    close(fd);
+    cetcd_close_socket(fd);
 }
 
 static void on_peer_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf);
@@ -290,9 +314,15 @@ static void on_peer_incoming_(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
 }
 
 static int ensure_dir(const char *path) {
+#if defined(_WIN32)
+    struct _stat st;
+    if (_stat(path, &st) == 0) return 0;
+    return cetcd_mkdir(path);
+#else
     struct stat st;
     if (stat(path, &st) == 0) return 0;
-    return mkdir(path, 0755);
+    return cetcd_mkdir(path);
+#endif
 }
 
 cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {

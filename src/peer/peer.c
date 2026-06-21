@@ -177,7 +177,9 @@ size_t cetcd_cluster_peer_count(const cetcd_cluster *c) {
     return c->peer_count;
 }
 
-static cetcd_peer_info peer_info_buf_;
+/* Thread-local storage avoids data races when multiple reactor threads
+ * query cluster membership concurrently. */
+static _Thread_local cetcd_peer_info peer_info_buf_;
 
 const cetcd_peer_info *cetcd_cluster_get_peer(const cetcd_cluster *c, uint64_t id) {
     if (!c) return NULL;

@@ -1,8 +1,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <uv.h>
-#include <unistd.h>     /* read/write */
-#include <sys/socket.h> /* recv/send */
+
+#if defined(_WIN32)
+#  define WIN32_LEAN_AND_MEAN
+#  include <winsock2.h>
+#  include <ws2tcpip.h>
+#else
+#  include <unistd.h>     /* read/write */
+#  include <sys/socket.h> /* recv/send */
+#endif
 
 #include "cetcd/io.h"
 #include "cetcd/base.h"
