@@ -226,17 +226,72 @@ cetcd_rpc_bytes maint_handle_hash_kv(cetcd_v3rpc *rpc, const uint8_t *req, size_
  */
 cetcd_rpc_bytes maint_handle_alarm(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
+
+    /* Parse request */
     size_t pos = 0;
+    int action = 0; /* 0=GET, 1=ACTIVATE, 2=DEACTIVATE */
+    uint64_t member_id = 0;
+    int alarm_type = 0; /* 0=NONE, 1=NOSPACE, 2=CORRUPT */
     while (pos < req_len) {
         uint8_t tag = req[pos++];
-        if (tag == 0x08 || tag == 0x10 || tag == 0x18) {
-            uint64_t v = 0; read_varint_m(req, req_len, &pos, &v);
+        if (tag == 0x08) { /* action */
+            uint64_t v = 0; if (read_varint_m(req, req_len, &pos, &v) == 0) action = (int)v;
+        } else if (tag == 0x10) { /* memberID */
+            uint64_t v = 0; if (read_varint_m(req, req_len, &pos, &v) == 0) member_id = v;
+        } else if (tag == 0x18) { /* alarm */
+            uint64_t v = 0; if (read_varint_m(req, req_len, &pos, &v) == 0) alarm_type = (int)v;
         } else {
             uint64_t skip = 0; read_varint_m(req, req_len, &pos, &skip);
         }
     }
-    /* Return no alarms */
-    return make_simple_response();
+
+    /* Simple static alarm storage (single alarm for now) */
+    static int g_active_alarm = 0; /* 0=none, 1=nospace */
+    static uint64_t g_alarm_member = 0;
+
+    if (action == 1 && alarm_type == 1) { /* ACTIVATE NOSPACE */
+        g_active_alarm = 1;
+        g_alarm_member = member_id > 0 ? member_id : 1;
+    } else if (action == 2 && alarm_type == 1) { /* DEACTIVATE NOSPACE */
+        if (member_id == 0 || g_alarm_member == member_id) {
+            g_active_alarm = 0;
+            g_alarm_member = 0;
+        }
+    }
+    /* action == 0 (GET) just returns current state */
+
+    /* Build AlarmResponse */
+    int64_t rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+
+    uint8_t buf[128];
+    size_t bpos = 0;
+
+    /* field 1 = header */
+    {
+        uint8_t hdr[16]; size_t hp = 0;
+        hdr[hp++] = 0x18;
+        write_varint_m(hdr, sizeof(hdr), &hp, (uint64_t)(rev > 0 ? rev : 1));
+        buf[bpos++] = 0x0a;
+        write_varint_m(buf, sizeof(buf), &bpos, (uint64_t)hp);
+        memcpy(buf + bpos, hdr, hp); bpos += hp;
+    }
+
+    /* field 2 = alarms (repeated AlarmMember) */
+    if (g_active_alarm > 0) {
+        uint8_t alarm_enc[32]; size_t ap = 0;
+        alarm_enc[ap++] = 0x08; /* memberID */
+        write_varint_m(alarm_enc, sizeof(alarm_enc), &ap, g_alarm_member);
+        alarm_enc[ap++] = 0x10; /* alarm */
+        write_varint_m(alarm_enc, sizeof(alarm_enc), &ap, (uint64_t)g_active_alarm);
+        buf[bpos++] = 0x12;
+        write_varint_m(buf, sizeof(buf), &bpos, (uint64_t)ap);
+        memcpy(buf + bpos, alarm_enc, ap); bpos += ap;
+    }
+
+    uint8_t *out = (uint8_t *)malloc(bpos);
+    if (!out) return (cetcd_rpc_bytes){NULL, 0};
+    memcpy(out, buf, bpos);
+    return (cetcd_rpc_bytes){out, bpos};
 }
 
 /*

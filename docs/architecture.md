@@ -261,9 +261,11 @@ to leases via `cetcd_lease_attach_key()` when a `Put` request specifies a lease 
 All Maintenance RPC responses (`Status`, `Hash`, `HashKV`, `Defragment`, `Alarm`,
 `MoveLeader`, `Snapshot`, `Downgrade`) include a `ResponseHeader` as field 1, matching the
 etcd v3.5 proto wire format. The `DowngradeResponse` now correctly returns only a header
-(field 1) instead of a version string. The `make_simple_response()` helper used by
-`Defragment`, `Alarm`, and `MoveLeader` returns a proper `ResponseHeader` with the current
-revision.
+(field 1) instead of a version string. The `Alarm` handler processes three actions: GET (list current alarms), ACTIVATE (add a
+NOSPACE alarm), and DEACTIVATE (remove a NOSPACE alarm). It maintains a simple in-memory
+alarm state and returns an `AlarmResponse` with the current alarm list (field 2, repeated
+AlarmMember with memberID and alarm type). The `make_simple_response()` helper used by
+`Defragment` and `MoveLeader` returns a proper `ResponseHeader` with the current revision.
 
 All Cluster RPC responses (`MemberList`, `MemberAdd`, `MemberRemove`, `MemberUpdate`,
 `MemberPromote`) include a `ResponseHeader` as field 1, matching the etcd v3.5 proto wire
@@ -276,7 +278,8 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `del --prefix/--prev-kv`, `put --prev-kv`, `watch --prefix/--prev-kv/--start-rev`, `txn cas` (compare-and-swap),
 `auth login` (token-based authentication), `get --count-only/--limit N/--sort-by/--sort-order/--print-value-only`,
 `put --ignore-value/--ignore-lease`, `get/del KEY RANGE_END` (positional range_end argument),
-`get/del --from-key` (unbounded range queries), `put --lease ID` (attach lease to key).
+`get/del --from-key` (unbounded range queries), `put --lease ID` (attach lease to key),
+`alarm list/activate/disarm` (alarm management), `version` (print client version).
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with

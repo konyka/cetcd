@@ -537,6 +537,41 @@ CETCD_TEST_CASE(v3rpc_maintenance_alarm) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_alarm_activate_disarm) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Activate NOSPACE alarm: action=1(0x08,0x01), memberID=0(0x10,0x00), alarm=1(0x18,0x01) */
+    uint8_t activate_req[] = {0x08, 0x01, 0x10, 0x00, 0x18, 0x01};
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Alarm", activate_req, sizeof(activate_req));
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+
+    /* Check that response contains alarm info (tag 0x12 = alarms) */
+    int found_alarm = 0;
+    for (size_t i = 0; i < resp.len; i++) {
+        if (resp.data[i] == 0x12) { found_alarm = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(found_alarm);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* Disarm: action=2(0x08,0x02), memberID=0(0x10,0x00), alarm=1(0x18,0x01) */
+    uint8_t disarm_req[] = {0x08, 0x02, 0x10, 0x00, 0x18, 0x01};
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Alarm", disarm_req, sizeof(disarm_req));
+    CETCD_ASSERT_NOT_NULL(resp.data);
+
+    /* After disarm, no alarm should be present (no tag 0x12) */
+    found_alarm = 0;
+    for (size_t i = 0; i < resp.len; i++) {
+        if (resp.data[i] == 0x12) { found_alarm = 1; break; }
+    }
+    CETCD_ASSERT_FALSE(found_alarm);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_maintenance_move_leader) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
     uint8_t dummy[] = {0x00};
@@ -3709,6 +3744,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_maintenance_hash_kv),
     CETCD_TEST_ENTRY(v3rpc_maintenance_defragment),
     CETCD_TEST_ENTRY(v3rpc_maintenance_alarm),
+        CETCD_TEST_ENTRY(v3rpc_alarm_activate_disarm),
     CETCD_TEST_ENTRY(v3rpc_maintenance_move_leader),
     CETCD_TEST_ENTRY(v3rpc_kv_compact),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_list),

@@ -979,11 +979,85 @@ static int cmd_status(int argc, char **argv) {
 }
 
 static int cmd_alarm(int argc, char **argv) {
-    (void)argc; (void)argv;
-    uint8_t req[] = {0x00}, resp[1024];
-    int rlen = do_rpc("/etcdserverpb.Maintenance/Alarm", req, 1, resp, sizeof(resp));
+    if (argc < 3) {
+        fprintf(stderr, "usage: cetcdctl alarm {list,activate,disarm} [TYPE]\n");
+        return 1;
+    }
+
+    const char *subcmd = argv[2];
+    int action = 0; /* 0=GET, 1=ACTIVATE, 2=DEACTIVATE */
+    int alarm_type = 1; /* NOSPACE */
+
+    if (strcmp(subcmd, "list") == 0) {
+        action = 0;
+    } else if (strcmp(subcmd, "activate") == 0) {
+        action = 1;
+    } else if (strcmp(subcmd, "disarm") == 0) {
+        action = 2;
+    } else {
+        fprintf(stderr, "unknown alarm subcommand: %s\n", subcmd);
+        return 1;
+    }
+
+    /* Build AlarmRequest: action(0x08), memberID(0x10), alarm(0x18) */
+    uint8_t req[64];
+    size_t rpos = 0;
+    req[rpos++] = 0x08; /* field 1 = action */
+    req[rpos++] = (uint8_t)action;
+    req[rpos++] = 0x10; /* field 2 = memberID (0 = all) */
+    req[rpos++] = 0x00;
+    req[rpos++] = 0x18; /* field 3 = alarm type */
+    req[rpos++] = (uint8_t)alarm_type;
+
+    uint8_t resp[1024];
+    int rlen = do_rpc("/etcdserverpb.Maintenance/Alarm", req, rpos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-    printf("no alarms\n");
+
+    /* Parse AlarmResponse */
+    size_t pos = 0;
+    int found_alarms = 0;
+    while (pos < (size_t)rlen) {
+        uint8_t tag = resp[pos++];
+        if (tag == 0x0a) { /* header, skip */
+            uint64_t skip = 0; read_varint(resp, rlen, &pos, &skip);
+            pos += (size_t)skip;
+        } else if (tag == 0x12) { /* alarms */
+            uint64_t alarm_len = 0; read_varint(resp, rlen, &pos, &alarm_len);
+            size_t alarm_start = pos;
+            uint64_t member_id = 0, alarm_val = 0;
+            while (pos < alarm_start + (size_t)alarm_len) {
+                uint8_t atag = resp[pos++];
+                if (atag == 0x08) {
+                    uint64_t v = 0; read_varint(resp, rlen, &pos, &v); member_id = v;
+                } else if (atag == 0x10) {
+                    uint64_t v = 0; read_varint(resp, rlen, &pos, &v); alarm_val = v;
+                } else {
+                    uint64_t skip = 0; read_varint(resp, rlen, &pos, &skip);
+                }
+            }
+            if (action == 0) { /* list */
+                const char *type_str = (alarm_val == 1) ? "NOSPACE" : "UNKNOWN";
+                printf("memberID:%lu alarm:%s\n", (unsigned long)member_id, type_str);
+            }
+            found_alarms = 1;
+        } else {
+            uint64_t skip = 0; read_varint(resp, rlen, &pos, &skip);
+        }
+    }
+
+    if (action == 0) { /* list */
+        if (!found_alarms) printf("no alarms\n");
+    } else if (action == 1) { /* activate */
+        printf("alarm activated NOSPACE\n");
+    } else { /* disarm */
+        printf("alarm disarmed\n");
+    }
+    return 0;
+}
+
+static int cmd_version(int argc, char **argv) {
+    (void)argc; (void)argv;
+    printf("cetcd version 0.1.0 (etcd v3.5 compatible)\n");
     return 0;
 }
 
@@ -1582,7 +1656,9 @@ static void print_usage(void) {
     printf("  txn cas KEY EXP NEW    Compare-and-swap (if KEY==EXP then KEY=NEW)\n");
     printf("  compact REV            Compact MVCC history to revision\n");
     printf("  status                 Get server status\n");
-    printf("  alarm                  Query alarms\n");
+    printf("  alarm list             List all alarms\n");
+    printf("  alarm activate TYPE    Activate an alarm (NOSPACE)\n");
+    printf("  alarm disarm           Disarm all alarms\n");
     printf("  hash                   Get KV store hash\n");
     printf("  hashkv                 Get KV store hash + compact revision\n");
     printf("  defrag                 Defragment database (no-op for LMDB)\n");
@@ -1615,6 +1691,7 @@ static void print_usage(void) {
     printf("  downgrade enable VER   Enable cluster downgrade\n");
     printf("  downgrade cancel       Cancel cluster downgrade\n");
     printf("  downgrade validate VER Validate downgrade version\n");
+    printf("  version                Print the client version\n");
 }
 
 int main(int argc, char **argv) {
@@ -1664,6 +1741,7 @@ int main(int argc, char **argv) {
     if (strcmp(cmd, "snapshot") == 0)   return cmd_snapshot(new_argc, new_argv);
     if (strcmp(cmd, "downgrade") == 0)  return cmd_downgrade(new_argc, new_argv);
     if (strcmp(cmd, "role") == 0)        return cmd_role(new_argc, new_argv);
+    if (strcmp(cmd, "version") == 0)     return cmd_version(new_argc, new_argv);
 
     fprintf(stderr, "unknown command: %s\n", cmd);
     print_usage();
