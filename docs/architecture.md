@@ -288,7 +288,11 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `get -w json` (JSON output format for range queries),
 `snapshot status FILE` (show snapshot file information),
 `snapshot restore FILE --data-dir DIR` (restore snapshot to data directory),
-`lock LOCKNAME [CMD...]` (distributed lock using Lease + Txn with signal-based release).
+`lock LOCKNAME [CMD...]` (distributed lock using Lease + Txn with signal-based release),
+`elect ELECTION_NAME [PROPOSAL]` (leader election using Lease + Txn),
+`--endpoints host:port` (global flag for specifying server endpoint),
+`member list -w table` (table format output for member list),
+`status -w json` (JSON output format for status query).
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with

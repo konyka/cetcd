@@ -56,6 +56,7 @@
  *   endpoint status       — get server status with endpoint info
  *   check perf            — run a simple performance check
  *   lock LOCKNAME [CMD...] — acquire a distributed lock
+ *   elect ELECTION_NAME [PROPOSAL] — leader election
  *   version               — print client version
  */
 
@@ -417,29 +418,43 @@ static void parse_lease_ttl_response(const uint8_t *data, size_t len) {
     }
 }
 
-static void parse_member_list_response(const uint8_t *data, size_t len) {
+static void parse_member_list_response(const uint8_t *data, size_t len, int table_format) {
     size_t pos = 0;
+    if (table_format) {
+        printf("+------------------+--------+---------------------+\n");
+        printf("|        ID        | STATUS |     PEER ADDRS      |\n");
+        printf("+------------------+--------+---------------------+\n");
+    }
     while (pos < len) {
         uint8_t tag = data[pos++];
         if (tag == 0x12) {
             /* Member (length-delimited) */
             uint64_t mlen = 0; read_varint(data, len, &pos, &mlen);
             size_t mend = pos + (size_t)mlen;
+            uint64_t mid = 0;
+            const uint8_t *peer_url = NULL; size_t peer_len = 0;
             while (pos < mend) {
                 uint8_t mtag = data[pos++];
                 if (mtag == 0x08) {
-                    uint64_t id = 0; read_varint(data, mend, &pos, &id);
-                    printf("member ID: %llu", (unsigned long long)id);
+                    read_varint(data, mend, &pos, &mid);
                 } else if (mtag == 0x12) {
                     uint64_t l = 0; read_varint(data, mend, &pos, &l);
-                    printf(" peerURL: %.*s", (int)l, data + pos);
+                    peer_url = data + pos; peer_len = (size_t)l;
                     pos += l;
                 } else {
                     uint64_t v = 0; read_varint(data, mend, &pos, &v);
                 }
             }
             pos = mend;
-            printf("\n");
+            if (table_format) {
+                printf("| %16llu | %6s | %19.*s |\n",
+                       (unsigned long long)mid, "alive",
+                       (int)peer_len, peer_url ? peer_url : (const uint8_t *)"");
+            } else {
+                printf("member ID: %llu peerURL: %.*s\n",
+                       (unsigned long long)mid,
+                       (int)peer_len, peer_url ? peer_url : (const uint8_t *)"");
+            }
         } else if (tag == 0x0a) {
             /* Skip header (length-delimited) */
             uint64_t l = 0; read_varint(data, len, &pos, &l);
@@ -447,6 +462,9 @@ static void parse_member_list_response(const uint8_t *data, size_t len) {
         } else {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
         }
+    }
+    if (table_format) {
+        printf("+------------------+--------+---------------------+\n");
     }
 }
 
@@ -1228,11 +1246,50 @@ static int cmd_txn(int argc, char **argv) {
 }
 
 static int cmd_status(int argc, char **argv) {
-    (void)argc; (void)argv;
+    int want_json = 0;
+    for (int i = 2; i < argc; i++) {
+        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+            i++;
+        }
+    }
     uint8_t req[] = {0x00}, resp[1024];
     int rlen = do_rpc("/etcdserverpb.Maintenance/Status", req, 1, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-    parse_status_response(resp, rlen);
+    if (want_json) {
+        /* Parse and output JSON format */
+        size_t pos = 0;
+        const uint8_t *version = NULL; size_t version_len = 0;
+        uint64_t db_size = 0, leader = 0, raft_index = 0, raft_term = 0;
+        while (pos < (size_t)rlen) {
+            uint8_t tag = resp[pos++];
+            if (tag == 0x12) {
+                uint64_t l = 0; read_varint(resp, rlen, &pos, &l);
+                version = resp + pos; version_len = (size_t)l; pos += l;
+            } else if (tag == 0x18) {
+                read_varint(resp, rlen, &pos, &db_size);
+            } else if (tag == 0x20) {
+                read_varint(resp, rlen, &pos, &leader);
+            } else if (tag == 0x28) {
+                read_varint(resp, rlen, &pos, &raft_index);
+            } else if (tag == 0x30) {
+                read_varint(resp, rlen, &pos, &raft_term);
+            } else if (tag == 0x0a) {
+                uint64_t l = 0; read_varint(resp, rlen, &pos, &l); pos += l;
+            } else {
+                uint64_t v = 0; read_varint(resp, rlen, &pos, &v);
+            }
+        }
+        fputs("{\"version\":\"", stdout);
+        if (version) fwrite(version, 1, version_len, stdout);
+        fputs("\",", stdout);
+        printf("\"dbSize\":%llu,", (unsigned long long)db_size);
+        printf("\"leader\":%llu,", (unsigned long long)leader);
+        printf("\"raftIndex\":%llu,", (unsigned long long)raft_index);
+        printf("\"raftTerm\":%llu}\n", (unsigned long long)raft_term);
+    } else {
+        parse_status_response(resp, rlen);
+    }
     return 0;
 }
 
@@ -1492,6 +1549,123 @@ static int cmd_lock(int argc, char **argv) {
     }
 }
 
+static int cmd_elect(int argc, char **argv) {
+    if (argc < 3) {
+        fprintf(stderr, "usage: cetcdctl elect ELECTION_NAME [PROPOSAL]\n");
+        return 1;
+    }
+    const char *election_name = argv[2];
+    size_t name_len = strlen(election_name);
+    const char *proposal = (argc >= 4) ? argv[3] : "cetcd";
+    size_t proposal_len = strlen(proposal);
+
+    /* Build election key: "/{election_name}" */
+    char elect_key[512];
+    size_t elect_key_len = 0;
+    elect_key[elect_key_len++] = '/';
+    if (name_len >= sizeof(elect_key) - 1) {
+        fprintf(stderr, "election name too long\n");
+        return 1;
+    }
+    memcpy(elect_key + elect_key_len, election_name, name_len);
+    elect_key_len += name_len;
+
+    /* Step 1: Grant a lease with 60s TTL */
+    uint8_t grant_req[16], grant_resp[256];
+    size_t gpos = 0;
+    gpos = encode_varint_field(grant_req, sizeof(grant_req), gpos, 0x03, 60);
+    int glen = do_rpc("/etcdserverpb.Lease/LeaseGrant", grant_req, gpos, grant_resp, sizeof(grant_resp));
+    if (glen < 0) { fprintf(stderr, "lease grant failed\n"); return 1; }
+
+    uint64_t lease_id = 0;
+    size_t rp = 0;
+    while (rp < (size_t)glen) {
+        uint8_t tag = grant_resp[rp++];
+        if (tag == 0x08) {
+            read_varint(grant_resp, glen, &rp, &lease_id);
+            break;
+        } else if (tag == 0x0a) {
+            uint64_t l = 0; read_varint(grant_resp, glen, &rp, &l); rp += l;
+        } else {
+            uint64_t v = 0; read_varint(grant_resp, glen, &rp, &v);
+        }
+    }
+    if (lease_id == 0) { fprintf(stderr, "failed to get lease ID\n"); return 1; }
+
+    /* Step 2: Txn: Compare(key, CREATE, EQUAL, 0) -> success: Put(key, proposal, lease) */
+    uint8_t cmp_buf[512];
+    size_t cpos = 0;
+    cpos = encode_varint_field(cmp_buf, sizeof(cmp_buf), cpos, 0x08, 0);
+    cpos = encode_varint_field(cmp_buf, sizeof(cmp_buf), cpos, 0x10, 1);
+    cpos = encode_bytes_field(cmp_buf, sizeof(cmp_buf), cpos, 0x1a,
+                              (const uint8_t *)elect_key, elect_key_len);
+    cpos = encode_varint_field(cmp_buf, sizeof(cmp_buf), cpos, 0x28, 0);
+
+    uint8_t put_inner[512];
+    size_t ppos = 0;
+    ppos = encode_bytes_field(put_inner, sizeof(put_inner), ppos, 0x0a,
+                              (const uint8_t *)elect_key, elect_key_len);
+    ppos = encode_bytes_field(put_inner, sizeof(put_inner), ppos, 0x12,
+                              (const uint8_t *)proposal, proposal_len);
+    ppos = encode_varint_field(put_inner, sizeof(put_inner), ppos, 0x18, lease_id);
+
+    uint8_t op_buf[1024];
+    size_t opos = 0;
+    op_buf[opos++] = 0x12;
+    opos = write_varint(op_buf, sizeof(op_buf), opos, (uint64_t)ppos);
+    memcpy(op_buf + opos, put_inner, ppos);
+    opos += ppos;
+
+    uint8_t req[2048], resp[1024];
+    size_t pos = 0;
+    pos = encode_bytes_field(req, sizeof(req), pos, 0x0a, cmp_buf, cpos);
+    pos = encode_bytes_field(req, sizeof(req), pos, 0x12, op_buf, opos);
+
+    int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
+    if (rlen < 0) { fprintf(stderr, "txn request failed\n"); return 1; }
+
+    bool succeeded = false;
+    rp = 0;
+    while (rp < (size_t)rlen) {
+        uint8_t tag = resp[rp++];
+        if (tag == 0x10) {
+            uint64_t v = 0; read_varint(resp, rlen, &rp, &v);
+            succeeded = (v != 0);
+            break;
+        } else if (tag == 0x0a) {
+            uint64_t l = 0; read_varint(resp, rlen, &rp, &l); rp += l;
+        } else {
+            uint64_t v = 0; read_varint(resp, rlen, &rp, &v);
+        }
+    }
+
+    if (!succeeded) {
+        fprintf(stderr, "election '%s' is held by another client\n", election_name);
+        uint8_t rev_req[32], rev_resp[256];
+        size_t rvpos = 0;
+        rvpos = encode_varint_field(rev_req, sizeof(rev_req), rvpos, 0x08, lease_id);
+        do_rpc("/etcdserverpb.Lease/LeaseRevoke", rev_req, rvpos, rev_resp, sizeof(rev_resp));
+        return 1;
+    }
+
+    /* Elected — set up signal handler for cleanup */
+    g_lock_key_len = elect_key_len;
+    memcpy(g_lock_key, elect_key, elect_key_len);
+    g_lock_lease_id = lease_id;
+    g_lock_held = 1;
+    signal(SIGINT, lock_signal_handler);
+    signal(SIGTERM, lock_signal_handler);
+
+    printf("%s\n", proposal);
+    fflush(stdout);
+
+    /* Wait for signal */
+    while (g_lock_held) {
+        pause();
+    }
+    return 0;
+}
+
 static int cmd_alarm(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl alarm {list,activate,disarm} [TYPE]\n");
@@ -1709,10 +1883,17 @@ static int cmd_member(int argc, char **argv) {
         return 1;
     }
     if (strcmp(argv[2], "list") == 0) {
+        int table_fmt = 0;
+        for (int i = 3; i < argc; i++) {
+            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+                if (strcmp(argv[i + 1], "table") == 0) table_fmt = 1;
+                i++;
+            }
+        }
         uint8_t req[] = {0x00}, resp[4096];
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberList", req, 1, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        parse_member_list_response(resp, rlen);
+        parse_member_list_response(resp, rlen, table_fmt);
     } else if (strcmp(argv[2], "add") == 0) {
         if (argc < 4) { fprintf(stderr, "usage: cetcdctl member add PEER_URL\n"); return 1; }
         uint8_t req[512], resp[4096];
@@ -1720,7 +1901,7 @@ static int cmd_member(int argc, char **argv) {
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberAdd", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        parse_member_list_response(resp, rlen);
+        parse_member_list_response(resp, rlen, 0);
     } else if (strcmp(argv[2], "remove") == 0) {
         if (argc < 4) { fprintf(stderr, "usage: cetcdctl member remove ID\n"); return 1; }
         uint8_t req[32], resp[256];
@@ -2222,7 +2403,8 @@ static void print_usage(void) {
     printf("Usage: cetcdctl [global options] COMMAND [args]\n\n");
     printf("Global options:\n");
     printf("  --host ADDR    Server address (default: 127.0.0.1)\n");
-    printf("  --port PORT    Server port (default: 2379)\n\n");
+    printf("  --port PORT    Server port (default: 2379)\n");
+    printf("  --endpoints EP Server endpoint (host:port format, uses first endpoint)\n\n");
     printf("Commands:\n");
     printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE]  Store a key-value pair\n");
     printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
@@ -2282,6 +2464,7 @@ static void print_usage(void) {
     printf("  endpoint status        Get server status with endpoint info\n");
     printf("  check perf             Run a simple performance check\n");
     printf("  lock LOCKNAME [CMD...] Acquire a distributed lock\n");
+    printf("  elect ELECTION_NAME [PROPOSAL]  Leader election\n");
 }
 
 int main(int argc, char **argv) {
@@ -2293,6 +2476,23 @@ int main(int argc, char **argv) {
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--port") == 0 && cmd_start + 1 < argc) {
             g_port = (uint16_t)atoi(argv[cmd_start + 1]);
+            cmd_start += 2;
+        } else if ((strcmp(argv[cmd_start], "--endpoints") == 0 || strcmp(argv[cmd_start], "--endpoint") == 0) && cmd_start + 1 < argc) {
+            /* Parse first endpoint: host:port format */
+            const char *ep = argv[cmd_start + 1];
+            const char *colon = strchr(ep, ':');
+            if (colon) {
+                size_t hlen = (size_t)(colon - ep);
+                if (hlen > 0 && hlen < 256) {
+                    static char host_buf[256];
+                    memcpy(host_buf, ep, hlen);
+                    host_buf[hlen] = '\0';
+                    g_host = host_buf;
+                    g_port = (uint16_t)atoi(colon + 1);
+                }
+            } else {
+                g_host = ep;
+            }
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--help") == 0 || strcmp(argv[cmd_start], "-h") == 0) {
             print_usage();
@@ -2335,6 +2535,7 @@ int main(int argc, char **argv) {
     if (strcmp(cmd, "endpoint") == 0)   return cmd_endpoint(new_argc, new_argv);
     if (strcmp(cmd, "check") == 0)      return cmd_check(new_argc, new_argv);
     if (strcmp(cmd, "lock") == 0)       return cmd_lock(new_argc, new_argv);
+    if (strcmp(cmd, "elect") == 0)      return cmd_elect(new_argc, new_argv);
 
     fprintf(stderr, "unknown command: %s\n", cmd);
     print_usage();
