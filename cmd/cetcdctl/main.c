@@ -31,6 +31,7 @@
  *   member update ID URL   — update a member's peer URL
  *   snapshot save [FILE]   — save a snapshot to file
  *   snapshot status FILE   — show snapshot file info
+ *   snapshot restore FILE --data-dir DIR — restore snapshot to data dir
  *   downgrade enable VER   — enable cluster downgrade
  *   downgrade cancel       — cancel cluster downgrade
  *   downgrade validate VER — validate downgrade version
@@ -54,6 +55,7 @@
  *   endpoint health       — check server health
  *   endpoint status       — get server status with endpoint info
  *   check perf            — run a simple performance check
+ *   lock LOCKNAME [CMD...] — acquire a distributed lock
  *   version               — print client version
  */
 
@@ -62,6 +64,8 @@
 #include <string.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <signal.h>
+#include <sys/wait.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -72,6 +76,13 @@ static int         g_keys_only = 0; /* flag for get --keys-only */
 static int         g_count_only = 0; /* flag for get --count-only */
 static int         g_print_value_only = 0; /* flag for get --print-value-only */
 static int         g_hex = 0; /* flag for get --hex */
+static int         g_write_json = 0; /* flag for -w json */
+
+/* --- Lock state for signal handler --- */
+static char          g_lock_key[256];
+static size_t        g_lock_key_len = 0;
+static uint64_t      g_lock_lease_id = 0;
+static volatile sig_atomic_t g_lock_held = 0;
 
 /* --- Protobuf helpers --- */
 
@@ -204,6 +215,10 @@ static void parse_range_response(const uint8_t *data, size_t len) {
     size_t pos = 0;
     int count = 0;
     int server_count = -1;
+    if (g_write_json) {
+        fputs("{\"kvs\":[", stdout);
+    }
+    int first_kv = 1;
     while (pos < len) {
         uint8_t tag = data[pos++];
         if (tag == 0x12) {
@@ -233,7 +248,31 @@ static void parse_range_response(const uint8_t *data, size_t len) {
             pos = kv_end;
             count++;
             if (!g_count_only) {
-                if (g_print_value_only) {
+                if (g_write_json) {
+                    if (!first_kv) printf(",");
+                    first_kv = 0;
+                    printf("{\"key\":");
+                    /* output key as JSON string */
+                    printf("\"");
+                    for (size_t i = 0; i < key_len; i++) {
+                        char c = (char)key_data[i];
+                        if (c == '"' || c == '\\') printf("\\%c", c);
+                        else if (c >= 32 && c < 127) putchar(c);
+                        else printf("\\u%04x", (unsigned)c);
+                    }
+                    printf("\"");
+                    if (!g_keys_only && val_data && val_len > 0) {
+                        printf(",\"value\":\"");
+                        for (size_t i = 0; i < val_len; i++) {
+                            char c = (char)val_data[i];
+                            if (c == '"' || c == '\\') printf("\\%c", c);
+                            else if (c >= 32 && c < 127) putchar(c);
+                            else printf("\\u%04x", (unsigned)c);
+                        }
+                        printf("\"");
+                    }
+                    printf("}");
+                } else if (g_print_value_only) {
                     if (val_data && val_len > 0) {
                         if (g_hex) {
                             for (size_t i = 0; i < val_len; i++)
@@ -277,9 +316,21 @@ static void parse_range_response(const uint8_t *data, size_t len) {
         }
     }
     if (g_count_only) {
-        printf("%d\n", server_count >= 0 ? server_count : count);
+        if (g_write_json) {
+            printf("],\"count\":%d}\n", server_count >= 0 ? server_count : count);
+        } else {
+            printf("%d\n", server_count >= 0 ? server_count : count);
+        }
     } else if (count == 0) {
-        printf("(empty)\n");
+        if (g_write_json) {
+            printf("],\"count\":0}\n");
+        } else {
+            printf("(empty)\n");
+        }
+    } else {
+        if (g_write_json) {
+            printf("],\"count\":%d}\n", server_count >= 0 ? server_count : count);
+        }
     }
 }
 
@@ -539,7 +590,7 @@ static int cmd_put(int argc, char **argv) {
 }
 
 static int cmd_get(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
     bool prefix = false;
     bool from_key = false;
     bool keys_only = false;
@@ -572,6 +623,12 @@ static int cmd_get(int argc, char **argv) {
             const char *c = argv[++i];
             if (strcmp(c, "s") == 0) serializable = true;
             else if (strcmp(c, "l") != 0) { fprintf(stderr, "--consistency must be 'l' or 's'\n"); return 1; }
+        } else if (strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) {
+            if (i + 1 >= argc) { fprintf(stderr, "--write-out requires a format (json, simple, fields)\n"); return 1; }
+            const char *fmt = argv[++i];
+            if (strcmp(fmt, "json") == 0) g_write_json = 1;
+            else if (strcmp(fmt, "simple") == 0 || strcmp(fmt, "fields") == 0) g_write_json = 0;
+            else { fprintf(stderr, "unsupported --write-out format: %s (use json or simple)\n", fmt); return 1; }
         } else if (strcmp(argv[i], "--count-only") == 0) {
             count_only = true;
         } else if (strcmp(argv[i], "--rev") == 0) {
@@ -614,7 +671,7 @@ static int cmd_get(int argc, char **argv) {
             range_end = argv[i];
         }
     }
-    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
+    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
 
     size_t key_len = strlen(key);
 
@@ -691,6 +748,7 @@ static int cmd_get(int argc, char **argv) {
     g_count_only = 0;
     g_print_value_only = 0;
     g_hex = 0;
+    g_write_json = 0;
     return 0;
 }
 
@@ -1255,6 +1313,185 @@ static int cmd_check(int argc, char **argv) {
     }
 }
 
+/* Signal handler for lock release on Ctrl+C */
+static void lock_signal_handler(int sig) {
+    (void)sig;
+    if (g_lock_held && g_lock_key_len > 0) {
+        /* Delete the lock key */
+        uint8_t req[512], resp[256];
+        size_t pos = 0;
+        pos = encode_bytes_field(req, sizeof(req), pos, 0x0a,
+                                 (const uint8_t *)g_lock_key, g_lock_key_len);
+        do_rpc("/etcdserverpb.KV/DeleteRange", req, pos, resp, sizeof(resp));
+    }
+    if (g_lock_held && g_lock_lease_id > 0) {
+        /* Revoke the lease */
+        uint8_t req[32], resp[256];
+        size_t pos = 0;
+        pos = encode_varint_field(req, sizeof(req), pos, 0x08, g_lock_lease_id);
+        do_rpc("/etcdserverpb.Lease/LeaseRevoke", req, pos, resp, sizeof(resp));
+    }
+    g_lock_held = 0;
+    _exit(0);
+}
+
+static int cmd_lock(int argc, char **argv) {
+    if (argc < 3) {
+        fprintf(stderr, "usage: cetcdctl lock LOCKNAME [COMMAND...]\n");
+        return 1;
+    }
+    const char *lockname = argv[2];
+    size_t lockname_len = strlen(lockname);
+
+    /* Build lock key: "/{lockname}" */
+    char lock_key[512];
+    size_t lock_key_len = 0;
+    lock_key[lock_key_len++] = '/';
+    if (lockname_len >= sizeof(lock_key) - 1) {
+        fprintf(stderr, "lock name too long\n");
+        return 1;
+    }
+    memcpy(lock_key + lock_key_len, lockname, lockname_len);
+    lock_key_len += lockname_len;
+
+    /* Step 1: Grant a lease with 60s TTL */
+    uint8_t grant_req[16], grant_resp[256];
+    size_t gpos = 0;
+    gpos = encode_varint_field(grant_req, sizeof(grant_req), gpos, 0x03, 60); /* TTL=60s */
+    int glen = do_rpc("/etcdserverpb.Lease/LeaseGrant", grant_req, gpos, grant_resp, sizeof(grant_resp));
+    if (glen < 0) { fprintf(stderr, "lease grant failed\n"); return 1; }
+
+    /* Parse LeaseGrantResponse: field 1 (ID) = int64, tag = 0x08 */
+    uint64_t lease_id = 0;
+    size_t rp = 0;
+    while (rp < (size_t)glen) {
+        uint8_t tag = grant_resp[rp++];
+        if (tag == 0x08) {
+            read_varint(grant_resp, glen, &rp, &lease_id);
+            break;
+        } else if (tag == 0x0a) {
+            uint64_t l = 0; read_varint(grant_resp, glen, &rp, &l); rp += l;
+        } else {
+            uint64_t v = 0; read_varint(grant_resp, glen, &rp, &v);
+        }
+    }
+    if (lease_id == 0) { fprintf(stderr, "failed to get lease ID\n"); return 1; }
+
+    /* Step 2: Txn: Compare(key, CREATE, EQUAL, 0) → success: Put(key, "", lease) */
+    /* Build Compare message:
+     *   field 1 (result) = 0 (EQUAL), tag = 0x08
+     *   field 2 (target) = 1 (CREATE), tag = 0x10
+     *   field 3 (key)    = bytes, tag = 0x1a
+     *   field 5 (create_revision) = 0, tag = 0x28
+     */
+    uint8_t cmp_buf[512];
+    size_t cpos = 0;
+    cpos = encode_varint_field(cmp_buf, sizeof(cmp_buf), cpos, 0x08, 0); /* result=EQUAL */
+    cpos = encode_varint_field(cmp_buf, sizeof(cmp_buf), cpos, 0x10, 1); /* target=CREATE */
+    cpos = encode_bytes_field(cmp_buf, sizeof(cmp_buf), cpos, 0x1a,
+                              (const uint8_t *)lock_key, lock_key_len);
+    cpos = encode_varint_field(cmp_buf, sizeof(cmp_buf), cpos, 0x28, 0); /* create_revision=0 */
+
+    /* Build success op: RequestPut(key, "", lease) */
+    uint8_t put_inner[512];
+    size_t ppos = 0;
+    ppos = encode_bytes_field(put_inner, sizeof(put_inner), ppos, 0x0a,
+                              (const uint8_t *)lock_key, lock_key_len);
+    ppos = encode_varint_field(put_inner, sizeof(put_inner), ppos, 0x18, lease_id); /* lease */
+    uint8_t op_buf[1024];
+    size_t opos = 0;
+    op_buf[opos++] = 0x12; /* RequestPut tag */
+    opos = write_varint(op_buf, sizeof(op_buf), opos, (uint64_t)ppos);
+    memcpy(op_buf + opos, put_inner, ppos);
+    opos += ppos;
+
+    /* Build TxnRequest */
+    uint8_t req[2048], resp[1024];
+    size_t pos = 0;
+    pos = encode_bytes_field(req, sizeof(req), pos, 0x0a, cmp_buf, cpos); /* compare */
+    pos = encode_bytes_field(req, sizeof(req), pos, 0x12, op_buf, opos);  /* success op */
+
+    int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
+    if (rlen < 0) { fprintf(stderr, "txn request failed\n"); return 1; }
+
+    /* Parse TxnResponse: field 1 (header), field 2 (succeeded) = bool, tag = 0x10 */
+    bool succeeded = false;
+    rp = 0;
+    while (rp < (size_t)rlen) {
+        uint8_t tag = resp[rp++];
+        if (tag == 0x10) {
+            uint64_t v = 0; read_varint(resp, rlen, &rp, &v);
+            succeeded = (v != 0);
+            break;
+        } else if (tag == 0x0a) {
+            uint64_t l = 0; read_varint(resp, rlen, &rp, &l); rp += l;
+        } else {
+            uint64_t v = 0; read_varint(resp, rlen, &rp, &v);
+        }
+    }
+
+    if (!succeeded) {
+        fprintf(stderr, "lock '%s' is held by another client\n", lockname);
+        /* Revoke the lease since we didn't get the lock */
+        uint8_t rev_req[32], rev_resp[256];
+        size_t rvpos = 0;
+        rvpos = encode_varint_field(rev_req, sizeof(rev_req), rvpos, 0x08, lease_id);
+        do_rpc("/etcdserverpb.Lease/LeaseRevoke", rev_req, rvpos, rev_resp, sizeof(rev_resp));
+        return 1;
+    }
+
+    /* Lock acquired — set up signal handler and global state for cleanup */
+    g_lock_key_len = lock_key_len;
+    memcpy(g_lock_key, lock_key, lock_key_len);
+    g_lock_lease_id = lease_id;
+    g_lock_held = 1;
+    signal(SIGINT, lock_signal_handler);
+    signal(SIGTERM, lock_signal_handler);
+
+    /* Print the lock key (etcdctl prints the key name) */
+    printf("%.*s\n", (int)lock_key_len, lock_key);
+    fflush(stdout);
+
+    /* If a command is provided, execute it; otherwise wait for signal */
+    if (argc > 3) {
+        /* Execute the command */
+        int ret = 0;
+        pid_t pid = fork();
+        if (pid == 0) {
+            /* Child */
+            execvp(argv[3], &argv[3]);
+            perror("execvp");
+            _exit(127);
+        } else if (pid > 0) {
+            /* Parent: wait for child */
+            int status;
+            waitpid(pid, &status, 0);
+            ret = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+        } else {
+            perror("fork");
+            ret = 1;
+        }
+        /* Release the lock */
+        g_lock_held = 0; /* signal handler won't double-delete */
+        uint8_t del_req[512], del_resp[256];
+        size_t dpos = 0;
+        dpos = encode_bytes_field(del_req, sizeof(del_req), dpos, 0x0a,
+                                  (const uint8_t *)lock_key, lock_key_len);
+        do_rpc("/etcdserverpb.KV/DeleteRange", del_req, dpos, del_resp, sizeof(del_resp));
+        uint8_t rev_req[32], rev_resp[256];
+        size_t rvpos = 0;
+        rvpos = encode_varint_field(rev_req, sizeof(rev_req), rvpos, 0x08, lease_id);
+        do_rpc("/etcdserverpb.Lease/LeaseRevoke", rev_req, rvpos, rev_resp, sizeof(rev_resp));
+        return ret;
+    } else {
+        /* No command: wait indefinitely until signal */
+        while (g_lock_held) {
+            pause();
+        }
+        return 0;
+    }
+}
+
 static int cmd_alarm(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl alarm {list,activate,disarm} [TYPE]\n");
@@ -1341,7 +1578,8 @@ static int cmd_version(int argc, char **argv) {
 static int cmd_snapshot(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl snapshot save [FILE]\n");
-        fprintf(stderr, "       cetcdctl snapshot status [FILE]\n");
+        fprintf(stderr, "       cetcdctl snapshot status FILE\n");
+        fprintf(stderr, "       cetcdctl snapshot restore FILE --data-dir DIR\n");
         return 1;
     }
     if (strcmp(argv[2], "save") == 0) {
@@ -1375,6 +1613,50 @@ static int cmd_snapshot(int argc, char **argv) {
         printf("+----------+----------+---------+---------------------+\n");
         printf("| %-8s | %8s | %7ld | %-19s |\n", "-", "-", fsize, argv[3]);
         printf("+----------+----------+---------+---------------------+\n");
+        return 0;
+    } else if (strcmp(argv[2], "restore") == 0) {
+        /* Restore a snapshot to a data directory.
+         * In cetcd, the snapshot is a raw LMDB database copy.
+         * We copy the file to the target data directory. */
+        if (argc < 4) {
+            fprintf(stderr, "usage: cetcdctl snapshot restore FILE --data-dir DIR\n");
+            return 1;
+        }
+        const char *snap_file = argv[3];
+        const char *data_dir = NULL;
+        for (int i = 4; i < argc; i++) {
+            if (strcmp(argv[i], "--data-dir") == 0 && i + 1 < argc) {
+                data_dir = argv[++i];
+            }
+        }
+        if (!data_dir) {
+            fprintf(stderr, "--data-dir is required for snapshot restore\n");
+            return 1;
+        }
+        /* Read the snapshot file */
+        FILE *sf = fopen(snap_file, "rb");
+        if (!sf) { perror("fopen snapshot"); return 1; }
+        fseek(sf, 0, SEEK_END);
+        long snap_size = ftell(sf);
+        fseek(sf, 0, SEEK_SET);
+        if (snap_size <= 0) { fprintf(stderr, "snapshot file is empty\n"); fclose(sf); return 1; }
+        uint8_t *snap_data = (uint8_t *)malloc(snap_size);
+        if (!snap_data) { fprintf(stderr, "out of memory\n"); fclose(sf); return 1; }
+        fread(snap_data, 1, snap_size, sf);
+        fclose(sf);
+        /* Create the data directory and write the snapshot */
+        char target_path[512];
+        snprintf(target_path, sizeof(target_path), "%s/data.mdb", data_dir);
+        /* Create parent directory */
+        char mkdir_cmd[512];
+        snprintf(mkdir_cmd, sizeof(mkdir_cmd), "mkdir -p %s", data_dir);
+        system(mkdir_cmd);
+        FILE *df = fopen(target_path, "wb");
+        if (!df) { perror("fopen data dir"); free(snap_data); return 1; }
+        fwrite(snap_data, 1, snap_size, df);
+        fclose(df);
+        free(snap_data);
+        printf("snapshot restored to %s (%ld bytes)\n", target_path, snap_size);
         return 0;
     } else {
         fprintf(stderr, "unknown snapshot subcommand: %s\n", argv[2]);
@@ -1943,7 +2225,7 @@ static void print_usage(void) {
     printf("  --port PORT    Server port (default: 2379)\n\n");
     printf("Commands:\n");
     printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE]  Store a key-value pair\n");
-    printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
+    printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
     printf("  del [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --prev-kv)\n");
     printf("  watch [--prefix] [--prev-kv] [--start-rev N] KEY  Watch key changes (single response)\n");
@@ -1991,6 +2273,7 @@ static void print_usage(void) {
     printf("                         Revoke all permissions from role\n");
     printf("  snapshot save [FILE]   Save a snapshot to file\n");
     printf("  snapshot status FILE   Show snapshot file info\n");
+    printf("  snapshot restore FILE --data-dir DIR  Restore snapshot to data dir\n");
     printf("  downgrade enable VER   Enable cluster downgrade\n");
     printf("  downgrade cancel       Cancel cluster downgrade\n");
     printf("  downgrade validate VER Validate downgrade version\n");
@@ -1998,6 +2281,7 @@ static void print_usage(void) {
     printf("  endpoint health        Check server health\n");
     printf("  endpoint status        Get server status with endpoint info\n");
     printf("  check perf             Run a simple performance check\n");
+    printf("  lock LOCKNAME [CMD...] Acquire a distributed lock\n");
 }
 
 int main(int argc, char **argv) {
@@ -2050,6 +2334,7 @@ int main(int argc, char **argv) {
     if (strcmp(cmd, "version") == 0)     return cmd_version(new_argc, new_argv);
     if (strcmp(cmd, "endpoint") == 0)   return cmd_endpoint(new_argc, new_argv);
     if (strcmp(cmd, "check") == 0)      return cmd_check(new_argc, new_argv);
+    if (strcmp(cmd, "lock") == 0)       return cmd_lock(new_argc, new_argv);
 
     fprintf(stderr, "unknown command: %s\n", cmd);
     print_usage();

@@ -285,7 +285,10 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 (show keys attached to lease), `endpoint health/status` (server health check and status),
 `check perf` (simple performance check), `compact --physical` (physically-backed compaction),
 `get --consistency l|s` (linearizable or serializable read consistency),
-`snapshot status FILE` (show snapshot file information).
+`get -w json` (JSON output format for range queries),
+`snapshot status FILE` (show snapshot file information),
+`snapshot restore FILE --data-dir DIR` (restore snapshot to data directory),
+`lock LOCKNAME [CMD...]` (distributed lock using Lease + Txn with signal-based release).
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
