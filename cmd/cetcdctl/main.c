@@ -30,6 +30,7 @@
  *   member remove ID       — remove a cluster member
  *   member update ID URL   — update a member's peer URL
  *   snapshot save [FILE]   — save a snapshot to file
+ *   snapshot status FILE   — show snapshot file info
  *   downgrade enable VER   — enable cluster downgrade
  *   downgrade cancel       — cancel cluster downgrade
  *   downgrade validate VER — validate downgrade version
@@ -538,13 +539,14 @@ static int cmd_put(int argc, char **argv) {
 }
 
 static int cmd_get(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
     bool prefix = false;
     bool from_key = false;
     bool keys_only = false;
     bool count_only = false;
     bool print_value_only = false;
     bool hex_output = false;
+    bool serializable = false;
     int64_t rev = 0;
     int64_t limit = 0;
     int64_t min_mod_rev = 0, max_mod_rev = 0;
@@ -565,6 +567,11 @@ static int cmd_get(int argc, char **argv) {
             print_value_only = true;
         } else if (strcmp(argv[i], "--hex") == 0) {
             hex_output = true;
+        } else if (strcmp(argv[i], "--consistency") == 0) {
+            if (i + 1 >= argc) { fprintf(stderr, "--consistency requires a value (l or s)\n"); return 1; }
+            const char *c = argv[++i];
+            if (strcmp(c, "s") == 0) serializable = true;
+            else if (strcmp(c, "l") != 0) { fprintf(stderr, "--consistency must be 'l' or 's'\n"); return 1; }
         } else if (strcmp(argv[i], "--count-only") == 0) {
             count_only = true;
         } else if (strcmp(argv[i], "--rev") == 0) {
@@ -607,7 +614,7 @@ static int cmd_get(int argc, char **argv) {
             range_end = argv[i];
         }
     }
-    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
+    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
 
     size_t key_len = strlen(key);
 
@@ -668,6 +675,10 @@ static int cmd_get(int argc, char **argv) {
         pos = encode_varint_field(req, sizeof(req), pos, 0x28, (uint64_t)sort_order);
         /* field 6 (sort_target) = enum, tag = 0x30 */
         pos = encode_varint_field(req, sizeof(req), pos, 0x30, (uint64_t)sort_target);
+    }
+    if (serializable) {
+        /* field 7 (serializable) = bool, tag = 0x38 */
+        pos = encode_varint_field(req, sizeof(req), pos, 0x38, 1);
     }
     g_keys_only = keys_only ? 1 : 0;
     g_count_only = count_only ? 1 : 0;
@@ -884,10 +895,23 @@ static int cmd_lease(int argc, char **argv) {
 }
 
 static int cmd_compact(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl compact REV\n"); return 1; }
+    bool physical = false;
+    int64_t rev = 0;
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--physical") == 0) {
+            physical = true;
+        } else if (!rev) {
+            rev = strtoll(argv[i], NULL, 10);
+        }
+    }
+    if (rev <= 0) { fprintf(stderr, "usage: cetcdctl compact [--physical] REV\n"); return 1; }
     uint8_t req[32], resp[256];
     size_t pos = 0;
-    pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(argv[2]));
+    pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)rev);
+    if (physical) {
+        /* field 2 (physical) = bool, tag = 0x10 */
+        pos = encode_varint_field(req, sizeof(req), pos, 0x10, 1);
+    }
     int rlen = do_rpc("/etcdserverpb.KV/Compact", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
     printf("OK\n");
@@ -1315,24 +1339,47 @@ static int cmd_version(int argc, char **argv) {
 }
 
 static int cmd_snapshot(int argc, char **argv) {
-    if (argc < 3 || strcmp(argv[2], "save") != 0) {
+    if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl snapshot save [FILE]\n");
+        fprintf(stderr, "       cetcdctl snapshot status [FILE]\n");
         return 1;
     }
-    uint8_t req[] = {0x00}, resp[65536];
-    int rlen = do_rpc("/etcdserverpb.Maintenance/Snapshot", req, 1, resp, sizeof(resp));
-    if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-    /* If a file is specified, write the blob to it */
-    if (argc >= 4) {
-        FILE *f = fopen(argv[3], "wb");
+    if (strcmp(argv[2], "save") == 0) {
+        uint8_t req[] = {0x00}, resp[65536];
+        int rlen = do_rpc("/etcdserverpb.Maintenance/Snapshot", req, 1, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        /* If a file is specified, write the blob to it */
+        if (argc >= 4) {
+            FILE *f = fopen(argv[3], "wb");
+            if (!f) { perror("fopen"); return 1; }
+            fwrite(resp, 1, (size_t)rlen, f);
+            fclose(f);
+            printf("snapshot saved to %s (%d bytes)\n", argv[3], rlen);
+        } else {
+            printf("snapshot: %d bytes received\n", rlen);
+        }
+        return 0;
+    } else if (strcmp(argv[2], "status") == 0) {
+        /* Show snapshot file info */
+        if (argc < 4) {
+            fprintf(stderr, "usage: cetcdctl snapshot status FILE\n");
+            return 1;
+        }
+        FILE *f = fopen(argv[3], "rb");
         if (!f) { perror("fopen"); return 1; }
-        fwrite(resp, 1, (size_t)rlen, f);
+        fseek(f, 0, SEEK_END);
+        long fsize = ftell(f);
         fclose(f);
-        printf("snapshot saved to %s (%d bytes)\n", argv[3], rlen);
+        printf("+----------+----------+---------+---------------------+\n");
+        printf("|   hash   | revision |  size   |     filename        |\n");
+        printf("+----------+----------+---------+---------------------+\n");
+        printf("| %-8s | %8s | %7ld | %-19s |\n", "-", "-", fsize, argv[3]);
+        printf("+----------+----------+---------+---------------------+\n");
+        return 0;
     } else {
-        printf("snapshot: %d bytes received\n", rlen);
+        fprintf(stderr, "unknown snapshot subcommand: %s\n", argv[2]);
+        return 1;
     }
-    return 0;
 }
 
 static int cmd_downgrade(int argc, char **argv) {
@@ -1896,7 +1943,7 @@ static void print_usage(void) {
     printf("  --port PORT    Server port (default: 2379)\n\n");
     printf("Commands:\n");
     printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE]  Store a key-value pair\n");
-    printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
+    printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
     printf("  del [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --prev-kv)\n");
     printf("  watch [--prefix] [--prev-kv] [--start-rev N] KEY  Watch key changes (single response)\n");
@@ -1909,7 +1956,7 @@ static void print_usage(void) {
     printf("  txn cas KEY EXP NEW    Compare-and-swap (if KEY==EXP then KEY=NEW)\n");
     printf("  txn get KEY [RANGE_END]  Execute a transaction (Range)\n");
     printf("  txn del [--prefix] [--prev-kv] KEY [RANGE_END]  Execute a transaction (Delete)\n");
-    printf("  compact REV            Compact MVCC history to revision\n");
+    printf("  compact [--physical] REV   Compact MVCC history to revision\n");
     printf("  status                 Get server status\n");
     printf("  alarm list             List all alarms\n");
     printf("  alarm activate TYPE    Activate an alarm (NOSPACE)\n");
@@ -1943,6 +1990,7 @@ static void print_usage(void) {
     printf("  role revoke-permission ROLE\n");
     printf("                         Revoke all permissions from role\n");
     printf("  snapshot save [FILE]   Save a snapshot to file\n");
+    printf("  snapshot status FILE   Show snapshot file info\n");
     printf("  downgrade enable VER   Enable cluster downgrade\n");
     printf("  downgrade cancel       Cancel cluster downgrade\n");
     printf("  downgrade validate VER Validate downgrade version\n");
