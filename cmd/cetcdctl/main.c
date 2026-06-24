@@ -11,11 +11,13 @@
  *   del KEY [RANGE_END]    — delete a key or key range
  *   lease grant TTL        — grant a lease with given TTL (seconds)
  *   lease revoke ID        — revoke a lease by ID
- *   lease timetolive ID    — query remaining TTL of a lease
+ *   lease timetolive [--keys] ID — query remaining TTL of a lease
  *   lease list             — list all active leases
  *   lease keepalive ID     — keep a lease alive
  *   txn put KEY VALUE      — execute a transaction (Put)
  *   txn cas KEY EXPECTED NEW — compare-and-swap transaction
+ *   txn get KEY [RANGE_END] — execute a transaction (Range)
+ *   txn del KEY [RANGE_END] — execute a transaction (Delete)
  *   compact REV            — compact MVCC history to given revision
  *   status                 — get server status
  *   alarm                  — query alarms
@@ -64,6 +66,7 @@ static uint16_t    g_port = 2379;
 static int         g_keys_only = 0; /* flag for get --keys-only */
 static int         g_count_only = 0; /* flag for get --count-only */
 static int         g_print_value_only = 0; /* flag for get --print-value-only */
+static int         g_hex = 0; /* flag for get --hex */
 
 /* --- Protobuf helpers --- */
 
@@ -226,14 +229,32 @@ static void parse_range_response(const uint8_t *data, size_t len) {
             count++;
             if (!g_count_only) {
                 if (g_print_value_only) {
-                    if (val_data && val_len > 0)
-                        printf("%.*s\n", (int)val_len, val_data);
-                } else {
-                    printf("%.*s", (int)key_len, key_data);
-                    if (!g_keys_only && val_data && val_len > 0) {
-                        printf(" -> %.*s", (int)val_len, val_data);
+                    if (val_data && val_len > 0) {
+                        if (g_hex) {
+                            for (size_t i = 0; i < val_len; i++)
+                                printf("%02x", val_data[i]);
+                            printf("\n");
+                        } else {
+                            printf("%.*s\n", (int)val_len, val_data);
+                        }
                     }
-                    printf("\n");
+                } else {
+                    if (g_hex) {
+                        for (size_t i = 0; i < key_len; i++)
+                            printf("%02x", key_data[i]);
+                        if (!g_keys_only && val_data && val_len > 0) {
+                            printf(" -> ");
+                            for (size_t i = 0; i < val_len; i++)
+                                printf("%02x", val_data[i]);
+                        }
+                        printf("\n");
+                    } else {
+                        printf("%.*s", (int)key_len, key_data);
+                        if (!g_keys_only && val_data && val_len > 0) {
+                            printf(" -> %.*s", (int)val_len, val_data);
+                        }
+                        printf("\n");
+                    }
                 }
             }
         } else if (tag == 0x20) {
@@ -513,12 +534,13 @@ static int cmd_put(int argc, char **argv) {
 }
 
 static int cmd_get(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
     bool prefix = false;
     bool from_key = false;
     bool keys_only = false;
     bool count_only = false;
     bool print_value_only = false;
+    bool hex_output = false;
     int64_t rev = 0;
     int64_t limit = 0;
     int64_t min_mod_rev = 0, max_mod_rev = 0;
@@ -537,6 +559,8 @@ static int cmd_get(int argc, char **argv) {
             keys_only = true;
         } else if (strcmp(argv[i], "--print-value-only") == 0) {
             print_value_only = true;
+        } else if (strcmp(argv[i], "--hex") == 0) {
+            hex_output = true;
         } else if (strcmp(argv[i], "--count-only") == 0) {
             count_only = true;
         } else if (strcmp(argv[i], "--rev") == 0) {
@@ -579,7 +603,7 @@ static int cmd_get(int argc, char **argv) {
             range_end = argv[i];
         }
     }
-    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
+    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
 
     size_t key_len = strlen(key);
 
@@ -644,12 +668,14 @@ static int cmd_get(int argc, char **argv) {
     g_keys_only = keys_only ? 1 : 0;
     g_count_only = count_only ? 1 : 0;
     g_print_value_only = print_value_only ? 1 : 0;
+    g_hex = hex_output ? 1 : 0;
     int rlen = do_rpc("/etcdserverpb.KV/Range", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
     parse_range_response(resp, rlen);
     g_keys_only = 0;
     g_count_only = 0;
     g_print_value_only = 0;
+    g_hex = 0;
     return 0;
 }
 
@@ -747,7 +773,7 @@ static int cmd_lease(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl lease grant TTL\n");
         fprintf(stderr, "       cetcdctl lease revoke ID\n");
-        fprintf(stderr, "       cetcdctl lease timetolive ID\n");
+        fprintf(stderr, "       cetcdctl lease timetolive [--keys] ID\n");
         fprintf(stderr, "       cetcdctl lease list\n");
         fprintf(stderr, "       cetcdctl lease keepalive ID\n");
         return 1;
@@ -770,10 +796,22 @@ static int cmd_lease(int argc, char **argv) {
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         printf("OK\n");
     } else if (strcmp(argv[2], "timetolive") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl lease timetolive ID\n"); return 1; }
-        uint8_t req[32], resp[256];
+        bool want_keys = false;
+        const char *id_str = NULL;
+        for (int i = 3; i < argc; i++) {
+            if (strcmp(argv[i], "--keys") == 0) {
+                want_keys = true;
+            } else if (!id_str) {
+                id_str = argv[i];
+            }
+        }
+        if (!id_str) { fprintf(stderr, "usage: cetcdctl lease timetolive [--keys] ID\n"); return 1; }
+        uint8_t req[32], resp[4096];
         size_t pos = 0;
-        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(argv[3]));
+        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(id_str));
+        if (want_keys) {
+            pos = encode_varint_field(req, sizeof(req), pos, 0x10, 1); /* keys=true */
+        }
         int rlen = do_rpc("/etcdserverpb.Lease/LeaseTimeToLive", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         parse_lease_ttl_response(resp, rlen);
@@ -856,6 +894,8 @@ static int cmd_txn(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl txn put KEY VALUE\n");
         fprintf(stderr, "       cetcdctl txn cas KEY EXPECTED NEW\n");
+        fprintf(stderr, "       cetcdctl txn get KEY [RANGE_END]\n");
+        fprintf(stderr, "       cetcdctl txn del [--prefix] [--prev-kv] KEY [RANGE_END]\n");
         return 1;
     }
     if (strcmp(argv[2], "put") == 0) {
@@ -961,10 +1001,142 @@ static int cmd_txn(int argc, char **argv) {
             printf("FAILED (compare did not match)\n");
             return 1;
         }
+    } else if (strcmp(argv[2], "get") == 0) {
+        /* txn get KEY [RANGE_END] */
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl txn get KEY [RANGE_END]\n"); return 1; }
+        const char *key = argv[3];
+        size_t key_len = strlen(key);
+        const char *range_end = (argc >= 5) ? argv[4] : NULL;
+
+        /* Build RequestRange inner: key(0x0a), range_end(0x12) */
+        uint8_t range_inner[512];
+        size_t rpos = 0;
+        rpos = encode_bytes_field(range_inner, sizeof(range_inner), rpos, 0x0a,
+                                   (const uint8_t *)key, key_len);
+        if (range_end) {
+            rpos = encode_bytes_field(range_inner, sizeof(range_inner), rpos, 0x12,
+                                       (const uint8_t *)range_end, strlen(range_end));
+        }
+
+        /* Build RequestOp: tag 0x0a (request_range), length, inner */
+        uint8_t op_buf[1024];
+        size_t opos = 0;
+        op_buf[opos++] = 0x0a; /* RequestRange tag */
+        opos = write_varint(op_buf, sizeof(op_buf), opos, (uint64_t)rpos);
+        memcpy(op_buf + opos, range_inner, rpos);
+        opos += rpos;
+
+        /* Build TxnRequest: field 2 (success) = tag 0x12, length, op */
+        uint8_t req[2048], resp[4096];
+        size_t pos = 0;
+        req[pos++] = 0x12; /* field 2 = success ops */
+        pos = write_varint(req, sizeof(req), pos, (uint64_t)opos);
+        memcpy(req + pos, op_buf, opos);
+        pos += opos;
+
+        int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+
+        /* Parse TxnResponse: skip header(0x0a), succeeded(0x10), then response_range(0x0a in ResponseOp) */
+        size_t rp = 0;
+        while (rp < (size_t)rlen) {
+            uint8_t tag = resp[rp++];
+            if (tag == 0x0a) {
+                uint64_t l = 0; read_varint(resp, rlen, &rp, &l);
+                /* This could be header or ResponseOp — check if it contains ResponseRange */
+                size_t sub_end = rp + (size_t)l;
+                while (rp < sub_end) {
+                    uint8_t sub_tag = resp[rp++];
+                    if (sub_tag == 0x0a) {
+                        /* ResponseRange inside ResponseOp */
+                        uint64_t rr_len = 0; read_varint(resp, sub_end, &rp, &rr_len);
+                        /* Use parse_range_response to print kvs */
+                        parse_range_response(resp + rp, (size_t)rr_len);
+                        rp += (size_t)rr_len;
+                    } else if (sub_tag == 0x12) {
+                        /* ResponsePut */
+                        uint64_t skip = 0; read_varint(resp, sub_end, &rp, &skip);
+                        rp += (size_t)skip;
+                    } else if (sub_tag == 0x1a) {
+                        /* ResponseDeleteRange */
+                        uint64_t skip = 0; read_varint(resp, sub_end, &rp, &skip);
+                        rp += (size_t)skip;
+                    } else {
+                        uint64_t skip = 0; read_varint(resp, sub_end, &rp, &skip);
+                    }
+                }
+            } else if (tag == 0x10) {
+                uint64_t v = 0; read_varint(resp, rlen, &rp, &v);
+            } else {
+                uint64_t skip = 0; read_varint(resp, rlen, &rp, &skip);
+            }
+        }
+        return 0;
+    } else if (strcmp(argv[2], "del") == 0) {
+        /* txn del [--prefix] [--prev-kv] KEY [RANGE_END] */
+        bool prefix = false;
+        bool prev_kv = false;
+        const char *key = NULL;
+        const char *range_end = NULL;
+        for (int i = 3; i < argc; i++) {
+            if (strcmp(argv[i], "--prefix") == 0) {
+                prefix = true;
+            } else if (strcmp(argv[i], "--prev-kv") == 0) {
+                prev_kv = true;
+            } else if (!key) {
+                key = argv[i];
+            } else if (!range_end) {
+                range_end = argv[i];
+            }
+        }
+        if (!key) { fprintf(stderr, "usage: cetcdctl txn del [--prefix] [--prev-kv] KEY [RANGE_END]\n"); return 1; }
+        size_t key_len = strlen(key);
+
+        /* Build RequestDeleteRange inner: key(0x0a), range_end(0x12), prev_kv(0x20) */
+        uint8_t del_inner[512];
+        size_t dpos = 0;
+        dpos = encode_bytes_field(del_inner, sizeof(del_inner), dpos, 0x0a,
+                                   (const uint8_t *)key, key_len);
+        if (prefix) {
+            char prefix_end[256];
+            memcpy(prefix_end, key, key_len);
+            prefix_end[key_len - 1]++;
+            dpos = encode_bytes_field(del_inner, sizeof(del_inner), dpos, 0x12,
+                                       (const uint8_t *)prefix_end, key_len);
+        } else if (range_end) {
+            dpos = encode_bytes_field(del_inner, sizeof(del_inner), dpos, 0x12,
+                                       (const uint8_t *)range_end, strlen(range_end));
+        }
+        if (prev_kv) {
+            dpos = encode_varint_field(del_inner, sizeof(del_inner), dpos, 0x20, 1);
+        }
+
+        /* Build RequestOp: tag 0x1a (request_delete_range), length, inner */
+        uint8_t op_buf[1024];
+        size_t opos = 0;
+        op_buf[opos++] = 0x1a; /* RequestDeleteRange tag */
+        opos = write_varint(op_buf, sizeof(op_buf), opos, (uint64_t)dpos);
+        memcpy(op_buf + opos, del_inner, dpos);
+        opos += dpos;
+
+        /* Build TxnRequest: field 2 (success) = tag 0x12, length, op */
+        uint8_t req[2048], resp[4096];
+        size_t pos = 0;
+        req[pos++] = 0x12; /* field 2 = success ops */
+        pos = write_varint(req, sizeof(req), pos, (uint64_t)opos);
+        memcpy(req + pos, op_buf, opos);
+        pos += opos;
+
+        int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        printf("OK\n");
+        return 0;
     } else {
         fprintf(stderr, "unknown txn subcommand: %s\n", argv[2]);
         fprintf(stderr, "usage: cetcdctl txn put KEY VALUE\n");
         fprintf(stderr, "       cetcdctl txn cas KEY EXPECTED NEW\n");
+        fprintf(stderr, "       cetcdctl txn get KEY [RANGE_END]\n");
+        fprintf(stderr, "       cetcdctl txn del [--prefix] [--prev-kv] KEY [RANGE_END]\n");
         return 1;
     }
 }
@@ -1643,17 +1815,19 @@ static void print_usage(void) {
     printf("  --port PORT    Server port (default: 2379)\n\n");
     printf("Commands:\n");
     printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE]  Store a key-value pair\n");
-    printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
+    printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
     printf("  del [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --prev-kv)\n");
     printf("  watch [--prefix] [--prev-kv] [--start-rev N] KEY  Watch key changes (single response)\n");
     printf("  lease grant TTL        Grant a lease (TTL in seconds)\n");
     printf("  lease revoke ID        Revoke a lease by ID\n");
-    printf("  lease timetolive ID    Query remaining TTL\n");
+    printf("  lease timetolive [--keys] ID  Query remaining TTL\n");
     printf("  lease list             List all active leases\n");
     printf("  lease keepalive ID     Keep a lease alive\n");
     printf("  txn put KEY VALUE      Execute a transaction (Put)\n");
     printf("  txn cas KEY EXP NEW    Compare-and-swap (if KEY==EXP then KEY=NEW)\n");
+    printf("  txn get KEY [RANGE_END]  Execute a transaction (Range)\n");
+    printf("  txn del [--prefix] [--prev-kv] KEY [RANGE_END]  Execute a transaction (Delete)\n");
     printf("  compact REV            Compact MVCC history to revision\n");
     printf("  status                 Get server status\n");
     printf("  alarm list             List all alarms\n");

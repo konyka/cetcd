@@ -1,3 +1,6 @@
+#if !defined(_WIN32) && !defined(_GNU_SOURCE)
+#  define _GNU_SOURCE
+#endif
 #include "cetcd/metrics.h"
 #include "cetcd/slab.h"
 #include "cetcd/io.h"
