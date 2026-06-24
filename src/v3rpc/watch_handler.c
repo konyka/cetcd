@@ -239,11 +239,17 @@ typedef struct {
     size_t len;
     size_t cap;
     int want_prev_kv;
+    int filter_noput;
+    int filter_nodelete;
 } watch_event_collector;
 
 static void watch_event_cb(const cetcd_watch_event *ev, void *udata) {
     watch_event_collector *c = (watch_event_collector *)udata;
     if (!c || !ev) return;
+
+    /* Apply filters: NOPUT filters out PUT events, NODELETE filters out DELETE events */
+    if (c->filter_noput && ev->type == CETCD_EVENT_PUT) return;
+    if (c->filter_nodelete && ev->type == CETCD_EVENT_DELETE) return;
 
     if (c->len + 8192 > c->cap) {
         size_t nc = c->cap ? c->cap * 2 : 256;
@@ -270,6 +276,8 @@ typedef struct cetcd_stream_watcher_ctx {
     cetcd_mvcc_watch_notify notify;
     watcher_wake_ctx        wake_ctx;
     int                     want_prev_kv;
+    int                     filter_noput;
+    int                     filter_nodelete;
     volatile int            canceled;
     struct cetcd_stream_watcher_ctx *next;
 } cetcd_stream_watcher_ctx;
@@ -324,15 +332,25 @@ static void watcher_co_fn(void *arg) {
         size_t count = 0;
         int rc = cetcd_mvcc_watch_recv(&wctx->notify, &events, &count);
         if (rc == CETCD_OK && count > 0) {
+            /* Apply watch filters: NOPUT and NODELETE */
+            size_t send_count = 0;
+            for (size_t i = 0; i < count; i++) {
+                if (wctx->filter_noput && events[i].type == CETCD_EVENT_PUT) continue;
+                if (wctx->filter_nodelete && events[i].type == CETCD_EVENT_DELETE) continue;
+                if (send_count != i) events[send_count] = events[i];
+                send_count++;
+            }
+            if (send_count > 0) {
             cetcd_rpc_bytes resp = encode_watch_response(
                 wctx->watch_id, 0, 0,
-                events, count,
+                events, send_count,
                 g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 1,
                 wctx->want_prev_kv);
             if (resp.data && resp.len > 0 && g_rpc_stream_write_fn) {
                 g_rpc_stream_write_fn(resp.data, resp.len, g_rpc_stream_write_ctx);
             }
             cetcd_rpc_bytes_free(&resp);
+            }
             /* Free event data that was deep-copied into the notification queue. */
             for (size_t i = 0; i < count; i++) {
                 free((void*)events[i].kv.key.data);
@@ -363,6 +381,10 @@ typedef struct {
     int64_t  start_rev;
     int64_t  client_watch_id;
     int      want_prev_kv;
+    int      want_progress_notify; /* field 4 (bool, tag 0x20) */
+    int      filter_noput;         /* field 5 filter: NOPUT=0 */
+    int      filter_nodelete;      /* field 5 filter: NODELETE=1 */
+    int      fragment;             /* field 8 (bool, tag 0x40) */
     bool     is_create;
     bool     is_cancel;
     int64_t  cancel_id;
@@ -388,12 +410,40 @@ static void parse_watch_request(const uint8_t *req, size_t req_len,
                 } else if (ctag == 0x18) {
                     uint64_t v = 0;
                     if (read_varint_w(req, cend, &pos, &v) == 0) out->start_rev = (int64_t)v;
+                } else if (ctag == 0x20) {
+                    /* field 4 = progress_notify (bool) */
+                    uint64_t v = 0;
+                    if (read_varint_w(req, cend, &pos, &v) == 0) out->want_progress_notify = (int)v;
+                } else if (ctag == 0x28) {
+                    /* field 5 = filters (repeated enum, non-packed: NOPUT=0, NODELETE=1) */
+                    uint64_t v = 0;
+                    if (read_varint_w(req, cend, &pos, &v) == 0) {
+                        if (v == 0) out->filter_noput = 1;
+                        else if (v == 1) out->filter_nodelete = 1;
+                    }
+                } else if (ctag == 0x2a) {
+                    /* field 5 = filters (packed varint) */
+                    uint64_t flen = 0;
+                    if (read_varint_w(req, cend, &pos, &flen) == 0) {
+                        size_t fend = pos + (size_t)flen;
+                        while (pos < fend) {
+                            uint64_t fv = 0;
+                            if (read_varint_w(req, fend, &pos, &fv) == 0) {
+                                if (fv == 0) out->filter_noput = 1;
+                                else if (fv == 1) out->filter_nodelete = 1;
+                            }
+                        }
+                    }
                 } else if (ctag == 0x30) {
                     uint64_t v = 0;
                     if (read_varint_w(req, cend, &pos, &v) == 0) out->want_prev_kv = (int)v;
                 } else if (ctag == 0x38) {
                     uint64_t v = 0;
                     if (read_varint_w(req, cend, &pos, &v) == 0) out->client_watch_id = (int64_t)v;
+                } else if (ctag == 0x40) {
+                    /* field 8 = fragment (bool) */
+                    uint64_t v = 0;
+                    if (read_varint_w(req, cend, &pos, &v) == 0) out->fragment = (int)v;
                 } else {
                     uint64_t skip = 0; read_varint_w(req, cend, &pos, &skip);
                 }
@@ -441,7 +491,7 @@ static cetcd_rpc_bytes handle_legacy_watch(const watch_request_parsed *p) {
 
     if (p->is_create && p->key && g_rpc_store) {
         watch_id = (p->client_watch_id > 0) ? p->client_watch_id : g_watch_id_counter++;
-        watch_event_collector collector = {NULL, 0, 0, p->want_prev_kv};
+        watch_event_collector collector = {NULL, 0, 0, p->want_prev_kv, p->filter_noput, p->filter_nodelete};
         cetcd_watcher *w = cetcd_mvcc_watch(g_rpc_store, p->key, p->key_len,
                                              p->start_rev,
                                              watch_event_cb, &collector);
@@ -506,6 +556,8 @@ static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p) {
         }
         wctx->watch_id = watch_id;
         wctx->want_prev_kv = p->want_prev_kv;
+        wctx->filter_noput = p->filter_noput;
+        wctx->filter_nodelete = p->filter_nodelete;
         wctx->canceled = 0;
 
         /* Create the coroutine (not started yet). */

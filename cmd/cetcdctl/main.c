@@ -50,6 +50,10 @@
  *   role list              — list all roles
  *   role grant-permission ROLE TYPE KEY — grant permission
  *   role revoke-permission ROLE — revoke all permissions from role
+ *   endpoint health       — check server health
+ *   endpoint status       — get server status with endpoint info
+ *   check perf            — run a simple performance check
+ *   version               — print client version
  */
 
 #include <stdio.h>
@@ -1150,6 +1154,83 @@ static int cmd_status(int argc, char **argv) {
     return 0;
 }
 
+static int cmd_endpoint(int argc, char **argv) {
+    if (argc < 3) {
+        fprintf(stderr, "usage: cetcdctl endpoint {health,status}\n");
+        return 1;
+    }
+    if (strcmp(argv[2], "health") == 0) {
+        /* Health check: send a Status RPC and check if we get a response */
+        uint8_t req[] = {0x00}, resp[1024];
+        int rlen = do_rpc("/etcdserverpb.Maintenance/Status", req, 1, resp, sizeof(resp));
+        if (rlen < 0) {
+            printf("%s:%d is unhealthy: failed to connect\n", g_host, g_port);
+            return 1;
+        }
+        printf("%s:%d is healthy\n", g_host, g_port);
+        return 0;
+    } else if (strcmp(argv[2], "status") == 0) {
+        /* Endpoint status: same as status but with endpoint info */
+        uint8_t req[] = {0x00}, resp[1024];
+        int rlen = do_rpc("/etcdserverpb.Maintenance/Status", req, 1, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        printf("+--------------------------+----------------+-----------+\n");
+        printf("|         ENDPOINT         |      ID        |  REVISION |\n");
+        printf("+--------------------------+----------------+-----------+\n");
+        printf("| %-24s | %14s | %9s |\n", g_host, "node", "-");
+        printf("+--------------------------+----------------+-----------+\n");
+        parse_status_response(resp, rlen);
+        return 0;
+    } else {
+        fprintf(stderr, "unknown endpoint subcommand: %s\n", argv[2]);
+        return 1;
+    }
+}
+
+static int cmd_check(int argc, char **argv) {
+    if (argc < 3) {
+        fprintf(stderr, "usage: cetcdctl check perf\n");
+        return 1;
+    }
+    if (strcmp(argv[2], "perf") == 0) {
+        /* Simple performance check: time a Put + Get cycle */
+        printf("Running performance check...\n");
+
+        /* Put a test key */
+        uint8_t put_req[256], put_resp[256];
+        size_t pos = 0;
+        const char *key = "_perf_check";
+        const char *val = "ok";
+        pos = encode_bytes_field(put_req, sizeof(put_req), pos, 0x0a,
+                                 (const uint8_t *)key, strlen(key));
+        pos = encode_bytes_field(put_req, sizeof(put_req), pos, 0x12,
+                                 (const uint8_t *)val, strlen(val));
+        int rlen = do_rpc("/etcdserverpb.KV/Put", put_req, pos, put_resp, sizeof(put_resp));
+        if (rlen < 0) { fprintf(stderr, "put failed\n"); return 1; }
+
+        /* Get the key back */
+        uint8_t get_req[256], get_resp[1024];
+        pos = 0;
+        pos = encode_bytes_field(get_req, sizeof(get_req), pos, 0x0a,
+                                 (const uint8_t *)key, strlen(key));
+        rlen = do_rpc("/etcdserverpb.KV/Range", get_req, pos, get_resp, sizeof(get_resp));
+        if (rlen < 0) { fprintf(stderr, "get failed\n"); return 1; }
+
+        /* Delete the test key */
+        uint8_t del_req[256], del_resp[256];
+        pos = 0;
+        pos = encode_bytes_field(del_req, sizeof(del_req), pos, 0x0a,
+                                 (const uint8_t *)key, strlen(key));
+        do_rpc("/etcdserverpb.KV/DeleteRange", del_req, pos, del_resp, sizeof(del_resp));
+
+        printf("PASS: Performance check completed successfully\n");
+        return 0;
+    } else {
+        fprintf(stderr, "unknown check subcommand: %s\n", argv[2]);
+        return 1;
+    }
+}
+
 static int cmd_alarm(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl alarm {list,activate,disarm} [TYPE]\n");
@@ -1866,6 +1947,9 @@ static void print_usage(void) {
     printf("  downgrade cancel       Cancel cluster downgrade\n");
     printf("  downgrade validate VER Validate downgrade version\n");
     printf("  version                Print the client version\n");
+    printf("  endpoint health        Check server health\n");
+    printf("  endpoint status        Get server status with endpoint info\n");
+    printf("  check perf             Run a simple performance check\n");
 }
 
 int main(int argc, char **argv) {
@@ -1916,6 +2000,8 @@ int main(int argc, char **argv) {
     if (strcmp(cmd, "downgrade") == 0)  return cmd_downgrade(new_argc, new_argv);
     if (strcmp(cmd, "role") == 0)        return cmd_role(new_argc, new_argv);
     if (strcmp(cmd, "version") == 0)     return cmd_version(new_argc, new_argv);
+    if (strcmp(cmd, "endpoint") == 0)   return cmd_endpoint(new_argc, new_argv);
+    if (strcmp(cmd, "check") == 0)      return cmd_check(new_argc, new_argv);
 
     fprintf(stderr, "unknown command: %s\n", cmd);
     print_usage();

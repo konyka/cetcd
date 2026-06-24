@@ -282,7 +282,8 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `alarm list/activate/disarm` (alarm management), `version` (print client version),
 `txn get KEY [RANGE_END]` (transactional range query), `txn del [--prefix] [--prev-kv] KEY [RANGE_END]`
 (transactional delete), `get --hex` (hex output for binary data), `lease timetolive --keys ID`
-(show keys attached to lease).
+(show keys attached to lease), `endpoint health/status` (server health check and status),
+`check perf` (simple performance check).
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
@@ -343,6 +344,10 @@ The Watch handler encodes `prev_kv` (field 3, tag 0x1a) in Event messages when t
 requests it via `prev_kv=true` and a previous value exists. The MVCC layer captures the
 previous key-value before each `Put` and `Delete` operation, passing it through the watcher
 callback so the Watch handler can include it in the event.
+The `WatchCreateRequest` parser also supports `progress_notify` (field 4), `filters` (field 5,
+NOPUT=0 and NODELETE=1, both packed and non-packed varint encoding), and `fragment` (field 8).
+When filters are specified, PUT and/or DELETE events are suppressed accordingly in both legacy
+and streaming watch modes.
 
 The cetcdctl response parsing for `del`, `txn cas`, and `watch` now correctly skips the
 `ResponseHeader` (tag 0x0a) before parsing response-specific fields, ensuring compatibility

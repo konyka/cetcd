@@ -3721,6 +3721,65 @@ CETCD_TEST_CASE(test_watch_cancel) {
     cetcd_loop_free(loop);
 }
 
+CETCD_TEST_CASE(v3rpc_watch_noput_filter) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put a key first so there's a PUT event to filter */
+    uint8_t put_req[32]; size_t pp = 0;
+    put_req[pp++] = 0x0a; put_req[pp++] = 0x04;
+    memcpy(put_req + pp, "wfn1", 4); pp += 4;
+    put_req[pp++] = 0x12; put_req[pp++] = 0x02;
+    memcpy(put_req + pp, "v1", 2); pp += 2;
+    cetcd_rpc_bytes put_resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_req, pp);
+    cetcd_rpc_bytes_free(&put_resp);
+
+    /* Build WatchCreateRequest with NOPUT filter (field 5, tag 0x28, value 0)
+     * and start_revision=1 to catch the PUT event */
+    uint8_t create_inner[32]; size_t cpos = 0;
+    create_inner[cpos++] = 0x0a; create_inner[cpos++] = 0x04;
+    memcpy(create_inner + cpos, "wfn1", 4); cpos += 4;
+    create_inner[cpos++] = 0x18; create_inner[cpos++] = 0x01; /* start_revision=1 */
+    create_inner[cpos++] = 0x28; create_inner[cpos++] = 0x00; /* filter=NOPUT(0) */
+
+    uint8_t watch_buf[64]; size_t wpos = 0;
+    watch_buf[wpos++] = 0x0a;
+    watch_buf[wpos++] = (uint8_t)cpos;
+    memcpy(watch_buf + wpos, create_inner, cpos); wpos += cpos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Watch/Watch", watch_buf, wpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+
+    /* With NOPUT filter, the PUT event should be filtered out.
+     * The response should have "created" flag (tag 0x18) but NO events (tag 0x5a). */
+    int found_created = 0;
+    int found_event = 0;
+    size_t p = 0;
+    while (p < resp.len) {
+        uint8_t tag = resp.data[p++];
+        if (tag == 0x0a) {
+            uint64_t l = 0; int s = 0;
+            while (p < resp.len) { uint8_t b = resp.data[p++]; l |= (uint64_t)(b & 0x7F) << s; if (!(b & 0x80)) break; s += 7; }
+            p += (size_t)l;
+        } else if (tag == 0x18) {
+            found_created = 1;
+            while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+        } else if (tag == 0x5a) {
+            found_event = 1;
+            uint64_t l = 0; int s = 0;
+            while (p < resp.len) { uint8_t b = resp.data[p++]; l |= (uint64_t)(b & 0x7F) << s; if (!(b & 0x80)) break; s += 7; }
+            p += (size_t)l;
+        } else {
+            while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+        }
+    }
+    CETCD_ASSERT_TRUE(found_created);
+    CETCD_ASSERT_FALSE(found_event); /* NOPUT filter should suppress PUT events */
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
@@ -3815,6 +3874,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_txn_range_revision_filter),
     CETCD_TEST_ENTRY(test_watch_create_streaming),
     CETCD_TEST_ENTRY(test_watch_cancel),
+    CETCD_TEST_ENTRY(v3rpc_watch_noput_filter),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()
