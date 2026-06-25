@@ -292,7 +292,9 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `elect ELECTION_NAME [PROPOSAL]` (leader election using Lease + Txn),
 `--endpoints host:port` (global flag for specifying server endpoint),
 `member list -w table` (table format output for member list),
-`status -w json` (JSON output format for status query).
+`status -w json` (JSON output format for status query),
+`put -w json` / `del -w json` / `watch -w json` (JSON output for KV operations and watch events),
+`--command-timeout SEC` (global flag for command execution timeout).
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with

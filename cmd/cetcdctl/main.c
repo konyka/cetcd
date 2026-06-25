@@ -512,6 +512,7 @@ static int cmd_put(int argc, char **argv) {
     bool prev_kv = false;
     bool ignore_value = false;
     bool ignore_lease = false;
+    bool want_json = false;
     int64_t lease_id = 0;
     const char *key = NULL;
     const char *val = NULL;
@@ -526,6 +527,9 @@ static int cmd_put(int argc, char **argv) {
         } else if (strcmp(argv[i], "--lease") == 0) {
             if (i + 1 >= argc) { fprintf(stderr, "--lease requires a lease ID\n"); return 1; }
             lease_id = strtoll(argv[++i], NULL, 10);
+        } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "json") == 0) want_json = true;
+            i++;
         } else if (!key) {
             key = argv[i];
         } else if (!val) {
@@ -567,7 +571,53 @@ static int cmd_put(int argc, char **argv) {
     }
     int rlen = do_rpc("/etcdserverpb.KV/Put", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-    if (prev_kv) {
+    if (want_json) {
+        fputs("{\"header\":{},", stdout);
+        if (prev_kv) {
+            /* Parse PutResponse for prev_kv (field 2, tag 0x12) */
+            size_t rpos = 0;
+            const uint8_t *pk = NULL; size_t pk_len = 0;
+            const uint8_t *pv = NULL; size_t pv_len = 0;
+            while (rpos < (size_t)rlen) {
+                uint8_t tag = resp[rpos++];
+                if (tag == 0x12) {
+                    uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+                    size_t kv_end = rpos + (size_t)l;
+                    while (rpos < kv_end) {
+                        uint8_t ktag = resp[rpos++];
+                        if (ktag == 0x0a) {
+                            uint64_t kl = 0; read_varint(resp, kv_end, &rpos, &kl);
+                            pk = resp + rpos; pk_len = (size_t)kl; rpos += kl;
+                        } else if (ktag == 0x2a) {
+                            uint64_t vl = 0; read_varint(resp, kv_end, &rpos, &vl);
+                            pv = resp + rpos; pv_len = (size_t)vl; rpos += vl;
+                        } else {
+                            uint64_t v = 0; read_varint(resp, kv_end, &rpos, &v);
+                        }
+                    }
+                    rpos = kv_end;
+                } else if (tag == 0x0a) {
+                    uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
+                } else {
+                    uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+                }
+            }
+            fputs("\"prev_kv\":{", stdout);
+            if (pk) {
+                fputs("\"key\":\"", stdout);
+                fwrite(pk, 1, pk_len, stdout);
+                fputs("\"", stdout);
+                if (pv && pv_len > 0) {
+                    fputs(",\"value\":\"", stdout);
+                    fwrite(pv, 1, pv_len, stdout);
+                    fputs("\"", stdout);
+                }
+            }
+            fputs("}", stdout);
+        }
+        fputs("}\n", stdout);
+        return 0;
+    } else if (prev_kv) {
         /* Parse PutResponse for prev_kv (field 2, tag 0x12) */
         size_t rpos = 0;
         while (rpos < (size_t)rlen) {
@@ -771,10 +821,11 @@ static int cmd_get(int argc, char **argv) {
 }
 
 static int cmd_del(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--from-key] [--prev-kv] [-w json] KEY [RANGE_END]\n"); return 1; }
     bool prefix = false;
     bool from_key = false;
     bool prev_kv = false;
+    bool want_json = false;
     const char *key = NULL;
     const char *range_end = NULL;
 
@@ -785,6 +836,9 @@ static int cmd_del(int argc, char **argv) {
             from_key = true;
         } else if (strcmp(argv[i], "--prev-kv") == 0) {
             prev_kv = true;
+        } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "json") == 0) want_json = true;
+            i++;
         } else if (!key) {
             key = argv[i];
         } else if (!range_end) {
@@ -819,6 +873,27 @@ static int cmd_del(int argc, char **argv) {
     }
     int rlen = do_rpc("/etcdserverpb.KV/DeleteRange", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+    if (want_json) {
+        /* JSON output: {"deleted":N,"prev_kvs":[...]} */
+        size_t rpos = 0;
+        uint64_t deleted = 0;
+        fputs("{\"header\":{},", stdout);
+        while (rpos < (size_t)rlen) {
+            uint8_t tag = resp[rpos++];
+            if (tag == 0x10) {
+                read_varint(resp, rlen, &rpos, &deleted);
+            } else if (tag == 0x1a && prev_kv) {
+                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+                rpos += l; /* skip prev_kvs for now in JSON */
+            } else if (tag == 0x0a) {
+                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
+            } else {
+                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            }
+        }
+        printf("\"deleted\":%llu}\n", (unsigned long long)deleted);
+        return 0;
+    }
     /* Parse DeleteRangeResponse: field 2 (deleted), field 3 (prev_kvs) */
     size_t rpos = 0;
     while (rpos < (size_t)rlen) {
@@ -2186,9 +2261,10 @@ static int cmd_role(int argc, char **argv) {
 }
 
 static int cmd_watch(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl watch [--prefix] [--prev-kv] [--start-rev N] KEY\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl watch [--prefix] [--prev-kv] [--start-rev N] [-w json] KEY\n"); return 1; }
     bool prefix = false;
     bool prev_kv = false;
+    bool want_json = false;
     int64_t start_rev = 0;
     const char *key = NULL;
     for (int i = 2; i < argc; i++) {
@@ -2199,11 +2275,14 @@ static int cmd_watch(int argc, char **argv) {
         } else if (strcmp(argv[i], "--start-rev") == 0) {
             if (i + 1 >= argc) { fprintf(stderr, "--start-rev requires a revision number\n"); return 1; }
             start_rev = atol(argv[++i]);
+        } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "json") == 0) want_json = true;
+            i++;
         } else {
             key = argv[i];
         }
     }
-    if (!key) { fprintf(stderr, "usage: cetcdctl watch [--prefix] [--prev-kv] [--start-rev N] KEY\n"); return 1; }
+    if (!key) { fprintf(stderr, "usage: cetcdctl watch [--prefix] [--prev-kv] [--start-rev N] [-w json] KEY\n"); return 1; }
     size_t key_len = strlen(key);
 
     /* Build WatchCreateRequest:
@@ -2267,7 +2346,13 @@ static int cmd_watch(int argc, char **argv) {
                 if (etag == 0x08) {
                     /* event type */
                     uint64_t t = 0; read_varint(resp, eend, &rpos, &t);
-                    printf("%s: ", t == 0 ? "PUT" : "DELETE");
+                    if (want_json) {
+                        fputs("{\"type\":\"", stdout);
+                        fputs(t == 0 ? "PUT" : "DELETE", stdout);
+                        fputs("\",\"", stdout);
+                    } else {
+                        printf("%s: ", t == 0 ? "PUT" : "DELETE");
+                    }
                 } else if (etag == 0x12) {
                     /* KeyValue */
                     uint64_t klen = 0; read_varint(resp, eend, &rpos, &klen);
@@ -2287,9 +2372,21 @@ static int cmd_watch(int argc, char **argv) {
                         }
                     }
                     rpos = kend;
-                    if (ek) printf("%.*s", (int)ekl, ek);
-                    if (ev && evl > 0) printf(" -> %.*s", (int)evl, ev);
-                    printf("\n");
+                    if (want_json) {
+                        fputs("kv\":{\"key\":\"", stdout);
+                        if (ek) fwrite(ek, 1, ekl, stdout);
+                        fputs("\"", stdout);
+                        if (ev && evl > 0) {
+                            fputs(",\"value\":\"", stdout);
+                            fwrite(ev, 1, evl, stdout);
+                            fputs("\"", stdout);
+                        }
+                        fputs("}}\n", stdout);
+                    } else {
+                        if (ek) printf("%.*s", (int)ekl, ek);
+                        if (ev && evl > 0) printf(" -> %.*s", (int)evl, ev);
+                        printf("\n");
+                    }
                 } else if (etag == 0x1a) {
                     /* prev_kv (KeyValue) */
                     uint64_t klen = 0; read_varint(resp, eend, &rpos, &klen);
@@ -2404,13 +2501,14 @@ static void print_usage(void) {
     printf("Global options:\n");
     printf("  --host ADDR    Server address (default: 127.0.0.1)\n");
     printf("  --port PORT    Server port (default: 2379)\n");
-    printf("  --endpoints EP Server endpoint (host:port format, uses first endpoint)\n\n");
+    printf("  --endpoints EP Server endpoint (host:port format, uses first endpoint)\n");
+    printf("  --command-timeout SEC  Timeout for commands (default: none)\n\n");
     printf("Commands:\n");
     printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE]  Store a key-value pair\n");
     printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
-    printf("  del [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --prev-kv)\n");
-    printf("  watch [--prefix] [--prev-kv] [--start-rev N] KEY  Watch key changes (single response)\n");
+    printf("  del [--prefix] [--from-key] [--prev-kv] [-w json] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --prev-kv)\n");
+    printf("  watch [--prefix] [--prev-kv] [--start-rev N] [-w json] KEY  Watch key changes (single response)\n");
     printf("  lease grant TTL        Grant a lease (TTL in seconds)\n");
     printf("  lease revoke ID        Revoke a lease by ID\n");
     printf("  lease timetolive [--keys] ID  Query remaining TTL\n");
@@ -2492,6 +2590,13 @@ int main(int argc, char **argv) {
                 }
             } else {
                 g_host = ep;
+            }
+            cmd_start += 2;
+        } else if (strcmp(argv[cmd_start], "--command-timeout") == 0 && cmd_start + 1 < argc) {
+            int timeout_sec = atoi(argv[cmd_start + 1]);
+            if (timeout_sec > 0) {
+                signal(SIGALRM, (void (*)(int))_exit);
+                alarm((unsigned)timeout_sec);
             }
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--help") == 0 || strcmp(argv[cmd_start], "-h") == 0) {
