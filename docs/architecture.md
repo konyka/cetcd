@@ -302,7 +302,10 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `put -w fields` (fields output for put response showing prev_kv metadata),
 `user list -w table` / `role list -w table` (table format output for auth user and role lists),
 `--user USER:PASS` (global flag for server authentication via Auth/Authenticate RPC),
-`--debug` (global flag printing RPC path and response size for debugging).
+`--debug` (global flag printing RPC path and response size for debugging),
+`del -w fields` (fields output for delete response showing prev_kvs metadata),
+`watch -w fields` (fields output for watch events showing full KV metadata),
+`lease keepalive [--once]` (loop keepalive by default, `--once` for single keepalive).
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
