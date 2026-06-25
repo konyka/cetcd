@@ -311,7 +311,14 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `auth status -w json` (JSON output for auth status query),
 `--insecure` (global flag, accepted for etcdctl compatibility, no-op for plain TCP),
 `--dial-timeout SEC` (global flag for connection timeout via SO_SNDTIMEO/SO_RCVTIMEO),
-`--keepalive-time SEC` / `--keepalive-timeout SEC` (global flags accepted for etcdctl compatibility, no-op for plain TCP).
+`--keepalive-time SEC` / `--keepalive-timeout SEC` (global flags accepted for etcdctl compatibility, no-op for plain TCP),
+`endpoint hashkv [-w json]` (subcommand to call HashKV RPC per endpoint, with JSON output),
+`endpoint health -w json` (JSON output for health check with endpoint/status/error fields),
+`endpoint status -w json|table` (JSON or table output for endpoint status, now parses actual revision from ResponseHeader),
+`snapshot status FILE -w json` (JSON output for snapshot status with hash/revision/size/filename),
+`version -w json` (JSON output with client/version/etcd fields),
+`status -w fields` (fields output format showing version, dbSize, leader, raftIndex, raftTerm, and revision from ResponseHeader),
+`status -w json` now includes `revision` field from ResponseHeader.
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with

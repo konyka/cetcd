@@ -1605,26 +1605,117 @@ static int cmd_txn(int argc, char **argv) {
 }
 
 static int cmd_status(int argc, char **argv) {
-    int want_json = 0;
+    int want_json = 0, want_fields = 0;
     for (int i = 2; i < argc; i++) {
         if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
             i++;
         }
     }
     uint8_t req[] = {0x00}, resp[1024];
     int rlen = do_rpc("/etcdserverpb.Maintenance/Status", req, 1, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-    if (want_json) {
-        /* Parse and output JSON format */
+    /* Parse StatusResponse */
+    size_t pos = 0;
+    const uint8_t *version = NULL; size_t version_len = 0;
+    uint64_t db_size = 0, leader = 0, raft_index = 0, raft_term = 0, revision = 0;
+    while (pos < (size_t)rlen) {
+        uint8_t tag = resp[pos++];
+        if (tag == 0x12) {
+            uint64_t l = 0; read_varint(resp, rlen, &pos, &l);
+            version = resp + pos; version_len = (size_t)l; pos += l;
+        } else if (tag == 0x18) {
+            read_varint(resp, rlen, &pos, &db_size);
+        } else if (tag == 0x20) {
+            read_varint(resp, rlen, &pos, &leader);
+        } else if (tag == 0x28) {
+            read_varint(resp, rlen, &pos, &raft_index);
+        } else if (tag == 0x30) {
+            read_varint(resp, rlen, &pos, &raft_term);
+        } else if (tag == 0x0a) {
+            /* ResponseHeader: field 1 (cluster_id), field 2 (member_id), field 3 (revision) */
+            uint64_t l = 0; read_varint(resp, rlen, &pos, &l);
+            size_t hdr_end = pos + (size_t)l;
+            while (pos < hdr_end) {
+                uint8_t htag = resp[pos++];
+                if (htag == 0x18) { read_varint(resp, hdr_end, &pos, &revision); }
+                else { uint64_t v = 0; read_varint(resp, hdr_end, &pos, &v); }
+            }
+        } else {
+            uint64_t v = 0; read_varint(resp, rlen, &pos, &v);
+        }
+    }
+    if (want_fields) {
+        printf("version: ");
+        if (version) fwrite(version, 1, version_len, stdout);
+        printf("\n");
+        printf("dbSize: %llu\n", (unsigned long long)db_size);
+        printf("leader: %llu\n", (unsigned long long)leader);
+        printf("raftIndex: %llu\n", (unsigned long long)raft_index);
+        printf("raftTerm: %llu\n", (unsigned long long)raft_term);
+        printf("revision: %llu\n", (unsigned long long)revision);
+    } else if (want_json) {
+        fputs("{\"version\":\"", stdout);
+        if (version) fwrite(version, 1, version_len, stdout);
+        fputs("\",", stdout);
+        printf("\"dbSize\":%llu,", (unsigned long long)db_size);
+        printf("\"leader\":%llu,", (unsigned long long)leader);
+        printf("\"raftIndex\":%llu,", (unsigned long long)raft_index);
+        printf("\"raftTerm\":%llu,", (unsigned long long)raft_term);
+        printf("\"revision\":%llu}\n", (unsigned long long)revision);
+    } else {
+        parse_status_response(resp, rlen);
+    }
+    return 0;
+}
+
+static int cmd_endpoint(int argc, char **argv) {
+    if (argc < 3) {
+        fprintf(stderr, "usage: cetcdctl endpoint {health,status,hashkv}\n");
+        return 1;
+    }
+    int want_json = 0;
+    int want_table = 0;
+    for (int i = 3; i < argc; i++) {
+        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+            else if (strcmp(argv[i + 1], "table") == 0) want_table = 1;
+            i++;
+        }
+    }
+    if (strcmp(argv[2], "health") == 0) {
+        /* Health check: send a Status RPC and check if we get a response */
+        uint8_t req[] = {0x00}, resp[1024];
+        int rlen = do_rpc("/etcdserverpb.Maintenance/Status", req, 1, resp, sizeof(resp));
+        if (rlen < 0) {
+            if (want_json) {
+                printf("{\"endpoint\":\"%s:%d\",\"status\":\"unhealthy\",\"error\":\"failed to connect\"}\n", g_host, g_port);
+            } else {
+                printf("%s:%d is unhealthy: failed to connect\n", g_host, g_port);
+            }
+            return 1;
+        }
+        if (want_json) {
+            printf("{\"endpoint\":\"%s:%d\",\"status\":\"healthy\",\"took\":\"0s\"}\n", g_host, g_port);
+        } else {
+            printf("%s:%d is healthy\n", g_host, g_port);
+        }
+        return 0;
+    } else if (strcmp(argv[2], "status") == 0) {
+        /* Endpoint status: same as status but with endpoint info */
+        uint8_t req[] = {0x00}, resp[1024];
+        int rlen = do_rpc("/etcdserverpb.Maintenance/Status", req, 1, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        /* Parse StatusResponse to extract revision */
         size_t pos = 0;
-        const uint8_t *version = NULL; size_t version_len = 0;
-        uint64_t db_size = 0, leader = 0, raft_index = 0, raft_term = 0;
+        const uint8_t *ver = NULL; size_t ver_len = 0;
+        uint64_t db_size = 0, leader = 0, raft_index = 0, raft_term = 0, revision = 0;
         while (pos < (size_t)rlen) {
             uint8_t tag = resp[pos++];
             if (tag == 0x12) {
                 uint64_t l = 0; read_varint(resp, rlen, &pos, &l);
-                version = resp + pos; version_len = (size_t)l; pos += l;
+                ver = resp + pos; ver_len = (size_t)l; pos += l;
             } else if (tag == 0x18) {
                 read_varint(resp, rlen, &pos, &db_size);
             } else if (tag == 0x20) {
@@ -1634,50 +1725,67 @@ static int cmd_status(int argc, char **argv) {
             } else if (tag == 0x30) {
                 read_varint(resp, rlen, &pos, &raft_term);
             } else if (tag == 0x0a) {
-                uint64_t l = 0; read_varint(resp, rlen, &pos, &l); pos += l;
+                /* ResponseHeader: field 1 (cluster_id), field 2 (member_id), field 3 (revision) */
+                uint64_t l = 0; read_varint(resp, rlen, &pos, &l);
+                size_t hdr_end = pos + (size_t)l;
+                while (pos < hdr_end) {
+                    uint8_t htag = resp[pos++];
+                    if (htag == 0x18) { read_varint(resp, hdr_end, &pos, &revision); }
+                    else { uint64_t v = 0; read_varint(resp, hdr_end, &pos, &v); }
+                }
             } else {
                 uint64_t v = 0; read_varint(resp, rlen, &pos, &v);
             }
         }
-        fputs("{\"version\":\"", stdout);
-        if (version) fwrite(version, 1, version_len, stdout);
-        fputs("\",", stdout);
-        printf("\"dbSize\":%llu,", (unsigned long long)db_size);
-        printf("\"leader\":%llu,", (unsigned long long)leader);
-        printf("\"raftIndex\":%llu,", (unsigned long long)raft_index);
-        printf("\"raftTerm\":%llu}\n", (unsigned long long)raft_term);
-    } else {
-        parse_status_response(resp, rlen);
-    }
-    return 0;
-}
-
-static int cmd_endpoint(int argc, char **argv) {
-    if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl endpoint {health,status}\n");
-        return 1;
-    }
-    if (strcmp(argv[2], "health") == 0) {
-        /* Health check: send a Status RPC and check if we get a response */
-        uint8_t req[] = {0x00}, resp[1024];
-        int rlen = do_rpc("/etcdserverpb.Maintenance/Status", req, 1, resp, sizeof(resp));
-        if (rlen < 0) {
-            printf("%s:%d is unhealthy: failed to connect\n", g_host, g_port);
-            return 1;
+        if (want_json) {
+            fputs("{\"endpoint\":\"", stdout);
+            printf("%s:%d\",", g_host, g_port);
+            fputs("\"version\":\"", stdout);
+            if (ver) fwrite(ver, 1, ver_len, stdout);
+            fputs("\",", stdout);
+            printf("\"dbSize\":%llu,\"leader\":%llu,\"raftIndex\":%llu,\"raftTerm\":%llu,\"revision\":%llu}\n",
+                   (unsigned long long)db_size, (unsigned long long)leader,
+                   (unsigned long long)raft_index, (unsigned long long)raft_term,
+                   (unsigned long long)revision);
+        } else if (want_table) {
+            printf("+--------------------------+----------------+-----------+-----------+\n");
+            printf("|         ENDPOINT         |      ID        |  REVISION | DB SIZE   |\n");
+            printf("+--------------------------+----------------+-----------+-----------+\n");
+            printf("| %-24s | %14llu | %9llu | %9llu |\n",
+                   g_host, (unsigned long long)leader, (unsigned long long)revision,
+                   (unsigned long long)db_size);
+            printf("+--------------------------+----------------+-----------+-----------+\n");
+        } else {
+            printf("+--------------------------+----------------+-----------+\n");
+            printf("|         ENDPOINT         |      ID        |  REVISION |\n");
+            printf("+--------------------------+----------------+-----------+\n");
+            printf("| %-24s | %14llu | %9llu |\n",
+                   g_host, (unsigned long long)leader, (unsigned long long)revision);
+            printf("+--------------------------+----------------+-----------+\n");
+            parse_status_response(resp, rlen);
         }
-        printf("%s:%d is healthy\n", g_host, g_port);
         return 0;
-    } else if (strcmp(argv[2], "status") == 0) {
-        /* Endpoint status: same as status but with endpoint info */
-        uint8_t req[] = {0x00}, resp[1024];
-        int rlen = do_rpc("/etcdserverpb.Maintenance/Status", req, 1, resp, sizeof(resp));
+    } else if (strcmp(argv[2], "hashkv") == 0) {
+        /* Endpoint hashkv: call HashKV RPC */
+        uint8_t req[] = {0x00}, resp[256];
+        int rlen = do_rpc("/etcdserverpb.Maintenance/HashKV", req, 1, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        printf("+--------------------------+----------------+-----------+\n");
-        printf("|         ENDPOINT         |      ID        |  REVISION |\n");
-        printf("+--------------------------+----------------+-----------+\n");
-        printf("| %-24s | %14s | %9s |\n", g_host, "node", "-");
-        printf("+--------------------------+----------------+-----------+\n");
-        parse_status_response(resp, rlen);
+        size_t rpos = 0;
+        uint64_t hash_val = 0, compact_rev = 0;
+        while (rpos < (size_t)rlen) {
+            uint8_t tag = resp[rpos++];
+            if (tag == 0x10) { read_varint(resp, rlen, &rpos, &hash_val); }
+            else if (tag == 0x18) { read_varint(resp, rlen, &rpos, &compact_rev); }
+            else if (tag == 0x0a) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
+            else { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
+        }
+        if (want_json) {
+            printf("{\"endpoint\":\"%s:%d\",\"hash\":%llu,\"compact_revision\":%llu}\n",
+                   g_host, g_port, (unsigned long long)hash_val, (unsigned long long)compact_rev);
+        } else {
+            printf("endpoint: %s:%d  hash: %llu  compact_revision: %llu\n",
+                   g_host, g_port, (unsigned long long)hash_val, (unsigned long long)compact_rev);
+        }
         return 0;
     } else {
         fprintf(stderr, "unknown endpoint subcommand: %s\n", argv[2]);
@@ -2134,8 +2242,18 @@ static int cmd_alarm(int argc, char **argv) {
 }
 
 static int cmd_version(int argc, char **argv) {
-    (void)argc; (void)argv;
-    printf("cetcd version 0.1.0 (etcd v3.5 compatible)\n");
+    int want_json = 0;
+    for (int i = 2; i < argc; i++) {
+        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+            i++;
+        }
+    }
+    if (want_json) {
+        fputs("{\"client\":\"cetcdctl\",\"version\":\"0.1.0\",\"etcd\":\"v3.5 compatible\"}\n", stdout);
+    } else {
+        printf("cetcd version 0.1.0 (etcd v3.5 compatible)\n");
+    }
     return 0;
 }
 
@@ -2167,16 +2285,27 @@ static int cmd_snapshot(int argc, char **argv) {
             fprintf(stderr, "usage: cetcdctl snapshot status FILE\n");
             return 1;
         }
+        int snap_json = 0;
+        for (int i = 4; i < argc; i++) {
+            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+                if (strcmp(argv[i + 1], "json") == 0) snap_json = 1;
+                i++;
+            }
+        }
         FILE *f = fopen(argv[3], "rb");
         if (!f) { perror("fopen"); return 1; }
         fseek(f, 0, SEEK_END);
         long fsize = ftell(f);
         fclose(f);
-        printf("+----------+----------+---------+---------------------+\n");
-        printf("|   hash   | revision |  size   |     filename        |\n");
-        printf("+----------+----------+---------+---------------------+\n");
-        printf("| %-8s | %8s | %7ld | %-19s |\n", "-", "-", fsize, argv[3]);
-        printf("+----------+----------+---------+---------------------+\n");
+        if (snap_json) {
+            printf("{\"hash\":0,\"revision\":0,\"size\":%ld,\"filename\":\"%s\"}\n", fsize, argv[3]);
+        } else {
+            printf("+----------+----------+---------+---------------------+\n");
+            printf("|   hash   | revision |  size   |     filename        |\n");
+            printf("+----------+----------+---------+---------------------+\n");
+            printf("| %-8s | %8s | %7ld | %-19s |\n", "-", "-", fsize, argv[3]);
+            printf("+----------+----------+---------+---------------------+\n");
+        }
         return 0;
     } else if (strcmp(argv[2], "restore") == 0) {
         /* Restore a snapshot to a data directory.
@@ -2993,7 +3122,7 @@ static void print_usage(void) {
     printf("  txn get KEY [RANGE_END]  Execute a transaction (Range)\n");
     printf("  txn del [--prefix] [--prev-kv] KEY [RANGE_END]  Execute a transaction (Delete)\n");
     printf("  compact [--physical] [-w json] REV   Compact MVCC history to revision\n");
-    printf("  status                 Get server status\n");
+    printf("  status [-w json|fields]  Get server status\n");
     printf("  alarm list             List all alarms\n");
     printf("  alarm activate TYPE    Activate an alarm (NOSPACE)\n");
     printf("  alarm disarm           Disarm all alarms\n");
@@ -3026,14 +3155,15 @@ static void print_usage(void) {
     printf("  role revoke-permission ROLE\n");
     printf("                         Revoke all permissions from role\n");
     printf("  snapshot save [FILE]   Save a snapshot to file\n");
-    printf("  snapshot status FILE   Show snapshot file info\n");
+    printf("  snapshot status FILE [-w json]  Show snapshot file info\n");
     printf("  snapshot restore FILE --data-dir DIR  Restore snapshot to data dir\n");
     printf("  downgrade enable VER   Enable cluster downgrade\n");
     printf("  downgrade cancel       Cancel cluster downgrade\n");
     printf("  downgrade validate VER Validate downgrade version\n");
-    printf("  version                Print the client version\n");
-    printf("  endpoint health        Check server health\n");
-    printf("  endpoint status        Get server status with endpoint info\n");
+    printf("  version [-w json]      Print the client version\n");
+    printf("  endpoint health [-w json]  Check server health\n");
+    printf("  endpoint status [-w json|table]  Get server status with endpoint info\n");
+    printf("  endpoint hashkv [-w json]      Get KV hash per endpoint\n");
     printf("  check perf             Run a simple performance check\n");
     printf("  lock LOCKNAME [CMD...] Acquire a distributed lock\n");
     printf("  elect ELECTION_NAME [PROPOSAL]  Leader election\n");
