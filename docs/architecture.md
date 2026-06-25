@@ -305,7 +305,13 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `--debug` (global flag printing RPC path and response size for debugging),
 `del -w fields` (fields output for delete response showing prev_kvs metadata),
 `watch -w fields` (fields output for watch events showing full KV metadata),
-`lease keepalive [--once]` (loop keepalive by default, `--once` for single keepalive).
+`lease keepalive [--once]` (loop keepalive by default, `--once` for single keepalive),
+`compact/hash/hashkv/defrag/move-leader -w json` (JSON output for maintenance and KV compact commands),
+`lease grant/timetolive -w json` (JSON output for lease commands),
+`auth status -w json` (JSON output for auth status query),
+`--insecure` (global flag, accepted for etcdctl compatibility, no-op for plain TCP),
+`--dial-timeout SEC` (global flag for connection timeout via SO_SNDTIMEO/SO_RCVTIMEO),
+`--keepalive-time SEC` / `--keepalive-timeout SEC` (global flags accepted for etcdctl compatibility, no-op for plain TCP).
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with

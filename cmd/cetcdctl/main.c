@@ -68,6 +68,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -80,6 +81,8 @@ static int         g_hex = 0; /* flag for get --hex */
 static int         g_write_json = 0; /* flag for -w json */
 static int         g_write_fields = 0; /* flag for -w fields */
 static int         g_debug = 0; /* flag for --debug */
+static int         g_insecure = 0; /* flag for --insecure (no-op, plain TCP) */
+static int         g_dial_timeout = 0; /* flag for --dial-timeout (seconds) */
 static char        g_auth_token[256] = ""; /* token from --user */
 
 /* --- Lock state for signal handler --- */
@@ -145,6 +148,13 @@ static int connect_server(void) {
     sa.sin_family = AF_INET;
     sa.sin_port = htons(g_port);
     inet_pton(AF_INET, g_host, &sa.sin_addr);
+    if (g_dial_timeout > 0) {
+        struct timeval tv;
+        tv.tv_sec = g_dial_timeout;
+        tv.tv_usec = 0;
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    }
     if (connect(fd, (struct sockaddr *)&sa, sizeof(sa)) != 0) {
         perror("connect");
         close(fd);
@@ -1118,14 +1128,38 @@ static int cmd_lease(int argc, char **argv) {
         return 1;
     }
     if (strcmp(argv[2], "grant") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl lease grant TTL\n"); return 1; }
+        bool want_json = false;
+        const char *ttl_str = NULL;
+        for (int i = 3; i < argc; i++) {
+            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+                if (strcmp(argv[i + 1], "json") == 0) want_json = true;
+                i++;
+            } else if (!ttl_str) {
+                ttl_str = argv[i];
+            }
+        }
+        if (!ttl_str) { fprintf(stderr, "usage: cetcdctl lease grant [-w json] TTL\n"); return 1; }
         uint8_t req[32], resp[256];
         size_t pos = 0;
-        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(argv[3]));
+        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(ttl_str));
         pos = encode_varint_field(req, sizeof(req), pos, 0x10, 0);
         int rlen = do_rpc("/etcdserverpb.Lease/LeaseGrant", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        parse_lease_grant_response(resp, rlen);
+        if (want_json) {
+            size_t rpos = 0;
+            uint64_t lid = 0, ttl = 0;
+            while (rpos < (size_t)rlen) {
+                uint8_t tag = resp[rpos++];
+                if (tag == 0x10) { read_varint(resp, rlen, &rpos, &lid); }
+                else if (tag == 0x18) { read_varint(resp, rlen, &rpos, &ttl); }
+                else if (tag == 0x0a) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
+                else { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
+            }
+            printf("{\"header\":{},\"ID\":%llu,\"TTL\":%llu}\n",
+                   (unsigned long long)lid, (unsigned long long)ttl);
+        } else {
+            parse_lease_grant_response(resp, rlen);
+        }
     } else if (strcmp(argv[2], "revoke") == 0) {
         if (argc < 4) { fprintf(stderr, "usage: cetcdctl lease revoke ID\n"); return 1; }
         uint8_t req[32], resp[256];
@@ -1136,24 +1170,46 @@ static int cmd_lease(int argc, char **argv) {
         printf("OK\n");
     } else if (strcmp(argv[2], "timetolive") == 0) {
         bool want_keys = false;
+        bool want_json = false;
         const char *id_str = NULL;
         for (int i = 3; i < argc; i++) {
             if (strcmp(argv[i], "--keys") == 0) {
                 want_keys = true;
+            } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+                if (strcmp(argv[i + 1], "json") == 0) want_json = true;
+                i++;
             } else if (!id_str) {
                 id_str = argv[i];
             }
         }
-        if (!id_str) { fprintf(stderr, "usage: cetcdctl lease timetolive [--keys] ID\n"); return 1; }
+        if (!id_str) { fprintf(stderr, "usage: cetcdctl lease timetolive [--keys] [-w json] ID\n"); return 1; }
         uint8_t req[32], resp[4096];
         size_t pos = 0;
         pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(id_str));
         if (want_keys) {
-            pos = encode_varint_field(req, sizeof(req), pos, 0x10, 1); /* keys=true */
+            pos = encode_varint_field(req, sizeof(req), pos, 0x10, 1);
         }
         int rlen = do_rpc("/etcdserverpb.Lease/LeaseTimeToLive", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        parse_lease_ttl_response(resp, rlen);
+        if (want_json) {
+            size_t rpos = 0;
+            uint64_t lid = 0, ttl = 0, granted = 0;
+            fputs("{\"header\":{},", stdout);
+            while (rpos < (size_t)rlen) {
+                uint8_t tag = resp[rpos++];
+                if (tag == 0x10) { read_varint(resp, rlen, &rpos, &lid); }
+                else if (tag == 0x18) { read_varint(resp, rlen, &rpos, &ttl); }
+                else if (tag == 0x20) { read_varint(resp, rlen, &rpos, &granted); }
+                else if (tag == 0x2a) {
+                    /* keys */
+                } else if (tag == 0x0a) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
+                else { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
+            }
+            printf("\"ID\":%llu,\"TTL\":%llu,\"grantedTTL\":%llu}\n",
+                   (unsigned long long)lid, (unsigned long long)ttl, (unsigned long long)granted);
+        } else {
+            parse_lease_ttl_response(resp, rlen);
+        }
     } else if (strcmp(argv[2], "list") == 0) {
         int table_fmt = 0, json_fmt = 0;
         for (int i = 3; i < argc; i++) {
@@ -1268,25 +1324,32 @@ static int cmd_lease(int argc, char **argv) {
 
 static int cmd_compact(int argc, char **argv) {
     bool physical = false;
+    bool want_json = false;
     int64_t rev = 0;
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--physical") == 0) {
             physical = true;
+        } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "json") == 0) want_json = true;
+            i++;
         } else if (!rev) {
             rev = strtoll(argv[i], NULL, 10);
         }
     }
-    if (rev <= 0) { fprintf(stderr, "usage: cetcdctl compact [--physical] REV\n"); return 1; }
+    if (rev <= 0) { fprintf(stderr, "usage: cetcdctl compact [--physical] [-w json] REV\n"); return 1; }
     uint8_t req[32], resp[256];
     size_t pos = 0;
     pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)rev);
     if (physical) {
-        /* field 2 (physical) = bool, tag = 0x10 */
         pos = encode_varint_field(req, sizeof(req), pos, 0x10, 1);
     }
     int rlen = do_rpc("/etcdserverpb.KV/Compact", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-    printf("OK\n");
+    if (want_json) {
+        fputs("{\"header\":{}}\n", stdout);
+    } else {
+        printf("OK\n");
+    }
     return 0;
 }
 
@@ -2306,10 +2369,31 @@ static int cmd_auth(int argc, char **argv) {
         fprintf(stderr, "unknown auth subcommand: %s\n", argv[2]);
         return 1;
     }
+    int want_json = 0;
+    if (strcmp(argv[2], "status") == 0) {
+        for (int i = 3; i < argc; i++) {
+            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+                if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+                i++;
+            }
+        }
+    }
     int rlen = do_rpc(path, req, 1, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
     if (strcmp(argv[2], "status") == 0) {
-        parse_auth_status_response(resp, rlen);
+        if (want_json) {
+            size_t rpos = 0;
+            uint64_t enabled = 0;
+            while (rpos < (size_t)rlen) {
+                uint8_t tag = resp[rpos++];
+                if (tag == 0x10) { read_varint(resp, rlen, &rpos, &enabled); }
+                else if (tag == 0x0a) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
+                else { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
+            }
+            printf("{\"header\":{},\"enabled\":%s}\n", enabled ? "true" : "false");
+        } else {
+            parse_auth_status_response(resp, rlen);
+        }
     } else {
         printf("OK\n");
     }
@@ -2723,71 +2807,114 @@ static int cmd_watch(int argc, char **argv) {
 }
 
 static int cmd_hash(int argc, char **argv) {
-    (void)argc; (void)argv;
+    bool want_json = false;
+    for (int i = 2; i < argc; i++) {
+        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "json") == 0) want_json = true;
+            i++;
+        }
+    }
     uint8_t req[] = {0x00}, resp[256];
     int rlen = do_rpc("/etcdserverpb.Maintenance/Hash", req, 1, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
     /* HashResponse: field 1 (header), field 2 (hash) = uint32, tag = 0x10 */
     size_t rpos = 0;
+    uint64_t hash_val = 0;
     while (rpos < (size_t)rlen) {
         uint8_t tag = resp[rpos++];
         if (tag == 0x10) {
-            uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
-            printf("hash: %llu\n", (unsigned long long)v);
+            read_varint(resp, rlen, &rpos, &hash_val);
         } else if (tag == 0x0a) {
-            /* Skip header (length-delimited) */
-            uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
-            rpos += l;
+            uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
         } else {
             uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
         }
+    }
+    if (want_json) {
+        printf("{\"header\":{},\"hash\":%llu}\n", (unsigned long long)hash_val);
+    } else {
+        printf("hash: %llu\n", (unsigned long long)hash_val);
     }
     return 0;
 }
 
 static int cmd_hashkv(int argc, char **argv) {
-    (void)argc; (void)argv;
+    bool want_json = false;
+    for (int i = 2; i < argc; i++) {
+        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "json") == 0) want_json = true;
+            i++;
+        }
+    }
     uint8_t req[] = {0x00}, resp[256];
     int rlen = do_rpc("/etcdserverpb.Maintenance/HashKV", req, 1, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
     /* HashKVResponse: field 1 (header), field 2 (hash), field 3 (compact_revision) */
     size_t rpos = 0;
+    uint64_t hash_val = 0, compact_rev = 0;
     while (rpos < (size_t)rlen) {
         uint8_t tag = resp[rpos++];
         if (tag == 0x10) {
-            uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
-            printf("hash: %llu\n", (unsigned long long)v);
+            read_varint(resp, rlen, &rpos, &hash_val);
         } else if (tag == 0x18) {
-            uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
-            printf("compact_revision: %llu\n", (unsigned long long)v);
+            read_varint(resp, rlen, &rpos, &compact_rev);
         } else if (tag == 0x0a) {
-            /* Skip header (length-delimited) */
-            uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
-            rpos += l;
+            uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
         } else {
             uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
         }
+    }
+    if (want_json) {
+        printf("{\"header\":{},\"hash\":%llu,\"compact_revision\":%llu}\n",
+               (unsigned long long)hash_val, (unsigned long long)compact_rev);
+    } else {
+        printf("hash: %llu\n", (unsigned long long)hash_val);
+        printf("compact_revision: %llu\n", (unsigned long long)compact_rev);
     }
     return 0;
 }
 
 static int cmd_defrag(int argc, char **argv) {
-    (void)argc; (void)argv;
+    bool want_json = false;
+    for (int i = 2; i < argc; i++) {
+        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "json") == 0) want_json = true;
+            i++;
+        }
+    }
     uint8_t req[] = {0x00}, resp[256];
     int rlen = do_rpc("/etcdserverpb.Maintenance/Defragment", req, 1, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-    printf("OK\n");
+    if (want_json) {
+        fputs("{\"header\":{}}\n", stdout);
+    } else {
+        printf("OK\n");
+    }
     return 0;
 }
 
 static int cmd_move_leader(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl move-leader TARGET_ID\n"); return 1; }
+    bool want_json = false;
+    const char *target_str = NULL;
+    for (int i = 2; i < argc; i++) {
+        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "json") == 0) want_json = true;
+            i++;
+        } else if (!target_str) {
+            target_str = argv[i];
+        }
+    }
+    if (!target_str) { fprintf(stderr, "usage: cetcdctl move-leader [-w json] TARGET_ID\n"); return 1; }
     uint8_t req[32], resp[256];
     size_t pos = 0;
-    pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(argv[2]));
+    pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(target_str));
     int rlen = do_rpc("/etcdserverpb.Maintenance/MoveLeader", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-    printf("OK\n");
+    if (want_json) {
+        fputs("{\"header\":{}}\n", stdout);
+    } else {
+        printf("OK\n");
+    }
     return 0;
 }
 
@@ -2845,7 +2972,11 @@ static void print_usage(void) {
     printf("  --endpoints EP Server endpoint (host:port format, uses first endpoint)\n");
     printf("  --user USER:PASS  Authenticate with server before executing command\n");
     printf("  --command-timeout SEC  Timeout for commands (default: none)\n");
-    printf("  --debug       Print debug info (RPC path and response size)\n\n");
+    printf("  --debug       Print debug info (RPC path and response size)\n");
+    printf("  --insecure    Skip TLS certificate verification (no-op, plain TCP)\n");
+    printf("  --dial-timeout SEC  Connection timeout (default: none)\n");
+    printf("  --keepalive-time SEC    Keepalive ping interval (no-op, plain TCP)\n");
+    printf("  --keepalive-timeout SEC  Keepalive timeout (no-op, plain TCP)\n\n");
     printf("Commands:\n");
     printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE]  Store a key-value pair\n");
     printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
@@ -2861,15 +2992,15 @@ static void print_usage(void) {
     printf("  txn cas KEY EXP NEW    Compare-and-swap (if KEY==EXP then KEY=NEW)\n");
     printf("  txn get KEY [RANGE_END]  Execute a transaction (Range)\n");
     printf("  txn del [--prefix] [--prev-kv] KEY [RANGE_END]  Execute a transaction (Delete)\n");
-    printf("  compact [--physical] REV   Compact MVCC history to revision\n");
+    printf("  compact [--physical] [-w json] REV   Compact MVCC history to revision\n");
     printf("  status                 Get server status\n");
     printf("  alarm list             List all alarms\n");
     printf("  alarm activate TYPE    Activate an alarm (NOSPACE)\n");
     printf("  alarm disarm           Disarm all alarms\n");
-    printf("  hash                   Get KV store hash\n");
-    printf("  hashkv                 Get KV store hash + compact revision\n");
-    printf("  defrag                 Defragment database (no-op for LMDB)\n");
-    printf("  move-leader TARGET_ID  Transfer leadership to target node\n");
+    printf("  hash [-w json]         Get KV store hash\n");
+    printf("  hashkv [-w json]       Get KV store hash + compact revision\n");
+    printf("  defrag [-w json]       Defragment database (no-op for LMDB)\n");
+    printf("  move-leader [-w json] TARGET_ID  Transfer leadership to target node\n");
     printf("  member list            List cluster members\n");
     printf("  member add PEER_URL    Add a cluster member\n");
     printf("  member remove ID       Remove a cluster member\n");
@@ -2877,7 +3008,7 @@ static void print_usage(void) {
     printf("  member promote ID      Promote a member to voting member\n");
     printf("  auth enable            Enable authentication\n");
     printf("  auth disable           Disable authentication\n");
-    printf("  auth status            Query auth status\n");
+    printf("  auth status [-w json]  Query auth status\n");
     printf("  auth login NAME PASS   Authenticate and get token\n");
     printf("  user add NAME PASS     Add a user\n");
     printf("  user delete NAME       Delete a user\n");
@@ -2945,6 +3076,18 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[cmd_start], "--debug") == 0) {
             g_debug = 1;
             cmd_start += 1;
+        } else if (strcmp(argv[cmd_start], "--insecure") == 0) {
+            g_insecure = 1;
+            cmd_start += 1;
+        } else if (strcmp(argv[cmd_start], "--dial-timeout") == 0 && cmd_start + 1 < argc) {
+            g_dial_timeout = atoi(argv[cmd_start + 1]);
+            cmd_start += 2;
+        } else if (strcmp(argv[cmd_start], "--keepalive-time") == 0 && cmd_start + 1 < argc) {
+            /* Accepted for compatibility, no-op for plain TCP */
+            cmd_start += 2;
+        } else if (strcmp(argv[cmd_start], "--keepalive-timeout") == 0 && cmd_start + 1 < argc) {
+            /* Accepted for compatibility, no-op for plain TCP */
+            cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--user") == 0 && cmd_start + 1 < argc) {
             const char *cred = argv[cmd_start + 1];
             if (do_authenticate(cred) != 0) {
