@@ -78,6 +78,7 @@ static int         g_count_only = 0; /* flag for get --count-only */
 static int         g_print_value_only = 0; /* flag for get --print-value-only */
 static int         g_hex = 0; /* flag for get --hex */
 static int         g_write_json = 0; /* flag for -w json */
+static int         g_write_fields = 0; /* flag for -w fields */
 
 /* --- Lock state for signal handler --- */
 static char          g_lock_key[256];
@@ -230,6 +231,7 @@ static void parse_range_response(const uint8_t *data, size_t len) {
             /* Parse KeyValue fields */
             const uint8_t *key_data = NULL; size_t key_len = 0;
             const uint8_t *val_data = NULL; size_t val_len = 0;
+            uint64_t create_rev = 0, mod_rev = 0, version = 0, lease = 0;
             while (pos < kv_end) {
                 uint8_t ktag = data[pos++];
                 if (ktag == 0x0a) {
@@ -240,8 +242,14 @@ static void parse_range_response(const uint8_t *data, size_t len) {
                     uint64_t l = 0; read_varint(data, kv_end, &pos, &l);
                     val_data = data + pos; val_len = (size_t)l;
                     pos += l;
-                } else if (ktag == 0x10 || ktag == 0x18 || ktag == 0x20) {
-                    uint64_t v = 0; read_varint(data, kv_end, &pos, &v);
+                } else if (ktag == 0x10) {
+                    read_varint(data, kv_end, &pos, &create_rev);
+                } else if (ktag == 0x18) {
+                    read_varint(data, kv_end, &pos, &mod_rev);
+                } else if (ktag == 0x20) {
+                    read_varint(data, kv_end, &pos, &version);
+                } else if (ktag == 0x30) {
+                    read_varint(data, kv_end, &pos, &lease);
                 } else {
                     uint64_t v = 0; read_varint(data, kv_end, &pos, &v);
                 }
@@ -249,7 +257,21 @@ static void parse_range_response(const uint8_t *data, size_t len) {
             pos = kv_end;
             count++;
             if (!g_count_only) {
-                if (g_write_json) {
+                if (g_write_fields) {
+                    printf("\"");
+                    fwrite(key_data, 1, key_len, stdout);
+                    printf("\"\n");
+                    printf("create_revision: %llu\n", (unsigned long long)create_rev);
+                    printf("mod_revision: %llu\n", (unsigned long long)mod_rev);
+                    printf("version: %llu\n", (unsigned long long)version);
+                    if (lease > 0) printf("lease: %llu\n", (unsigned long long)lease);
+                    if (!g_keys_only && val_data && val_len > 0) {
+                        printf("value: \"");
+                        fwrite(val_data, 1, val_len, stdout);
+                        printf("\"\n");
+                    }
+                    printf("\n");
+                } else if (g_write_json) {
                     if (!first_kv) printf(",");
                     first_kv = 0;
                     printf("{\"key\":");
@@ -418,12 +440,16 @@ static void parse_lease_ttl_response(const uint8_t *data, size_t len) {
     }
 }
 
-static void parse_member_list_response(const uint8_t *data, size_t len, int table_format) {
+static void parse_member_list_response(const uint8_t *data, size_t len, int table_format, int json_format) {
     size_t pos = 0;
+    int first = 1;
     if (table_format) {
         printf("+------------------+--------+---------------------+\n");
         printf("|        ID        | STATUS |     PEER ADDRS      |\n");
         printf("+------------------+--------+---------------------+\n");
+    }
+    if (json_format) {
+        fputs("{\"header\":{},\"members\":[", stdout);
     }
     while (pos < len) {
         uint8_t tag = data[pos++];
@@ -446,7 +472,13 @@ static void parse_member_list_response(const uint8_t *data, size_t len, int tabl
                 }
             }
             pos = mend;
-            if (table_format) {
+            if (json_format) {
+                if (!first) printf(",");
+                first = 0;
+                printf("{\"ID\":%llu,\"peerURLs\":[\"", (unsigned long long)mid);
+                if (peer_url) fwrite(peer_url, 1, peer_len, stdout);
+                fputs("\"]}", stdout);
+            } else if (table_format) {
                 printf("| %16llu | %6s | %19.*s |\n",
                        (unsigned long long)mid, "alive",
                        (int)peer_len, peer_url ? peer_url : (const uint8_t *)"");
@@ -462,6 +494,9 @@ static void parse_member_list_response(const uint8_t *data, size_t len, int tabl
         } else {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
         }
+    }
+    if (json_format) {
+        printf("]}\n");
     }
     if (table_format) {
         printf("+------------------+--------+---------------------+\n");
@@ -694,9 +729,10 @@ static int cmd_get(int argc, char **argv) {
         } else if (strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) {
             if (i + 1 >= argc) { fprintf(stderr, "--write-out requires a format (json, simple, fields)\n"); return 1; }
             const char *fmt = argv[++i];
-            if (strcmp(fmt, "json") == 0) g_write_json = 1;
-            else if (strcmp(fmt, "simple") == 0 || strcmp(fmt, "fields") == 0) g_write_json = 0;
-            else { fprintf(stderr, "unsupported --write-out format: %s (use json or simple)\n", fmt); return 1; }
+            if (strcmp(fmt, "json") == 0) { g_write_json = 1; g_write_fields = 0; }
+            else if (strcmp(fmt, "fields") == 0) { g_write_json = 0; g_write_fields = 1; }
+            else if (strcmp(fmt, "simple") == 0) { g_write_json = 0; g_write_fields = 0; }
+            else { fprintf(stderr, "unsupported --write-out format: %s (use json, fields, or simple)\n", fmt); return 1; }
         } else if (strcmp(argv[i], "--count-only") == 0) {
             count_only = true;
         } else if (strcmp(argv[i], "--rev") == 0) {
@@ -817,6 +853,7 @@ static int cmd_get(int argc, char **argv) {
     g_print_value_only = 0;
     g_hex = 0;
     g_write_json = 0;
+    g_write_fields = 0;
     return 0;
 }
 
@@ -982,12 +1019,28 @@ static int cmd_lease(int argc, char **argv) {
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         parse_lease_ttl_response(resp, rlen);
     } else if (strcmp(argv[2], "list") == 0) {
+        int table_fmt = 0, json_fmt = 0;
+        for (int i = 3; i < argc; i++) {
+            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+                if (strcmp(argv[i + 1], "table") == 0) table_fmt = 1;
+                else if (strcmp(argv[i + 1], "json") == 0) json_fmt = 1;
+                i++;
+            }
+        }
         uint8_t req[] = {0x00}, resp[4096];
         int rlen = do_rpc("/etcdserverpb.Lease/LeaseLeases", req, 1, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         /* Parse LeaseLeasesResponse: field 1 (header), field 2 (leases) = repeated LeaseStatus */
         size_t rpos = 0;
         int count = 0;
+        if (table_fmt) {
+            printf("+--------------------+\n");
+            printf("|        ID          |\n");
+            printf("+--------------------+\n");
+        }
+        if (json_fmt) {
+            fputs("{\"header\":{},\"leases\":[", stdout);
+        }
         while (rpos < (size_t)rlen) {
             uint8_t tag = resp[rpos++];
             if (tag == 0x12) {
@@ -997,7 +1050,14 @@ static int cmd_lease(int argc, char **argv) {
                     uint8_t ltag = resp[rpos++];
                     if (ltag == 0x08) {
                         uint64_t id = 0; read_varint(resp, lend, &rpos, &id);
-                        printf("lease ID: %llu\n", (unsigned long long)id);
+                        if (json_fmt) {
+                            if (count > 0) printf(",");
+                            printf("{\"ID\":%llu}", (unsigned long long)id);
+                        } else if (table_fmt) {
+                            printf("| %18llu |\n", (unsigned long long)id);
+                        } else {
+                            printf("lease ID: %llu\n", (unsigned long long)id);
+                        }
                         count++;
                     } else {
                         uint64_t v = 0; read_varint(resp, lend, &rpos, &v);
@@ -1012,7 +1072,13 @@ static int cmd_lease(int argc, char **argv) {
                 uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
             }
         }
-        if (count == 0) printf("(no leases)\n");
+        if (json_fmt) {
+            printf("]}\n");
+        }
+        if (table_fmt) {
+            printf("+--------------------+\n");
+        }
+        if (count == 0 && !table_fmt && !json_fmt) printf("(no leases)\n");
     } else if (strcmp(argv[2], "keepalive") == 0) {
         if (argc < 4) { fprintf(stderr, "usage: cetcdctl lease keepalive ID\n"); return 1; }
         uint8_t req[32], resp[256];
@@ -1750,6 +1816,16 @@ static int cmd_alarm(int argc, char **argv) {
     const char *subcmd = argv[2];
     int action = 0; /* 0=GET, 1=ACTIVATE, 2=DEACTIVATE */
     int alarm_type = 1; /* NOSPACE */
+    int table_fmt = 0;
+    int json_fmt = 0;
+
+    for (int i = 3; i < argc; i++) {
+        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "table") == 0) table_fmt = 1;
+            else if (strcmp(argv[i + 1], "json") == 0) json_fmt = 1;
+            i++;
+        }
+    }
 
     if (strcmp(subcmd, "list") == 0) {
         action = 0;
@@ -1779,6 +1855,9 @@ static int cmd_alarm(int argc, char **argv) {
     /* Parse AlarmResponse */
     size_t pos = 0;
     int found_alarms = 0;
+    if (json_fmt && action == 0) {
+        fputs("{\"header\":{},\"alarms\":[", stdout);
+    }
     while (pos < (size_t)rlen) {
         uint8_t tag = resp[pos++];
         if (tag == 0x0a) { /* header, skip */
@@ -1800,7 +1879,19 @@ static int cmd_alarm(int argc, char **argv) {
             }
             if (action == 0) { /* list */
                 const char *type_str = (alarm_val == 1) ? "NOSPACE" : "UNKNOWN";
-                printf("memberID:%lu alarm:%s\n", (unsigned long)member_id, type_str);
+                if (json_fmt) {
+                    if (found_alarms) printf(",");
+                    printf("{\"memberID\":%lu,\"alarm\":\"%s\"}", (unsigned long)member_id, type_str);
+                } else if (table_fmt) {
+                    if (!found_alarms) {
+                        printf("+----------------------+----------+\n");
+                        printf("|       MEMBER         |  ALARM   |\n");
+                        printf("+----------------------+----------+\n");
+                    }
+                    printf("| %20lu | %8s |\n", (unsigned long)member_id, type_str);
+                } else {
+                    printf("memberID:%lu alarm:%s\n", (unsigned long)member_id, type_str);
+                }
             }
             found_alarms = 1;
         } else {
@@ -1809,7 +1900,13 @@ static int cmd_alarm(int argc, char **argv) {
     }
 
     if (action == 0) { /* list */
-        if (!found_alarms) printf("no alarms\n");
+        if (json_fmt) {
+            printf("]}\n");
+        } else if (table_fmt && found_alarms) {
+            printf("+----------------------+----------+\n");
+        }
+        if (!found_alarms && !table_fmt && !json_fmt) printf("no alarms\n");
+        if (!found_alarms && table_fmt) printf("(no alarms)\n");
     } else if (action == 1) { /* activate */
         printf("alarm activated NOSPACE\n");
     } else { /* disarm */
@@ -1958,17 +2055,18 @@ static int cmd_member(int argc, char **argv) {
         return 1;
     }
     if (strcmp(argv[2], "list") == 0) {
-        int table_fmt = 0;
+        int table_fmt = 0, json_fmt = 0;
         for (int i = 3; i < argc; i++) {
             if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
                 if (strcmp(argv[i + 1], "table") == 0) table_fmt = 1;
+                else if (strcmp(argv[i + 1], "json") == 0) json_fmt = 1;
                 i++;
             }
         }
         uint8_t req[] = {0x00}, resp[4096];
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberList", req, 1, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        parse_member_list_response(resp, rlen, table_fmt);
+        parse_member_list_response(resp, rlen, table_fmt, json_fmt);
     } else if (strcmp(argv[2], "add") == 0) {
         if (argc < 4) { fprintf(stderr, "usage: cetcdctl member add PEER_URL\n"); return 1; }
         uint8_t req[512], resp[4096];
@@ -1976,7 +2074,7 @@ static int cmd_member(int argc, char **argv) {
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberAdd", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        parse_member_list_response(resp, rlen, 0);
+        parse_member_list_response(resp, rlen, 0, 0);
     } else if (strcmp(argv[2], "remove") == 0) {
         if (argc < 4) { fprintf(stderr, "usage: cetcdctl member remove ID\n"); return 1; }
         uint8_t req[32], resp[256];

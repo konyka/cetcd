@@ -294,7 +294,11 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `member list -w table` (table format output for member list),
 `status -w json` (JSON output format for status query),
 `put -w json` / `del -w json` / `watch -w json` (JSON output for KV operations and watch events),
-`--command-timeout SEC` (global flag for command execution timeout).
+`--command-timeout SEC` (global flag for command execution timeout),
+`get -w fields` (fields output format showing create_revision, mod_revision, version, lease, and value),
+`lease list -w table` / `lease list -w json` (table and JSON output for lease list),
+`alarm list -w table` / `alarm list -w json` (table and JSON output for alarm list),
+`member list -w json` (JSON output format for member list).
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
