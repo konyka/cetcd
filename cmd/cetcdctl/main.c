@@ -80,6 +80,7 @@ static int         g_print_value_only = 0; /* flag for get --print-value-only */
 static int         g_hex = 0; /* flag for get --hex */
 static int         g_write_json = 0; /* flag for -w json */
 static int         g_write_fields = 0; /* flag for -w fields */
+static int         g_write_table = 0; /* flag for -w table */
 static int         g_debug = 0; /* flag for --debug */
 static int         g_insecure = 0; /* flag for --insecure (no-op, plain TCP) */
 static int         g_dial_timeout = 0; /* flag for --dial-timeout (seconds) */
@@ -238,6 +239,11 @@ static void parse_range_response(const uint8_t *data, size_t len) {
     if (g_write_json) {
         fputs("{\"kvs\":[", stdout);
     }
+    if (g_write_table && !g_count_only) {
+        printf("+------------------+------------+------------+---------+------------------+\n");
+        printf("|       KEY        | CREATE_REV |  MODIFY_REV| VERSION |      VALUE       |\n");
+        printf("+------------------+------------+------------+---------+------------------+\n");
+    }
     int first_kv = 1;
     while (pos < len) {
         uint8_t tag = data[pos++];
@@ -289,6 +295,18 @@ static void parse_range_response(const uint8_t *data, size_t len) {
                         printf("\"\n");
                     }
                     printf("\n");
+                } else if (g_write_table) {
+                    int kl = (int)(key_len > 16 ? 16 : key_len);
+                    printf("| %-*.*s ", 16, kl, key_data);
+                    printf("| %10llu ", (unsigned long long)create_rev);
+                    printf("| %10llu ", (unsigned long long)mod_rev);
+                    printf("| %7llu ", (unsigned long long)version);
+                    if (!g_keys_only && val_data && val_len > 0) {
+                        int vl = (int)(val_len > 16 ? 16 : val_len);
+                        printf("| %-*.*s |\n", 16, vl, val_data);
+                    } else {
+                        printf("| %-16s |\n", "");
+                    }
                 } else if (g_write_json) {
                     if (!first_kv) printf(",");
                     first_kv = 0;
@@ -355,6 +373,9 @@ static void parse_range_response(const uint8_t *data, size_t len) {
         } else {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
         }
+    }
+    if (g_write_table && !g_count_only) {
+        printf("+------------------+------------+------------+---------+------------------+\n");
     }
     if (g_count_only) {
         if (g_write_json) {
@@ -813,12 +834,13 @@ static int cmd_get(int argc, char **argv) {
             if (strcmp(c, "s") == 0) serializable = true;
             else if (strcmp(c, "l") != 0) { fprintf(stderr, "--consistency must be 'l' or 's'\n"); return 1; }
         } else if (strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) {
-            if (i + 1 >= argc) { fprintf(stderr, "--write-out requires a format (json, simple, fields)\n"); return 1; }
+            if (i + 1 >= argc) { fprintf(stderr, "--write-out requires a format (json, simple, fields, table)\n"); return 1; }
             const char *fmt = argv[++i];
-            if (strcmp(fmt, "json") == 0) { g_write_json = 1; g_write_fields = 0; }
-            else if (strcmp(fmt, "fields") == 0) { g_write_json = 0; g_write_fields = 1; }
-            else if (strcmp(fmt, "simple") == 0) { g_write_json = 0; g_write_fields = 0; }
-            else { fprintf(stderr, "unsupported --write-out format: %s (use json, fields, or simple)\n", fmt); return 1; }
+            if (strcmp(fmt, "json") == 0) { g_write_json = 1; g_write_fields = 0; g_write_table = 0; }
+            else if (strcmp(fmt, "fields") == 0) { g_write_json = 0; g_write_fields = 1; g_write_table = 0; }
+            else if (strcmp(fmt, "table") == 0) { g_write_json = 0; g_write_fields = 0; g_write_table = 1; }
+            else if (strcmp(fmt, "simple") == 0) { g_write_json = 0; g_write_fields = 0; g_write_table = 0; }
+            else { fprintf(stderr, "unsupported --write-out format: %s (use json, fields, table, or simple)\n", fmt); return 1; }
         } else if (strcmp(argv[i], "--count-only") == 0) {
             count_only = true;
         } else if (strcmp(argv[i], "--rev") == 0) {
@@ -1211,11 +1233,12 @@ static int cmd_lease(int argc, char **argv) {
             parse_lease_ttl_response(resp, rlen);
         }
     } else if (strcmp(argv[2], "list") == 0) {
-        int table_fmt = 0, json_fmt = 0;
+        int table_fmt = 0, json_fmt = 0, fields_fmt = 0;
         for (int i = 3; i < argc; i++) {
             if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
                 if (strcmp(argv[i + 1], "table") == 0) table_fmt = 1;
                 else if (strcmp(argv[i + 1], "json") == 0) json_fmt = 1;
+                else if (strcmp(argv[i + 1], "fields") == 0) fields_fmt = 1;
                 i++;
             }
         }
@@ -1245,6 +1268,8 @@ static int cmd_lease(int argc, char **argv) {
                         if (json_fmt) {
                             if (count > 0) printf(",");
                             printf("{\"ID\":%llu}", (unsigned long long)id);
+                        } else if (fields_fmt) {
+                            printf("ID: %llu\n", (unsigned long long)id);
                         } else if (table_fmt) {
                             printf("| %18llu |\n", (unsigned long long)id);
                         } else {
@@ -1270,7 +1295,7 @@ static int cmd_lease(int argc, char **argv) {
         if (table_fmt) {
             printf("+--------------------+\n");
         }
-        if (count == 0 && !table_fmt && !json_fmt) printf("(no leases)\n");
+        if (count == 0 && !table_fmt && !json_fmt && !fields_fmt) printf("(no leases)\n");
     } else if (strcmp(argv[2], "keepalive") == 0) {
         if (argc < 4) { fprintf(stderr, "usage: cetcdctl lease keepalive [--once] ID\n"); return 1; }
         int once = 0;
@@ -1361,6 +1386,15 @@ static int cmd_txn(int argc, char **argv) {
         fprintf(stderr, "       cetcdctl txn del [--prefix] [--prev-kv] KEY [RANGE_END]\n");
         return 1;
     }
+    /* Parse -w json for all txn subcommands */
+    int want_json = 0;
+    for (int i = 3; i < argc; i++) {
+        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "json") == 0) { want_json = 1; g_write_json = 1; }
+            else if (strcmp(argv[i + 1], "fields") == 0) { g_write_fields = 1; }
+            i++;
+        }
+    }
     if (strcmp(argv[2], "put") == 0) {
         if (argc < 5) { fprintf(stderr, "usage: cetcdctl txn put KEY VALUE\n"); return 1; }
         /* Build a TxnRequest with one success op (Put) */
@@ -1387,7 +1421,8 @@ static int cmd_txn(int argc, char **argv) {
 
         int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        printf("OK\n");
+        if (want_json) { fputs("{\"header\":{},\"succeeded\":true}\n", stdout); }
+        else { printf("OK\n"); }
         return 0;
     } else if (strcmp(argv[2], "cas") == 0) {
         /* Compare-and-swap: if KEY's value equals EXPECTED, set it to NEW */
@@ -1457,7 +1492,10 @@ static int cmd_txn(int argc, char **argv) {
                 uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
             }
         }
-        if (succeeded) {
+        if (want_json) {
+            printf("{\"header\":{},\"succeeded\":%s}\n", succeeded ? "true" : "false");
+            return succeeded ? 0 : 1;
+        } else if (succeeded) {
             printf("OK (compare succeeded)\n");
             return 0;
         } else {
@@ -1466,10 +1504,15 @@ static int cmd_txn(int argc, char **argv) {
         }
     } else if (strcmp(argv[2], "get") == 0) {
         /* txn get KEY [RANGE_END] */
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl txn get KEY [RANGE_END]\n"); return 1; }
-        const char *key = argv[3];
+        const char *key = NULL;
+        const char *range_end = NULL;
+        for (int i = 3; i < argc; i++) {
+            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) { i++; continue; }
+            if (!key) key = argv[i];
+            else if (!range_end) range_end = argv[i];
+        }
+        if (!key) { fprintf(stderr, "usage: cetcdctl txn get KEY [RANGE_END]\n"); return 1; }
         size_t key_len = strlen(key);
-        const char *range_end = (argc >= 5) ? argv[4] : NULL;
 
         /* Build RequestRange inner: key(0x0a), range_end(0x12) */
         uint8_t range_inner[512];
@@ -1542,6 +1585,7 @@ static int cmd_txn(int argc, char **argv) {
         const char *key = NULL;
         const char *range_end = NULL;
         for (int i = 3; i < argc; i++) {
+            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) { i++; continue; }
             if (strcmp(argv[i], "--prefix") == 0) {
                 prefix = true;
             } else if (strcmp(argv[i], "--prev-kv") == 0) {
@@ -1592,7 +1636,8 @@ static int cmd_txn(int argc, char **argv) {
 
         int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        printf("OK\n");
+        if (want_json) { fputs("{\"header\":{},\"succeeded\":true}\n", stdout); }
+        else { printf("OK\n"); }
         return 0;
     } else {
         fprintf(stderr, "unknown txn subcommand: %s\n", argv[2]);
@@ -2144,11 +2189,13 @@ static int cmd_alarm(int argc, char **argv) {
     int alarm_type = 1; /* NOSPACE */
     int table_fmt = 0;
     int json_fmt = 0;
+    int fields_fmt = 0;
 
     for (int i = 3; i < argc; i++) {
         if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "table") == 0) table_fmt = 1;
             else if (strcmp(argv[i + 1], "json") == 0) json_fmt = 1;
+            else if (strcmp(argv[i + 1], "fields") == 0) fields_fmt = 1;
             i++;
         }
     }
@@ -2208,6 +2255,9 @@ static int cmd_alarm(int argc, char **argv) {
                 if (json_fmt) {
                     if (found_alarms) printf(",");
                     printf("{\"memberID\":%lu,\"alarm\":\"%s\"}", (unsigned long)member_id, type_str);
+                } else if (fields_fmt) {
+                    printf("memberID: %lu\n", (unsigned long)member_id);
+                    printf("alarm: %s\n", type_str);
                 } else if (table_fmt) {
                     if (!found_alarms) {
                         printf("+----------------------+----------+\n");
@@ -2231,7 +2281,7 @@ static int cmd_alarm(int argc, char **argv) {
         } else if (table_fmt && found_alarms) {
             printf("+----------------------+----------+\n");
         }
-        if (!found_alarms && !table_fmt && !json_fmt) printf("no alarms\n");
+        if (!found_alarms && !table_fmt && !json_fmt && !fields_fmt) printf("no alarms\n");
         if (!found_alarms && table_fmt) printf("(no alarms)\n");
     } else if (action == 1) { /* activate */
         printf("alarm activated NOSPACE\n");
@@ -2359,27 +2409,35 @@ static int cmd_snapshot(int argc, char **argv) {
 
 static int cmd_downgrade(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl downgrade enable VERSION\n");
-        fprintf(stderr, "       cetcdctl downgrade cancel\n");
-        fprintf(stderr, "       cetcdctl downgrade validate VERSION\n");
+        fprintf(stderr, "usage: cetcdctl downgrade enable VERSION [-w json]\n");
+        fprintf(stderr, "       cetcdctl downgrade cancel [-w json]\n");
+        fprintf(stderr, "       cetcdctl downgrade validate VERSION [-w json]\n");
         return 1;
     }
+    int want_json = 0;
     uint8_t req[256], resp[256];
     size_t pos = 0;
     const char *version = "";
     uint64_t action = 1; /* ENABLE */
 
     if (strcmp(argv[2], "enable") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl downgrade enable VERSION\n"); return 1; }
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl downgrade enable VERSION [-w json]\n"); return 1; }
         action = 1; version = argv[3];
     } else if (strcmp(argv[2], "cancel") == 0) {
         action = 2;
     } else if (strcmp(argv[2], "validate") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl downgrade validate VERSION\n"); return 1; }
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl downgrade validate VERSION [-w json]\n"); return 1; }
         action = 0; version = argv[3];
     } else {
         fprintf(stderr, "unknown downgrade subcommand: %s\n", argv[2]);
         return 1;
+    }
+
+    for (int i = 3; i < argc; i++) {
+        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+            i++;
+        }
     }
 
     pos = encode_varint_field(req, sizeof(req), pos, 0x08, action);
@@ -2388,18 +2446,30 @@ static int cmd_downgrade(int argc, char **argv) {
 
     int rlen = do_rpc("/etcdserverpb.Maintenance/Downgrade", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-    printf("OK\n");
+    if (want_json) {
+        fputs("{\"header\":{}}\n", stdout);
+    } else {
+        printf("OK\n");
+    }
     return 0;
 }
 
 static int cmd_member(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl member list\n");
-        fprintf(stderr, "       cetcdctl member add PEER_URL\n");
-        fprintf(stderr, "       cetcdctl member remove ID\n");
-        fprintf(stderr, "       cetcdctl member update ID PEER_URL\n");
-        fprintf(stderr, "       cetcdctl member promote ID\n");
+        fprintf(stderr, "usage: cetcdctl member list [-w json|table]\n");
+        fprintf(stderr, "       cetcdctl member add [-w json] PEER_URL\n");
+        fprintf(stderr, "       cetcdctl member remove [-w json] ID\n");
+        fprintf(stderr, "       cetcdctl member update [-w json] ID PEER_URL\n");
+        fprintf(stderr, "       cetcdctl member promote [-w json] ID\n");
         return 1;
+    }
+    /* Parse -w json for all subcommands */
+    int want_json = 0;
+    for (int i = 3; i < argc; i++) {
+        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+            i++;
+        }
     }
     if (strcmp(argv[2], "list") == 0) {
         int table_fmt = 0, json_fmt = 0;
@@ -2415,38 +2485,66 @@ static int cmd_member(int argc, char **argv) {
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         parse_member_list_response(resp, rlen, table_fmt, json_fmt);
     } else if (strcmp(argv[2], "add") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl member add PEER_URL\n"); return 1; }
+        const char *peer_url = NULL;
+        for (int i = 3; i < argc; i++) {
+            if (argv[i][0] == '-') continue;
+            if (i > 3 && (strcmp(argv[i-1], "-w") == 0 || strcmp(argv[i-1], "--write-out") == 0)) continue;
+            if (!peer_url) peer_url = argv[i];
+        }
+        if (!peer_url) { fprintf(stderr, "usage: cetcdctl member add [-w json] PEER_URL\n"); return 1; }
         uint8_t req[512], resp[4096];
         size_t pos = 0;
-        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, peer_url);
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberAdd", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        parse_member_list_response(resp, rlen, 0, 0);
+        if (want_json) {
+            parse_member_list_response(resp, rlen, 0, 1);
+        } else {
+            parse_member_list_response(resp, rlen, 0, 0);
+        }
     } else if (strcmp(argv[2], "remove") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl member remove ID\n"); return 1; }
+        const char *id_str = NULL;
+        for (int i = 3; i < argc; i++) {
+            if (argv[i][0] == '-') continue;
+            if (i > 3 && (strcmp(argv[i-1], "-w") == 0 || strcmp(argv[i-1], "--write-out") == 0)) continue;
+            if (!id_str) id_str = argv[i];
+        }
+        if (!id_str) { fprintf(stderr, "usage: cetcdctl member remove [-w json] ID\n"); return 1; }
         uint8_t req[32], resp[256];
         size_t pos = 0;
-        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(argv[3]));
+        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(id_str));
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberRemove", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        printf("OK\n");
+        if (want_json) { fputs("{\"header\":{}}\n", stdout); } else { printf("OK\n"); }
     } else if (strcmp(argv[2], "update") == 0) {
-        if (argc < 5) { fprintf(stderr, "usage: cetcdctl member update ID PEER_URL\n"); return 1; }
+        const char *id_str = NULL;
+        const char *peer_url = NULL;
+        for (int i = 3; i < argc; i++) {
+            if (argv[i][0] == '-') { if (i + 1 < argc && (strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0)) i++; continue; }
+            if (!id_str) id_str = argv[i];
+            else if (!peer_url) peer_url = argv[i];
+        }
+        if (!id_str || !peer_url) { fprintf(stderr, "usage: cetcdctl member update [-w json] ID PEER_URL\n"); return 1; }
         uint8_t req[512], resp[256];
         size_t pos = 0;
-        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(argv[3]));
-        pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
+        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(id_str));
+        pos = encode_string_field(req, sizeof(req), pos, 0x12, peer_url);
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberUpdate", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        printf("OK\n");
+        if (want_json) { fputs("{\"header\":{}}\n", stdout); } else { printf("OK\n"); }
     } else if (strcmp(argv[2], "promote") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl member promote ID\n"); return 1; }
+        const char *id_str = NULL;
+        for (int i = 3; i < argc; i++) {
+            if (argv[i][0] == '-') { if (i + 1 < argc && (strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0)) i++; continue; }
+            if (!id_str) id_str = argv[i];
+        }
+        if (!id_str) { fprintf(stderr, "usage: cetcdctl member promote [-w json] ID\n"); return 1; }
         uint8_t req[32], resp[256];
         size_t pos = 0;
-        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(argv[3]));
+        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(id_str));
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberPromote", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        printf("OK\n");
+        if (want_json) { fputs("{\"header\":{}}\n", stdout); } else { printf("OK\n"); }
     } else {
         fprintf(stderr, "unknown member subcommand: %s\n", argv[2]);
         return 1;
@@ -3105,36 +3203,39 @@ static void print_usage(void) {
     printf("  --insecure    Skip TLS certificate verification (no-op, plain TCP)\n");
     printf("  --dial-timeout SEC  Connection timeout (default: none)\n");
     printf("  --keepalive-time SEC    Keepalive ping interval (no-op, plain TCP)\n");
-    printf("  --keepalive-timeout SEC  Keepalive timeout (no-op, plain TCP)\n\n");
+    printf("  --keepalive-timeout SEC  Keepalive timeout (no-op, plain TCP)\n");
+    printf("  --cacert FILE   TLS CA certificate (no-op, plain TCP)\n");
+    printf("  --cert FILE     TLS certificate (no-op, plain TCP)\n");
+    printf("  --key FILE      TLS key (no-op, plain TCP)\n\n");
     printf("Commands:\n");
     printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE]  Store a key-value pair\n");
-    printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
+    printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields|table] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
     printf("  del [--prefix] [--from-key] [--prev-kv] [-w json|fields] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --prev-kv)\n");
     printf("  watch [--prefix] [--prev-kv] [--start-rev N] [-w json|fields] KEY  Watch key changes (single response)\n");
-    printf("  lease grant TTL        Grant a lease (TTL in seconds)\n");
+    printf("  lease grant TTL [-w json]  Grant a lease (TTL in seconds)\n");
     printf("  lease revoke ID        Revoke a lease by ID\n");
-    printf("  lease timetolive [--keys] ID  Query remaining TTL\n");
-    printf("  lease list             List all active leases\n");
+    printf("  lease timetolive [--keys] [-w json] ID  Query remaining TTL\n");
+    printf("  lease list [-w table|json|fields]  List all active leases\n");
     printf("  lease keepalive [--once] ID  Keep a lease alive (loop by default, --once for single)\n");
-    printf("  txn put KEY VALUE      Execute a transaction (Put)\n");
-    printf("  txn cas KEY EXP NEW    Compare-and-swap (if KEY==EXP then KEY=NEW)\n");
-    printf("  txn get KEY [RANGE_END]  Execute a transaction (Range)\n");
-    printf("  txn del [--prefix] [--prev-kv] KEY [RANGE_END]  Execute a transaction (Delete)\n");
+    printf("  txn put [-w json] KEY VALUE  Execute a transaction (Put)\n");
+    printf("  txn cas [-w json] KEY EXP NEW  Compare-and-swap (if KEY==EXP then KEY=NEW)\n");
+    printf("  txn get [-w json] KEY [RANGE_END]  Execute a transaction (Range)\n");
+    printf("  txn del [-w json] [--prefix] [--prev-kv] KEY [RANGE_END]  Execute a transaction (Delete)\n");
     printf("  compact [--physical] [-w json] REV   Compact MVCC history to revision\n");
     printf("  status [-w json|fields]  Get server status\n");
-    printf("  alarm list             List all alarms\n");
+    printf("  alarm list [-w table|json|fields]  List all alarms\n");
     printf("  alarm activate TYPE    Activate an alarm (NOSPACE)\n");
     printf("  alarm disarm           Disarm all alarms\n");
     printf("  hash [-w json]         Get KV store hash\n");
     printf("  hashkv [-w json]       Get KV store hash + compact revision\n");
     printf("  defrag [-w json]       Defragment database (no-op for LMDB)\n");
     printf("  move-leader [-w json] TARGET_ID  Transfer leadership to target node\n");
-    printf("  member list            List cluster members\n");
-    printf("  member add PEER_URL    Add a cluster member\n");
-    printf("  member remove ID       Remove a cluster member\n");
-    printf("  member update ID URL   Update a member's peer URL\n");
-    printf("  member promote ID      Promote a member to voting member\n");
+    printf("  member list [-w json|table]  List cluster members\n");
+    printf("  member add [-w json] PEER_URL  Add a cluster member\n");
+    printf("  member remove [-w json] ID    Remove a cluster member\n");
+    printf("  member update [-w json] ID URL  Update a member's peer URL\n");
+    printf("  member promote [-w json] ID    Promote a member to voting member\n");
     printf("  auth enable            Enable authentication\n");
     printf("  auth disable           Disable authentication\n");
     printf("  auth status [-w json]  Query auth status\n");
@@ -3157,9 +3258,9 @@ static void print_usage(void) {
     printf("  snapshot save [FILE]   Save a snapshot to file\n");
     printf("  snapshot status FILE [-w json]  Show snapshot file info\n");
     printf("  snapshot restore FILE --data-dir DIR  Restore snapshot to data dir\n");
-    printf("  downgrade enable VER   Enable cluster downgrade\n");
-    printf("  downgrade cancel       Cancel cluster downgrade\n");
-    printf("  downgrade validate VER Validate downgrade version\n");
+    printf("  downgrade enable [-w json] VER   Enable cluster downgrade\n");
+    printf("  downgrade cancel [-w json]       Cancel cluster downgrade\n");
+    printf("  downgrade validate [-w json] VER Validate downgrade version\n");
     printf("  version [-w json]      Print the client version\n");
     printf("  endpoint health [-w json]  Check server health\n");
     printf("  endpoint status [-w json|table]  Get server status with endpoint info\n");
@@ -3217,6 +3318,15 @@ int main(int argc, char **argv) {
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--keepalive-timeout") == 0 && cmd_start + 1 < argc) {
             /* Accepted for compatibility, no-op for plain TCP */
+            cmd_start += 2;
+        } else if (strcmp(argv[cmd_start], "--cacert") == 0 && cmd_start + 1 < argc) {
+            /* Accepted for compatibility, no-op (plain TCP) */
+            cmd_start += 2;
+        } else if (strcmp(argv[cmd_start], "--cert") == 0 && cmd_start + 1 < argc) {
+            /* Accepted for compatibility, no-op (plain TCP) */
+            cmd_start += 2;
+        } else if (strcmp(argv[cmd_start], "--key") == 0 && cmd_start + 1 < argc) {
+            /* Accepted for compatibility, no-op (plain TCP) */
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--user") == 0 && cmd_start + 1 < argc) {
             const char *cred = argv[cmd_start + 1];

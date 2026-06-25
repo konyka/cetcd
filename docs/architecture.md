@@ -319,6 +319,13 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `version -w json` (JSON output with client/version/etcd fields),
 `status -w fields` (fields output format showing version, dbSize, leader, raftIndex, raftTerm, and revision from ResponseHeader),
 `status -w json` now includes `revision` field from ResponseHeader.
+`--cacert` / `--cert` / `--key` (global TLS flags accepted for etcdctl compatibility, no-op for plain TCP),
+`txn -w json` (JSON output for all txn subcommands: put, cas, get, del — outputs `{"header":{},"succeeded":true|false}`),
+`member add/remove/update/promote -w json` (JSON output for cluster member management operations),
+`downgrade -w json` (JSON output for downgrade enable/cancel/validate),
+`alarm list -w fields` (fields output format for alarm list with memberID and alarm type),
+`lease list -w fields` (fields output format for lease list),
+`get -w table` (table output format for range queries with KEY/CREATE_REV/MODIFY_REV/VERSION/VALUE columns).
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
