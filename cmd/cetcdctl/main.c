@@ -79,6 +79,8 @@ static int         g_print_value_only = 0; /* flag for get --print-value-only */
 static int         g_hex = 0; /* flag for get --hex */
 static int         g_write_json = 0; /* flag for -w json */
 static int         g_write_fields = 0; /* flag for -w fields */
+static int         g_debug = 0; /* flag for --debug */
+static char        g_auth_token[256] = ""; /* token from --user */
 
 /* --- Lock state for signal handler --- */
 static char          g_lock_key[256];
@@ -200,6 +202,9 @@ static int recv_response(int fd, uint8_t *buf, size_t buf_cap) {
 
 static int do_rpc(const char *path, const uint8_t *req, size_t req_len,
                   uint8_t *resp, size_t resp_cap) {
+    if (g_debug) {
+        fprintf(stderr, "[debug] RPC %s req_len=%zu\n", path, req_len);
+    }
     int fd = connect_server();
     if (fd < 0) return -1;
     if (send_request(fd, path, req, req_len) != 0) {
@@ -208,6 +213,9 @@ static int do_rpc(const char *path, const uint8_t *req, size_t req_len,
     }
     int rlen = recv_response(fd, resp, resp_cap);
     close(fd);
+    if (g_debug) {
+        fprintf(stderr, "[debug] RPC %s resp_len=%d\n", path, rlen);
+    }
     return rlen;
 }
 
@@ -520,14 +528,23 @@ static void parse_auth_status_response(const uint8_t *data, size_t len) {
     }
 }
 
-static void parse_string_list_response(const uint8_t *data, size_t len, const char *label) {
+static void parse_string_list_response(const uint8_t *data, size_t len, const char *label, int table_fmt) {
     size_t pos = 0;
     int count = 0;
+    if (table_fmt) {
+        printf("+--------------------+\n");
+        printf("| %18s |\n", label);
+        printf("+--------------------+\n");
+    }
     while (pos < len) {
         uint8_t tag = data[pos++];
         if (tag == 0x12) {
             uint64_t l = 0; read_varint(data, len, &pos, &l);
-            printf("%.*s\n", (int)l, data + pos);
+            if (table_fmt) {
+                printf("| %18.*s |\n", (int)l, data + pos);
+            } else {
+                printf("%.*s\n", (int)l, data + pos);
+            }
             pos += l;
             count++;
         } else if (tag == 0x0a) {
@@ -538,7 +555,10 @@ static void parse_string_list_response(const uint8_t *data, size_t len, const ch
             uint64_t v = 0; read_varint(data, len, &pos, &v);
         }
     }
-    if (count == 0) printf("(no %s)\n", label);
+    if (table_fmt) {
+        printf("+--------------------+\n");
+    }
+    if (count == 0 && !table_fmt) printf("(no %s)\n", label);
 }
 
 /* --- Commands --- */
@@ -548,6 +568,7 @@ static int cmd_put(int argc, char **argv) {
     bool ignore_value = false;
     bool ignore_lease = false;
     bool want_json = false;
+    bool want_fields = false;
     int64_t lease_id = 0;
     const char *key = NULL;
     const char *val = NULL;
@@ -564,6 +585,7 @@ static int cmd_put(int argc, char **argv) {
             lease_id = strtoll(argv[++i], NULL, 10);
         } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) want_json = true;
+            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
             i++;
         } else if (!key) {
             key = argv[i];
@@ -606,7 +628,61 @@ static int cmd_put(int argc, char **argv) {
     }
     int rlen = do_rpc("/etcdserverpb.KV/Put", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-    if (want_json) {
+    if (want_fields) {
+        if (prev_kv) {
+            size_t rpos = 0;
+            const uint8_t *pk = NULL; size_t pk_len = 0;
+            const uint8_t *pv = NULL; size_t pv_len = 0;
+            uint64_t pcr = 0, pmr = 0, pver = 0, please = 0;
+            while (rpos < (size_t)rlen) {
+                uint8_t tag = resp[rpos++];
+                if (tag == 0x12) {
+                    uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+                    size_t kv_end = rpos + (size_t)l;
+                    while (rpos < kv_end) {
+                        uint8_t ktag = resp[rpos++];
+                        if (ktag == 0x0a) {
+                            uint64_t kl = 0; read_varint(resp, kv_end, &rpos, &kl);
+                            pk = resp + rpos; pk_len = (size_t)kl; rpos += kl;
+                        } else if (ktag == 0x2a) {
+                            uint64_t vl = 0; read_varint(resp, kv_end, &rpos, &vl);
+                            pv = resp + rpos; pv_len = (size_t)vl; rpos += vl;
+                        } else if (ktag == 0x10) {
+                            read_varint(resp, kv_end, &rpos, &pcr);
+                        } else if (ktag == 0x18) {
+                            read_varint(resp, kv_end, &rpos, &pmr);
+                        } else if (ktag == 0x20) {
+                            read_varint(resp, kv_end, &rpos, &pver);
+                        } else if (ktag == 0x30) {
+                            read_varint(resp, kv_end, &rpos, &please);
+                        } else {
+                            uint64_t v = 0; read_varint(resp, kv_end, &rpos, &v);
+                        }
+                    }
+                    rpos = kv_end;
+                } else if (tag == 0x0a) {
+                    uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
+                } else {
+                    uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+                }
+            }
+            if (pk) {
+                printf("\"");
+                fwrite(pk, 1, pk_len, stdout);
+                printf("\"\n");
+                printf("create_revision: %llu\n", (unsigned long long)pcr);
+                printf("mod_revision: %llu\n", (unsigned long long)pmr);
+                printf("version: %llu\n", (unsigned long long)pver);
+                if (please > 0) printf("lease: %llu\n", (unsigned long long)please);
+                if (pv && pv_len > 0) {
+                    printf("value: \"");
+                    fwrite(pv, 1, pv_len, stdout);
+                    printf("\"\n");
+                }
+            }
+        }
+        return 0;
+    } else if (want_json) {
         fputs("{\"header\":{},", stdout);
         if (prev_kv) {
             /* Parse PutResponse for prev_kv (field 2, tag 0x12) */
@@ -2197,12 +2273,19 @@ static int cmd_user(int argc, char **argv) {
         int rlen = do_rpc("/etcdserverpb.Auth/UserGet", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         printf("roles:\n");
-        parse_string_list_response(resp, rlen, "roles");
+        parse_string_list_response(resp, rlen, "roles", 0);
     } else if (strcmp(argv[2], "list") == 0) {
+        int table_fmt = 0;
+        for (int i = 3; i < argc; i++) {
+            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+                if (strcmp(argv[i + 1], "table") == 0) table_fmt = 1;
+                i++;
+            }
+        }
         uint8_t req[] = {0x00}, resp[4096];
         int rlen = do_rpc("/etcdserverpb.Auth/UserList", req, 1, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        parse_string_list_response(resp, rlen, "users");
+        parse_string_list_response(resp, rlen, "users", table_fmt);
     } else if (strcmp(argv[2], "change-password") == 0) {
         if (argc < 5) { fprintf(stderr, "usage: cetcdctl user change-password NAME PASS\n"); return 1; }
         uint8_t req[512], resp[256];
@@ -2263,10 +2346,17 @@ static int cmd_role(int argc, char **argv) {
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         printf("OK\n");
     } else if (strcmp(argv[2], "list") == 0) {
+        int table_fmt = 0;
+        for (int i = 3; i < argc; i++) {
+            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+                if (strcmp(argv[i + 1], "table") == 0) table_fmt = 1;
+                i++;
+            }
+        }
         uint8_t req[] = {0x00}, resp[4096];
         int rlen = do_rpc("/etcdserverpb.Auth/RoleList", req, 1, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        parse_string_list_response(resp, rlen, "roles");
+        parse_string_list_response(resp, rlen, "roles", table_fmt);
     } else if (strcmp(argv[2], "get") == 0) {
         if (argc < 4) { fprintf(stderr, "usage: cetcdctl role get NAME\n"); return 1; }
         uint8_t req[256], resp[1024];
@@ -2593,6 +2683,51 @@ static int cmd_move_leader(int argc, char **argv) {
     return 0;
 }
 
+/* Authenticate with server using --user USER:PASS */
+static int do_authenticate(const char *user_cred) {
+    const char *colon = strchr(user_cred, ':');
+    if (!colon) {
+        fprintf(stderr, "--user format must be USER:PASS\n");
+        return -1;
+    }
+    size_t user_len = (size_t)(colon - user_cred);
+    const char *pass = colon + 1;
+    size_t pass_len = strlen(pass);
+
+    /* AuthenticateRequest: name (field 1, 0x0a), password (field 2, 0x12) */
+    uint8_t req[512], resp[256];
+    size_t pos = 0;
+    pos = encode_bytes_field(req, sizeof(req), pos, 0x0a,
+                             (const uint8_t *)user_cred, user_len);
+    pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
+                             (const uint8_t *)pass, pass_len);
+    int rlen = do_rpc("/etcdserverpb.Auth/Authenticate", req, pos, resp, sizeof(resp));
+    if (rlen < 0) {
+        fprintf(stderr, "authentication request failed\n");
+        return -1;
+    }
+    /* Parse AuthenticateResponse: field 1 (header), field 2 (token) */
+    size_t rpos = 0;
+    while (rpos < (size_t)rlen) {
+        uint8_t tag = resp[rpos++];
+        if (tag == 0x12) {
+            uint64_t tlen = 0; read_varint(resp, rlen, &rpos, &tlen);
+            size_t copy = (size_t)tlen < sizeof(g_auth_token) - 1 ? (size_t)tlen : sizeof(g_auth_token) - 1;
+            memcpy(g_auth_token, resp + rpos, copy);
+            g_auth_token[copy] = '\0';
+            rpos += tlen;
+        } else if (tag == 0x0a) {
+            uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
+        } else {
+            uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+        }
+    }
+    if (g_debug) {
+        fprintf(stderr, "[debug] authenticated, token=%s\n", g_auth_token);
+    }
+    return 0;
+}
+
 static void print_usage(void) {
     printf("cetcdctl — command-line client for cetcd\n\n");
     printf("Usage: cetcdctl [global options] COMMAND [args]\n\n");
@@ -2600,10 +2735,12 @@ static void print_usage(void) {
     printf("  --host ADDR    Server address (default: 127.0.0.1)\n");
     printf("  --port PORT    Server port (default: 2379)\n");
     printf("  --endpoints EP Server endpoint (host:port format, uses first endpoint)\n");
-    printf("  --command-timeout SEC  Timeout for commands (default: none)\n\n");
+    printf("  --user USER:PASS  Authenticate with server before executing command\n");
+    printf("  --command-timeout SEC  Timeout for commands (default: none)\n");
+    printf("  --debug       Print debug info (RPC path and response size)\n\n");
     printf("Commands:\n");
     printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE]  Store a key-value pair\n");
-    printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
+    printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
     printf("  del [--prefix] [--from-key] [--prev-kv] [-w json] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --prev-kv)\n");
     printf("  watch [--prefix] [--prev-kv] [--start-rev N] [-w json] KEY  Watch key changes (single response)\n");
@@ -2695,6 +2832,15 @@ int main(int argc, char **argv) {
             if (timeout_sec > 0) {
                 signal(SIGALRM, (void (*)(int))_exit);
                 alarm((unsigned)timeout_sec);
+            }
+            cmd_start += 2;
+        } else if (strcmp(argv[cmd_start], "--debug") == 0) {
+            g_debug = 1;
+            cmd_start += 1;
+        } else if (strcmp(argv[cmd_start], "--user") == 0 && cmd_start + 1 < argc) {
+            const char *cred = argv[cmd_start + 1];
+            if (do_authenticate(cred) != 0) {
+                return 1;
             }
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--help") == 0 || strcmp(argv[cmd_start], "-h") == 0) {
