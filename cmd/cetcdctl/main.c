@@ -2600,9 +2600,11 @@ static int cmd_alarm(int argc, char **argv) {
         if (!found_alarms && !table_fmt && !json_fmt && !fields_fmt) printf("no alarms\n");
         if (!found_alarms && table_fmt) printf("(no alarms)\n");
     } else if (action == 1) { /* activate */
-        printf("alarm activated NOSPACE\n");
+        if (json_fmt) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
+        else printf("alarm activated NOSPACE\n");
     } else { /* disarm */
-        printf("alarm disarmed\n");
+        if (json_fmt) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
+        else printf("alarm disarmed\n");
     }
     return 0;
 }
@@ -3763,8 +3765,8 @@ static void print_usage(void) {
     printf("  compact [--physical] [-w json] REV   Compact MVCC history to revision\n");
     printf("  status [-w json|fields]  Get server status\n");
     printf("  alarm list [-w table|json|fields]  List all alarms\n");
-    printf("  alarm activate TYPE    Activate an alarm (NOSPACE)\n");
-    printf("  alarm disarm           Disarm all alarms\n");
+    printf("  alarm activate [-w json] TYPE    Activate an alarm (NOSPACE)\n");
+    printf("  alarm disarm [-w json]            Disarm all alarms\n");
     printf("  hash [-w json]         Get KV store hash\n");
     printf("  hashkv [-w json]       Get KV store hash + compact revision\n");
     printf("  defrag [-w json]       Defragment database (no-op for LMDB)\n");
