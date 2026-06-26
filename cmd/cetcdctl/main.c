@@ -268,6 +268,21 @@ static int parse_and_print_header_json(const uint8_t *data, size_t len) {
     return 0;
 }
 
+/* Print a byte buffer as a JSON string with proper escaping. */
+static void print_json_string(const uint8_t *data, size_t len) {
+    putchar('"');
+    for (size_t i = 0; i < len; i++) {
+        char c = (char)data[i];
+        if (c == '"' || c == '\\') printf("\\%c", c);
+        else if (c == '\n') fputs("\\n", stdout);
+        else if (c == '\r') fputs("\\r", stdout);
+        else if (c == '\t') fputs("\\t", stdout);
+        else if (c >= 32 && c < 127) putchar(c);
+        else printf("\\u%04x", (unsigned)(unsigned char)c);
+    }
+    putchar('"');
+}
+
 static void parse_range_response(const uint8_t *data, size_t len) {
     size_t pos = 0;
     int count = 0;
@@ -362,31 +377,17 @@ static void parse_range_response(const uint8_t *data, size_t len) {
                     }
                     if (!first_kv) printf(",");
                     first_kv = 0;
-                    printf("{\"key\":");
-                    /* output key as JSON string */
-                    printf("\"");
-                    for (size_t i = 0; i < key_len; i++) {
-                        char c = (char)key_data[i];
-                        if (c == '"' || c == '\\') printf("\\%c", c);
-                        else if (c >= 32 && c < 127) putchar(c);
-                        else printf("\\u%04x", (unsigned)c);
-                    }
-                    printf("\"");
+                    fputs("{\"key\":", stdout);
+                    print_json_string(key_data, key_len);
                     printf(",\"create_revision\":%llu", (unsigned long long)create_rev);
                     printf(",\"mod_revision\":%llu", (unsigned long long)mod_rev);
                     printf(",\"version\":%llu", (unsigned long long)version);
                     if (lease > 0) printf(",\"lease\":%llu", (unsigned long long)lease);
                     if (!g_keys_only && val_data && val_len > 0) {
-                        printf(",\"value\":\"");
-                        for (size_t i = 0; i < val_len; i++) {
-                            char c = (char)val_data[i];
-                            if (c == '"' || c == '\\') printf("\\%c", c);
-                            else if (c >= 32 && c < 127) putchar(c);
-                            else printf("\\u%04x", (unsigned)c);
-                        }
-                        printf("\"");
+                        fputs(",\"value\":", stdout);
+                        print_json_string(val_data, val_len);
                     }
-                    printf("}");
+                    fputs("}", stdout);
                 } else if (g_print_value_only) {
                     if (val_data && val_len > 0) {
                         if (g_hex) {
@@ -628,15 +629,15 @@ static void parse_member_list_response(const uint8_t *data, size_t len, int tabl
             if (json_format) {
                 if (!first) printf(",");
                 first = 0;
-                printf("{\"ID\":%llu,\"name\":\"", (unsigned long long)mid);
-                if (m_name) fwrite(m_name, 1, name_len, stdout);
-                fputs("\",\"peerURLs\":[\"", stdout);
-                if (peer_url) fwrite(peer_url, 1, peer_len, stdout);
-                fputs("\"]", stdout);
+                printf("{\"ID\":%llu,\"name\":", (unsigned long long)mid);
+                if (m_name) print_json_string(m_name, name_len); else fputs("\"\"", stdout);
+                fputs(",\"peerURLs\":[", stdout);
+                if (peer_url) print_json_string(peer_url, peer_len); else fputs("\"\"", stdout);
+                fputs("]", stdout);
                 if (client_url) {
-                    fputs(",\"clientURLs\":[\"", stdout);
-                    fwrite(client_url, 1, client_len, stdout);
-                    fputs("\"]", stdout);
+                    fputs(",\"clientURLs\":[", stdout);
+                    print_json_string(client_url, client_len);
+                    fputs("]", stdout);
                 }
                 if (is_learner) fputs(",\"isLearner\":true", stdout);
                 fputs("}", stdout);
@@ -701,7 +702,7 @@ static void parse_string_list_response(const uint8_t *data, size_t len, const ch
             uint64_t l = 0; read_varint(data, len, &pos, &l);
             if (json_fmt) {
                 if (count > 0) printf(",");
-                printf("\"%.*s\"", (int)l, data + pos);
+                print_json_string(data + pos, (size_t)l);
             } else if (table_fmt) {
                 printf("| %18.*s |\n", (int)l, data + pos);
             } else {
@@ -882,13 +883,11 @@ static int cmd_put(int argc, char **argv) {
             }
             fputs("\"prev_kv\":{", stdout);
             if (pk) {
-                fputs("\"key\":\"", stdout);
-                fwrite(pk, 1, pk_len, stdout);
-                fputs("\"", stdout);
+                fputs("\"key\":", stdout);
+                print_json_string(pk, pk_len);
                 if (pv && pv_len > 0) {
-                    fputs(",\"value\":\"", stdout);
-                    fwrite(pv, 1, pv_len, stdout);
-                    fputs("\"", stdout);
+                    fputs(",\"value\":", stdout);
+                    print_json_string(pv, pv_len);
                 }
             }
             fputs("}", stdout);
@@ -1261,17 +1260,15 @@ static int cmd_del(int argc, char **argv) {
                     }
                 }
                 rpos = kv_end;
-                fputs("{\"key\":\"", stdout);
-                if (pk) fwrite(pk, 1, pk_len, stdout);
-                fputs("\"", stdout);
+                fputs("{\"key\":", stdout);
+                if (pk) print_json_string(pk, pk_len); else fputs("\"\"", stdout);
                 printf(",\"create_revision\":%llu", (unsigned long long)pcr);
                 printf(",\"mod_revision\":%llu", (unsigned long long)pmr);
                 printf(",\"version\":%llu", (unsigned long long)pver);
                 if (please > 0) printf(",\"lease\":%llu", (unsigned long long)please);
                 if (pv && pv_len > 0) {
-                    fputs(",\"value\":\"", stdout);
-                    fwrite(pv, 1, pv_len, stdout);
-                    fputs("\"", stdout);
+                    fputs(",\"value\":", stdout);
+                    print_json_string(pv, pv_len);
                 }
                 fputs("}", stdout);
             } else if (tag == 0x0a) {
@@ -1442,9 +1439,7 @@ static int cmd_lease(int argc, char **argv) {
                     if (tag == 0x2a) {
                         uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
                         if (ki > 0) fputs(",", stdout);
-                        fputs("\"", stdout);
-                        fwrite(resp + rpos, 1, (size_t)l, stdout);
-                        fputs("\"", stdout);
+                        print_json_string(resp + rpos, (size_t)l);
                         rpos += l;
                         ki++;
                     } else if (tag == 0x0a || tag == 0x12) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
@@ -1942,9 +1937,9 @@ static int cmd_status(int argc, char **argv) {
     } else if (want_json) {
         fputs("{", stdout);
         parse_and_print_header_json(resp, (size_t)rlen);
-        fputs(",\"version\":\"", stdout);
-        if (version) fwrite(version, 1, version_len, stdout);
-        fputs("\",", stdout);
+        fputs(",\"version\":", stdout);
+        if (version) print_json_string(version, version_len); else fputs("\"\"", stdout);
+        fputs(",", stdout);
         printf("\"dbSize\":%llu,", (unsigned long long)db_size);
         printf("\"leader\":%llu,", (unsigned long long)leader);
         printf("\"raftIndex\":%llu,", (unsigned long long)raft_index);
@@ -2034,9 +2029,9 @@ static int cmd_endpoint(int argc, char **argv) {
             fputs("{\"endpoint\":\"", stdout);
             printf("%s:%d\",", g_host, g_port);
             parse_and_print_header_json(resp, (size_t)rlen);
-            fputs(",\"version\":\"", stdout);
-            if (ver) fwrite(ver, 1, ver_len, stdout);
-            fputs("\",", stdout);
+            fputs(",\"version\":", stdout);
+            if (ver) print_json_string(ver, ver_len); else fputs("\"\"", stdout);
+            fputs(",", stdout);
             printf("\"dbSize\":%llu,\"leader\":%llu,\"raftIndex\":%llu,\"raftTerm\":%llu,\"revision\":%llu}\n",
                    (unsigned long long)db_size, (unsigned long long)leader,
                    (unsigned long long)raft_index, (unsigned long long)raft_term,
@@ -3091,9 +3086,9 @@ static int cmd_auth(int argc, char **argv) {
                 if (want_json) {
                     fputs("{", stdout);
                     parse_and_print_header_json(resp, (size_t)rlen);
-                    fputs(",\"token\":\"", stdout);
-                    fwrite(resp + rpos, 1, (size_t)l, stdout);
-                    printf("\"}\n");
+                    fputs(",\"token\":", stdout);
+                    print_json_string(resp + rpos, (size_t)l);
+                    fputs("}\n", stdout);
                 } else {
                     printf("token: %.*s\n", (int)l, resp + rpos);
                 }
@@ -3326,7 +3321,9 @@ static int cmd_role(int argc, char **argv) {
                         }
                     }
                     if (!first) printf(",");
-                    printf("{\"permType\":\"%s\",\"key\":\"%.*s\"}", ptype, (int)pkey_len, pkey ? pkey : "");
+                    printf("{\"permType\":\"%s\",\"key\":", ptype);
+                    if (pkey) print_json_string((const uint8_t *)pkey, pkey_len); else fputs("\"\"", stdout);
+                    fputs("}", stdout);
                     first = 0;
                     rpos = pend;
                 } else if (tag == 0x0a) {
@@ -3583,18 +3580,16 @@ static int cmd_watch(int argc, char **argv) {
                             printf("\n");
                         }
                     } else if (want_json) {
-                        fputs(",\"kv\":{\"key\":\"", stdout);
-                        if (ek) fwrite(ek, 1, ekl, stdout);
-                        fputs("\"", stdout);
+                        fputs(",\"kv\":{\"key\":", stdout);
+                        if (ek) print_json_string(ek, ekl); else fputs("\"\"", stdout);
                         printf(",\"create_revision\":%llu", (unsigned long long)ecr);
                         printf(",\"mod_revision\":%llu", (unsigned long long)emr);
                         printf(",\"version\":%llu", (unsigned long long)ever);
                         if (elease > 0)
                             printf(",\"lease\":%llu", (unsigned long long)elease);
                         if (ev && evl > 0) {
-                            fputs(",\"value\":\"", stdout);
-                            fwrite(ev, 1, evl, stdout);
-                            fputs("\"", stdout);
+                            fputs(",\"value\":", stdout);
+                            print_json_string(ev, evl);
                         }
                         fputs("}", stdout);
                     } else {
@@ -3629,16 +3624,14 @@ static int cmd_watch(int argc, char **argv) {
                     }
                     rpos = kend;
                     if (want_json) {
-                        fputs(",\"prev_kv\":{\"key\":\"", stdout);
-                        if (pk) fwrite(pk, 1, pkl, stdout);
-                        fputs("\"", stdout);
+                        fputs(",\"prev_kv\":{\"key\":", stdout);
+                        if (pk) print_json_string(pk, pkl); else fputs("\"\"", stdout);
                         printf(",\"create_revision\":%llu", (unsigned long long)pcr);
                         printf(",\"mod_revision\":%llu", (unsigned long long)pmr);
                         printf(",\"version\":%llu", (unsigned long long)pver);
                         if (pv && pvl > 0) {
-                            fputs(",\"value\":\"", stdout);
-                            fwrite(pv, 1, pvl, stdout);
-                            fputs("\"", stdout);
+                            fputs(",\"value\":", stdout);
+                            print_json_string(pv, pvl);
                         }
                         fputs("}", stdout);
                     } else if (pk) {
