@@ -581,7 +581,9 @@ static void parse_member_list_response(const uint8_t *data, size_t len, int tabl
         printf("+------------------+--------+---------------------+\n");
     }
     if (json_format) {
-        fputs("{\"header\":{},\"members\":[", stdout);
+        fputs("{", stdout);
+        parse_and_print_header_json(data, len);
+        fputs(",\"members\":[", stdout);
     }
     while (pos < len) {
         uint8_t tag = data[pos++];
