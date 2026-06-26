@@ -152,6 +152,13 @@ void cetcd_co_set_name(cetcd_co *co, const char *name) {
 #endif
 }
 
+void cetcd_co_free(cetcd_co *co) {
+    if (!co) return;
+    co_registry_remove_(co);
+    if (co->name) free(co->name);
+    free(co);
+}
+
 void cetcd_co_walk(cetcd_co_walk_fn fn, void *ud) {
     if (!fn) return;
     for (co_registry_node_ *n = g_co_registry; n; n = n->next) {

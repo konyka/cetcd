@@ -232,7 +232,7 @@ CETCD_TEST_CASE(test_pprof_coroutines_render) {
     CETCD_ASSERT_TRUE(strstr(out, "pprof_test_co") != NULL);
 
     cetcd_buf_free(&buf);
-    free(co);
+    cetcd_co_free(co);
     cetcd_loop_free(loop);
 }
 

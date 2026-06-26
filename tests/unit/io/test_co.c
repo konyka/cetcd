@@ -23,7 +23,7 @@ CETCD_TEST_CASE(co_spawn_and_run) {
     CETCD_ASSERT(cb != NULL);
     CETCD_ASSERT(a_done == 1);
     CETCD_ASSERT(b_done == 1);
-    free(ca); free(cb);
+    cetcd_co_free(ca); cetcd_co_free(cb);
     cetcd_loop_free(loop);
 }
 
@@ -31,7 +31,7 @@ static void fn_nested(void *arg) {
     (void)arg;
     cetcd_loop *loop2 = cetcd_loop_new();
     cetcd_co *c = cetcd_co_spawn(loop2, fn_a, NULL);
-    free(c);
+    cetcd_co_free(c);
     cetcd_loop_free(loop2);
 }
 
@@ -40,7 +40,7 @@ CETCD_TEST_CASE(co_nested_spawn) {
     cetcd_loop *loop = cetcd_loop_new();
     cetcd_co *c = cetcd_co_spawn(loop, fn_nested, NULL);
     CETCD_ASSERT(a_done == 1);
-    free(c);
+    cetcd_co_free(c);
     cetcd_loop_free(loop);
 }
 
@@ -49,7 +49,7 @@ CETCD_TEST_CASE(co_yield_and_resume) {
     cetcd_co *ca = cetcd_co_spawn(loop, fn_a, NULL);
     cetcd_co *cb = cetcd_co_spawn(loop, fn_b, NULL);
     CETCD_ASSERT(ca != NULL && cb != NULL);
-    free(ca); free(cb);
+    cetcd_co_free(ca); cetcd_co_free(cb);
     cetcd_loop_free(loop);
 }
 
@@ -80,7 +80,7 @@ CETCD_TEST_CASE(co_create_and_resume) {
     cetcd_co_resume(co);
     CETCD_ASSERT_EQ_INT(cr_state, 42);      /* now it has run */
     CETCD_ASSERT_EQ_INT(cetcd_co_dead(co), 1);
-    free(co);
+    cetcd_co_free(co);
     cetcd_loop_free(loop);
 }
 
@@ -112,7 +112,7 @@ CETCD_TEST_CASE(co_yield_and_resume_cycle) {
     cetcd_co_resume(co);
     CETCD_ASSERT_EQ_INT(yr_state, 4);
     CETCD_ASSERT_EQ_INT(cetcd_co_dead(co), 1);
-    free(co);
+    cetcd_co_free(co);
     cetcd_loop_free(loop);
 }
 
@@ -132,7 +132,7 @@ CETCD_TEST_CASE(co_current) {
     cetcd_co_resume(co);
     CETCD_ASSERT_EQ_PTR(cur_co, co);
     CETCD_ASSERT_EQ_INT(cetcd_co_dead(co), 1);
-    free(co);
+    cetcd_co_free(co);
     cetcd_loop_free(loop);
 }
 
@@ -198,7 +198,7 @@ CETCD_TEST_CASE(co_multiple_coroutines) {
     CETCD_ASSERT_EQ_INT(cetcd_co_dead(cb), 1);
     CETCD_ASSERT_EQ_INT(cetcd_co_dead(cc), 1);
 
-    free(ca); free(cb); free(cc);
+    cetcd_co_free(ca); cetcd_co_free(cb); cetcd_co_free(cc);
     cetcd_loop_free(loop);
 }
 
@@ -220,7 +220,7 @@ CETCD_TEST_CASE(co_real_yield_resume) {
     CETCD_ASSERT(yield_state == 1);
     cetcd_co_resume(co);
     CETCD_ASSERT(yield_state == 3);
-    free(co);
+    cetcd_co_free(co);
     cetcd_loop_free(loop);
 }
 
@@ -251,7 +251,7 @@ CETCD_TEST_CASE(co_interleaved_execution) {
     CETCD_ASSERT(order_log[1] == 2);
     CETCD_ASSERT(order_log[2] == 3);
 
-    free(ca); free(cb);
+    cetcd_co_free(ca); cetcd_co_free(cb);
     cetcd_loop_free(loop);
 }
 
@@ -263,7 +263,7 @@ CETCD_TEST_CASE(co_create_without_resume) {
     CETCD_ASSERT(a_done == 0);
     cetcd_co_resume(co);
     CETCD_ASSERT(a_done == 1);
-    free(co);
+    cetcd_co_free(co);
     cetcd_loop_free(loop);
 }
 
@@ -281,7 +281,7 @@ CETCD_TEST_CASE(co_current_inside_coroutine) {
     CETCD_ASSERT(co != NULL);
     cetcd_co_resume(co);
     CETCD_ASSERT(captured == co);
-    free(co);
+    cetcd_co_free(co);
     cetcd_loop_free(loop);
 }
 

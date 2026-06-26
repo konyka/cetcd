@@ -41,6 +41,11 @@ CETCD_API int       cetcd_co_dead(cetcd_co *co);
 /* Set a human-readable name for a coroutine (used by profiling/diagnostics). */
 CETCD_API void cetcd_co_set_name(cetcd_co *co, const char *name);
 
+/* Free a coroutine handle and release owned resources (e.g. its name).
+ * Safe to call whether or not the coroutine has finished. After this call
+ * the pointer must not be used. */
+CETCD_API void cetcd_co_free(cetcd_co *co);
+
 /* Coroutine info for profiling — populated by cetcd_co_walk callback. */
 typedef struct cetcd_co_info {
     int         id;
