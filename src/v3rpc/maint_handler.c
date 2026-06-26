@@ -109,10 +109,12 @@ cetcd_rpc_bytes maint_handle_status(cetcd_v3rpc *rpc, const uint8_t *req, size_t
         memcpy(buf + pos, hdr_buf, hp); pos += hp;
     }
 
-    /* field 2 = version (string "0.1.0") */
+    /* field 2 = version (string) */
+    const char *ver = cetcd_version();
+    size_t vlen = strlen(ver);
     buf[pos++] = 0x12; /* tag */
-    buf[pos++] = 0x05; /* length */
-    memcpy(buf + pos, "0.1.0", 5); pos += 5;
+    write_varint_m(buf, sizeof(buf), &pos, (uint64_t)vlen);
+    memcpy(buf + pos, ver, vlen); pos += vlen;
 
     /* field 3 = dbSize (int64) */
     buf[pos++] = 0x18;

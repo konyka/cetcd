@@ -72,6 +72,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include "cetcd/base.h"
+
 static const char *g_host = "127.0.0.1";
 static uint16_t    g_port = 2379;
 static int         g_keys_only = 0; /* flag for get --keys-only */
@@ -1328,7 +1330,9 @@ static int cmd_lease(int argc, char **argv) {
                 else if (tag == 0x0a) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
                 else { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
             }
-            printf("{\"header\":{},\"ID\":%llu,\"TTL\":%llu}\n",
+            fputs("{", stdout);
+            parse_and_print_header_json(resp, (size_t)rlen);
+            printf(",\"ID\":%llu,\"TTL\":%llu}\n",
                    (unsigned long long)lid, (unsigned long long)ttl);
         } else {
             parse_lease_grant_response(resp, rlen);
@@ -1350,7 +1354,7 @@ static int cmd_lease(int argc, char **argv) {
         pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(id_str));
         int rlen = do_rpc("/etcdserverpb.Lease/LeaseRevoke", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{\"header\":{}}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
     } else if (strcmp(argv[2], "timetolive") == 0) {
         bool want_keys = false;
         bool want_json = false;
@@ -1377,7 +1381,9 @@ static int cmd_lease(int argc, char **argv) {
         if (want_json) {
             size_t rpos = 0;
             uint64_t lid = 0, ttl = 0, granted = 0;
-            fputs("{\"header\":{},", stdout);
+            fputs("{", stdout);
+            parse_and_print_header_json(resp, (size_t)rlen);
+            fputs(",", stdout);
             while (rpos < (size_t)rlen) {
                 uint8_t tag = resp[rpos++];
                 if (tag == 0x10) { read_varint(resp, rlen, &rpos, &lid); }
@@ -1415,7 +1421,9 @@ static int cmd_lease(int argc, char **argv) {
             printf("+--------------------+\n");
         }
         if (json_fmt) {
-            fputs("{\"header\":{},\"leases\":[", stdout);
+            fputs("{", stdout);
+            parse_and_print_header_json(resp, (size_t)rlen);
+            fputs(",\"leases\":[", stdout);
         }
         while (rpos < (size_t)rlen) {
             uint8_t tag = resp[rpos++];
@@ -1501,7 +1509,9 @@ static int cmd_lease(int argc, char **argv) {
                 }
             }
             if (want_json) {
-                printf("{\"header\":{},\"ID\":%llu,\"TTL\":%llu}\n",
+                fputs("{", stdout);
+                parse_and_print_header_json(resp, (size_t)rlen);
+                printf(",\"ID\":%llu,\"TTL\":%llu}\n",
                        (unsigned long long)kid, (unsigned long long)ttl);
             }
             if (once) break;
@@ -1540,7 +1550,9 @@ static int cmd_compact(int argc, char **argv) {
     int rlen = do_rpc("/etcdserverpb.KV/Compact", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
     if (want_json) {
-        fputs("{\"header\":{}}\n", stdout);
+        fputs("{", stdout);
+        parse_and_print_header_json(resp, (size_t)rlen);
+        fputs("}\n", stdout);
     } else {
         printf("OK\n");
     }
@@ -1590,7 +1602,7 @@ static int cmd_txn(int argc, char **argv) {
 
         int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{\"header\":{},\"succeeded\":true}\n", stdout); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs(",\"succeeded\":true}\n", stdout); }
         else { printf("OK\n"); }
         return 0;
     } else if (strcmp(argv[2], "cas") == 0) {
@@ -1805,7 +1817,7 @@ static int cmd_txn(int argc, char **argv) {
 
         int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{\"header\":{},\"succeeded\":true}\n", stdout); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs(",\"succeeded\":true}\n", stdout); }
         else { printf("OK\n"); }
         return 0;
     } else {
@@ -2453,7 +2465,9 @@ static int cmd_alarm(int argc, char **argv) {
     size_t pos = 0;
     int found_alarms = 0;
     if (json_fmt && action == 0) {
-        fputs("{\"header\":{},\"alarms\":[", stdout);
+        fputs("{", stdout);
+        parse_and_print_header_json(resp, (size_t)rlen);
+        fputs(",\"alarms\":[", stdout);
     }
     while (pos < (size_t)rlen) {
         uint8_t tag = resp[pos++];
@@ -2523,10 +2537,11 @@ static int cmd_version(int argc, char **argv) {
             i++;
         }
     }
+    const char *ver = cetcd_version();
     if (want_json) {
-        fputs("{\"client\":\"cetcdctl\",\"version\":\"0.1.0\",\"etcd\":\"v3.5 compatible\"}\n", stdout);
+        printf("{\"client\":\"cetcdctl\",\"version\":\"%s\",\"etcd\":\"v3.5 compatible\"}\n", ver);
     } else {
-        printf("cetcd version 0.1.0 (etcd v3.5 compatible)\n");
+        printf("cetcd version %s (etcd v3.5 compatible)\n", ver);
     }
     return 0;
 }
@@ -2689,7 +2704,9 @@ static int cmd_downgrade(int argc, char **argv) {
     int rlen = do_rpc("/etcdserverpb.Maintenance/Downgrade", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
     if (want_json) {
-        fputs("{\"header\":{}}\n", stdout);
+        fputs("{", stdout);
+        parse_and_print_header_json(resp, (size_t)rlen);
+        fputs("}\n", stdout);
     } else {
         printf("OK\n");
     }
@@ -2757,7 +2774,7 @@ static int cmd_member(int argc, char **argv) {
         pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(id_str));
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberRemove", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{\"header\":{}}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
     } else if (strcmp(argv[2], "update") == 0) {
         const char *id_str = NULL;
         const char *peer_url = NULL;
@@ -2773,7 +2790,7 @@ static int cmd_member(int argc, char **argv) {
         pos = encode_string_field(req, sizeof(req), pos, 0x12, peer_url);
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberUpdate", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{\"header\":{}}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
     } else if (strcmp(argv[2], "promote") == 0) {
         const char *id_str = NULL;
         for (int i = 3; i < argc; i++) {
@@ -2786,7 +2803,7 @@ static int cmd_member(int argc, char **argv) {
         pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(id_str));
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberPromote", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{\"header\":{}}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
     } else {
         fprintf(stderr, "unknown member subcommand: %s\n", argv[2]);
         return 1;
@@ -2838,7 +2855,7 @@ static int cmd_auth(int argc, char **argv) {
                 uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
             }
         }
-        if (want_json) { fputs("{\"header\":{}}\n", stdout); } else { printf("OK (no token returned)\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK (no token returned)\n"); }
         return 0;
     }
     uint8_t req[] = {0x00}, resp[1024];
@@ -2872,12 +2889,14 @@ static int cmd_auth(int argc, char **argv) {
                 else if (tag == 0x0a) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
                 else { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
             }
-            printf("{\"header\":{},\"enabled\":%s}\n", enabled ? "true" : "false");
+            fputs("{", stdout);
+            parse_and_print_header_json(resp, (size_t)rlen);
+            printf(",\"enabled\":%s}\n", enabled ? "true" : "false");
         } else {
             parse_auth_status_response(resp, rlen);
         }
     } else {
-        if (want_json) { fputs("{\"header\":{}}\n", stdout); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
         else { printf("OK\n"); }
     }
     return 0;
@@ -2910,7 +2929,7 @@ static int cmd_user(int argc, char **argv) {
         pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
         int rlen = do_rpc("/etcdserverpb.Auth/UserAdd", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{\"header\":{}}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
     } else if (strcmp(argv[2], "delete") == 0) {
         if (argc < 4) { fprintf(stderr, "usage: cetcdctl user delete NAME [-w json]\n"); return 1; }
         uint8_t req[256], resp[256];
@@ -2918,7 +2937,7 @@ static int cmd_user(int argc, char **argv) {
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
         int rlen = do_rpc("/etcdserverpb.Auth/UserDelete", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{\"header\":{}}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
     } else if (strcmp(argv[2], "get") == 0) {
         if (argc < 4) { fprintf(stderr, "usage: cetcdctl user get NAME [-w json]\n"); return 1; }
         uint8_t req[256], resp[4096];
@@ -2948,7 +2967,7 @@ static int cmd_user(int argc, char **argv) {
         pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
         int rlen = do_rpc("/etcdserverpb.Auth/UserChangePassword", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{\"header\":{}}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
     } else if (strcmp(argv[2], "grant-role") == 0) {
         if (argc < 5) { fprintf(stderr, "usage: cetcdctl user grant-role NAME ROLE [-w json]\n"); return 1; }
         uint8_t req[512], resp[256];
@@ -2957,7 +2976,7 @@ static int cmd_user(int argc, char **argv) {
         pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
         int rlen = do_rpc("/etcdserverpb.Auth/UserGrantRole", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{\"header\":{}}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
     } else if (strcmp(argv[2], "revoke-role") == 0) {
         if (argc < 5) { fprintf(stderr, "usage: cetcdctl user revoke-role NAME ROLE [-w json]\n"); return 1; }
         uint8_t req[512], resp[256];
@@ -2966,7 +2985,7 @@ static int cmd_user(int argc, char **argv) {
         pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
         int rlen = do_rpc("/etcdserverpb.Auth/UserRevokeRole", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{\"header\":{}}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
     } else {
         fprintf(stderr, "unknown user subcommand: %s\n", argv[2]);
         return 1;
@@ -2999,7 +3018,7 @@ static int cmd_role(int argc, char **argv) {
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
         int rlen = do_rpc("/etcdserverpb.Auth/RoleAdd", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{\"header\":{}}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
     } else if (strcmp(argv[2], "delete") == 0) {
         if (argc < 4) { fprintf(stderr, "usage: cetcdctl role delete NAME [-w json]\n"); return 1; }
         uint8_t req[256], resp[256];
@@ -3007,7 +3026,7 @@ static int cmd_role(int argc, char **argv) {
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
         int rlen = do_rpc("/etcdserverpb.Auth/RoleDelete", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{\"header\":{}}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
     } else if (strcmp(argv[2], "list") == 0) {
         int table_fmt = 0;
         for (int i = 3; i < argc; i++) {
@@ -3132,7 +3151,7 @@ static int cmd_role(int argc, char **argv) {
 
         int rlen = do_rpc("/etcdserverpb.Auth/RoleGrantPermission", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{\"header\":{}}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
     } else if (strcmp(argv[2], "revoke-permission") == 0) {
         if (argc < 4) { fprintf(stderr, "usage: cetcdctl role revoke-permission ROLE [-w json]\n"); return 1; }
         uint8_t req[256], resp[256];
@@ -3140,7 +3159,7 @@ static int cmd_role(int argc, char **argv) {
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
         int rlen = do_rpc("/etcdserverpb.Auth/RoleRevokePermission", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{\"header\":{}}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
     } else {
         fprintf(stderr, "unknown role subcommand: %s\n", argv[2]);
         return 1;
@@ -3423,7 +3442,7 @@ static int cmd_defrag(int argc, char **argv) {
     int rlen = do_rpc("/etcdserverpb.Maintenance/Defragment", req, 1, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
     if (want_json) {
-        fputs("{\"header\":{}}\n", stdout);
+        fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout);
     } else {
         printf("OK\n");
     }
@@ -3448,7 +3467,7 @@ static int cmd_move_leader(int argc, char **argv) {
     int rlen = do_rpc("/etcdserverpb.Maintenance/MoveLeader", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
     if (want_json) {
-        fputs("{\"header\":{}}\n", stdout);
+        fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout);
     } else {
         printf("OK\n");
     }
