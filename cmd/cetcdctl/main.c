@@ -232,6 +232,40 @@ static int do_rpc(const char *path, const uint8_t *req, size_t req_len,
 
 /* --- Response parsing helpers --- */
 
+/* Parse ResponseHeader from a protobuf message and output as JSON "header" field.
+ * Scans the message for tag 0x0a (field 1 = header, length-delimited).
+ * Returns 1 if header found, 0 if not. */
+static int parse_and_print_header_json(const uint8_t *data, size_t len) {
+    size_t pos = 0;
+    while (pos < len) {
+        uint8_t tag = data[pos++];
+        if (tag == 0x0a) {
+            uint64_t l = 0; read_varint(data, len, &pos, &l);
+            size_t hdr_end = pos + (size_t)l;
+            uint64_t cluster_id = 0, member_id = 0, revision = 0, raft_term = 0;
+            while (pos < hdr_end) {
+                uint8_t htag = data[pos++];
+                if (htag == 0x08) read_varint(data, hdr_end, &pos, &cluster_id);
+                else if (htag == 0x10) read_varint(data, hdr_end, &pos, &member_id);
+                else if (htag == 0x18) read_varint(data, hdr_end, &pos, &revision);
+                else if (htag == 0x20) read_varint(data, hdr_end, &pos, &raft_term);
+                else { uint64_t v = 0; read_varint(data, hdr_end, &pos, &v); }
+            }
+            printf("\"header\":{\"cluster_id\":%llu,\"member_id\":%llu,\"revision\":%llu,\"raft_term\":%llu}",
+                   (unsigned long long)cluster_id, (unsigned long long)member_id,
+                   (unsigned long long)revision, (unsigned long long)raft_term);
+            return 1;
+        } else if (tag == 0x12 || tag == 0x1a || tag == 0x22) {
+            /* Skip nested messages (kvs, prev_kv, etc.) */
+            uint64_t l = 0; read_varint(data, len, &pos, &l); pos += l;
+        } else {
+            uint64_t v = 0; read_varint(data, len, &pos, &v);
+        }
+    }
+    fputs("\"header\":{}", stdout);
+    return 0;
+}
+
 static void parse_range_response(const uint8_t *data, size_t len) {
     size_t pos = 0;
     int count = 0;
@@ -780,7 +814,9 @@ static int cmd_put(int argc, char **argv) {
         }
         return 0;
     } else if (want_json) {
-        fputs("{\"header\":{},", stdout);
+        fputs("{", stdout);
+        parse_and_print_header_json(resp, (size_t)rlen);
+        fputs(",", stdout);
         if (prev_kv) {
             /* Parse PutResponse for prev_kv (field 2, tag 0x12) */
             size_t rpos = 0;
@@ -1145,23 +1181,72 @@ static int cmd_del(int argc, char **argv) {
         return 0;
     }
     if (want_json) {
-        /* JSON output: {"deleted":N,"prev_kvs":[...]} */
+        /* JSON output: {"header":{...},"deleted":N,"prev_kvs":[...]} */
         size_t rpos = 0;
         uint64_t deleted = 0;
-        fputs("{\"header\":{},", stdout);
+        /* Collect prev_kvs */
+        int has_prev_kvs = 0;
+        fputs("{", stdout);
+        parse_and_print_header_json(resp, (size_t)rlen);
+        fputs(",", stdout);
         while (rpos < (size_t)rlen) {
             uint8_t tag = resp[rpos++];
             if (tag == 0x10) {
                 read_varint(resp, rlen, &rpos, &deleted);
             } else if (tag == 0x1a && prev_kv) {
                 uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
-                rpos += l; /* skip prev_kvs for now in JSON */
+                size_t kv_end = rpos + (size_t)l;
+                if (!has_prev_kvs) {
+                    fputs("\"prev_kvs\":[", stdout);
+                    has_prev_kvs = 1;
+                } else {
+                    printf(",");
+                }
+                /* Parse and output KV as JSON */
+                const uint8_t *pk = NULL; size_t pk_len = 0;
+                const uint8_t *pv = NULL; size_t pv_len = 0;
+                uint64_t pcr = 0, pmr = 0, pver = 0, please = 0;
+                while (rpos < kv_end) {
+                    uint8_t ktag = resp[rpos++];
+                    if (ktag == 0x0a) {
+                        uint64_t kl = 0; read_varint(resp, kv_end, &rpos, &kl);
+                        pk = resp + rpos; pk_len = (size_t)kl; rpos += kl;
+                    } else if (ktag == 0x2a) {
+                        uint64_t vl = 0; read_varint(resp, kv_end, &rpos, &vl);
+                        pv = resp + rpos; pv_len = (size_t)vl; rpos += vl;
+                    } else if (ktag == 0x10) {
+                        read_varint(resp, kv_end, &rpos, &pcr);
+                    } else if (ktag == 0x18) {
+                        read_varint(resp, kv_end, &rpos, &pmr);
+                    } else if (ktag == 0x20) {
+                        read_varint(resp, kv_end, &rpos, &pver);
+                    } else if (ktag == 0x30) {
+                        read_varint(resp, kv_end, &rpos, &please);
+                    } else {
+                        uint64_t v = 0; read_varint(resp, kv_end, &rpos, &v);
+                    }
+                }
+                rpos = kv_end;
+                fputs("{\"key\":\"", stdout);
+                if (pk) fwrite(pk, 1, pk_len, stdout);
+                fputs("\"", stdout);
+                printf(",\"create_revision\":%llu", (unsigned long long)pcr);
+                printf(",\"mod_revision\":%llu", (unsigned long long)pmr);
+                printf(",\"version\":%llu", (unsigned long long)pver);
+                if (please > 0) printf(",\"lease\":%llu", (unsigned long long)please);
+                if (pv && pv_len > 0) {
+                    fputs(",\"value\":\"", stdout);
+                    fwrite(pv, 1, pv_len, stdout);
+                    fputs("\"", stdout);
+                }
+                fputs("}", stdout);
             } else if (tag == 0x0a) {
                 uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
             } else {
                 uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
             }
         }
+        if (has_prev_kvs) fputs("\"],", stdout);
         printf("\"deleted\":%llu}\n", (unsigned long long)deleted);
         return 0;
     }
