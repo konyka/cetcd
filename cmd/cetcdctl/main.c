@@ -1945,19 +1945,23 @@ static int cmd_endpoint(int argc, char **argv) {
     if (strcmp(argv[2], "health") == 0) {
         /* Health check: send a Status RPC and check if we get a response */
         uint8_t req[] = {0x00}, resp[1024];
+        struct timeval t0, t1;
+        gettimeofday(&t0, NULL);
         int rlen = do_rpc("/etcdserverpb.Maintenance/Status", req, 1, resp, sizeof(resp));
+        gettimeofday(&t1, NULL);
+        double took_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_usec - t0.tv_usec) / 1000.0;
         if (rlen < 0) {
             if (want_json) {
-                printf("{\"endpoint\":\"%s:%d\",\"status\":\"unhealthy\",\"error\":\"failed to connect\"}\n", g_host, g_port);
+                printf("{\"endpoint\":\"%s:%d\",\"status\":\"unhealthy\",\"took\":\"%.3fms\",\"error\":\"failed to connect\"}\n", g_host, g_port, took_ms);
             } else {
                 printf("%s:%d is unhealthy: failed to connect\n", g_host, g_port);
             }
             return 1;
         }
         if (want_json) {
-            printf("{\"endpoint\":\"%s:%d\",\"status\":\"healthy\",\"took\":\"0s\"}\n", g_host, g_port);
+            printf("{\"endpoint\":\"%s:%d\",\"status\":\"healthy\",\"took\":\"%.3fms\"}\n", g_host, g_port, took_ms);
         } else {
-            printf("%s:%d is healthy\n", g_host, g_port);
+            printf("%s:%d is healthy (%.3fms)\n", g_host, g_port, took_ms);
         }
         return 0;
     } else if (strcmp(argv[2], "status") == 0) {
