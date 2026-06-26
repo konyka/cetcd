@@ -333,7 +333,8 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `snapshot save -w json` (JSON output for snapshot save with snapshot filename and size fields),
 `get -w json` enhanced (now includes ResponseHeader with cluster_id/member_id/revision/raft_term, and full KV fields: create_revision/mod_revision/version/lease in each entry),
 `auth login -w json` (JSON output with token field for authentication response),
-`check perf -w json` (JSON output with status and put/get latency measurements in milliseconds).
+`check perf -w json` (JSON output with status and put/get latency measurements in milliseconds),
+`lock --ttl N` / `elect --ttl N` (customizable lease TTL for distributed lock and leader election, default 60s).
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with

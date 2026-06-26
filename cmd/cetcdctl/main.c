@@ -2009,10 +2009,22 @@ static void lock_signal_handler(int sig) {
 
 static int cmd_lock(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl lock LOCKNAME [COMMAND...]\n");
+        fprintf(stderr, "usage: cetcdctl lock [--ttl N] LOCKNAME [COMMAND...]\n");
         return 1;
     }
-    const char *lockname = argv[2];
+    int ttl = 60; /* default lease TTL */
+    const char *lockname = NULL;
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--ttl") == 0 && i + 1 < argc) {
+            ttl = atoi(argv[++i]);
+            if (ttl <= 0) { fprintf(stderr, "invalid --ttl value\n"); return 1; }
+        } else if (!lockname) {
+            lockname = argv[i];
+        }
+        /* Remaining args after lockname are the command to execute */
+        if (lockname) break;
+    }
+    if (!lockname) { fprintf(stderr, "usage: cetcdctl lock [--ttl N] LOCKNAME [COMMAND...]\n"); return 1; }
     size_t lockname_len = strlen(lockname);
 
     /* Build lock key: "/{lockname}" */
@@ -2026,10 +2038,10 @@ static int cmd_lock(int argc, char **argv) {
     memcpy(lock_key + lock_key_len, lockname, lockname_len);
     lock_key_len += lockname_len;
 
-    /* Step 1: Grant a lease with 60s TTL */
+    /* Step 1: Grant a lease with specified TTL */
     uint8_t grant_req[16], grant_resp[256];
     size_t gpos = 0;
-    gpos = encode_varint_field(grant_req, sizeof(grant_req), gpos, 0x03, 60); /* TTL=60s */
+    gpos = encode_varint_field(grant_req, sizeof(grant_req), gpos, 0x03, (uint64_t)ttl);
     int glen = do_rpc("/etcdserverpb.Lease/LeaseGrant", grant_req, gpos, grant_resp, sizeof(grant_resp));
     if (glen < 0) { fprintf(stderr, "lease grant failed\n"); return 1; }
 
@@ -2125,13 +2137,24 @@ static int cmd_lock(int argc, char **argv) {
     fflush(stdout);
 
     /* If a command is provided, execute it; otherwise wait for signal */
-    if (argc > 3) {
+    /* Find command args: skip lockname */
+    int cmd_argc = 0;
+    char **cmd_argv = NULL;
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--ttl") == 0) { i++; continue; }
+        /* First non-flag arg is lockname; args after it are the command */
+        if (argv[i] == lockname) {
+            if (i + 1 < argc) { cmd_argc = argc - i - 1; cmd_argv = &argv[i + 1]; }
+            break;
+        }
+    }
+    if (cmd_argc > 0) {
         /* Execute the command */
         int ret = 0;
         pid_t pid = fork();
         if (pid == 0) {
             /* Child */
-            execvp(argv[3], &argv[3]);
+            execvp(cmd_argv[0], cmd_argv);
             perror("execvp");
             _exit(127);
         } else if (pid > 0) {
@@ -2166,12 +2189,25 @@ static int cmd_lock(int argc, char **argv) {
 
 static int cmd_elect(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl elect ELECTION_NAME [PROPOSAL]\n");
+        fprintf(stderr, "usage: cetcdctl elect [--ttl N] ELECTION_NAME [PROPOSAL]\n");
         return 1;
     }
-    const char *election_name = argv[2];
+    int ttl = 60;
+    const char *election_name = NULL;
+    const char *proposal = NULL;
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--ttl") == 0 && i + 1 < argc) {
+            ttl = atoi(argv[++i]);
+            if (ttl <= 0) { fprintf(stderr, "invalid --ttl value\n"); return 1; }
+        } else if (!election_name) {
+            election_name = argv[i];
+        } else if (!proposal) {
+            proposal = argv[i];
+        }
+    }
+    if (!election_name) { fprintf(stderr, "usage: cetcdctl elect [--ttl N] ELECTION_NAME [PROPOSAL]\n"); return 1; }
+    if (!proposal) proposal = "cetcd";
     size_t name_len = strlen(election_name);
-    const char *proposal = (argc >= 4) ? argv[3] : "cetcd";
     size_t proposal_len = strlen(proposal);
 
     /* Build election key: "/{election_name}" */
@@ -2185,10 +2221,10 @@ static int cmd_elect(int argc, char **argv) {
     memcpy(elect_key + elect_key_len, election_name, name_len);
     elect_key_len += name_len;
 
-    /* Step 1: Grant a lease with 60s TTL */
+    /* Step 1: Grant a lease with specified TTL */
     uint8_t grant_req[16], grant_resp[256];
     size_t gpos = 0;
-    gpos = encode_varint_field(grant_req, sizeof(grant_req), gpos, 0x03, 60);
+    gpos = encode_varint_field(grant_req, sizeof(grant_req), gpos, 0x03, (uint64_t)ttl);
     int glen = do_rpc("/etcdserverpb.Lease/LeaseGrant", grant_req, gpos, grant_resp, sizeof(grant_resp));
     if (glen < 0) { fprintf(stderr, "lease grant failed\n"); return 1; }
 
@@ -3455,8 +3491,8 @@ static void print_usage(void) {
     printf("  endpoint status [-w json|table]  Get server status with endpoint info\n");
     printf("  endpoint hashkv [-w json]      Get KV hash per endpoint\n");
     printf("  check perf [-w json]    Run a simple performance check\n");
-    printf("  lock LOCKNAME [CMD...] Acquire a distributed lock\n");
-    printf("  elect ELECTION_NAME [PROPOSAL]  Leader election\n");
+    printf("  lock [--ttl N] LOCKNAME [CMD...]  Acquire a distributed lock\n");
+    printf("  elect [--ttl N] ELECTION_NAME [PROPOSAL]  Leader election\n");
 }
 
 int main(int argc, char **argv) {
