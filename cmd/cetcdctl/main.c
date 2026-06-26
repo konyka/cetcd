@@ -1414,18 +1414,44 @@ static int cmd_lease(int argc, char **argv) {
             fputs("{", stdout);
             parse_and_print_header_json(resp, (size_t)rlen);
             fputs(",", stdout);
+            /* First pass: collect ID/TTL/granted, count keys */
+            int key_count = 0;
             while (rpos < (size_t)rlen) {
                 uint8_t tag = resp[rpos++];
                 if (tag == 0x10) { read_varint(resp, rlen, &rpos, &lid); }
                 else if (tag == 0x18) { read_varint(resp, rlen, &rpos, &ttl); }
                 else if (tag == 0x20) { read_varint(resp, rlen, &rpos, &granted); }
                 else if (tag == 0x2a) {
-                    /* keys */
+                    uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+                    rpos += l;
+                    key_count++;
                 } else if (tag == 0x0a) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
                 else { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
             }
-            printf("\"ID\":%llu,\"TTL\":%llu,\"grantedTTL\":%llu}\n",
+            printf("\"ID\":%llu,\"TTL\":%llu,\"grantedTTL\":%llu",
                    (unsigned long long)lid, (unsigned long long)ttl, (unsigned long long)granted);
+            if (want_keys && key_count > 0) {
+                /* Second pass: output keys array */
+                rpos = 0;
+                fputs(",\"keys\":[", stdout);
+                int ki = 0;
+                while (rpos < (size_t)rlen) {
+                    uint8_t tag = resp[rpos++];
+                    if (tag == 0x2a) {
+                        uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+                        if (ki > 0) fputs(",", stdout);
+                        fputs("\"", stdout);
+                        fwrite(resp + rpos, 1, (size_t)l, stdout);
+                        fputs("\"", stdout);
+                        rpos += l;
+                        ki++;
+                    } else if (tag == 0x0a || tag == 0x12) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
+                    else if (tag == 0x10 || tag == 0x18 || tag == 0x20) { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
+                    else { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
+                }
+                fputs("]", stdout);
+            }
+            fputs("}\n", stdout);
         } else {
             parse_lease_ttl_response(resp, rlen);
         }
