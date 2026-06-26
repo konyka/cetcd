@@ -236,8 +236,12 @@ static void parse_range_response(const uint8_t *data, size_t len) {
     size_t pos = 0;
     int count = 0;
     int server_count = -1;
+    /* ResponseHeader fields */
+    uint64_t hdr_cluster_id = 0, hdr_member_id = 0, hdr_revision = 0, hdr_raft_term = 0;
+    int have_header = 0;
     if (g_write_json) {
-        fputs("{\"kvs\":[", stdout);
+        /* Will output header later, after parsing */
+        fputs("{", stdout);
     }
     if (g_write_table && !g_count_only) {
         printf("+------------------+------------+------------+---------+------------------+\n");
@@ -308,6 +312,17 @@ static void parse_range_response(const uint8_t *data, size_t len) {
                         printf("| %-16s |\n", "");
                     }
                 } else if (g_write_json) {
+                    if (first_kv) {
+                        /* Output header before first KV */
+                        if (have_header) {
+                            printf("\"header\":{\"cluster_id\":%llu,\"member_id\":%llu,\"revision\":%llu,\"raft_term\":%llu},",
+                                   (unsigned long long)hdr_cluster_id, (unsigned long long)hdr_member_id,
+                                   (unsigned long long)hdr_revision, (unsigned long long)hdr_raft_term);
+                        } else {
+                            fputs("\"header\":{},", stdout);
+                        }
+                        fputs("\"kvs\":[", stdout);
+                    }
                     if (!first_kv) printf(",");
                     first_kv = 0;
                     printf("{\"key\":");
@@ -320,6 +335,10 @@ static void parse_range_response(const uint8_t *data, size_t len) {
                         else printf("\\u%04x", (unsigned)c);
                     }
                     printf("\"");
+                    printf(",\"create_revision\":%llu", (unsigned long long)create_rev);
+                    printf(",\"mod_revision\":%llu", (unsigned long long)mod_rev);
+                    printf(",\"version\":%llu", (unsigned long long)version);
+                    if (lease > 0) printf(",\"lease\":%llu", (unsigned long long)lease);
                     if (!g_keys_only && val_data && val_len > 0) {
                         printf(",\"value\":\"");
                         for (size_t i = 0; i < val_len; i++) {
@@ -368,8 +387,25 @@ static void parse_range_response(const uint8_t *data, size_t len) {
             /* more (bool, field 3) */
             uint64_t v = 0; read_varint(data, len, &pos, &v);
         } else if (tag == 0x0a) {
-            /* Skip header (length-delimited, field 1) */
-            uint64_t l = 0; read_varint(data, len, &pos, &l); pos += l;
+            /* Parse ResponseHeader (length-delimited, field 1) */
+            uint64_t l = 0; read_varint(data, len, &pos, &l);
+            size_t hdr_end = pos + (size_t)l;
+            have_header = 1;
+            while (pos < hdr_end) {
+                uint8_t htag = data[pos++];
+                if (htag == 0x08) {
+                    read_varint(data, hdr_end, &pos, &hdr_cluster_id);
+                } else if (htag == 0x10) {
+                    read_varint(data, hdr_end, &pos, &hdr_member_id);
+                } else if (htag == 0x18) {
+                    read_varint(data, hdr_end, &pos, &hdr_revision);
+                } else if (htag == 0x20) {
+                    read_varint(data, hdr_end, &pos, &hdr_raft_term);
+                } else {
+                    uint64_t v = 0; read_varint(data, hdr_end, &pos, &v);
+                }
+            }
+            pos = hdr_end;
         } else {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
         }
@@ -379,12 +415,33 @@ static void parse_range_response(const uint8_t *data, size_t len) {
     }
     if (g_count_only) {
         if (g_write_json) {
+            if (first_kv) {
+                /* No KVs were encountered, output header + empty kvs */
+                if (have_header) {
+                    printf("\"header\":{\"cluster_id\":%llu,\"member_id\":%llu,\"revision\":%llu,\"raft_term\":%llu},",
+                           (unsigned long long)hdr_cluster_id, (unsigned long long)hdr_member_id,
+                           (unsigned long long)hdr_revision, (unsigned long long)hdr_raft_term);
+                } else {
+                    fputs("\"header\":{},", stdout);
+                }
+                fputs("\"kvs\":[", stdout);
+            }
             printf("],\"count\":%d}\n", server_count >= 0 ? server_count : count);
         } else {
             printf("%d\n", server_count >= 0 ? server_count : count);
         }
     } else if (count == 0) {
         if (g_write_json) {
+            if (first_kv) {
+                if (have_header) {
+                    printf("\"header\":{\"cluster_id\":%llu,\"member_id\":%llu,\"revision\":%llu,\"raft_term\":%llu},",
+                           (unsigned long long)hdr_cluster_id, (unsigned long long)hdr_member_id,
+                           (unsigned long long)hdr_revision, (unsigned long long)hdr_raft_term);
+                } else {
+                    fputs("\"header\":{},", stdout);
+                }
+                fputs("\"kvs\":[", stdout);
+            }
             printf("],\"count\":0}\n");
         } else {
             printf("(empty)\n");
@@ -1867,12 +1924,18 @@ static int cmd_endpoint(int argc, char **argv) {
 
 static int cmd_check(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl check perf\n");
+        fprintf(stderr, "usage: cetcdctl check perf [-w json]\n");
         return 1;
     }
     if (strcmp(argv[2], "perf") == 0) {
-        /* Simple performance check: time a Put + Get cycle */
-        printf("Running performance check...\n");
+        int want_json = 0;
+        for (int i = 3; i < argc; i++) {
+            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+                if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+                i++;
+            }
+        }
+        if (!want_json) printf("Running performance check...\n");
 
         /* Put a test key */
         uint8_t put_req[256], put_resp[256];
@@ -1883,16 +1946,23 @@ static int cmd_check(int argc, char **argv) {
                                  (const uint8_t *)key, strlen(key));
         pos = encode_bytes_field(put_req, sizeof(put_req), pos, 0x12,
                                  (const uint8_t *)val, strlen(val));
+        struct timeval t0, t1;
+        gettimeofday(&t0, NULL);
         int rlen = do_rpc("/etcdserverpb.KV/Put", put_req, pos, put_resp, sizeof(put_resp));
+        gettimeofday(&t1, NULL);
         if (rlen < 0) { fprintf(stderr, "put failed\n"); return 1; }
+        double put_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_usec - t0.tv_usec) / 1000.0;
 
         /* Get the key back */
         uint8_t get_req[256], get_resp[1024];
         pos = 0;
         pos = encode_bytes_field(get_req, sizeof(get_req), pos, 0x0a,
                                  (const uint8_t *)key, strlen(key));
+        gettimeofday(&t0, NULL);
         rlen = do_rpc("/etcdserverpb.KV/Range", get_req, pos, get_resp, sizeof(get_resp));
+        gettimeofday(&t1, NULL);
         if (rlen < 0) { fprintf(stderr, "get failed\n"); return 1; }
+        double get_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_usec - t0.tv_usec) / 1000.0;
 
         /* Delete the test key */
         uint8_t del_req[256], del_resp[256];
@@ -1901,7 +1971,13 @@ static int cmd_check(int argc, char **argv) {
                                  (const uint8_t *)key, strlen(key));
         do_rpc("/etcdserverpb.KV/DeleteRange", del_req, pos, del_resp, sizeof(del_resp));
 
-        printf("PASS: Performance check completed successfully\n");
+        if (want_json) {
+            printf("{\"header\":{},\"status\":\"PASS\",\"put_latency_ms\":%.3f,\"get_latency_ms\":%.3f}\n", put_ms, get_ms);
+        } else {
+            printf("PASS: Performance check completed successfully\n");
+            printf("  Put latency: %.3f ms\n", put_ms);
+            printf("  Get latency: %.3f ms\n", get_ms);
+        }
         return 0;
     } else {
         fprintf(stderr, "unknown check subcommand: %s\n", argv[2]);
@@ -2603,11 +2679,20 @@ static int cmd_auth(int argc, char **argv) {
         return 1;
     }
     if (strcmp(argv[2], "login") == 0) {
-        if (argc < 5) { fprintf(stderr, "usage: cetcdctl auth login NAME PASS\n"); return 1; }
+        int want_json = 0;
+        const char *name = NULL, *pass = NULL;
+        for (int i = 3; i < argc; i++) {
+            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+                if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+                i++;
+            } else if (!name) name = argv[i];
+            else if (!pass) pass = argv[i];
+        }
+        if (!name || !pass) { fprintf(stderr, "usage: cetcdctl auth login [-w json] NAME PASS\n"); return 1; }
         uint8_t req[512], resp[1024];
         size_t pos = 0;
-        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
-        pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, name);
+        pos = encode_string_field(req, sizeof(req), pos, 0x12, pass);
         int rlen = do_rpc("/etcdserverpb.Auth/Authenticate", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "authentication failed\n"); return 1; }
         /* Parse AuthenticateResponse: field 1 (header) = bytes tag=0x0a, field 2 (token) = bytes tag=0x12 */
@@ -2616,7 +2701,13 @@ static int cmd_auth(int argc, char **argv) {
             uint8_t tag = resp[rpos++];
             if (tag == 0x12) {
                 uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
-                printf("token: %.*s\n", (int)l, resp + rpos);
+                if (want_json) {
+                    printf("{\"header\":{},\"token\":\"");
+                    fwrite(resp + rpos, 1, (size_t)l, stdout);
+                    printf("\"}\n");
+                } else {
+                    printf("token: %.*s\n", (int)l, resp + rpos);
+                }
                 return 0;
             } else if (tag == 0x0a) {
                 /* Skip header (length-delimited) */
@@ -2626,7 +2717,7 @@ static int cmd_auth(int argc, char **argv) {
                 uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
             }
         }
-        printf("OK (no token returned)\n");
+        if (want_json) { fputs("{\"header\":{}}\n", stdout); } else { printf("OK (no token returned)\n"); }
         return 0;
     }
     uint8_t req[] = {0x00}, resp[1024];
@@ -3337,7 +3428,7 @@ static void print_usage(void) {
     printf("  auth enable [-w json]     Enable authentication\n");
     printf("  auth disable [-w json]     Disable authentication\n");
     printf("  auth status [-w json]     Query auth status\n");
-    printf("  auth login NAME PASS   Authenticate and get token\n");
+    printf("  auth login NAME PASS [-w json]   Authenticate and get token\n");
     printf("  user add NAME PASS [-w json]    Add a user\n");
     printf("  user delete NAME [-w json]      Delete a user\n");
     printf("  user get NAME [-w json]          Get user details (roles)\n");
@@ -3363,7 +3454,7 @@ static void print_usage(void) {
     printf("  endpoint health [-w json]  Check server health\n");
     printf("  endpoint status [-w json|table]  Get server status with endpoint info\n");
     printf("  endpoint hashkv [-w json]      Get KV hash per endpoint\n");
-    printf("  check perf             Run a simple performance check\n");
+    printf("  check perf [-w json]    Run a simple performance check\n");
     printf("  lock LOCKNAME [CMD...] Acquire a distributed lock\n");
     printf("  elect ELECTION_NAME [PROPOSAL]  Leader election\n");
 }
