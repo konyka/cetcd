@@ -134,6 +134,8 @@ the stream.
 ./build/bin/cetcdctl lease grant 60        # Grant a 60-second lease
 ./build/bin/cetcdctl lease revoke 1        # Revoke lease ID 1
 ./build/bin/cetcdctl lease timetolive 1    # Check remaining TTL
+./build/bin/cetcdctl lease keepalive 1     # Keep lease alive (loop)
+./build/bin/cetcdctl lease list            # List all leases
 ```
 
 ### Transactions
@@ -166,11 +168,16 @@ the stream.
 ./build/bin/cetcdctl user add root         # Create user
 ./build/bin/cetcdctl user get root         # View user details (roles)
 ./build/bin/cetcdctl user list             # List all users
+./build/bin/cetcdctl user change-password root NEWPASS  # Change password
+./build/bin/cetcdctl user grant-role root admin         # Grant role to user
+./build/bin/cetcdctl user revoke-role root admin        # Revoke role from user
+./build/bin/cetcdctl user delete root                   # Delete user
 
 # Role management
 ./build/bin/cetcdctl role add admin        # Create role
 ./build/bin/cetcdctl role get admin        # View role permissions
 ./build/bin/cetcdctl role list             # List all roles
+./build/bin/cetcdctl role delete admin     # Delete role
 
 # Permission management
 ./build/bin/cetcdctl role grant-permission admin readwrite /foo
@@ -178,12 +185,19 @@ the stream.
 
 # Disable authentication
 ./build/bin/cetcdctl auth disable
+
+# JSON output for all auth commands
+./build/bin/cetcdctl auth enable -w json
+./build/bin/cetcdctl user list -w json
+./build/bin/cetcdctl role list -w json
 ```
 
 ### Snapshot and maintenance
 
 ```sh
 ./build/bin/cetcdctl snapshot save backup.snap   # Save KV snapshot to file
+./build/bin/cetcdctl snapshot status backup.snap # Show snapshot file info
+./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd  # Restore snapshot
 ./build/bin/cetcdctl downgrade enable             # Enable cluster downgrade
 ./build/bin/cetcdctl downgrade cancel             # Cancel downgrade
 ./build/bin/cetcdctl downgrade validate           # Validate downgrade state
