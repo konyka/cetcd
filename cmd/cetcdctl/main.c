@@ -3322,21 +3322,28 @@ static int cmd_role(int argc, char **argv) {
 }
 
 static int cmd_watch(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl watch [--prefix] [--prev-kv] [--start-rev N] [-w json] KEY\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl watch [--prefix] [--prev-kv] [--start-rev N] [--filter TYPE] [-w json] KEY\n"); return 1; }
     bool prefix = false;
     bool prev_kv = false;
     bool want_json = false;
     bool want_fields = false;
     int64_t start_rev = 0;
+    int filter_type = -1; /* -1 = no filter, 0 = NOPUT, 1 = NODELETE */
     const char *key = NULL;
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--prefix") == 0) {
             prefix = true;
         } else if (strcmp(argv[i], "--prev-kv") == 0) {
             prev_kv = true;
-        } else if (strcmp(argv[i], "--start-rev") == 0) {
-            if (i + 1 >= argc) { fprintf(stderr, "--start-rev requires a revision number\n"); return 1; }
+        } else if (strcmp(argv[i], "--start-rev") == 0 || strcmp(argv[i], "--rev") == 0) {
+            if (i + 1 >= argc) { fprintf(stderr, "%s requires a revision number\n", argv[i]); return 1; }
             start_rev = atol(argv[++i]);
+        } else if (strcmp(argv[i], "--filter") == 0) {
+            if (i + 1 >= argc) { fprintf(stderr, "--filter requires a type (NOPUT or NODELETE)\n"); return 1; }
+            const char *ft = argv[++i];
+            if (strcmp(ft, "NOPUT") == 0) filter_type = 0;
+            else if (strcmp(ft, "NODELETE") == 0) filter_type = 1;
+            else { fprintf(stderr, "--filter must be NOPUT or NODELETE\n"); return 1; }
         } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) want_json = true;
             else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
@@ -3345,7 +3352,7 @@ static int cmd_watch(int argc, char **argv) {
             key = argv[i];
         }
     }
-    if (!key) { fprintf(stderr, "usage: cetcdctl watch [--prefix] [--prev-kv] [--start-rev N] [-w json|fields] KEY\n"); return 1; }
+    if (!key) { fprintf(stderr, "usage: cetcdctl watch [--prefix] [--prev-kv] [--start-rev N] [--filter TYPE] [-w json|fields] KEY\n"); return 1; }
     size_t key_len = strlen(key);
 
     /* Build WatchCreateRequest:
@@ -3372,6 +3379,10 @@ static int cmd_watch(int argc, char **argv) {
     if (prev_kv) {
         /* field 6 (prev_kv) = bool, tag = 0x30 */
         cpos = encode_varint_field(create_inner, sizeof(create_inner), cpos, 0x30, 1);
+    }
+    if (filter_type >= 0) {
+        /* field 7 (filters) = repeated FilterType (enum), tag = 0x38 */
+        cpos = encode_varint_field(create_inner, sizeof(create_inner), cpos, 0x38, (uint64_t)filter_type);
     }
 
     uint8_t watch_buf[1024];
@@ -3739,7 +3750,7 @@ static void print_usage(void) {
     printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields|table] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
     printf("  del [--prefix] [--from-key] [--prev-kv] [-w json|fields] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --prev-kv)\n");
-    printf("  watch [--prefix] [--prev-kv] [--start-rev N] [-w json|fields] KEY  Watch key changes (single response)\n");
+    printf("  watch [--prefix] [--prev-kv] [--start-rev N] [--filter NOPUT|NODELETE] [-w json|fields] KEY  Watch key changes\n");
     printf("  lease grant TTL [-w json]  Grant a lease (TTL in seconds)\n");
     printf("  lease revoke ID [-w json]  Revoke a lease by ID\n");
     printf("  lease timetolive [--keys] [-w json] ID  Query remaining TTL\n");
