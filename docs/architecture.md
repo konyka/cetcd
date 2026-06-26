@@ -346,6 +346,10 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `check perf -w json` fixed (now includes real ResponseHeader from Put response),
 `member add --peer-urls URL` / `--learner` (etcdctl-compatible flags for adding cluster members; --learner sends isLearner=true in MemberAddRequest),
 `check datascale [--load N] [--prefix PREFIX] [-w json]` (new subcommand to test database scalability by loading N keys and reporting DB size and elapsed time),
+`watch --filter NOPUT|NODELETE` (filter event types in watch, maps to WatchCreateRequest.filters field 7),
+`alarm activate/disarm -w json` (JSON output for alarm activate/disarm with real ResponseHeader),
+`member list -w json` enhanced (now parses name, clientURLs, and isLearner fields from Member proto; server also returns name="default" and clientURLs),
+`snapshot status` enhanced (now parses snapshot blob to count keys and compute hash, includes total_keys column),
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with

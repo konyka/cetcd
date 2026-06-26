@@ -130,6 +130,28 @@ static size_t encode_member(uint8_t *buf, size_t cap, uint64_t id,
             pos += alen;
         }
     }
+    /* field 3 = name (string) */
+    {
+        const char *name = "default";
+        size_t nlen = strlen(name);
+        buf[pos++] = 0x1a;
+        write_varint_c(buf, cap, &pos, (uint64_t)nlen);
+        if (pos + nlen < cap) {
+            memcpy(buf + pos, name, nlen);
+            pos += nlen;
+        }
+    }
+    /* field 4 = clientURLs (string) */
+    {
+        const char *client_url = "http://127.0.0.1:2379";
+        size_t clen = strlen(client_url);
+        buf[pos++] = 0x22;
+        write_varint_c(buf, cap, &pos, (uint64_t)clen);
+        if (pos + clen < cap) {
+            memcpy(buf + pos, client_url, clen);
+            pos += clen;
+        }
+    }
     return pos;
 }
 

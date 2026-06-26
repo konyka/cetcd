@@ -593,6 +593,9 @@ static void parse_member_list_response(const uint8_t *data, size_t len, int tabl
             size_t mend = pos + (size_t)mlen;
             uint64_t mid = 0;
             const uint8_t *peer_url = NULL; size_t peer_len = 0;
+            const uint8_t *m_name = NULL; size_t name_len = 0;
+            const uint8_t *client_url = NULL; size_t client_len = 0;
+            int is_learner = 0;
             while (pos < mend) {
                 uint8_t mtag = data[pos++];
                 if (mtag == 0x08) {
@@ -601,6 +604,20 @@ static void parse_member_list_response(const uint8_t *data, size_t len, int tabl
                     uint64_t l = 0; read_varint(data, mend, &pos, &l);
                     peer_url = data + pos; peer_len = (size_t)l;
                     pos += l;
+                } else if (mtag == 0x1a) {
+                    /* field 3 = name (string) */
+                    uint64_t l = 0; read_varint(data, mend, &pos, &l);
+                    m_name = data + pos; name_len = (size_t)l;
+                    pos += l;
+                } else if (mtag == 0x22) {
+                    /* field 4 = clientURLs (repeated string) */
+                    uint64_t l = 0; read_varint(data, mend, &pos, &l);
+                    client_url = data + pos; client_len = (size_t)l;
+                    pos += l;
+                } else if (mtag == 0x28) {
+                    /* field 5 = isLearner (bool) */
+                    uint64_t v = 0; read_varint(data, mend, &pos, &v);
+                    is_learner = (int)v;
                 } else {
                     uint64_t v = 0; read_varint(data, mend, &pos, &v);
                 }
@@ -609,9 +626,18 @@ static void parse_member_list_response(const uint8_t *data, size_t len, int tabl
             if (json_format) {
                 if (!first) printf(",");
                 first = 0;
-                printf("{\"ID\":%llu,\"peerURLs\":[\"", (unsigned long long)mid);
+                printf("{\"ID\":%llu,\"name\":\"", (unsigned long long)mid);
+                if (m_name) fwrite(m_name, 1, name_len, stdout);
+                fputs("\",\"peerURLs\":[\"", stdout);
                 if (peer_url) fwrite(peer_url, 1, peer_len, stdout);
-                fputs("\"]}", stdout);
+                fputs("\"]", stdout);
+                if (client_url) {
+                    fputs(",\"clientURLs\":[\"", stdout);
+                    fwrite(client_url, 1, client_len, stdout);
+                    fputs("\"]", stdout);
+                }
+                if (is_learner) fputs(",\"isLearner\":true", stdout);
+                fputs("}", stdout);
             } else if (table_format) {
                 printf("| %16llu | %6s | %19.*s |\n",
                        (unsigned long long)mid, "alive",
