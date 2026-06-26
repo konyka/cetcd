@@ -202,6 +202,11 @@ the stream.
 ./build/bin/cetcdctl snapshot save backup.snap -w json  # Save with JSON output
 ./build/bin/cetcdctl snapshot status backup.snap # Show snapshot file info
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd  # Restore snapshot
+./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd --force  # Force overwrite
+./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd -w json  # Restore with JSON output
+./build/bin/cetcdctl endpoint health -w json  # Health check with ResponseHeader
+./build/bin/cetcdctl endpoint status -w table  # Status in table format
+./build/bin/cetcdctl endpoint hashkv -w json   # HashKV with ResponseHeader
 ./build/bin/cetcdctl downgrade enable             # Enable cluster downgrade
 ./build/bin/cetcdctl downgrade cancel             # Cancel downgrade
 ./build/bin/cetcdctl downgrade validate           # Validate downgrade state

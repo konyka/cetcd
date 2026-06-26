@@ -287,7 +287,7 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `get --consistency l|s` (linearizable or serializable read consistency),
 `get -w json` (JSON output format for range queries),
 `snapshot status FILE` (show snapshot file information),
-`snapshot restore FILE --data-dir DIR` (restore snapshot to data directory),
+`snapshot restore FILE --data-dir DIR [--force] [-w json]` (restore snapshot to data directory with optional --force to overwrite existing data)
 `lock LOCKNAME [CMD...]` (distributed lock using Lease + Txn with signal-based release),
 `elect ELECTION_NAME [PROPOSAL]` (leader election using Lease + Txn),
 `--endpoints host:port` (global flag for specifying server endpoint),
@@ -350,6 +350,11 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `alarm activate/disarm -w json` (JSON output for alarm activate/disarm with real ResponseHeader),
 `member list -w json` enhanced (now parses name, clientURLs, and isLearner fields from Member proto; server also returns name="default" and clientURLs),
 `snapshot status` enhanced (now parses snapshot blob to count keys and compute hash, includes total_keys column),
+`endpoint health/status/hashkv -w json` enhanced (now all include real ResponseHeader in JSON output),
+`get -w json` enhanced (now includes `more` field in JSON output, reflecting whether more results are available),
+`snapshot restore --force` (new flag to overwrite existing snapshot data in target directory; restore now writes KV pairs to `snapshot.kv` file in proper custom format instead of incorrectly as `data.mdb`),
+`version -w json` enhanced (now includes `server` field with value `cetcd`),
+`snapshot restore -w json` enhanced (now includes `keys` count field in JSON output),
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with

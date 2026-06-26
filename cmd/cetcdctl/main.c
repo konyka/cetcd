@@ -275,6 +275,7 @@ static void parse_range_response(const uint8_t *data, size_t len) {
     /* ResponseHeader fields */
     uint64_t hdr_cluster_id = 0, hdr_member_id = 0, hdr_revision = 0, hdr_raft_term = 0;
     int have_header = 0;
+    int has_more = 0;
     if (g_write_json) {
         /* Will output header later, after parsing */
         fputs("{", stdout);
@@ -422,6 +423,7 @@ static void parse_range_response(const uint8_t *data, size_t len) {
         } else if (tag == 0x18) {
             /* more (bool, field 3) */
             uint64_t v = 0; read_varint(data, len, &pos, &v);
+            has_more = (int)v;
         } else if (tag == 0x0a) {
             /* Parse ResponseHeader (length-delimited, field 1) */
             uint64_t l = 0; read_varint(data, len, &pos, &l);
@@ -462,7 +464,7 @@ static void parse_range_response(const uint8_t *data, size_t len) {
                 }
                 fputs("\"kvs\":[", stdout);
             }
-            printf("],\"count\":%d}\n", server_count >= 0 ? server_count : count);
+            printf("],\"count\":%d,\"more\":%s}\n", server_count >= 0 ? server_count : count, has_more ? "true" : "false");
         } else {
             printf("%d\n", server_count >= 0 ? server_count : count);
         }
@@ -478,13 +480,13 @@ static void parse_range_response(const uint8_t *data, size_t len) {
                 }
                 fputs("\"kvs\":[", stdout);
             }
-            printf("],\"count\":0}\n");
+            printf("],\"count\":0,\"more\":false}\n");
         } else {
             printf("(empty)\n");
         }
     } else {
         if (g_write_json) {
-            printf("],\"count\":%d}\n", server_count >= 0 ? server_count : count);
+            printf("],\"count\":%d,\"more\":%s}\n", server_count >= 0 ? server_count : count, has_more ? "true" : "false");
         }
     }
 }
@@ -1985,7 +1987,10 @@ static int cmd_endpoint(int argc, char **argv) {
             return 1;
         }
         if (want_json) {
-            printf("{\"endpoint\":\"%s:%d\",\"status\":\"healthy\",\"took\":\"%.3fms\"}\n", g_host, g_port, took_ms);
+            fputs("{\"endpoint\":\"", stdout);
+            printf("%s:%d\",", g_host, g_port);
+            parse_and_print_header_json(resp, (size_t)rlen);
+            printf(",\"status\":\"healthy\",\"took\":\"%.3fms\"}\n", took_ms);
         } else {
             printf("%s:%d is healthy (%.3fms)\n", g_host, g_port, took_ms);
         }
@@ -2028,7 +2033,8 @@ static int cmd_endpoint(int argc, char **argv) {
         if (want_json) {
             fputs("{\"endpoint\":\"", stdout);
             printf("%s:%d\",", g_host, g_port);
-            fputs("\"version\":\"", stdout);
+            parse_and_print_header_json(resp, (size_t)rlen);
+            fputs(",\"version\":\"", stdout);
             if (ver) fwrite(ver, 1, ver_len, stdout);
             fputs("\",", stdout);
             printf("\"dbSize\":%llu,\"leader\":%llu,\"raftIndex\":%llu,\"raftTerm\":%llu,\"revision\":%llu}\n",
@@ -2068,8 +2074,11 @@ static int cmd_endpoint(int argc, char **argv) {
             else { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
         }
         if (want_json) {
-            printf("{\"endpoint\":\"%s:%d\",\"hash\":%llu,\"compact_revision\":%llu}\n",
-                   g_host, g_port, (unsigned long long)hash_val, (unsigned long long)compact_rev);
+            fputs("{\"endpoint\":\"", stdout);
+            printf("%s:%d\",", g_host, g_port);
+            parse_and_print_header_json(resp, (size_t)rlen);
+            printf(",\"hash\":%llu,\"compact_revision\":%llu}\n",
+                   (unsigned long long)hash_val, (unsigned long long)compact_rev);
         } else {
             printf("endpoint: %s:%d  hash: %llu  compact_revision: %llu\n",
                    g_host, g_port, (unsigned long long)hash_val, (unsigned long long)compact_rev);
@@ -2678,7 +2687,7 @@ static int cmd_version(int argc, char **argv) {
     }
     const char *ver = cetcd_version();
     if (want_json) {
-        printf("{\"client\":\"cetcdctl\",\"version\":\"%s\",\"etcd\":\"v3.5 compatible\"}\n", ver);
+        printf("{\"client\":\"cetcdctl\",\"server\":\"cetcd\",\"version\":\"%s\",\"etcd\":\"v3.5 compatible\"}\n", ver);
     } else {
         printf("cetcd version %s (etcd v3.5 compatible)\n", ver);
     }
@@ -2803,22 +2812,44 @@ static int cmd_snapshot(int argc, char **argv) {
         return 0;
     } else if (strcmp(argv[2], "restore") == 0) {
         /* Restore a snapshot to a data directory.
-         * In cetcd, the snapshot is a raw LMDB database copy.
-         * We copy the file to the target data directory. */
-        if (argc < 4) {
-            fprintf(stderr, "usage: cetcdctl snapshot restore FILE --data-dir DIR\n");
-            return 1;
-        }
-        const char *snap_file = argv[3];
+         * The snapshot file contains KV pairs in a custom format:
+         *   repeated: key_len(varint) + key + val_len(varint) + val
+         * We parse the KV pairs and write them as a data dump file
+         * that can be loaded by cetcd on startup. */
+        const char *snap_file = NULL;
         const char *data_dir = NULL;
-        for (int i = 4; i < argc; i++) {
+        int force = 0;
+        int want_json = 0;
+        for (int i = 3; i < argc; i++) {
             if (strcmp(argv[i], "--data-dir") == 0 && i + 1 < argc) {
                 data_dir = argv[++i];
+            } else if (strcmp(argv[i], "--force") == 0) {
+                force = 1;
+            } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+                if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+                i++;
+            } else if (!snap_file && argv[i][0] != '-') {
+                snap_file = argv[i];
             }
+        }
+        if (!snap_file) {
+            fprintf(stderr, "usage: cetcdctl snapshot restore FILE --data-dir DIR [--force] [-w json]\n");
+            return 1;
         }
         if (!data_dir) {
             fprintf(stderr, "--data-dir is required for snapshot restore\n");
             return 1;
+        }
+        /* Check if data dir already exists with data */
+        char check_path[512];
+        snprintf(check_path, sizeof(check_path), "%s/snapshot.kv", data_dir);
+        if (!force) {
+            FILE *check = fopen(check_path, "rb");
+            if (check) {
+                fclose(check);
+                fprintf(stderr, "data directory already has snapshot data, use --force to overwrite\n");
+                return 1;
+            }
         }
         /* Read the snapshot file */
         FILE *sf = fopen(snap_file, "rb");
@@ -2831,29 +2862,32 @@ static int cmd_snapshot(int argc, char **argv) {
         if (!snap_data) { fprintf(stderr, "out of memory\n"); fclose(sf); return 1; }
         fread(snap_data, 1, snap_size, sf);
         fclose(sf);
-        /* Create the data directory and write the snapshot */
-        char target_path[512];
-        snprintf(target_path, sizeof(target_path), "%s/data.mdb", data_dir);
+        /* Parse KV pairs from the snapshot and count them */
+        int kv_count = 0;
+        size_t sp = 0;
+        while (sp < (size_t)snap_size) {
+            uint64_t kl = 0; if (read_varint(snap_data, snap_size, &sp, &kl) != 0) break;
+            if (sp + kl > (size_t)snap_size) break;
+            sp += kl;
+            uint64_t vl = 0; if (read_varint(snap_data, snap_size, &sp, &vl) != 0) break;
+            if (sp + vl > (size_t)snap_size) break;
+            sp += vl;
+            kv_count++;
+        }
         /* Create parent directory */
         char mkdir_cmd[512];
         snprintf(mkdir_cmd, sizeof(mkdir_cmd), "mkdir -p %s", data_dir);
         system(mkdir_cmd);
-        FILE *df = fopen(target_path, "wb");
+        /* Write the snapshot KV data to the data directory as snapshot.kv */
+        FILE *df = fopen(check_path, "wb");
         if (!df) { perror("fopen data dir"); free(snap_data); return 1; }
         fwrite(snap_data, 1, snap_size, df);
         fclose(df);
         free(snap_data);
-        int want_json = 0;
-        for (int i = 4; i < argc; i++) {
-            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-                if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
-                i++;
-            }
-        }
         if (want_json) {
-            printf("{\"snapshot\":\"%s\",\"data_dir\":\"%s\",\"size\":%ld}\n", snap_file, data_dir, snap_size);
+            printf("{\"snapshot\":\"%s\",\"data_dir\":\"%s\",\"size\":%ld,\"keys\":%d}\n", snap_file, data_dir, snap_size, kv_count);
         } else {
-            printf("snapshot restored to %s (%ld bytes)\n", target_path, snap_size);
+            printf("snapshot restored to %s (%ld bytes, %d keys)\n", check_path, snap_size, kv_count);
         }
         return 0;
     } else {
@@ -3860,7 +3894,7 @@ static void print_usage(void) {
     printf("                         Revoke all permissions from role\n");
     printf("  snapshot save [FILE] [-w json]   Save a snapshot to file\n");
     printf("  snapshot status FILE [-w json]  Show snapshot file info\n");
-    printf("  snapshot restore FILE --data-dir DIR  Restore snapshot to data dir\n");
+    printf("  snapshot restore FILE --data-dir DIR [--force] [-w json]  Restore snapshot to data dir\n");
     printf("  downgrade enable [-w json] VER   Enable cluster downgrade\n");
     printf("  downgrade cancel [-w json]       Cancel cluster downgrade\n");
     printf("  downgrade validate [-w json] VER Validate downgrade version\n");
