@@ -1730,7 +1730,7 @@ static int cmd_txn(int argc, char **argv) {
             }
         }
         if (want_json) {
-            printf("{\"header\":{},\"succeeded\":%s}\n", succeeded ? "true" : "false");
+            fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs(",\"succeeded\":", stdout); printf("%s}\n", succeeded ? "true" : "false");
             return succeeded ? 0 : 1;
         } else if (succeeded) {
             printf("OK (compare succeeded)\n");
@@ -2203,7 +2203,10 @@ static int cmd_check(int argc, char **argv) {
             do_rpc("/etcdserverpb.KV/DeleteRange", del_req, dpos, del_resp, sizeof(del_resp));
         }
         if (want_json) {
-            printf("{\"header\":{},\"status\":\"PASS\",\"keys_loaded\":%d,\"db_size\":%llu,\"elapsed_ms\":%.3f}\n",
+            fputs("{", stdout);
+            if (st_rlen > 0) parse_and_print_header_json(st_resp, (size_t)st_rlen);
+            else fputs("\"header\":{}", stdout);
+            printf(",\"status\":\"PASS\",\"keys_loaded\":%d,\"db_size\":%llu,\"elapsed_ms\":%.3f}\n",
                    loaded, (unsigned long long)db_size, elapsed);
         } else {
             printf("PASS: Loaded %d keys in %.3f ms\n", loaded, elapsed);
@@ -3052,7 +3055,9 @@ static int cmd_auth(int argc, char **argv) {
             if (tag == 0x12) {
                 uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
                 if (want_json) {
-                    printf("{\"header\":{},\"token\":\"");
+                    fputs("{", stdout);
+                    parse_and_print_header_json(resp, (size_t)rlen);
+                    fputs(",\"token\":\"", stdout);
                     fwrite(resp + rpos, 1, (size_t)l, stdout);
                     printf("\"}\n");
                 } else {
@@ -3259,7 +3264,9 @@ static int cmd_role(int argc, char **argv) {
         int rlen = do_rpc("/etcdserverpb.Auth/RoleGet", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) {
-            printf("{\"header\":{},\"role\":\"%s\",\"perm\":[", argv[3]);
+            fputs("{", stdout);
+            parse_and_print_header_json(resp, (size_t)rlen);
+            printf(",\"role\":\"%s\",\"perm\":[", argv[3]);
             int first = 1;
             size_t rpos = 0;
             while (rpos < (size_t)rlen) {
