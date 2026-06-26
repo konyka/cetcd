@@ -355,7 +355,8 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `snapshot restore --force` (new flag to overwrite existing snapshot data in target directory; restore now writes KV pairs to `snapshot.kv` file in proper custom format instead of incorrectly as `data.mdb`),
 `version -w json` enhanced (now includes `server` field with value `cetcd`),
 `snapshot restore -w json` enhanced (now includes `keys` count field in JSON output),
-`print_json_string` helper (unified JSON string escaping for all -w json outputs; now used by get/put/del/watch/member/status/endpoint/auth/role/lease commands for proper handling of special characters like \" \\ \n \r \t and control characters)
+`print_json_string` helper (unified JSON string escaping for all -w json outputs; now used by get/put/del/watch/member/status/endpoint/auth/role/lease commands for proper handling of special characters like \" \\ \n \r \t and control characters),
+`etcd-compatible server flags` (cetcd now accepts `--listen-client-urls`, `--listen-peer-urls` with URL format parsing, plus `--advertise-client-urls`, `--initial-advertise-peer-urls`, `--initial-cluster-state`, `--initial-cluster-token`, `--snapshot-count`, `--quota-backend-bytes`, `--force-new-cluster` as no-op compatibility flags)
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with

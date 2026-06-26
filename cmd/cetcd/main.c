@@ -31,6 +31,16 @@ static void print_usage(const char *prog) {
     printf("  --initial-cluster NODE1=ADDR:PORT,NODE2=...  Initial cluster membership\n");
     printf("  --log-level LVL  Log level: trace,debug,info,warn,error (default: info)\n");
     printf("  --log-format FMT Log format: text,json (default: text)\n");
+    printf("\n  etcd-compatible flags (accepted for compatibility):\n");
+    printf("  --listen-client-urls URL    Client listen URL (e.g. http://127.0.0.1:2379)\n");
+    printf("  --listen-peer-urls URL      Peer listen URL (e.g. http://127.0.0.1:2380)\n");
+    printf("  --advertise-client-urls URL  Accepted but no-op (single-node)\n");
+    printf("  --initial-advertise-peer-urls URL  Accepted but no-op (single-node)\n");
+    printf("  --initial-cluster-state STATE  Accepted (always 'new' in cetcd)\n");
+    printf("  --initial-cluster-token TOKEN  Accepted but no-op\n");
+    printf("  --snapshot-count N   Accepted but no-op\n");
+    printf("  --quota-backend-bytes N  Accepted but no-op\n");
+    printf("  --force-new-cluster  Accepted but no-op\n");
     printf("  --help           Show this help\n");
 }
 
@@ -111,6 +121,53 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return 0;
+        } else if (strcmp(argv[i], "--listen-client-urls") == 0 && i + 1 < argc) {
+            /* Parse URL format: http://addr:port */
+            const char *url = argv[++i];
+            const char *addr_start = url;
+            if (strncmp(url, "http://", 7) == 0) addr_start = url + 7;
+            else if (strncmp(url, "https://", 8) == 0) addr_start = url + 8;
+            const char *colon = strrchr(addr_start, ':');
+            if (colon) {
+                size_t alen = (size_t)(colon - addr_start);
+                if (alen < sizeof(cfg.listen_addr)) {
+                    memcpy(cfg.listen_addr, addr_start, alen);
+                    cfg.listen_addr[alen] = '\0';
+                }
+                cfg.listen_port = (uint16_t)atoi(colon + 1);
+            } else {
+                strncpy(cfg.listen_addr, addr_start, sizeof(cfg.listen_addr) - 1);
+            }
+        } else if (strcmp(argv[i], "--listen-peer-urls") == 0 && i + 1 < argc) {
+            const char *url = argv[++i];
+            const char *addr_start = url;
+            if (strncmp(url, "http://", 7) == 0) addr_start = url + 7;
+            else if (strncmp(url, "https://", 8) == 0) addr_start = url + 8;
+            const char *colon = strrchr(addr_start, ':');
+            if (colon) {
+                size_t alen = (size_t)(colon - addr_start);
+                if (alen < sizeof(cfg.peer_addr)) {
+                    memcpy(cfg.peer_addr, addr_start, alen);
+                    cfg.peer_addr[alen] = '\0';
+                }
+                cfg.peer_port = (uint16_t)atoi(colon + 1);
+            } else {
+                strncpy(cfg.peer_addr, addr_start, sizeof(cfg.peer_addr) - 1);
+            }
+        } else if (strcmp(argv[i], "--advertise-client-urls") == 0 && i + 1 < argc) {
+            i++; /* no-op, accepted for etcd compatibility */
+        } else if (strcmp(argv[i], "--initial-advertise-peer-urls") == 0 && i + 1 < argc) {
+            i++; /* no-op, accepted for etcd compatibility */
+        } else if (strcmp(argv[i], "--initial-cluster-state") == 0 && i + 1 < argc) {
+            i++; /* no-op, always 'new' in cetcd */
+        } else if (strcmp(argv[i], "--initial-cluster-token") == 0 && i + 1 < argc) {
+            i++; /* no-op, accepted for etcd compatibility */
+        } else if (strcmp(argv[i], "--snapshot-count") == 0 && i + 1 < argc) {
+            i++; /* no-op, accepted for etcd compatibility */
+        } else if (strcmp(argv[i], "--quota-backend-bytes") == 0 && i + 1 < argc) {
+            i++; /* no-op, accepted for etcd compatibility */
+        } else if (strcmp(argv[i], "--force-new-cluster") == 0) {
+            /* no-op, accepted for etcd compatibility */
         }
     }
     strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);

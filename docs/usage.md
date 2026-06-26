@@ -89,6 +89,23 @@ requests and port 2380 for peer-to-peer (Raft) communication.
 The cluster uses Raft consensus for replication. Leader election happens
 automatically within ~1 second of startup.
 
+### etcd-compatible server flags
+
+cetcd accepts several etcd server flags for migration compatibility:
+
+```sh
+# Using etcd-style URL flags
+./build/bin/cetcd --listen-client-urls http://127.0.0.1:2379 \
+  --listen-peer-urls http://127.0.0.1:2380 --data-dir ./data
+
+# etcd flags accepted as no-op for compatibility
+./build/bin/cetcd --advertise-client-urls http://127.0.0.1:2379 \
+  --initial-advertise-peer-urls http://127.0.0.1:2380 \
+  --initial-cluster-state new --initial-cluster-token etcd-cluster \
+  --snapshot-count 10000 --quota-backend-bytes 2147483648 \
+  --data-dir ./data
+```
+
 ---
 
 ## 3. Using `cetcdctl`
