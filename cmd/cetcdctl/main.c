@@ -2691,7 +2691,7 @@ static int cmd_snapshot(int argc, char **argv) {
     } else if (strcmp(argv[2], "status") == 0) {
         /* Show snapshot file info */
         if (argc < 4) {
-            fprintf(stderr, "usage: cetcdctl snapshot status FILE\n");
+            fprintf(stderr, "usage: cetcdctl snapshot status FILE [-w json]\n");
             return 1;
         }
         int snap_json = 0;
@@ -2705,15 +2705,39 @@ static int cmd_snapshot(int argc, char **argv) {
         if (!f) { perror("fopen"); return 1; }
         fseek(f, 0, SEEK_END);
         long fsize = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        uint8_t *fdata = (uint8_t *)malloc(fsize);
+        if (fdata) fread(fdata, 1, fsize, f);
         fclose(f);
+        /* Parse snapshot blob: repeated key_len(varint) + key + val_len(varint) + val */
+        int key_count = 0;
+        uint32_t hash = 0;
+        if (fdata) {
+            size_t sp = 0;
+            while (sp < (size_t)fsize) {
+                /* read key_len */
+                uint64_t kl = 0; if (read_varint(fdata, fsize, &sp, &kl) != 0) break;
+                if (sp + kl > (size_t)fsize) break;
+                for (size_t i = 0; i < kl; i++) hash = hash * 31 + fdata[sp + i];
+                sp += kl;
+                /* read val_len */
+                uint64_t vl = 0; if (read_varint(fdata, fsize, &sp, &vl) != 0) break;
+                if (sp + vl > (size_t)fsize) break;
+                for (size_t i = 0; i < vl; i++) hash = hash * 31 + fdata[sp + i];
+                sp += vl;
+                key_count++;
+            }
+        }
+        if (fdata) free(fdata);
         if (snap_json) {
-            printf("{\"hash\":0,\"revision\":0,\"size\":%ld,\"filename\":\"%s\"}\n", fsize, argv[3]);
+            printf("{\"hash\":%u,\"revision\":0,\"total_keys\":%d,\"size\":%ld,\"filename\":\"%s\"}\n",
+                   hash, key_count, fsize, argv[3]);
         } else {
-            printf("+----------+----------+---------+---------------------+\n");
-            printf("|   hash   | revision |  size   |     filename        |\n");
-            printf("+----------+----------+---------+---------------------+\n");
-            printf("| %-8s | %8s | %7ld | %-19s |\n", "-", "-", fsize, argv[3]);
-            printf("+----------+----------+---------+---------------------+\n");
+            printf("+----------+----------+------------+---------+---------------------+\n");
+            printf("|   hash   | revision | total_keys |  size   |     filename        |\n");
+            printf("+----------+----------+------------+---------+---------------------+\n");
+            printf("| %8u | %8s | %10d | %7ld | %-19s |\n", hash, "-", key_count, fsize, argv[3]);
+            printf("+----------+----------+------------+---------+---------------------+\n");
         }
         return 0;
     } else if (strcmp(argv[2], "restore") == 0) {
@@ -2758,7 +2782,18 @@ static int cmd_snapshot(int argc, char **argv) {
         fwrite(snap_data, 1, snap_size, df);
         fclose(df);
         free(snap_data);
-        printf("snapshot restored to %s (%ld bytes)\n", target_path, snap_size);
+        int want_json = 0;
+        for (int i = 4; i < argc; i++) {
+            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+                if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+                i++;
+            }
+        }
+        if (want_json) {
+            printf("{\"snapshot\":\"%s\",\"data_dir\":\"%s\",\"size\":%ld}\n", snap_file, data_dir, snap_size);
+        } else {
+            printf("snapshot restored to %s (%ld bytes)\n", target_path, snap_size);
+        }
         return 0;
     } else {
         fprintf(stderr, "unknown snapshot subcommand: %s\n", argv[2]);
