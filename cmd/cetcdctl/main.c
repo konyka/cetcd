@@ -663,7 +663,9 @@ static void parse_string_list_response(const uint8_t *data, size_t len, const ch
         printf("+--------------------+\n");
     }
     if (json_fmt) {
-        printf("{\"header\":{},\"%s\":[", label);
+        fputs("{", stdout);
+        parse_and_print_header_json(data, len);
+        printf(",\"%s\":[", label);
     }
     while (pos < len) {
         uint8_t tag = data[pos++];
@@ -1884,7 +1886,9 @@ static int cmd_status(int argc, char **argv) {
         printf("raftTerm: %llu\n", (unsigned long long)raft_term);
         printf("revision: %llu\n", (unsigned long long)revision);
     } else if (want_json) {
-        fputs("{\"version\":\"", stdout);
+        fputs("{", stdout);
+        parse_and_print_header_json(resp, (size_t)rlen);
+        fputs(",\"version\":\"", stdout);
         if (version) fwrite(version, 1, version_len, stdout);
         fputs("\",", stdout);
         printf("\"dbSize\":%llu,", (unsigned long long)db_size);
@@ -2071,15 +2075,87 @@ static int cmd_check(int argc, char **argv) {
         do_rpc("/etcdserverpb.KV/DeleteRange", del_req, pos, del_resp, sizeof(del_resp));
 
         if (want_json) {
-            printf("{\"header\":{},\"status\":\"PASS\",\"put_latency_ms\":%.3f,\"get_latency_ms\":%.3f}\n", put_ms, get_ms);
+            fputs("{", stdout);
+            parse_and_print_header_json(put_resp, (size_t)rlen);
+            printf(",\"status\":\"PASS\",\"put_latency_ms\":%.3f,\"get_latency_ms\":%.3f}\n", put_ms, get_ms);
         } else {
             printf("PASS: Performance check completed successfully\n");
             printf("  Put latency: %.3f ms\n", put_ms);
             printf("  Get latency: %.3f ms\n", get_ms);
         }
         return 0;
+    } else if (strcmp(argv[2], "datascale") == 0) {
+        int want_json = 0;
+        int load_count = 10000;
+        const char *prefix = "_datascale_";
+        for (int i = 3; i < argc; i++) {
+            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+                if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+                i++;
+            } else if (strcmp(argv[i], "--load") == 0 && i + 1 < argc) {
+                load_count = atoi(argv[++i]);
+                if (load_count <= 0) load_count = 10000;
+            } else if (strcmp(argv[i], "--prefix") == 0 && i + 1 < argc) {
+                prefix = argv[++i];
+            }
+        }
+        if (!want_json) printf("Running datascale check (loading %d keys)...\n", load_count);
+        struct timeval t0, t1;
+        gettimeofday(&t0, NULL);
+        int loaded = 0;
+        for (int i = 0; i < load_count; i++) {
+            char key[256], val[64];
+            int kl = snprintf(key, sizeof(key), "%s%d", prefix, i);
+            int vl = snprintf(val, sizeof(val), "v%d", i);
+            uint8_t put_req[512], put_resp[256];
+            size_t pos = 0;
+            pos = encode_bytes_field(put_req, sizeof(put_req), pos, 0x0a,
+                                     (const uint8_t *)key, (size_t)kl);
+            pos = encode_bytes_field(put_req, sizeof(put_req), pos, 0x12,
+                                     (const uint8_t *)val, (size_t)vl);
+            int rlen = do_rpc("/etcdserverpb.KV/Put", put_req, pos, put_resp, sizeof(put_resp));
+            if (rlen < 0) break;
+            loaded++;
+        }
+        gettimeofday(&t1, NULL);
+        double elapsed = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_usec - t0.tv_usec) / 1000.0;
+        /* Get DB size from status */
+        uint8_t st_req[] = {0x00}, st_resp[1024];
+        int st_rlen = do_rpc("/etcdserverpb.Maintenance/Status", st_req, 1, st_resp, sizeof(st_resp));
+        uint64_t db_size = 0;
+        if (st_rlen > 0) {
+            size_t sp = 0;
+            while (sp < (size_t)st_rlen) {
+                uint8_t t = st_resp[sp++];
+                if (t == 0x18) { read_varint(st_resp, st_rlen, &sp, &db_size); }
+                else if (t == 0x0a || t == 0x12) { uint64_t l = 0; read_varint(st_resp, st_rlen, &sp, &l); sp += l; }
+                else { uint64_t v = 0; read_varint(st_resp, st_rlen, &sp, &v); }
+            }
+        }
+        /* Cleanup: delete all test keys with prefix */
+        {
+            uint8_t del_req[512], del_resp[4096];
+            size_t dpos = 0;
+            dpos = encode_bytes_field(del_req, sizeof(del_req), dpos, 0x0a,
+                                      (const uint8_t *)prefix, strlen(prefix));
+            char range_end[256];
+            size_t plen = strlen(prefix);
+            memcpy(range_end, prefix, plen);
+            range_end[plen - 1]++;
+            dpos = encode_bytes_field(del_req, sizeof(del_req), dpos, 0x12,
+                                      (const uint8_t *)range_end, plen);
+            do_rpc("/etcdserverpb.KV/DeleteRange", del_req, dpos, del_resp, sizeof(del_resp));
+        }
+        if (want_json) {
+            printf("{\"header\":{},\"status\":\"PASS\",\"keys_loaded\":%d,\"db_size\":%llu,\"elapsed_ms\":%.3f}\n",
+                   loaded, (unsigned long long)db_size, elapsed);
+        } else {
+            printf("PASS: Loaded %d keys in %.3f ms\n", loaded, elapsed);
+            printf("  DB size: %llu bytes\n", (unsigned long long)db_size);
+        }
+        return 0;
     } else {
-        fprintf(stderr, "unknown check subcommand: %s\n", argv[2]);
+        fprintf(stderr, "unknown check subcommand: %s (use: perf, datascale)\n", argv[2]);
         return 1;
     }
 }
@@ -2569,22 +2645,46 @@ static int cmd_snapshot(int argc, char **argv) {
         uint8_t req[] = {0x00}, resp[65536];
         int rlen = do_rpc("/etcdserverpb.Maintenance/Snapshot", req, 1, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        /* Parse SnapshotResponse: field 1 (header), field 2 (remaining), field 3 (blob) */
+        size_t spos = 0;
+        const uint8_t *blob_data = NULL; size_t blob_len = 0;
+        while (spos < (size_t)rlen) {
+            uint8_t stag = resp[spos++];
+            if (stag == 0x0a) {
+                /* header (length-delimited) */
+                uint64_t l = 0; read_varint(resp, rlen, &spos, &l); spos += l;
+            } else if (stag == 0x10) {
+                /* remaining (varint) */
+                uint64_t v = 0; read_varint(resp, rlen, &spos, &v);
+            } else if (stag == 0x1a) {
+                /* blob (bytes) */
+                uint64_t l = 0; read_varint(resp, rlen, &spos, &l);
+                blob_data = resp + spos; blob_len = (size_t)l; spos += l;
+            } else {
+                uint64_t v = 0; read_varint(resp, rlen, &spos, &v);
+            }
+        }
+        size_t snapshot_size = blob_len;
         /* If a file is specified, write the blob to it */
         if (filename) {
             FILE *f = fopen(filename, "wb");
             if (!f) { perror("fopen"); return 1; }
-            fwrite(resp, 1, (size_t)rlen, f);
+            if (blob_data && blob_len > 0) fwrite(blob_data, 1, blob_len, f);
             fclose(f);
             if (want_json) {
-                printf("{\"header\":{},\"snapshot\":\"%s\",\"size\":%d}\n", filename, rlen);
+                fputs("{", stdout);
+                parse_and_print_header_json(resp, (size_t)rlen);
+                printf(",\"snapshot\":\"%s\",\"size\":%zu}\n", filename, snapshot_size);
             } else {
-                printf("snapshot saved to %s (%d bytes)\n", filename, rlen);
+                printf("snapshot saved to %s (%zu bytes)\n", filename, snapshot_size);
             }
         } else {
             if (want_json) {
-                printf("{\"header\":{},\"size\":%d}\n", rlen);
+                fputs("{", stdout);
+                parse_and_print_header_json(resp, (size_t)rlen);
+                printf(",\"size\":%zu}\n", snapshot_size);
             } else {
-                printf("snapshot: %d bytes received\n", rlen);
+                printf("snapshot: %zu bytes received\n", snapshot_size);
             }
         }
         return 0;
@@ -2718,7 +2818,7 @@ static int cmd_downgrade(int argc, char **argv) {
 static int cmd_member(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl member list [-w json|table]\n");
-        fprintf(stderr, "       cetcdctl member add [-w json] PEER_URL\n");
+        fprintf(stderr, "       cetcdctl member add [-w json] [--peer-urls URL] [--learner] [PEER_URL]\n");
         fprintf(stderr, "       cetcdctl member remove [-w json] ID\n");
         fprintf(stderr, "       cetcdctl member update [-w json] ID PEER_URL\n");
         fprintf(stderr, "       cetcdctl member promote [-w json] ID\n");
@@ -2747,15 +2847,32 @@ static int cmd_member(int argc, char **argv) {
         parse_member_list_response(resp, rlen, table_fmt, json_fmt);
     } else if (strcmp(argv[2], "add") == 0) {
         const char *peer_url = NULL;
+        int is_learner = 0;
         for (int i = 3; i < argc; i++) {
-            if (argv[i][0] == '-') continue;
-            if (i > 3 && (strcmp(argv[i-1], "-w") == 0 || strcmp(argv[i-1], "--write-out") == 0)) continue;
-            if (!peer_url) peer_url = argv[i];
+            if (strncmp(argv[i], "--peer-urls=", 12) == 0) {
+                peer_url = argv[i] + 12;
+            } else if (strcmp(argv[i], "--peer-urls") == 0 && i + 1 < argc) {
+                peer_url = argv[++i];
+            } else if (strcmp(argv[i], "--learner") == 0) {
+                is_learner = 1;
+            } else if (argv[i][0] == '-') {
+                if (i + 1 < argc && (strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0)) i++;
+                continue;
+            } else if (i > 3 && (strcmp(argv[i-1], "-w") == 0 || strcmp(argv[i-1], "--write-out") == 0)) {
+                continue;
+            } else if (!peer_url) {
+                /* First non-flag positional arg is the URL (or NAME if --peer-urls used) */
+                if (!peer_url) peer_url = argv[i];
+            }
         }
-        if (!peer_url) { fprintf(stderr, "usage: cetcdctl member add [-w json] PEER_URL\n"); return 1; }
+        if (!peer_url) { fprintf(stderr, "usage: cetcdctl member add [-w json] [--peer-urls URL] [--learner] [PEER_URL]\n"); return 1; }
         uint8_t req[512], resp[4096];
         size_t pos = 0;
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, peer_url);
+        if (is_learner) {
+            /* field 2 (isLearner) = bool, tag = 0x10 */
+            pos = encode_varint_field(req, sizeof(req), pos, 0x10, 1);
+        }
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberAdd", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) {
@@ -3245,13 +3362,23 @@ static int cmd_watch(int argc, char **argv) {
      *                        field 3 (mod_rev, 0x18), field 4 (version, 0x20),
      *                        field 5 (value, 0x2a)
      */
+    if (want_json) {
+        fputs("{", stdout);
+        parse_and_print_header_json(resp, (size_t)rlen);
+        fputs(",\"Events\":[", stdout);
+    }
     size_t rpos = 0;
+    int json_first_evt = 1;
     while (rpos < (size_t)rlen) {
         uint8_t tag = resp[rpos++];
         if (tag == 0x5a) {
             /* Event (length-delimited) */
             uint64_t elen = 0; read_varint(resp, rlen, &rpos, &elen);
             size_t eend = rpos + (size_t)elen;
+            if (want_json) {
+                if (!json_first_evt) fputs(",", stdout);
+                json_first_evt = 0;
+            }
             while (rpos < eend) {
                 uint8_t etag = resp[rpos++];
                 if (etag == 0x08) {
@@ -3260,7 +3387,7 @@ static int cmd_watch(int argc, char **argv) {
                     if (want_json) {
                         fputs("{\"type\":\"", stdout);
                         fputs(t == 0 ? "PUT" : "DELETE", stdout);
-                        fputs("\",\"", stdout);
+                        fputs("\"", stdout);
                     } else if (want_fields) {
                         printf("%s\n", t == 0 ? "PUT" : "DELETE");
                     } else {
@@ -3311,15 +3438,20 @@ static int cmd_watch(int argc, char **argv) {
                             printf("\n");
                         }
                     } else if (want_json) {
-                        fputs("kv\":{\"key\":\"", stdout);
+                        fputs(",\"kv\":{\"key\":\"", stdout);
                         if (ek) fwrite(ek, 1, ekl, stdout);
                         fputs("\"", stdout);
+                        printf(",\"create_revision\":%llu", (unsigned long long)ecr);
+                        printf(",\"mod_revision\":%llu", (unsigned long long)emr);
+                        printf(",\"version\":%llu", (unsigned long long)ever);
+                        if (elease > 0)
+                            printf(",\"lease\":%llu", (unsigned long long)elease);
                         if (ev && evl > 0) {
                             fputs(",\"value\":\"", stdout);
                             fwrite(ev, 1, evl, stdout);
                             fputs("\"", stdout);
                         }
-                        fputs("}}\n", stdout);
+                        fputs("}", stdout);
                     } else {
                         if (ek) printf("%.*s", (int)ekl, ek);
                         if (ev && evl > 0) printf(" -> %.*s", (int)evl, ev);
@@ -3331,6 +3463,7 @@ static int cmd_watch(int argc, char **argv) {
                     size_t kend = rpos + (size_t)klen;
                     const uint8_t *pk = NULL, *pv = NULL;
                     size_t pkl = 0, pvl = 0;
+                    uint64_t pcr = 0, pmr = 0, pver = 0;
                     while (rpos < kend) {
                         uint8_t ktag = resp[rpos++];
                         if (ktag == 0x0a) {
@@ -3339,12 +3472,31 @@ static int cmd_watch(int argc, char **argv) {
                         } else if (ktag == 0x2a) {
                             uint64_t l = 0; read_varint(resp, kend, &rpos, &l);
                             pv = resp + rpos; pvl = (size_t)l; rpos += l;
+                        } else if (ktag == 0x10) {
+                            read_varint(resp, kend, &rpos, &pcr);
+                        } else if (ktag == 0x18) {
+                            read_varint(resp, kend, &rpos, &pmr);
+                        } else if (ktag == 0x20) {
+                            read_varint(resp, kend, &rpos, &pver);
                         } else {
                             uint64_t v = 0; read_varint(resp, kend, &rpos, &v);
                         }
                     }
                     rpos = kend;
-                    if (pk) {
+                    if (want_json) {
+                        fputs(",\"prev_kv\":{\"key\":\"", stdout);
+                        if (pk) fwrite(pk, 1, pkl, stdout);
+                        fputs("\"", stdout);
+                        printf(",\"create_revision\":%llu", (unsigned long long)pcr);
+                        printf(",\"mod_revision\":%llu", (unsigned long long)pmr);
+                        printf(",\"version\":%llu", (unsigned long long)pver);
+                        if (pv && pvl > 0) {
+                            fputs(",\"value\":\"", stdout);
+                            fwrite(pv, 1, pvl, stdout);
+                            fputs("\"", stdout);
+                        }
+                        fputs("}", stdout);
+                    } else if (pk) {
                         printf(" (prev: %.*s", (int)pkl, pk);
                         if (pv && pvl > 0) printf(" -> %.*s", (int)pvl, pv);
                         printf(")");
@@ -3352,6 +3504,10 @@ static int cmd_watch(int argc, char **argv) {
                 } else {
                     uint64_t v = 0; read_varint(resp, eend, &rpos, &v);
                 }
+            }
+            if (want_json) fputs("}", stdout);
+            if (!want_json && !want_fields) {
+                /* newline already printed per-event in simple mode */
             }
             rpos = eend;
         } else if (tag == 0x0a) {
@@ -3361,6 +3517,7 @@ static int cmd_watch(int argc, char **argv) {
             uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
         }
     }
+    if (want_json) fputs("]}\n", stdout);
     return 0;
 }
 
@@ -3389,7 +3546,9 @@ static int cmd_hash(int argc, char **argv) {
         }
     }
     if (want_json) {
-        printf("{\"header\":{},\"hash\":%llu}\n", (unsigned long long)hash_val);
+        fputs("{", stdout);
+        parse_and_print_header_json(resp, (size_t)rlen);
+        printf(",\"hash\":%llu}\n", (unsigned long long)hash_val);
     } else {
         printf("hash: %llu\n", (unsigned long long)hash_val);
     }
@@ -3423,7 +3582,9 @@ static int cmd_hashkv(int argc, char **argv) {
         }
     }
     if (want_json) {
-        printf("{\"header\":{},\"hash\":%llu,\"compact_revision\":%llu}\n",
+        fputs("{", stdout);
+        parse_and_print_header_json(resp, (size_t)rlen);
+        printf(",\"hash\":%llu,\"compact_revision\":%llu}\n",
                (unsigned long long)hash_val, (unsigned long long)compact_rev);
     } else {
         printf("hash: %llu\n", (unsigned long long)hash_val);
@@ -3563,7 +3724,7 @@ static void print_usage(void) {
     printf("  defrag [-w json]       Defragment database (no-op for LMDB)\n");
     printf("  move-leader [-w json] TARGET_ID  Transfer leadership to target node\n");
     printf("  member list [-w json|table]  List cluster members\n");
-    printf("  member add [-w json] PEER_URL  Add a cluster member\n");
+    printf("  member add [-w json] [--peer-urls URL] [--learner] [PEER_URL]  Add a cluster member\n");
     printf("  member remove [-w json] ID    Remove a cluster member\n");
     printf("  member update [-w json] ID URL  Update a member's peer URL\n");
     printf("  member promote [-w json] ID    Promote a member to voting member\n");
@@ -3597,6 +3758,7 @@ static void print_usage(void) {
     printf("  endpoint status [-w json|table]  Get server status with endpoint info\n");
     printf("  endpoint hashkv [-w json]      Get KV hash per endpoint\n");
     printf("  check perf [-w json]    Run a simple performance check\n");
+    printf("  check datascale [-w json] [--load N] [--prefix PREFIX]  Test database scalability\n");
     printf("  lock [--ttl N] LOCKNAME [CMD...]  Acquire a distributed lock\n");
     printf("  elect [--ttl N] ELECTION_NAME [PROPOSAL]  Leader election\n");
 }

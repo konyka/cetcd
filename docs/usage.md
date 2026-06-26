@@ -122,6 +122,9 @@ so many concurrent watchers can share a single TCP connection.
 
 # Include the previous key-value in each event
 ./build/bin/cetcdctl watch --prev-kv foo
+
+# JSON output with full KV metadata and header
+./build/bin/cetcdctl watch -w json foo
 ```
 
 The server keeps the stream open, delivering `WatchResponse` messages as matching
@@ -196,11 +199,16 @@ the stream.
 
 ```sh
 ./build/bin/cetcdctl snapshot save backup.snap   # Save KV snapshot to file
+./build/bin/cetcdctl snapshot save backup.snap -w json  # Save with JSON output
 ./build/bin/cetcdctl snapshot status backup.snap # Show snapshot file info
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd  # Restore snapshot
 ./build/bin/cetcdctl downgrade enable             # Enable cluster downgrade
 ./build/bin/cetcdctl downgrade cancel             # Cancel downgrade
 ./build/bin/cetcdctl downgrade validate           # Validate downgrade state
+./build/bin/cetcdctl check perf                   # Run performance check (put/get latency)
+./build/bin/cetcdctl check perf -w json          # Performance check with JSON output
+./build/bin/cetcdctl check datascale --load 1000  # Test database scalability with 1000 keys
+./build/bin/cetcdctl check datascale -w json --load 5000  # Datascale test with JSON output
 ```
 
 ### Global options

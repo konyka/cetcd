@@ -860,7 +860,12 @@ cetcd_metrics *cetcd_server_metrics(cetcd_server *srv) {
 
 static void raft_tick_cb_(void *arg) {
     cetcd_server *srv = (cetcd_server *)arg;
-    if (!srv || !srv->raft || !srv->started) return;
+    if (!srv) return;
+    if (!srv->started) {
+        cetcd_loop_stop(srv->loop);
+        return;
+    }
+    if (!srv->raft) return;
     cetcd_raft_tick(srv->raft);
     if (srv->metrics) cetcd_metrics_counter(srv->metrics, "raft_ticks_total", 1);
     process_ready_(srv);

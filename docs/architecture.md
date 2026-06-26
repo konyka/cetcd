@@ -338,6 +338,14 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `put -w json` enhanced (now parses ResponseHeader and outputs cluster_id/member_id/revision/raft_term),
 `del -w json` enhanced (now parses ResponseHeader and outputs prev_kvs array with full KV metadata when --prev-kv is set),
 All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetolive/list/grant/keepalive, txn put/del, alarm list, auth enable/disable/status, user/role CRUD, member remove/update/promote, downgrade, defrag, move-leader — all output real cluster_id/member_id/revision/raft_term instead of empty `{}`).
+`hash -w json` / `hashkv -w json` enhanced (now parses ResponseHeader instead of empty `{}`),
+`status -w json` enhanced (now includes ResponseHeader with cluster_id/member_id/revision/raft_term before version/dbSize/leader fields),
+`watch -w json` enhanced (now outputs `{"header":{...},"Events":[...]}` format with full KV fields: create_revision/mod_revision/version/lease in each event, and prev_kv support with full metadata),
+`parse_string_list_response -w json` enhanced (user list/role list/user get now parse real ResponseHeader),
+`snapshot save` fixed (now correctly extracts blob data from SnapshotResponse protobuf, writing only snapshot data to file instead of raw protobuf; JSON output now includes real ResponseHeader),
+`check perf -w json` fixed (now includes real ResponseHeader from Put response),
+`member add --peer-urls URL` / `--learner` (etcdctl-compatible flags for adding cluster members; --learner sends isLearner=true in MemberAddRequest),
+`check datascale [--load N] [--prefix PREFIX] [-w json]` (new subcommand to test database scalability by loading N keys and reporting DB size and elapsed time),
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
