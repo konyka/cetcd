@@ -746,6 +746,7 @@ static int cmd_put(int argc, char **argv) {
     bool ignore_lease = false;
     bool want_json = false;
     bool want_fields = false;
+    bool print_value_only = false;
     int64_t lease_id = 0;
     const char *key = NULL;
     const char *val = NULL;
@@ -760,6 +761,8 @@ static int cmd_put(int argc, char **argv) {
         } else if (strcmp(argv[i], "--lease") == 0) {
             if (i + 1 >= argc) { fprintf(stderr, "--lease requires a lease ID\n"); return 1; }
             lease_id = strtoll(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--print-value-only") == 0) {
+            print_value_only = true;
         } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) want_json = true;
             else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
@@ -771,13 +774,15 @@ static int cmd_put(int argc, char **argv) {
         }
     }
     if (!key) {
-        fprintf(stderr, "usage: cetcdctl put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] [-w json|fields] KEY [VALUE]\n");
+        fprintf(stderr, "usage: cetcdctl put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] [--print-value-only] [-w json|fields] KEY [VALUE]\n");
         return 1;
     }
     if (!val && !ignore_value) {
-        fprintf(stderr, "usage: cetcdctl put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] [-w json|fields] KEY [VALUE|-]\n");
+        fprintf(stderr, "usage: cetcdctl put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] [--print-value-only] [-w json|fields] KEY [VALUE|-]\n");
         return 1;
     }
+    /* --print-value-only implies --prev-kv */
+    if (print_value_only) prev_kv = true;
 
     /* If val is "-", read value from stdin */
     char *stdin_val = NULL;
@@ -930,6 +935,37 @@ static int cmd_put(int argc, char **argv) {
             fputs("}", stdout);
         }
         fputs("}\n", stdout);
+        if (stdin_val) free(stdin_val);
+        return 0;
+    } else if (print_value_only) {
+        /* Parse PutResponse for prev_kv value (field 2, tag 0x12 -> KeyValue field 5, tag 0x2a) */
+        size_t rpos = 0;
+        while (rpos < (size_t)rlen) {
+            uint8_t tag = resp[rpos++];
+            if (tag == 0x12) {
+                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+                size_t kv_end = rpos + (size_t)l;
+                const uint8_t *pv = NULL; size_t pv_len = 0;
+                while (rpos < kv_end) {
+                    uint8_t ktag = resp[rpos++];
+                    if (ktag == 0x2a) {
+                        uint64_t vl = 0; read_varint(resp, kv_end, &rpos, &vl);
+                        pv = resp + rpos; pv_len = (size_t)vl; rpos += vl;
+                    } else {
+                        uint64_t v = 0; read_varint(resp, kv_end, &rpos, &v);
+                    }
+                }
+                if (pv && pv_len > 0) {
+                    fwrite(pv, 1, pv_len, stdout);
+                    printf("\n");
+                }
+                break;
+            } else if (tag == 0x0a) {
+                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
+            } else {
+                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            }
+        }
         if (stdin_val) free(stdin_val);
         return 0;
     } else if (prev_kv) {
@@ -2269,68 +2305,101 @@ static int cmd_endpoint(int argc, char **argv) {
 
 static int cmd_check(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl check perf [-w json|fields]\n");
+        fprintf(stderr, "usage: cetcdctl check perf [--load S|M|L] [--prefix PREFIX] [-w json|fields]\n");
         return 1;
     }
     if (strcmp(argv[2], "perf") == 0) {
         int want_json = 0, want_fields = 0;
+        int load_count = 1;  /* default: 1 key (simple check) */
+        const char *prefix = "_perf_check";
         for (int i = 3; i < argc; i++) {
             if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
                 if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
                 else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
                 i++;
+            } else if (strcmp(argv[i], "--load") == 0 && i + 1 < argc) {
+                const char *sz = argv[++i];
+                if (strcmp(sz, "s") == 0 || strcmp(sz, "S") == 0) load_count = 10;
+                else if (strcmp(sz, "m") == 0 || strcmp(sz, "M") == 0) load_count = 100;
+                else if (strcmp(sz, "l") == 0 || strcmp(sz, "L") == 0) load_count = 1000;
+                else { fprintf(stderr, "--load must be s, m, or l\n"); return 1; }
+            } else if (strcmp(argv[i], "--prefix") == 0 && i + 1 < argc) {
+                prefix = argv[++i];
             }
         }
-        if (!want_json && !want_fields) printf("Running performance check...\n");
+        if (!want_json && !want_fields) printf("Running performance check (load=%d)...\n", load_count);
 
-        /* Put a test key */
-        uint8_t put_req[256], put_resp[256];
-        size_t pos = 0;
-        const char *key = "_perf_check";
-        const char *val = "ok";
-        pos = encode_bytes_field(put_req, sizeof(put_req), pos, 0x0a,
-                                 (const uint8_t *)key, strlen(key));
-        pos = encode_bytes_field(put_req, sizeof(put_req), pos, 0x12,
-                                 (const uint8_t *)val, strlen(val));
-        struct timeval t0, t1;
-        gettimeofday(&t0, NULL);
-        int rlen = do_rpc("/etcdserverpb.KV/Put", put_req, pos, put_resp, sizeof(put_resp));
-        gettimeofday(&t1, NULL);
-        if (rlen < 0) { fprintf(stderr, "put failed\n"); return 1; }
-        double put_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_usec - t0.tv_usec) / 1000.0;
+        /* Put test keys and measure latency */
+        double total_put_ms = 0, total_get_ms = 0;
+        int ok_count = 0;
+        for (int i = 0; i < load_count; i++) {
+            char key[256];
+            char val[64];
+            int kl = snprintf(key, sizeof(key), "%s_%d", prefix, i);
+            int vl = snprintf(val, sizeof(val), "v%d", i);
+            uint8_t put_req[512], put_resp[256];
+            size_t pos = 0;
+            pos = encode_bytes_field(put_req, sizeof(put_req), pos, 0x0a,
+                                     (const uint8_t *)key, (size_t)kl);
+            pos = encode_bytes_field(put_req, sizeof(put_req), pos, 0x12,
+                                     (const uint8_t *)val, (size_t)vl);
+            struct timeval t0, t1;
+            gettimeofday(&t0, NULL);
+            int rlen = do_rpc("/etcdserverpb.KV/Put", put_req, pos, put_resp, sizeof(put_resp));
+            gettimeofday(&t1, NULL);
+            if (rlen < 0) break;
+            total_put_ms += (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_usec - t0.tv_usec) / 1000.0;
 
-        /* Get the key back */
-        uint8_t get_req[256], get_resp[1024];
-        pos = 0;
-        pos = encode_bytes_field(get_req, sizeof(get_req), pos, 0x0a,
-                                 (const uint8_t *)key, strlen(key));
-        gettimeofday(&t0, NULL);
-        rlen = do_rpc("/etcdserverpb.KV/Range", get_req, pos, get_resp, sizeof(get_resp));
-        gettimeofday(&t1, NULL);
-        if (rlen < 0) { fprintf(stderr, "get failed\n"); return 1; }
-        double get_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_usec - t0.tv_usec) / 1000.0;
+            /* Get the key back */
+            uint8_t get_req[256], get_resp[1024];
+            pos = 0;
+            pos = encode_bytes_field(get_req, sizeof(get_req), pos, 0x0a,
+                                     (const uint8_t *)key, (size_t)kl);
+            gettimeofday(&t0, NULL);
+            rlen = do_rpc("/etcdserverpb.KV/Range", get_req, pos, get_resp, sizeof(get_resp));
+            gettimeofday(&t1, NULL);
+            if (rlen < 0) break;
+            total_get_ms += (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_usec - t0.tv_usec) / 1000.0;
+            ok_count++;
+        }
+        double avg_put_ms = ok_count > 0 ? total_put_ms / ok_count : 0;
+        double avg_get_ms = ok_count > 0 ? total_get_ms / ok_count : 0;
 
-        /* Delete the test key */
-        uint8_t del_req[256], del_resp[256];
-        pos = 0;
-        pos = encode_bytes_field(del_req, sizeof(del_req), pos, 0x0a,
-                                 (const uint8_t *)key, strlen(key));
-        do_rpc("/etcdserverpb.KV/DeleteRange", del_req, pos, del_resp, sizeof(del_resp));
+        /* Cleanup: delete all test keys with prefix */
+        {
+            uint8_t del_req[512], del_resp[4096];
+            size_t dpos = 0;
+            size_t plen = strlen(prefix);
+            dpos = encode_bytes_field(del_req, sizeof(del_req), dpos, 0x0a,
+                                      (const uint8_t *)prefix, plen);
+            if (plen == 0) {
+                uint8_t zero = 0;
+                dpos = encode_bytes_field(del_req, sizeof(del_req), dpos, 0x12, &zero, 1);
+            } else {
+                char range_end[256];
+                if (plen >= sizeof(range_end)) { fprintf(stderr, "prefix too long\n"); return 1; }
+                memcpy(range_end, prefix, plen);
+                range_end[plen - 1]++;
+                dpos = encode_bytes_field(del_req, sizeof(del_req), dpos, 0x12,
+                                          (const uint8_t *)range_end, plen);
+            }
+            do_rpc("/etcdserverpb.KV/DeleteRange", del_req, dpos, del_resp, sizeof(del_resp));
+        }
 
         if (want_json) {
             fputs("{", stdout);
-            parse_and_print_header_json(put_resp, (size_t)rlen);
-            printf(",\"status\":\"PASS\",\"put_latency_ms\":%.3f,\"get_latency_ms\":%.3f}\n", put_ms, get_ms);
+            printf("\"status\":\"PASS\",\"keys_tested\":%d,\"put_latency_ms\":%.3f,\"get_latency_ms\":%.3f}\n",
+                   ok_count, avg_put_ms, avg_get_ms);
         } else if (want_fields) {
-            parse_and_print_header_json(put_resp, (size_t)rlen);
             printf("status: PASS\n");
-            printf("put_latency_ms: %.3f\n", put_ms);
-            printf("get_latency_ms: %.3f\n", get_ms);
+            printf("keys_tested: %d\n", ok_count);
+            printf("put_latency_ms: %.3f\n", avg_put_ms);
+            printf("get_latency_ms: %.3f\n", avg_get_ms);
             fputs("\n", stdout);
         } else {
-            printf("PASS: Performance check completed successfully\n");
-            printf("  Put latency: %.3f ms\n", put_ms);
-            printf("  Get latency: %.3f ms\n", get_ms);
+            printf("PASS: Performance check completed successfully (%d keys)\n", ok_count);
+            printf("  Avg Put latency: %.3f ms\n", avg_put_ms);
+            printf("  Avg Get latency: %.3f ms\n", avg_get_ms);
         }
         return 0;
     } else if (strcmp(argv[2], "datascale") == 0) {
@@ -4655,7 +4724,7 @@ static void print_usage(void) {
     printf("  --cert FILE     TLS certificate (no-op, plain TCP)\n");
     printf("  --key FILE      TLS key (no-op, plain TCP)\n\n");
     printf("Commands:\n");
-    printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] [-w json|fields] KEY [VALUE|-]  Store a key-value pair\n");
+    printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] [--print-value-only] [-w json|fields] KEY [VALUE|-]  Store a key-value pair\n");
     printf("  get [--prefix] [--from-key] [--range-end KEY] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields|table] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
     printf("  del [--prefix] [--from-key] [--range-end KEY] [--prev-kv] [--hex] [-w json|fields] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --range-end, --prev-kv, --hex)\n");
@@ -4712,7 +4781,7 @@ static void print_usage(void) {
     printf("  endpoint health [-w json|fields]  Check server health\n");
     printf("  endpoint status [-w json|table|fields]  Get server status with endpoint info\n");
     printf("  endpoint hashkv [-w json|fields]      Get KV hash per endpoint\n");
-    printf("  check perf [-w json|fields]    Run a simple performance check\n");
+    printf("  check perf [--load S|M|L] [--prefix PREFIX] [-w json|fields]    Run a simple performance check\n");
     printf("  check datascale [-w json|fields] [--load N] [--prefix PREFIX]  Test database scalability\n");
     printf("  lock [--ttl N] [--print-value-only] [-w json|fields] LOCKNAME [CMD...]  Acquire a distributed lock\n");
     printf("  elect [--ttl N] [--print-value-only] [-w json|fields] ELECTION_NAME [PROPOSAL]  Leader election\n");

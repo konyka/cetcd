@@ -117,6 +117,8 @@ It mirrors `etcdctl` command structure for familiarity.
 
 ```sh
 ./build/bin/cetcdctl put foo bar
+./build/bin/cetcdctl put foo bar --prev-kv         # Store and return previous value
+./build/bin/cetcdctl put foo bar --prev-kv --print-value-only  # Output only previous value
 ./build/bin/cetcdctl put foo -                     # Read value from stdin
 ./build/bin/cetcdctl get foo
 ./build/bin/cetcdctl get --prefix foo           # Get all keys with prefix
@@ -307,6 +309,10 @@ the stream.
 ./build/bin/cetcdctl downgrade cancel             # Cancel downgrade
 ./build/bin/cetcdctl downgrade validate           # Validate downgrade state
 ./build/bin/cetcdctl check perf                   # Run performance check (put/get latency)
+./build/bin/cetcdctl check perf --load s            # Small load (10 keys)
+./build/bin/cetcdctl check perf --load m            # Medium load (100 keys)
+./build/bin/cetcdctl check perf --load l            # Large load (1000 keys)
+./build/bin/cetcdctl check perf --prefix mycheck    # Custom key prefix
 ./build/bin/cetcdctl check perf -w json          # Performance check with JSON output
 ./build/bin/cetcdctl check perf -w fields         # Performance check with fields output
 ./build/bin/cetcdctl check datascale --load 1000  # Test database scalability with 1000 keys
