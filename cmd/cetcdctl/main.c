@@ -51,12 +51,14 @@
  *   role get NAME          — get role details (permissions)
  *   role list              — list all roles
  *   role grant-permission ROLE TYPE KEY — grant permission
- *   role revoke-permission ROLE — revoke all permissions from role
+ *   role grant-permission ROLE TYPE KEY [--prefix] [--range-end] — grant a specific permission
+ *   role revoke-permission ROLE [TYPE KEY] [--prefix] [--range-end] — revoke a specific permission
  *   endpoint health       — check server health
  *   endpoint status       — get server status with endpoint info
  *   check perf            — run a simple performance check
  *   lock LOCKNAME [CMD...] — acquire a distributed lock
  *   elect ELECTION_NAME [PROPOSAL] — leader election
+ *   completion bash|zsh|fish — generate shell completion script
  *   version               — print client version
  */
 
@@ -3532,7 +3534,7 @@ static int cmd_auth(int argc, char **argv) {
 
 static int cmd_user(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl user add NAME PASS [-w json|fields]\n");
+        fprintf(stderr, "usage: cetcdctl user add NAME [PASS] [--no-password] [-w json|fields]\n");
         fprintf(stderr, "       cetcdctl user delete NAME [-w json|fields]\n");
         fprintf(stderr, "       cetcdctl user get NAME [-w json|fields]\n");
         fprintf(stderr, "       cetcdctl user list [-w json|table|fields]\n");
@@ -3551,11 +3553,36 @@ static int cmd_user(int argc, char **argv) {
         }
     }
     if (strcmp(argv[2], "add") == 0) {
-        if (argc < 5) { fprintf(stderr, "usage: cetcdctl user add NAME PASS [-w json|fields]\n"); return 1; }
+        const char *user_name = NULL, *password = NULL;
+        bool no_password = false;
+        for (int i = 3; i < argc; i++) {
+            if (strcmp(argv[i], "--no-password") == 0) {
+                no_password = true;
+            } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+                i++; /* already parsed globally */
+            } else if (!user_name) {
+                user_name = argv[i];
+            } else if (!password) {
+                password = argv[i];
+            }
+        }
+        if (!user_name || (!no_password && !password)) {
+            fprintf(stderr, "usage: cetcdctl user add NAME [PASS] [--no-password] [-w json|fields]\n");
+            return 1;
+        }
         uint8_t req[512], resp[256];
         size_t pos = 0;
-        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
-        pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, user_name);
+        if (password) {
+            pos = encode_string_field(req, sizeof(req), pos, 0x12, password);
+        }
+        if (no_password) {
+            /* field 3 (options) = UserAddOptions { field 1 (no_password) = bool, tag 0x08 = true } */
+            req[pos++] = 0x1a; /* field 3 = options */
+            req[pos++] = 0x02; /* length = 2 */
+            req[pos++] = 0x08; /* field 1 = no_password */
+            req[pos++] = 0x01; /* true */
+        }
         int rlen = do_rpc("/etcdserverpb.Auth/UserAdd", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
@@ -3796,34 +3823,77 @@ static int cmd_role(int argc, char **argv) {
             }
         }
     } else if (strcmp(argv[2], "grant-permission") == 0) {
-        if (argc < 6) {
-            fprintf(stderr, "usage: cetcdctl role grant-permission ROLE TYPE KEY [-w json|fields]\n");
+        const char *role_name = NULL, *perm_type_str = NULL, *key_str = NULL;
+        const char *range_end_arg = NULL;
+        bool prefix = false;
+        for (int i = 3; i < argc; i++) {
+            if (strcmp(argv[i], "--prefix") == 0) {
+                prefix = true;
+            } else if (strcmp(argv[i], "--range-end") == 0 && i + 1 < argc) {
+                range_end_arg = argv[++i];
+            } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+                i++; /* already parsed globally */
+            } else if (!role_name) {
+                role_name = argv[i];
+            } else if (!perm_type_str) {
+                perm_type_str = argv[i];
+            } else if (!key_str) {
+                key_str = argv[i];
+            }
+        }
+        if (!role_name || !perm_type_str || !key_str) {
+            fprintf(stderr, "usage: cetcdctl role grant-permission ROLE TYPE KEY [--prefix] [--range-end KEY] [-w json|fields]\n");
             fprintf(stderr, "  TYPE: read | write | readwrite\n");
             return 1;
         }
         int perm_type = 2; /* default readwrite */
-        if (strcmp(argv[4], "read") == 0) perm_type = 0;
-        else if (strcmp(argv[4], "write") == 0) perm_type = 1;
-        else if (strcmp(argv[4], "readwrite") == 0) perm_type = 2;
-        else { fprintf(stderr, "invalid TYPE: %s (use read|write|readwrite)\n", argv[4]); return 1; }
+        if (strcmp(perm_type_str, "read") == 0) perm_type = 0;
+        else if (strcmp(perm_type_str, "write") == 0) perm_type = 1;
+        else if (strcmp(perm_type_str, "readwrite") == 0) perm_type = 2;
+        else { fprintf(stderr, "invalid TYPE: %s (use read|write|readwrite)\n", perm_type_str); return 1; }
 
         /* Build Permission sub-message */
-        uint8_t perm[256];
+        uint8_t perm[512];
         size_t ppos = 0;
         perm[ppos++] = 0x08; /* field 1 = permType */
         perm[ppos++] = (uint8_t)perm_type;
-        size_t klen = strlen(argv[5]);
+        size_t klen = strlen(key_str);
         perm[ppos++] = 0x0a; /* field 2 = key */
-        /* varint for key length */
         uint64_t l = klen;
         while (l >= 0x80) { perm[ppos++] = (uint8_t)(l | 0x80); l >>= 7; }
         perm[ppos++] = (uint8_t)l;
-        memcpy(perm + ppos, argv[5], klen); ppos += klen;
+        memcpy(perm + ppos, key_str, klen); ppos += klen;
+        /* field 3 = range_end (optional, for --prefix or --range-end) */
+        if (prefix) {
+            if (klen == 0) {
+                uint8_t zero = 0;
+                perm[ppos++] = 0x12;
+                perm[ppos++] = 0x01;
+                perm[ppos++] = zero;
+            } else {
+                char prefix_end[256];
+                if (klen >= sizeof(prefix_end)) { fprintf(stderr, "key too long\n"); return 1; }
+                memcpy(prefix_end, key_str, klen);
+                prefix_end[klen - 1]++;
+                perm[ppos++] = 0x12;
+                l = klen;
+                while (l >= 0x80) { perm[ppos++] = (uint8_t)(l | 0x80); l >>= 7; }
+                perm[ppos++] = (uint8_t)l;
+                memcpy(perm + ppos, prefix_end, klen); ppos += klen;
+            }
+        } else if (range_end_arg) {
+            size_t re_len = strlen(range_end_arg);
+            perm[ppos++] = 0x12;
+            l = re_len;
+            while (l >= 0x80) { perm[ppos++] = (uint8_t)(l | 0x80); l >>= 7; }
+            perm[ppos++] = (uint8_t)l;
+            memcpy(perm + ppos, range_end_arg, re_len); ppos += re_len;
+        }
 
         /* Build RoleGrantPermissionRequest */
-        uint8_t req[512], resp[256];
+        uint8_t req[1024], resp[256];
         size_t pos = 0;
-        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, role_name);
         req[pos++] = 0x12; /* field 2 = perm */
         l = ppos;
         while (l >= 0x80) { req[pos++] = (uint8_t)(l | 0x80); l >>= 7; }
@@ -3836,10 +3906,52 @@ static int cmd_role(int argc, char **argv) {
         else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
         else { printf("OK\n"); }
     } else if (strcmp(argv[2], "revoke-permission") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl role revoke-permission ROLE [-w json|fields]\n"); return 1; }
-        uint8_t req[256], resp[256];
+        const char *role_name = NULL, *perm_type_str = NULL, *key_str = NULL;
+        const char *range_end_arg = NULL;
+        bool prefix = false;
+        for (int i = 3; i < argc; i++) {
+            if (strcmp(argv[i], "--prefix") == 0) {
+                prefix = true;
+            } else if (strcmp(argv[i], "--range-end") == 0 && i + 1 < argc) {
+                range_end_arg = argv[++i];
+            } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+                i++; /* already parsed globally */
+            } else if (!role_name) {
+                role_name = argv[i];
+            } else if (!perm_type_str) {
+                perm_type_str = argv[i];
+            } else if (!key_str) {
+                key_str = argv[i];
+            }
+        }
+        if (!role_name) { fprintf(stderr, "usage: cetcdctl role revoke-permission ROLE [TYPE KEY] [--prefix] [--range-end KEY] [-w json|fields]\n"); return 1; }
+
+        uint8_t req[512], resp[256];
         size_t pos = 0;
-        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, role_name);
+        if (key_str) {
+            /* Send key (field 2, tag 0x12) for specific permission revocation */
+            size_t klen = strlen(key_str);
+            pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
+                                     (const uint8_t *)key_str, klen);
+            /* field 3 (range_end, tag 0x1a) — optional */
+            if (prefix) {
+                if (klen == 0) {
+                    uint8_t zero = 0;
+                    pos = encode_bytes_field(req, sizeof(req), pos, 0x1a, &zero, 1);
+                } else {
+                    char prefix_end[256];
+                    if (klen >= sizeof(prefix_end)) { fprintf(stderr, "key too long\n"); return 1; }
+                    memcpy(prefix_end, key_str, klen);
+                    prefix_end[klen - 1]++;
+                    pos = encode_bytes_field(req, sizeof(req), pos, 0x1a,
+                                             (const uint8_t *)prefix_end, klen);
+                }
+            } else if (range_end_arg) {
+                pos = encode_bytes_field(req, sizeof(req), pos, 0x1a,
+                                         (const uint8_t *)range_end_arg, strlen(range_end_arg));
+            }
+        }
         int rlen = do_rpc("/etcdserverpb.Auth/RoleRevokePermission", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
@@ -4353,6 +4465,178 @@ static int do_authenticate(const char *user_cred) {
     return 0;
 }
 
+static int cmd_completion(int argc, char **argv) {
+    const char *shell = (argc >= 3) ? argv[2] : NULL;
+    if (!shell || (strcmp(shell, "bash") != 0 && strcmp(shell, "zsh") != 0 && strcmp(shell, "fish") != 0)) {
+        fprintf(stderr, "usage: cetcdctl completion bash|zsh|fish\n");
+        return 1;
+    }
+
+    if (strcmp(shell, "bash") == 0) {
+        /* Bash completion script */
+        printf("# Bash completion for cetcdctl\n");
+        printf("_cetcdctl() {\n");
+        printf("    local cur prev words cword i cmd\n");
+        printf("    _init_completion 2>/dev/null || {\n");
+        printf("        COMPREPLY=()\n");
+        printf("        cur=${COMP_WORDS[COMP_CWORD]}\n");
+        printf("        prev=${COMP_WORDS[COMP_CWORD-1]}\n");
+        printf("        cword=$COMP_CWORD\n");
+        printf("    }\n");
+        printf("    local cmds=\"put get del watch lease txn compact status alarm hash hashkv defrag move-leader member auth user role snapshot downgrade version endpoint check lock elect completion\"\n");
+        printf("    local gopts=\"--host --port --endpoints --endpoint --user --command-timeout --debug --insecure --dial-timeout --keepalive-time --keepalive-timeout --cacert --cert --key\"\n");
+        printf("    # Find the subcommand\n");
+        printf("    cmd=\"\"\n");
+        printf("    for ((i=1; i<cword; i++)); do\n");
+        printf("        if [[ ${COMP_WORDS[i]} == -* ]]; then continue; fi\n");
+        printf("        if [[ \" $cmds \" == *\" ${COMP_WORDS[i]} \"* ]]; then cmd=${COMP_WORDS[i]}; break; fi\n");
+        printf("    done\n");
+        printf("    if [[ -z $cmd ]]; then\n");
+        printf("        if [[ $cur == -* ]]; then\n");
+        printf("            COMPREPLY=( $(compgen -W \"$gopts\" -- \"$cur\") )\n");
+        printf("        else\n");
+        printf("            COMPREPLY=( $(compgen -W \"$cmds\" -- \"$cur\") )\n");
+        printf("        fi\n");
+        printf("        return 0\n");
+        printf("    fi\n");
+        printf("    case $cmd in\n");
+        printf("        put) local opts=\"--prev-kv --ignore-value --ignore-lease --lease -w --write-out\";;\n");
+        printf("        get) local opts=\"--prefix --from-key --range-end --keys-only --count-only --print-value-only --hex --consistency --rev --limit --sort-by --sort-order --min-mod-rev --max-mod-rev --min-create-rev --max-create-rev -w --write-out\";;\n");
+        printf("        del) local opts=\"--prefix --from-key --range-end --prev-kv --hex -w --write-out\";;\n");
+        printf("        watch) local opts=\"--prefix --range-end --prev-kv --start-rev --filter --hex --exec -w --write-out\";;\n");
+        printf("        lease) local opts=\"--lease-id --keys --once -w --write-out\"\n");
+        printf("              local subs=\"grant revoke timetolive list keepalive\";;\n");
+        printf("        txn) local opts=\"-w --write-out\"; local subs=\"put cas get del\";;\n");
+        printf("        compact) local opts=\"--physical -w --write-out\";;\n");
+        printf("        alarm) local opts=\"-w --write-out\"; local subs=\"list activate disarm\";;\n");
+        printf("        member) local opts=\"--peer-urls --name --learner -w --write-out\"; local subs=\"list add remove update promote\";;\n");
+        printf("        auth) local opts=\"-w --write-out\"; local subs=\"enable disable status login\";;\n");
+        printf("        user) local opts=\"-w --write-out\"; local subs=\"add delete get list change-password grant-role revoke-role\";;\n");
+        printf("        role) local opts=\"--prefix --range-end -w --write-out\"; local subs=\"add delete get list grant-permission revoke-permission\";;\n");
+        printf("        snapshot) local opts=\"--compaction-periodical --data-dir --force -w --write-out\"; local subs=\"save status restore\";;\n");
+        printf("        downgrade) local opts=\"-w --write-out\"; local subs=\"enable cancel validate\";;\n");
+        printf("        endpoint) local opts=\"-w --write-out\"; local subs=\"health status hashkv\";;\n");
+        printf("        check) local opts=\"--load --prefix -w --write-out\"; local subs=\"perf datascale\";;\n");
+        printf("        lock) local opts=\"--ttl --print-value-only -w --write-out\";;\n");
+        printf("        elect) local opts=\"--ttl --print-value-only -w --write-out\";;\n");
+        printf("        completion) local opts=\"\"; local subs=\"bash zsh fish\";;\n");
+        printf("        *) local opts=\"\";;\n");
+        printf("    esac\n");
+        printf("    if [[ -n ${subs:-} && $prev == $cmd ]]; then\n");
+        printf("        COMPREPLY=( $(compgen -W \"$subs\" -- \"$cur\") )\n");
+        printf("        return 0\n");
+        printf("    fi\n");
+        printf("    if [[ $cur == -* ]]; then\n");
+        printf("        COMPREPLY=( $(compgen -W \"${opts:-} $gopts\" -- \"$cur\") )\n");
+        printf("    fi\n");
+        printf("    return 0\n");
+        printf("}\n");
+        printf("complete -F _cetcdctl cetcdctl\n");
+        return 0;
+    }
+
+    if (strcmp(shell, "zsh") == 0) {
+        /* Zsh completion script */
+        printf("#compdef cetcdctl\n");
+        printf("# Zsh completion for cetcdctl\n");
+        printf("_cetcdctl() {\n");
+        printf("    local -a cmds opts subs\n");
+        printf("    cmds=(put get del watch lease txn compact status alarm hash hashkv defrag move-leader member auth user role snapshot downgrade version endpoint check lock elect completion)\n");
+        printf("    _arguments -C \\\n");
+        printf("        '--host[Server address]:addr' \\\n");
+        printf("        '--port[Server port]:port' \\\n");
+        printf("        '--endpoints[Server endpoints]:ep' \\\n");
+        printf("        '--endpoint[Server endpoint]:ep' \\\n");
+        printf("        '--user[User:pass]:cred' \\\n");
+        printf("        '--command-timeout[Timeout]:sec' \\\n");
+        printf("        '--debug[Debug]' \\\n");
+        printf("        '--insecure[Skip TLS]' \\\n");
+        printf("        '--dial-timeout[Dial timeout]:sec' \\\n");
+        printf("        '--keepalive-time[Keepalive time]:sec' \\\n");
+        printf("        '--keepalive-timeout[Keepalive timeout]:sec' \\\n");
+        printf("        '--cacert[CA cert]:file' \\\n");
+        printf("        '--cert[TLS cert]:file' \\\n");
+        printf("        '--key[TLS key]:file' \\\n");
+        printf("        '1:command:compadd -a cmds' \\\n");
+        printf("        '*::arg:->args'\n");
+        printf("    case $state in\n");
+        printf("        args)\n");
+        printf("            case ${words[1]} in\n");
+        printf("                lease) subs=(grant revoke timetolive list keepalive);;\n");
+        printf("                txn) subs=(put cas get del);;\n");
+        printf("                alarm) subs=(list activate disarm);;\n");
+        printf("                member) subs=(list add remove update promote);;\n");
+        printf("                auth) subs=(enable disable status login);;\n");
+        printf("                user) subs=(add delete get list change-password grant-role revoke-role);;\n");
+        printf("                role) subs=(add delete get list grant-permission revoke-permission);;\n");
+        printf("                snapshot) subs=(save status restore);;\n");
+        printf("                downgrade) subs=(enable cancel validate);;\n");
+        printf("                endpoint) subs=(health status hashkv);;\n");
+        printf("                check) subs=(perf datascale);;\n");
+        printf("                completion) subs=(bash zsh fish);;\n");
+        printf("            esac\n");
+        printf("            if [[ -n $subs ]]; then\n");
+        printf("                _values 'subcommand' $subs\n");
+        printf("            fi\n");
+        printf("            ;;\n");
+        printf("    esac\n");
+        printf("}\n");
+        printf("compdef _cetcdctl cetcdctl\n");
+        return 0;
+    }
+
+    if (strcmp(shell, "fish") == 0) {
+        /* Fish completion script */
+        printf("# Fish completion for cetcdctl\n");
+        printf("set -l cmds put get del watch lease txn compact status alarm hash hashkv defrag move-leader member auth user role snapshot downgrade version endpoint check lock elect completion\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -a \"$cmds\"\n");
+        printf("# Global options\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l host -d 'Server address'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l port -d 'Server port'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l endpoints -d 'Server endpoints'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l user -d 'User:pass'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l command-timeout -d 'Command timeout'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l debug -d 'Debug'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l insecure -d 'Skip TLS'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l dial-timeout -d 'Dial timeout'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l keepalive-time -d 'Keepalive time'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l keepalive-timeout -d 'Keepalive timeout'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l cacert -d 'CA cert'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l cert -d 'TLS cert'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l key -d 'TLS key'\n");
+        printf("# Subcommands\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from lease' -a 'grant revoke timetolive list keepalive'\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from txn' -a 'put cas get del'\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from alarm' -a 'list activate disarm'\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from member' -a 'list add remove update promote'\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from auth' -a 'enable disable status login'\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from user' -a 'add delete get list change-password grant-role revoke-role'\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from role' -a 'add delete get list grant-permission revoke-permission'\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from snapshot' -a 'save status restore'\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from downgrade' -a 'enable cancel validate'\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from endpoint' -a 'health status hashkv'\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from check' -a 'perf datascale'\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from completion' -a 'bash zsh fish'\n");
+        printf("# Common flags\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from put' -l prev-kv -l ignore-value -l ignore-lease -l lease -s w -l write-out\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from get' -l prefix -l from-key -l range-end -l keys-only -l count-only -l print-value-only -l hex -l consistency -l rev -l limit -l sort-by -l sort-order -l min-mod-rev -l max-mod-rev -l min-create-rev -l max-create-rev -s w -l write-out\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from del' -l prefix -l from-key -l range-end -l prev-kv -l hex -s w -l write-out\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from watch' -l prefix -l range-end -l prev-kv -l start-rev -l filter -l hex -l exec -s w -l write-out\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from lease' -l lease-id -l keys -l once -s w -l write-out\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from txn' -s w -l write-out\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from compact' -l physical -s w -l write-out\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from member' -l peer-urls -l name -l learner -s w -l write-out\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from role' -l prefix -l range-end -s w -l write-out\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from snapshot' -l compaction-periodical -l data-dir -l force -s w -l write-out\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from check' -l load -l prefix -s w -l write-out\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from lock' -l ttl -l print-value-only -s w -l write-out\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from elect' -l ttl -l print-value-only -s w -l write-out\n");
+        return 0;
+    }
+
+    return 0;
+}
+
 static void print_usage(void) {
     printf("cetcdctl — command-line client for cetcd\n\n");
     printf("Usage: cetcdctl [global options] COMMAND [args]\n\n");
@@ -4403,7 +4687,7 @@ static void print_usage(void) {
     printf("  auth disable [-w json|fields]     Disable authentication\n");
     printf("  auth status [-w json|fields]     Query auth status\n");
     printf("  auth login NAME PASS [-w json|fields]   Authenticate and get token\n");
-    printf("  user add NAME PASS [-w json|fields]    Add a user\n");
+    printf("  user add NAME [PASS] [--no-password] [-w json|fields]    Add a user\n");
     printf("  user delete NAME [-w json|fields]      Delete a user\n");
     printf("  user get NAME [-w json|fields]          Get user details (roles)\n");
     printf("  user list [-w json|table|fields]       List all users\n");
@@ -4414,10 +4698,10 @@ static void print_usage(void) {
     printf("  role delete NAME [-w json|fields]       Delete a role\n");
     printf("  role get NAME [-w json|fields]          Get role details (permissions)\n");
     printf("  role list [-w json|table|fields]        List all roles\n");
-    printf("  role grant-permission ROLE TYPE KEY [-w json|fields]\n");
+    printf("  role grant-permission ROLE TYPE KEY [--prefix] [--range-end KEY] [-w json|fields]\n");
     printf("                         Grant permission (read|write|readwrite)\n");
-    printf("  role revoke-permission ROLE [-w json|fields]\n");
-    printf("                         Revoke all permissions from role\n");
+    printf("  role revoke-permission ROLE [TYPE KEY] [--prefix] [--range-end KEY] [-w json|fields]\n");
+    printf("                         Revoke permission (all or specific key) from role\n");
     printf("  snapshot save [FILE] [--compaction-periodical] [-w json|fields]   Save a snapshot to file\n");
     printf("  snapshot status FILE [-w json|fields]  Show snapshot file info\n");
     printf("  snapshot restore FILE --data-dir DIR [--force] [-w json|fields]  Restore snapshot to data dir\n");
@@ -4432,6 +4716,7 @@ static void print_usage(void) {
     printf("  check datascale [-w json|fields] [--load N] [--prefix PREFIX]  Test database scalability\n");
     printf("  lock [--ttl N] [--print-value-only] [-w json|fields] LOCKNAME [CMD...]  Acquire a distributed lock\n");
     printf("  elect [--ttl N] [--print-value-only] [-w json|fields] ELECTION_NAME [PROPOSAL]  Leader election\n");
+    printf("  completion bash|zsh|fish   Generate shell completion script\n");
 }
 
 int main(int argc, char **argv) {
@@ -4540,6 +4825,7 @@ int main(int argc, char **argv) {
     if (strcmp(cmd, "check") == 0)      return cmd_check(new_argc, new_argv);
     if (strcmp(cmd, "lock") == 0)       return cmd_lock(new_argc, new_argv);
     if (strcmp(cmd, "elect") == 0)      return cmd_elect(new_argc, new_argv);
+    if (strcmp(cmd, "completion") == 0) return cmd_completion(new_argc, new_argv);
 
     fprintf(stderr, "unknown command: %s\n", cmd);
     print_usage();

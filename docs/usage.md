@@ -246,6 +246,7 @@ the stream.
 
 # User management
 ./build/bin/cetcdctl user add root         # Create user
+./build/bin/cetcdctl user add root --no-password  # Create user without password (cert-based auth)
 ./build/bin/cetcdctl user get root         # View user details (roles)
 ./build/bin/cetcdctl user list             # List all users
 ./build/bin/cetcdctl user change-password root NEWPASS  # Change password
@@ -260,8 +261,12 @@ the stream.
 ./build/bin/cetcdctl role delete admin     # Delete role
 
 # Permission management
-./build/bin/cetcdctl role grant-permission admin readwrite /foo
-./build/bin/cetcdctl role revoke-permission admin
+./build/bin/cetcdctl role grant-permission admin readwrite /foo    # Grant permission on a key
+./build/bin/cetcdctl role grant-permission admin read /foo --prefix  # Grant permission on a key prefix
+./build/bin/cetcdctl role grant-permission admin read /foo --range-end /bar  # Grant permission on a key range
+./build/bin/cetcdctl role revoke-permission admin                  # Revoke all permissions
+./build/bin/cetcdctl role revoke-permission admin readwrite /foo  # Revoke specific permission
+./build/bin/cetcdctl role revoke-permission admin read /foo --prefix  # Revoke prefix permission
 
 # Disable authentication
 ./build/bin/cetcdctl auth disable
@@ -321,6 +326,22 @@ the stream.
 ./build/bin/cetcdctl move-leader -w fields 1234567890  # Transfer leadership with fields output
 ./build/bin/cetcdctl snapshot status backup.snap -w fields  # Snapshot info in fields format
 ./build/bin/cetcdctl downgrade enable 3.5.0 -w fields  # Downgrade with fields output
+```
+
+### Shell completion
+
+Shell completion scripts can be generated for bash, zsh, and fish:
+
+```sh
+# Bash: source the completion script
+./build/bin/cetcdctl completion bash >> ~/.bashrc
+# or: eval "$(./build/bin/cetcdctl completion bash)"
+
+# Zsh: save to a file in fpath
+./build/bin/cetcdctl completion zsh > ~/.zsh/completions/_cetcdctl
+
+# Fish: save to completions directory
+./build/bin/cetcdctl completion fish > ~/.config/fish/completions/cetcdctl.fish
 ```
 
 ### Global options

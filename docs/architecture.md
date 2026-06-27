@@ -407,7 +407,11 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `get --range-end KEY` (explicit range-end flag for range queries, equivalent to positional RANGE_END),
 `del --range-end KEY` (explicit range-end flag for delete ranges),
 `watch --exec COMMAND` (execute a shell command on each watch event with ETCD_WATCH_EVENT_TYPE, ETCD_WATCH_KEY, ETCD_WATCH_VALUE, ETCD_WATCH_REVISION environment variables),
-`put -w json|fields` in usage messages (was already supported, now shown in help)
+`put -w json|fields` in usage messages (was already supported, now shown in help),
+`role grant-permission --prefix` and `--range-end KEY` (prefix and range-end support for granting key-range permissions, sends Permission.range_end as field 3),
+`role revoke-permission ROLE [TYPE KEY]` (revoke a specific permission by key instead of all; supports `--prefix` and `--range-end KEY` for range-based revocation, sends key as field 2 and range_end as field 3 in RoleRevokePermissionRequest),
+`user add --no-password` (create users without passwords for cert-based auth, sends UserAddOptions.no_password=true as field 3 in UserAddRequest; server-side handler updated to accept empty password when no_password option is set),
+`completion bash|zsh|fish` (generate shell completion scripts for bash, zsh, and fish shells, covering all cetcdctl commands, subcommands, global options, and command-specific flags)
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with

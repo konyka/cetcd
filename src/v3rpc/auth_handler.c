@@ -143,6 +143,7 @@ cetcd_rpc_bytes auth_handle_user_add(cetcd_v3rpc *rpc, const uint8_t *req, size_
     (void)rpc;
     uint8_t *name = NULL; size_t name_len = 0;
     uint8_t *pass = NULL; size_t pass_len = 0;
+    bool no_password = false;
     size_t pos = 0;
     while (pos < req_len) {
         uint8_t tag = req[pos++];
@@ -150,13 +151,33 @@ cetcd_rpc_bytes auth_handle_user_add(cetcd_v3rpc *rpc, const uint8_t *req, size_
             if (read_bytes_field(req, req_len, &pos, &name, &name_len) != 0) break;
         } else if (tag == 0x12) {
             if (read_bytes_field(req, req_len, &pos, &pass, &pass_len) != 0) break;
+        } else if (tag == 0x1a) {
+            /* field 3 = UserAddOptions (length-delimited) */
+            uint64_t olen = 0;
+            if (read_varint(req, req_len, &pos, &olen) != 0) break;
+            size_t opt_end = pos + (size_t)olen;
+            while (pos < opt_end) {
+                uint8_t otag = req[pos++];
+                if (otag == 0x08) {
+                    uint64_t v = 0; read_varint(req, opt_end, &pos, &v);
+                    no_password = (v != 0);
+                } else {
+                    uint64_t skip = 0; read_varint(req, opt_end, &pos, &skip);
+                }
+            }
+            pos = opt_end;
         } else {
             uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
         }
     }
     int rc = -1;
-    if (g_rpc_auth && name && pass) {
-        rc = cetcd_auth_add_user(g_rpc_auth, (const char *)name, (const char *)pass);
+    if (g_rpc_auth && name) {
+        /* When no_password is set, allow empty password */
+        const char *pw = (pass || no_password) ? (const char *)pass : NULL;
+        if (no_password && !pass) pw = "";
+        if (pw) {
+            rc = cetcd_auth_add_user(g_rpc_auth, (const char *)name, pw);
+        }
     }
     free(name); free(pass);
     if (rc != CETCD_OK) return (cetcd_rpc_bytes){NULL, 0};
