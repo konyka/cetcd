@@ -769,11 +769,11 @@ static int cmd_put(int argc, char **argv) {
         }
     }
     if (!key) {
-        fprintf(stderr, "usage: cetcdctl put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE]\n");
+        fprintf(stderr, "usage: cetcdctl put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] [-w json|fields] KEY [VALUE]\n");
         return 1;
     }
     if (!val && !ignore_value) {
-        fprintf(stderr, "usage: cetcdctl put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE|-]\n");
+        fprintf(stderr, "usage: cetcdctl put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] [-w json|fields] KEY [VALUE|-]\n");
         return 1;
     }
 
@@ -972,7 +972,7 @@ static int cmd_put(int argc, char **argv) {
 }
 
 static int cmd_get(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--range-end KEY] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields|table] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
     bool prefix = false;
     bool from_key = false;
     bool keys_only = false;
@@ -1013,6 +1013,8 @@ static int cmd_get(int argc, char **argv) {
             else if (strcmp(fmt, "table") == 0) { g_write_json = 0; g_write_fields = 0; g_write_table = 1; }
             else if (strcmp(fmt, "simple") == 0) { g_write_json = 0; g_write_fields = 0; g_write_table = 0; }
             else { fprintf(stderr, "unsupported --write-out format: %s (use json, fields, table, or simple)\n", fmt); return 1; }
+        } else if (strcmp(argv[i], "--range-end") == 0 && i + 1 < argc) {
+            range_end = argv[++i];
         } else if (strcmp(argv[i], "--count-only") == 0) {
             count_only = true;
         } else if (strcmp(argv[i], "--rev") == 0) {
@@ -1055,7 +1057,7 @@ static int cmd_get(int argc, char **argv) {
             range_end = argv[i];
         }
     }
-    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
+    if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--range-end KEY] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields|table] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
     if (prefix && from_key) { fprintf(stderr, "--prefix and --from-key are mutually exclusive\n"); return 1; }
 
     size_t key_len = strlen(key);
@@ -1145,7 +1147,7 @@ static int cmd_get(int argc, char **argv) {
 }
 
 static int cmd_del(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--from-key] [--prev-kv] [--hex] [-w json|fields] KEY [RANGE_END]\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--from-key] [--range-end KEY] [--prev-kv] [--hex] [-w json|fields] KEY [RANGE_END]\n"); return 1; }
     bool prefix = false;
     bool from_key = false;
     bool prev_kv = false;
@@ -1160,6 +1162,8 @@ static int cmd_del(int argc, char **argv) {
             prefix = true;
         } else if (strcmp(argv[i], "--from-key") == 0) {
             from_key = true;
+        } else if (strcmp(argv[i], "--range-end") == 0 && i + 1 < argc) {
+            range_end = argv[++i];
         } else if (strcmp(argv[i], "--prev-kv") == 0) {
             prev_kv = true;
         } else if (strcmp(argv[i], "--hex") == 0) {
@@ -1174,7 +1178,7 @@ static int cmd_del(int argc, char **argv) {
             range_end = argv[i];
         }
     }
-    if (!key) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--from-key] [--prev-kv] [--hex] [-w json|fields] KEY [RANGE_END]\n"); return 1; }
+    if (!key) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--from-key] [--range-end KEY] [--prev-kv] [--hex] [-w json|fields] KEY [RANGE_END]\n"); return 1; }
     if (prefix && from_key) { fprintf(stderr, "--prefix and --from-key are mutually exclusive\n"); return 1; }
     size_t key_len = strlen(key);
 
@@ -3849,7 +3853,7 @@ static int cmd_role(int argc, char **argv) {
 }
 
 static int cmd_watch(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl watch [--prefix] [--range-end KEY] [--prev-kv] [--start-rev N] [--filter TYPE] [--hex] [-w json|fields] KEY\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl watch [--prefix] [--range-end KEY] [--prev-kv] [--start-rev N] [--filter TYPE] [--hex] [--exec CMD] [-w json|fields] KEY\n"); return 1; }
     bool prefix = false;
     bool prev_kv = false;
     bool want_json = false;
@@ -3857,6 +3861,7 @@ static int cmd_watch(int argc, char **argv) {
     bool hex_output = false;
     int64_t start_rev = 0;
     int filter_type = -1; /* -1 = no filter, 0 = NOPUT, 1 = NODELETE */
+    const char *exec_cmd = NULL;
     const char *key = NULL;
     const char *range_end_arg = NULL;
     for (int i = 2; i < argc; i++) {
@@ -3877,6 +3882,8 @@ static int cmd_watch(int argc, char **argv) {
             if (strcmp(ft, "NOPUT") == 0) filter_type = 0;
             else if (strcmp(ft, "NODELETE") == 0) filter_type = 1;
             else { fprintf(stderr, "--filter must be NOPUT or NODELETE\n"); return 1; }
+        } else if (strcmp(argv[i], "--exec") == 0 && i + 1 < argc) {
+            exec_cmd = argv[++i];
         } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) want_json = true;
             else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
@@ -3885,7 +3892,7 @@ static int cmd_watch(int argc, char **argv) {
             key = argv[i];
         }
     }
-    if (!key) { fprintf(stderr, "usage: cetcdctl watch [--prefix] [--range-end KEY] [--prev-kv] [--start-rev N] [--filter TYPE] [--hex] [-w json|fields] KEY\n"); return 1; }
+    if (!key) { fprintf(stderr, "usage: cetcdctl watch [--prefix] [--range-end KEY] [--prev-kv] [--start-rev N] [--filter TYPE] [--hex] [--exec CMD] [-w json|fields] KEY\n"); return 1; }
     if (prefix && range_end_arg) { fprintf(stderr, "--prefix and --range-end are mutually exclusive\n"); return 1; }
     size_t key_len = strlen(key);
 
@@ -3956,14 +3963,25 @@ static int cmd_watch(int argc, char **argv) {
         parse_and_print_header_json(resp, (size_t)rlen);
         fputs(",\"Events\":[", stdout);
     }
+    if (exec_cmd && !want_json && !want_fields) {
+        /* In exec mode, default to simple output unless -w is specified */
+    }
     size_t rpos = 0;
     int json_first_evt = 1;
+    /* Capture variables for --exec mode */
+    const char *evt_type = NULL;
+    const uint8_t *evt_key = NULL; size_t evt_key_len = 0;
+    const uint8_t *evt_val = NULL; size_t evt_val_len = 0;
+    uint64_t evt_mod_rev = 0;
     while (rpos < (size_t)rlen) {
         uint8_t tag = resp[rpos++];
         if (tag == 0x5a) {
             /* Event (length-delimited) */
             uint64_t elen = 0; read_varint(resp, rlen, &rpos, &elen);
             size_t eend = rpos + (size_t)elen;
+            /* Reset capture variables for this event */
+            evt_type = NULL; evt_key = NULL; evt_key_len = 0;
+            evt_val = NULL; evt_val_len = 0; evt_mod_rev = 0;
             if (want_json) {
                 if (!json_first_evt) fputs(",", stdout);
                 json_first_evt = 0;
@@ -3973,6 +3991,7 @@ static int cmd_watch(int argc, char **argv) {
                 if (etag == 0x08) {
                     /* event type */
                     uint64_t t = 0; read_varint(resp, eend, &rpos, &t);
+                    evt_type = (t == 0) ? "PUT" : "DELETE";
                     if (want_json) {
                         fputs("{\"type\":\"", stdout);
                         fputs(t == 0 ? "PUT" : "DELETE", stdout);
@@ -3994,13 +4013,16 @@ static int cmd_watch(int argc, char **argv) {
                         if (ktag == 0x0a) {
                             uint64_t l = 0; read_varint(resp, kend, &rpos, &l);
                             ek = resp + rpos; ekl = (size_t)l; rpos += l;
+                            evt_key = ek; evt_key_len = ekl;
                         } else if (ktag == 0x2a) {
                             uint64_t l = 0; read_varint(resp, kend, &rpos, &l);
                             ev = resp + rpos; evl = (size_t)l; rpos += l;
+                            evt_val = ev; evt_val_len = evl;
                         } else if (ktag == 0x10) {
                             read_varint(resp, kend, &rpos, &ecr);
                         } else if (ktag == 0x18) {
                             read_varint(resp, kend, &rpos, &emr);
+                            evt_mod_rev = emr;
                         } else if (ktag == 0x20) {
                             read_varint(resp, kend, &rpos, &ever);
                         } else if (ktag == 0x30) {
@@ -4115,6 +4137,27 @@ static int cmd_watch(int argc, char **argv) {
                 /* newline already printed per-event in simple mode */
             }
             rpos = eend;
+            /* If --exec is set, run the command with event info as env vars */
+            if (exec_cmd && evt_type) {
+                char env_type[64], env_key[4096], env_val[4096], env_rev[32];
+                snprintf(env_type, sizeof(env_type), "ETCD_WATCH_EVENT_TYPE=%s", evt_type);
+                if (evt_key && evt_key_len > 0 && evt_key_len < sizeof(env_key) - 20) {
+                    snprintf(env_key, sizeof(env_key), "ETCD_WATCH_KEY=%.*s", (int)evt_key_len, evt_key);
+                    setenv("ETCD_WATCH_KEY", (const char *)evt_key, 1);
+                } else {
+                    setenv("ETCD_WATCH_KEY", "", 1);
+                }
+                if (evt_val && evt_val_len > 0 && evt_val_len < sizeof(env_val) - 20) {
+                    setenv("ETCD_WATCH_VALUE", (const char *)evt_val, 1);
+                } else {
+                    setenv("ETCD_WATCH_VALUE", "", 1);
+                }
+                snprintf(env_rev, sizeof(env_rev), "%llu", (unsigned long long)evt_mod_rev);
+                setenv("ETCD_WATCH_REVISION", env_rev, 1);
+                setenv("ETCD_WATCH_EVENT_TYPE", evt_type, 1);
+                int exec_ret = system(exec_cmd);
+                if (exec_ret == -1) { perror("system"); }
+            }
         } else if (tag == 0x0a) {
             /* Skip header (length-delimited) */
             uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
@@ -4328,11 +4371,11 @@ static void print_usage(void) {
     printf("  --cert FILE     TLS certificate (no-op, plain TCP)\n");
     printf("  --key FILE      TLS key (no-op, plain TCP)\n\n");
     printf("Commands:\n");
-    printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE|-]  Store a key-value pair\n");
-    printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields|table] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
+    printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] [-w json|fields] KEY [VALUE|-]  Store a key-value pair\n");
+    printf("  get [--prefix] [--from-key] [--range-end KEY] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields|table] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
-    printf("  del [--prefix] [--from-key] [--prev-kv] [--hex] [-w json|fields] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --prev-kv, --hex)\n");
-    printf("  watch [--prefix] [--range-end KEY] [--prev-kv] [--start-rev N] [--filter NOPUT|NODELETE] [--hex] [-w json|fields] KEY  Watch key changes\n");
+    printf("  del [--prefix] [--from-key] [--range-end KEY] [--prev-kv] [--hex] [-w json|fields] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --range-end, --prev-kv, --hex)\n");
+    printf("  watch [--prefix] [--range-end KEY] [--prev-kv] [--start-rev N] [--filter NOPUT|NODELETE] [--hex] [--exec CMD] [-w json|fields] KEY  Watch key changes (--exec runs CMD with ETCD_WATCH_* env vars)\n");
     printf("  lease grant [--lease-id ID] [-w json|fields] TTL  Grant a lease (TTL in seconds)\n");
     printf("  lease revoke [-w json|fields] ID  Revoke a lease by ID\n");
     printf("  lease timetolive [--keys] [-w json|fields] ID  Query remaining TTL\n");

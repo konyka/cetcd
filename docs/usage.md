@@ -126,8 +126,10 @@ It mirrors `etcdctl` command structure for familiarity.
 ./build/bin/cetcdctl get --keys-only foo         # Get keys without values
 ./build/bin/cetcdctl get --print-value-only foo  # Print only the value
 ./build/bin/cetcdctl get --hex foo               # Output in hex format
+./build/bin/cetcdctl get --range-end zzz foo     # Get keys from foo to zzz
 ./build/bin/cetcdctl del foo
 ./build/bin/cetcdctl del --prefix foo            # Delete all keys with prefix
+./build/bin/cetcdctl del --range-end zzz foo     # Delete keys from foo to zzz
 ./build/bin/cetcdctl del --prev-kv foo           # Return deleted key-values
 ```
 
@@ -158,6 +160,10 @@ so many concurrent watchers can share a single TCP connection.
 
 # JSON output with full KV metadata and header
 ./build/bin/cetcdctl watch -w json foo
+
+# Execute a command on each watch event
+./build/bin/cetcdctl watch --exec 'echo $ETCD_WATCH_EVENT_TYPE $ETCD_WATCH_KEY' foo
+# Sets ETCD_WATCH_EVENT_TYPE (PUT|DELETE), ETCD_WATCH_KEY, ETCD_WATCH_VALUE, ETCD_WATCH_REVISION env vars
 ```
 
 The server keeps the stream open, delivering `WatchResponse` messages as matching
@@ -183,6 +189,13 @@ the stream.
 
 ```sh
 ./build/bin/cetcdctl txn put foo bar       # Transactional put
+./build/bin/cetcdctl txn put -w fields foo bar  # Transactional put with fields output
+./build/bin/cetcdctl txn cas foo old new        # Compare-and-swap
+./build/bin/cetcdctl txn cas -w fields foo old new  # CAS with fields output
+./build/bin/cetcdctl txn get foo                # Transactional get
+./build/bin/cetcdctl txn get -w fields foo       # Transactional get with fields output
+./build/bin/cetcdctl txn del --prefix foo       # Transactional prefix delete
+./build/bin/cetcdctl txn del -w fields --prefix foo  # Transactional delete with fields output
 ```
 
 ### Compaction

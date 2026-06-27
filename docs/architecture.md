@@ -403,7 +403,11 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `auth login -w fields` (fields output showing ResponseHeader and token),
 `txn put/cas/get/del -w fields` (fields output showing ResponseHeader and succeeded status),
 `lock -w json|fields` (JSON output with header+key, fields output with header+key),
-`elect -w json|fields` (JSON output with header+leader, fields output with header+leader)
+`elect -w json|fields` (JSON output with header+leader, fields output with header+leader),
+`get --range-end KEY` (explicit range-end flag for range queries, equivalent to positional RANGE_END),
+`del --range-end KEY` (explicit range-end flag for delete ranges),
+`watch --exec COMMAND` (execute a shell command on each watch event with ETCD_WATCH_EVENT_TYPE, ETCD_WATCH_KEY, ETCD_WATCH_VALUE, ETCD_WATCH_REVISION environment variables),
+`put -w json|fields` in usage messages (was already supported, now shown in help)
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
