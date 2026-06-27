@@ -394,7 +394,16 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `alarm activate/disarm -w fields` (fields output showing ResponseHeader),
 `member add/remove/update/promote -w fields` (fields output showing ResponseHeader, member add uses fields format for member list),
 `user add/delete/get/change-password/grant-role/revoke-role -w fields` (fields output showing ResponseHeader, user get shows roles in fields format),
-`role add/delete/get/grant-permission/revoke-permission -w fields` (fields output showing ResponseHeader, role get shows permissions in fields format)
+`role add/delete/get/grant-permission/revoke-permission -w fields` (fields output showing ResponseHeader, role get shows permissions in fields format),
+`endpoint hashkv -w fields` (fields output showing ResponseHeader, hash, and compact_revision),
+`check perf -w fields` (fields output showing ResponseHeader, status, put/get latency),
+`check datascale -w fields` (fields output showing ResponseHeader, status, keys_loaded, db_size, elapsed),
+`snapshot save -w fields` (fields output showing ResponseHeader, snapshot filename, size),
+`snapshot restore -w fields` (fields output showing snapshot, data_dir, size, keys, revision),
+`auth login -w fields` (fields output showing ResponseHeader and token),
+`txn put/cas/get/del -w fields` (fields output showing ResponseHeader and succeeded status),
+`lock -w json|fields` (JSON output with header+key, fields output with header+key),
+`elect -w json|fields` (JSON output with header+leader, fields output with header+leader)
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with

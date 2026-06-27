@@ -1753,12 +1753,12 @@ static int cmd_txn(int argc, char **argv) {
         fprintf(stderr, "       cetcdctl txn del [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]\n");
         return 1;
     }
-    /* Parse -w json for all txn subcommands */
-    int want_json = 0;
+    /* Parse -w json|fields for all txn subcommands */
+    int want_json = 0, want_fields = 0;
     for (int i = 3; i < argc; i++) {
         if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) { want_json = 1; g_write_json = 1; }
-            else if (strcmp(argv[i + 1], "fields") == 0) { g_write_fields = 1; }
+            else if (strcmp(argv[i + 1], "fields") == 0) { want_fields = 1; g_write_fields = 1; }
             i++;
         }
     }
@@ -1789,6 +1789,7 @@ static int cmd_txn(int argc, char **argv) {
         int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs(",\"succeeded\":true}\n", stdout); }
+        else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); printf("succeeded: true\n\n"); }
         else { printf("OK\n"); }
         return 0;
     } else if (strcmp(argv[2], "cas") == 0) {
@@ -1861,6 +1862,10 @@ static int cmd_txn(int argc, char **argv) {
         }
         if (want_json) {
             fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs(",\"succeeded\":", stdout); printf("%s}\n", succeeded ? "true" : "false");
+            return succeeded ? 0 : 1;
+        } else if (want_fields) {
+            parse_and_print_header_json(resp, (size_t)rlen);
+            printf("succeeded: %s\n\n", succeeded ? "true" : "false");
             return succeeded ? 0 : 1;
         } else if (succeeded) {
             printf("OK (compare succeeded)\n");
@@ -2019,14 +2024,15 @@ static int cmd_txn(int argc, char **argv) {
         int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs(",\"succeeded\":true}\n", stdout); }
+        else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); printf("succeeded: true\n\n"); }
         else { printf("OK\n"); }
         return 0;
     } else {
         fprintf(stderr, "unknown txn subcommand: %s\n", argv[2]);
-        fprintf(stderr, "usage: cetcdctl txn put KEY VALUE\n");
-        fprintf(stderr, "       cetcdctl txn cas KEY EXPECTED NEW\n");
-        fprintf(stderr, "       cetcdctl txn get KEY [RANGE_END]\n");
-        fprintf(stderr, "       cetcdctl txn del [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]\n");
+        fprintf(stderr, "usage: cetcdctl txn put [-w json|fields] KEY VALUE\n");
+        fprintf(stderr, "       cetcdctl txn cas [-w json|fields] KEY EXPECTED NEW\n");
+        fprintf(stderr, "       cetcdctl txn get [-w json|fields] KEY [RANGE_END]\n");
+        fprintf(stderr, "       cetcdctl txn del [-w json|fields] [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]\n");
         return 1;
     }
 }
@@ -2239,6 +2245,11 @@ static int cmd_endpoint(int argc, char **argv) {
             parse_and_print_header_json(resp, (size_t)rlen);
             printf(",\"hash\":%llu,\"compact_revision\":%llu}\n",
                    (unsigned long long)hash_val, (unsigned long long)compact_rev);
+        } else if (want_fields) {
+            parse_and_print_header_json(resp, (size_t)rlen);
+            printf("hash: %llu\n", (unsigned long long)hash_val);
+            printf("compact_revision: %llu\n", (unsigned long long)compact_rev);
+            fputs("\n", stdout);
         } else {
             printf("endpoint: %s:%d  hash: %llu  compact_revision: %llu\n",
                    g_host, g_port, (unsigned long long)hash_val, (unsigned long long)compact_rev);
@@ -2252,18 +2263,19 @@ static int cmd_endpoint(int argc, char **argv) {
 
 static int cmd_check(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl check perf [-w json]\n");
+        fprintf(stderr, "usage: cetcdctl check perf [-w json|fields]\n");
         return 1;
     }
     if (strcmp(argv[2], "perf") == 0) {
-        int want_json = 0;
+        int want_json = 0, want_fields = 0;
         for (int i = 3; i < argc; i++) {
             if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
                 if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+                else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
                 i++;
             }
         }
-        if (!want_json) printf("Running performance check...\n");
+        if (!want_json && !want_fields) printf("Running performance check...\n");
 
         /* Put a test key */
         uint8_t put_req[256], put_resp[256];
@@ -2303,6 +2315,12 @@ static int cmd_check(int argc, char **argv) {
             fputs("{", stdout);
             parse_and_print_header_json(put_resp, (size_t)rlen);
             printf(",\"status\":\"PASS\",\"put_latency_ms\":%.3f,\"get_latency_ms\":%.3f}\n", put_ms, get_ms);
+        } else if (want_fields) {
+            parse_and_print_header_json(put_resp, (size_t)rlen);
+            printf("status: PASS\n");
+            printf("put_latency_ms: %.3f\n", put_ms);
+            printf("get_latency_ms: %.3f\n", get_ms);
+            fputs("\n", stdout);
         } else {
             printf("PASS: Performance check completed successfully\n");
             printf("  Put latency: %.3f ms\n", put_ms);
@@ -2310,12 +2328,13 @@ static int cmd_check(int argc, char **argv) {
         }
         return 0;
     } else if (strcmp(argv[2], "datascale") == 0) {
-        int want_json = 0;
+        int want_json = 0, want_fields = 0;
         int load_count = 10000;
         const char *prefix = "_datascale_";
         for (int i = 3; i < argc; i++) {
             if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
                 if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+                else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
                 i++;
             } else if (strcmp(argv[i], "--load") == 0 && i + 1 < argc) {
                 load_count = atoi(argv[++i]);
@@ -2324,7 +2343,7 @@ static int cmd_check(int argc, char **argv) {
                 prefix = argv[++i];
             }
         }
-        if (!want_json) printf("Running datascale check (loading %d keys)...\n", load_count);
+        if (!want_json && !want_fields) printf("Running datascale check (loading %d keys)...\n", load_count);
         struct timeval t0, t1;
         gettimeofday(&t0, NULL);
         int loaded = 0;
@@ -2384,6 +2403,13 @@ static int cmd_check(int argc, char **argv) {
             else fputs("\"header\":{}", stdout);
             printf(",\"status\":\"PASS\",\"keys_loaded\":%d,\"db_size\":%llu,\"elapsed_ms\":%.3f}\n",
                    loaded, (unsigned long long)db_size, elapsed);
+        } else if (want_fields) {
+            if (st_rlen > 0) parse_and_print_header_json(st_resp, (size_t)st_rlen);
+            printf("status: PASS\n");
+            printf("keys_loaded: %d\n", loaded);
+            printf("db_size: %llu\n", (unsigned long long)db_size);
+            printf("elapsed_ms: %.3f\n", elapsed);
+            fputs("\n", stdout);
         } else {
             printf("PASS: Loaded %d keys in %.3f ms\n", loaded, elapsed);
             printf("  DB size: %llu bytes\n", (unsigned long long)db_size);
@@ -2419,11 +2445,12 @@ static void lock_signal_handler(int sig) {
 
 static int cmd_lock(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl lock [--ttl N] [--print-value-only] LOCKNAME [COMMAND...]\n");
+        fprintf(stderr, "usage: cetcdctl lock [--ttl N] [--print-value-only] [-w json|fields] LOCKNAME [COMMAND...]\n");
         return 1;
     }
     int ttl = 60; /* default lease TTL */
     int print_value_only = 0;
+    int want_json = 0, want_fields = 0;
     const char *lockname = NULL;
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--ttl") == 0 && i + 1 < argc) {
@@ -2431,13 +2458,17 @@ static int cmd_lock(int argc, char **argv) {
             if (ttl <= 0) { fprintf(stderr, "invalid --ttl value\n"); return 1; }
         } else if (strcmp(argv[i], "--print-value-only") == 0) {
             print_value_only = 1;
+        } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
+            i++;
         } else if (!lockname) {
             lockname = argv[i];
         }
         /* Remaining args after lockname are the command to execute */
         if (lockname) break;
     }
-    if (!lockname) { fprintf(stderr, "usage: cetcdctl lock [--ttl N] [--print-value-only] LOCKNAME [COMMAND...]\n"); return 1; }
+    if (!lockname) { fprintf(stderr, "usage: cetcdctl lock [--ttl N] [--print-value-only] [-w json|fields] LOCKNAME [COMMAND...]\n"); return 1; }
     size_t lockname_len = strlen(lockname);
 
     /* Build lock key: "/{lockname}" */
@@ -2546,7 +2577,17 @@ static int cmd_lock(int argc, char **argv) {
     signal(SIGTERM, lock_signal_handler);
 
     /* Print the lock key or lease ID (etcdctl prints the key name) */
-    if (print_value_only) {
+    if (want_json) {
+        fputs("{", stdout);
+        parse_and_print_header_json(resp, (size_t)rlen);
+        fputs(",\"key\":", stdout);
+        print_json_string((const uint8_t *)lock_key, lock_key_len);
+        fputs("}\n", stdout);
+    } else if (want_fields) {
+        parse_and_print_header_json(resp, (size_t)rlen);
+        printf("key: %.*s\n", (int)lock_key_len, lock_key);
+        fputs("\n", stdout);
+    } else if (print_value_only) {
         printf("%llu\n", (unsigned long long)lease_id);
     } else {
         printf("%.*s\n", (int)lock_key_len, lock_key);
@@ -2606,11 +2647,12 @@ static int cmd_lock(int argc, char **argv) {
 
 static int cmd_elect(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl elect [--ttl N] [--print-value-only] ELECTION_NAME [PROPOSAL]\n");
+        fprintf(stderr, "usage: cetcdctl elect [--ttl N] [--print-value-only] [-w json|fields] ELECTION_NAME [PROPOSAL]\n");
         return 1;
     }
     int ttl = 60;
     int print_value_only = 0;
+    int want_json = 0, want_fields = 0;
     const char *election_name = NULL;
     const char *proposal = NULL;
     for (int i = 2; i < argc; i++) {
@@ -2619,13 +2661,17 @@ static int cmd_elect(int argc, char **argv) {
             if (ttl <= 0) { fprintf(stderr, "invalid --ttl value\n"); return 1; }
         } else if (strcmp(argv[i], "--print-value-only") == 0) {
             print_value_only = 1;
+        } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
+            i++;
         } else if (!election_name) {
             election_name = argv[i];
         } else if (!proposal) {
             proposal = argv[i];
         }
     }
-    if (!election_name) { fprintf(stderr, "usage: cetcdctl elect [--ttl N] [--print-value-only] ELECTION_NAME [PROPOSAL]\n"); return 1; }
+    if (!election_name) { fprintf(stderr, "usage: cetcdctl elect [--ttl N] [--print-value-only] [-w json|fields] ELECTION_NAME [PROPOSAL]\n"); return 1; }
     if (!proposal) proposal = "cetcd";
     size_t name_len = strlen(election_name);
     size_t proposal_len = strlen(proposal);
@@ -2727,7 +2773,17 @@ static int cmd_elect(int argc, char **argv) {
     signal(SIGINT, lock_signal_handler);
     signal(SIGTERM, lock_signal_handler);
 
-    if (print_value_only) {
+    if (want_json) {
+        fputs("{", stdout);
+        parse_and_print_header_json(resp, (size_t)rlen);
+        fputs(",\"leader\":", stdout);
+        print_json_string((const uint8_t *)proposal, proposal_len);
+        fputs("}\n", stdout);
+    } else if (want_fields) {
+        parse_and_print_header_json(resp, (size_t)rlen);
+        printf("leader: %s\n", proposal);
+        fputs("\n", stdout);
+    } else if (print_value_only) {
         printf("%llu\n", (unsigned long long)lease_id);
     } else {
         printf("%s\n", proposal);
@@ -2905,11 +2961,12 @@ static int cmd_snapshot(int argc, char **argv) {
         return 1;
     }
     if (strcmp(argv[2], "save") == 0) {
-        int want_json = 0;
+        int want_json = 0, want_fields = 0;
         const char *filename = NULL;
         for (int i = 3; i < argc; i++) {
             if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
                 if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+                else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
                 i++;
             } else if (strcmp(argv[i], "--compaction-periodical") == 0) {
                 /* no-op: accepted for etcdctl compatibility */
@@ -2969,6 +3026,11 @@ static int cmd_snapshot(int argc, char **argv) {
                 fputs("{", stdout);
                 parse_and_print_header_json(resp, (size_t)rlen);
                 printf(",\"snapshot\":\"%s\",\"size\":%zu}\n", filename, snapshot_size);
+            } else if (want_fields) {
+                parse_and_print_header_json(resp, (size_t)rlen);
+                printf("snapshot: %s\n", filename);
+                printf("size: %zu\n", snapshot_size);
+                fputs("\n", stdout);
             } else {
                 printf("snapshot saved to %s (%zu bytes)\n", filename, snapshot_size);
             }
@@ -2977,6 +3039,10 @@ static int cmd_snapshot(int argc, char **argv) {
                 fputs("{", stdout);
                 parse_and_print_header_json(resp, (size_t)rlen);
                 printf(",\"size\":%zu}\n", snapshot_size);
+            } else if (want_fields) {
+                parse_and_print_header_json(resp, (size_t)rlen);
+                printf("size: %zu\n", snapshot_size);
+                fputs("\n", stdout);
             } else {
                 printf("snapshot: %zu bytes received\n", snapshot_size);
             }
@@ -3067,7 +3133,7 @@ static int cmd_snapshot(int argc, char **argv) {
         const char *snap_file = NULL;
         const char *data_dir = NULL;
         int force = 0;
-        int want_json = 0;
+        int want_json = 0, want_fields = 0;
         for (int i = 3; i < argc; i++) {
             if (strcmp(argv[i], "--data-dir") == 0 && i + 1 < argc) {
                 data_dir = argv[++i];
@@ -3075,13 +3141,14 @@ static int cmd_snapshot(int argc, char **argv) {
                 force = 1;
             } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
                 if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+                else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
                 i++;
             } else if (!snap_file && argv[i][0] != '-') {
                 snap_file = argv[i];
             }
         }
         if (!snap_file) {
-            fprintf(stderr, "usage: cetcdctl snapshot restore FILE --data-dir DIR [--force] [-w json]\n");
+            fprintf(stderr, "usage: cetcdctl snapshot restore FILE --data-dir DIR [--force] [-w json|fields]\n");
             return 1;
         }
         if (!data_dir) {
@@ -3146,6 +3213,16 @@ static int cmd_snapshot(int argc, char **argv) {
         if (want_json) {
             printf("{\"snapshot\":\"%s\",\"data_dir\":\"%s\",\"size\":%ld,\"keys\":%d,\"revision\":%llu}\n",
                    snap_file, data_dir, snap_size, kv_count, (unsigned long long)restore_rev);
+        } else if (want_fields) {
+            printf("snapshot: %s\n", snap_file);
+            printf("data_dir: %s\n", data_dir);
+            printf("size: %ld\n", snap_size);
+            printf("keys: %d\n", kv_count);
+            if (restore_rev > 0)
+                printf("revision: %llu\n", (unsigned long long)restore_rev);
+            else
+                printf("revision: -\n");
+            fputs("\n", stdout);
         } else {
             printf("snapshot restored to %s (%ld bytes, %d keys", check_path, snap_size, kv_count);
             if (restore_rev > 0) printf(", revision %llu", (unsigned long long)restore_rev);
@@ -3345,20 +3422,21 @@ static int cmd_member(int argc, char **argv) {
 static int cmd_auth(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl auth enable|disable|status [-w json|fields]\n");
-        fprintf(stderr, "       cetcdctl auth login [-w json] NAME PASS\n");
+        fprintf(stderr, "       cetcdctl auth login [-w json|fields] NAME PASS\n");
         return 1;
     }
     if (strcmp(argv[2], "login") == 0) {
-        int want_json = 0;
+        int want_json = 0, want_fields = 0;
         const char *name = NULL, *pass = NULL;
         for (int i = 3; i < argc; i++) {
             if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
                 if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+                else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
                 i++;
             } else if (!name) name = argv[i];
             else if (!pass) pass = argv[i];
         }
-        if (!name || !pass) { fprintf(stderr, "usage: cetcdctl auth login [-w json] NAME PASS\n"); return 1; }
+        if (!name || !pass) { fprintf(stderr, "usage: cetcdctl auth login [-w json|fields] NAME PASS\n"); return 1; }
         uint8_t req[512], resp[1024];
         size_t pos = 0;
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, name);
@@ -3377,6 +3455,10 @@ static int cmd_auth(int argc, char **argv) {
                     fputs(",\"token\":", stdout);
                     print_json_string(resp + rpos, (size_t)l);
                     fputs("}\n", stdout);
+                } else if (want_fields) {
+                    parse_and_print_header_json(resp, (size_t)rlen);
+                    printf("token: %.*s\n", (int)l, resp + rpos);
+                    fputs("\n", stdout);
                 } else {
                     printf("token: %.*s\n", (int)l, resp + rpos);
                 }
@@ -3389,7 +3471,9 @@ static int cmd_auth(int argc, char **argv) {
                 uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
             }
         }
-        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK (no token returned)\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
+        else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
+        else { printf("OK (no token returned)\n"); }
         return 0;
     }
     uint8_t req[] = {0x00}, resp[1024];
@@ -4254,10 +4338,10 @@ static void print_usage(void) {
     printf("  lease timetolive [--keys] [-w json|fields] ID  Query remaining TTL\n");
     printf("  lease list [-w table|json|fields]  List all active leases\n");
     printf("  lease keepalive [--once] [-w json|fields] ID  Keep a lease alive (loop by default, --once for single)\n");
-    printf("  txn put [-w json] KEY VALUE  Execute a transaction (Put)\n");
-    printf("  txn cas [-w json] KEY EXP NEW  Compare-and-swap (if KEY==EXP then KEY=NEW)\n");
-    printf("  txn get [-w json] KEY [RANGE_END]  Execute a transaction (Range)\n");
-    printf("  txn del [-w json] [--prefix] [--prev-kv] KEY [RANGE_END]  Execute a transaction (Delete)\n");
+    printf("  txn put [-w json|fields] KEY VALUE  Execute a transaction (Put)\n");
+    printf("  txn cas [-w json|fields] KEY EXP NEW  Compare-and-swap (if KEY==EXP then KEY=NEW)\n");
+    printf("  txn get [-w json|fields] KEY [RANGE_END]  Execute a transaction (Range)\n");
+    printf("  txn del [-w json|fields] [--prefix] [--prev-kv] KEY [RANGE_END]  Execute a transaction (Delete)\n");
     printf("  compact [--physical] [-w json|fields] REV  Compact MVCC history to revision\n");
     printf("  status [-w json|fields]  Get server status\n");
     printf("  alarm list [-w table|json|fields]  List all alarms\n");
@@ -4275,7 +4359,7 @@ static void print_usage(void) {
     printf("  auth enable [-w json|fields]     Enable authentication\n");
     printf("  auth disable [-w json|fields]     Disable authentication\n");
     printf("  auth status [-w json|fields]     Query auth status\n");
-    printf("  auth login NAME PASS [-w json]   Authenticate and get token\n");
+    printf("  auth login NAME PASS [-w json|fields]   Authenticate and get token\n");
     printf("  user add NAME PASS [-w json|fields]    Add a user\n");
     printf("  user delete NAME [-w json|fields]      Delete a user\n");
     printf("  user get NAME [-w json|fields]          Get user details (roles)\n");
@@ -4291,9 +4375,9 @@ static void print_usage(void) {
     printf("                         Grant permission (read|write|readwrite)\n");
     printf("  role revoke-permission ROLE [-w json|fields]\n");
     printf("                         Revoke all permissions from role\n");
-    printf("  snapshot save [FILE] [--compaction-periodical] [-w json]   Save a snapshot to file\n");
+    printf("  snapshot save [FILE] [--compaction-periodical] [-w json|fields]   Save a snapshot to file\n");
     printf("  snapshot status FILE [-w json|fields]  Show snapshot file info\n");
-    printf("  snapshot restore FILE --data-dir DIR [--force] [-w json]  Restore snapshot to data dir\n");
+    printf("  snapshot restore FILE --data-dir DIR [--force] [-w json|fields]  Restore snapshot to data dir\n");
     printf("  downgrade enable [-w json|fields] VER   Enable cluster downgrade\n");
     printf("  downgrade cancel [-w json|fields]       Cancel cluster downgrade\n");
     printf("  downgrade validate [-w json|fields] VER Validate downgrade version\n");
@@ -4301,10 +4385,10 @@ static void print_usage(void) {
     printf("  endpoint health [-w json|fields]  Check server health\n");
     printf("  endpoint status [-w json|table|fields]  Get server status with endpoint info\n");
     printf("  endpoint hashkv [-w json|fields]      Get KV hash per endpoint\n");
-    printf("  check perf [-w json]    Run a simple performance check\n");
-    printf("  check datascale [-w json] [--load N] [--prefix PREFIX]  Test database scalability\n");
-    printf("  lock [--ttl N] [--print-value-only] LOCKNAME [CMD...]  Acquire a distributed lock\n");
-    printf("  elect [--ttl N] [--print-value-only] ELECTION_NAME [PROPOSAL]  Leader election\n");
+    printf("  check perf [-w json|fields]    Run a simple performance check\n");
+    printf("  check datascale [-w json|fields] [--load N] [--prefix PREFIX]  Test database scalability\n");
+    printf("  lock [--ttl N] [--print-value-only] [-w json|fields] LOCKNAME [CMD...]  Acquire a distributed lock\n");
+    printf("  elect [--ttl N] [--print-value-only] [-w json|fields] ELECTION_NAME [PROPOSAL]  Leader election\n");
 }
 
 int main(int argc, char **argv) {

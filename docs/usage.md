@@ -214,11 +214,15 @@ the stream.
 ./build/bin/cetcdctl lock --ttl 30 mylock     # Lock with 30s lease TTL
 ./build/bin/cetcdctl lock --print-value-only mylock  # Print only lease ID
 ./build/bin/cetcdctl lock mylock echo done    # Run command while holding lock
+./build/bin/cetcdctl lock -w json mylock       # Lock with JSON output (header+key)
+./build/bin/cetcdctl lock -w fields mylock     # Lock with fields output (header+key)
 
 # Leader election (blocks until elected)
 ./build/bin/cetcdctl elect myelection         # Campaign with default proposal
 ./build/bin/cetcdctl elect --ttl 30 myelection "leader"  # With custom proposal
 ./build/bin/cetcdctl elect --print-value-only myelection  # Print only lease ID
+./build/bin/cetcdctl elect -w json myelection "leader"    # Election with JSON output
+./build/bin/cetcdctl elect -w fields myelection "leader"  # Election with fields output
 ```
 
 ### Authentication (RBAC)
@@ -256,6 +260,7 @@ the stream.
 
 # Fields output for auth commands
 ./build/bin/cetcdctl auth status -w fields
+./build/bin/cetcdctl auth login -w fields root mypassword  # Login with fields output (token)
 ./build/bin/cetcdctl user list -w fields
 ./build/bin/cetcdctl role list -w fields
 ```
@@ -266,13 +271,16 @@ the stream.
 ./build/bin/cetcdctl snapshot save backup.snap   # Save KV snapshot to file
 ./build/bin/cetcdctl snapshot save backup.snap --compaction-periodical  # With etcd-compatible flag (no-op)
 ./build/bin/cetcdctl snapshot save backup.snap -w json  # Save with JSON output
+./build/bin/cetcdctl snapshot save backup.snap -w fields  # Save with fields output
 ./build/bin/cetcdctl snapshot status backup.snap # Show snapshot file info
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd  # Restore snapshot
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd --force  # Force overwrite
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd -w json  # Restore with JSON output
+./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd -w fields  # Restore with fields output
 ./build/bin/cetcdctl endpoint health -w json  # Health check with ResponseHeader
 ./build/bin/cetcdctl endpoint status -w table  # Status in table format
 ./build/bin/cetcdctl endpoint hashkv -w json   # HashKV with ResponseHeader
+./build/bin/cetcdctl endpoint hashkv -w fields  # HashKV with fields output
 ./build/bin/cetcdctl alarm list                           # List all alarms
 ./build/bin/cetcdctl alarm activate NOSPACE               # Activate NOSPACE alarm
 ./build/bin/cetcdctl alarm activate CORRUPT               # Activate CORRUPT alarm
@@ -282,9 +290,15 @@ the stream.
 ./build/bin/cetcdctl downgrade validate           # Validate downgrade state
 ./build/bin/cetcdctl check perf                   # Run performance check (put/get latency)
 ./build/bin/cetcdctl check perf -w json          # Performance check with JSON output
+./build/bin/cetcdctl check perf -w fields         # Performance check with fields output
 ./build/bin/cetcdctl check datascale --load 1000  # Test database scalability with 1000 keys
 ./build/bin/cetcdctl check datascale -w json --load 5000  # Datascale test with JSON output
+./build/bin/cetcdctl check datascale -w fields --load 5000  # Datascale test with fields output
 ./build/bin/cetcdctl del key1 --prev-kv --hex        # Delete with prev-kv in hex format
+./build/bin/cetcdctl txn put -w fields mykey myvalue        # Transactional put with fields output
+./build/bin/cetcdctl txn cas -w fields mykey oldval newval  # CAS with fields output
+./build/bin/cetcdctl txn get -w fields mykey              # Transactional get with fields output
+./build/bin/cetcdctl txn del -w fields --prefix mykey      # Transactional delete with fields output
 ./build/bin/cetcdctl txn del --prefix --prev-kv mykey  # Transactional prefix delete
 ./build/bin/cetcdctl txn del --from-key mykey         # Transactional range delete (all keys >= mykey)
 ./build/bin/cetcdctl member list -w fields            # List members in fields format
