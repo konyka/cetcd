@@ -1469,7 +1469,7 @@ static int cmd_lease(int argc, char **argv) {
         fprintf(stderr, "       cetcdctl lease revoke [-w json|fields] ID\n");
         fprintf(stderr, "       cetcdctl lease timetolive [--keys] [-w json|fields] ID\n");
         fprintf(stderr, "       cetcdctl lease list [-w json|table|fields]\n");
-        fprintf(stderr, "       cetcdctl lease keepalive [--once] [-w json|fields] ID\n");
+        fprintf(stderr, "       cetcdctl lease keepalive [--once] [--interval SEC] [-w json|fields] ID\n");
         return 1;
     }
     if (strcmp(argv[2], "grant") == 0) {
@@ -1722,10 +1722,14 @@ static int cmd_lease(int argc, char **argv) {
         int once = 0;
         bool want_json = false;
         bool want_fields = false;
+        int interval_sec = 0; /* 0 = auto (ttl/2) */
         const char *id_str = NULL;
         for (int i = 3; i < argc; i++) {
             if (strcmp(argv[i], "--once") == 0) {
                 once = 1;
+            } else if (strcmp(argv[i], "--interval") == 0 && i + 1 < argc) {
+                interval_sec = atoi(argv[++i]);
+                if (interval_sec <= 0) { fprintf(stderr, "--interval must be a positive number\n"); return 1; }
             } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
                 if (strcmp(argv[i + 1], "json") == 0) want_json = true;
                 else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
@@ -1734,7 +1738,7 @@ static int cmd_lease(int argc, char **argv) {
                 id_str = argv[i];
             }
         }
-        if (!id_str) { fprintf(stderr, "usage: cetcdctl lease keepalive [--once] [-w json|fields] ID\n"); return 1; }
+        if (!id_str) { fprintf(stderr, "usage: cetcdctl lease keepalive [--once] [--interval SEC] [-w json|fields] ID\n"); return 1; }
         uint64_t lease_id = (uint64_t)atol(id_str);
         for (;;) {
             uint8_t req[32], resp[256];
@@ -1777,7 +1781,8 @@ static int cmd_lease(int argc, char **argv) {
             if (once) break;
             if (ttl == 0) { fprintf(stderr, "lease expired\n"); break; }
             fflush(stdout);
-            sleep((unsigned)(ttl / 2 > 0 ? ttl / 2 : 1));
+            unsigned sleep_sec = interval_sec > 0 ? (unsigned)interval_sec : (unsigned)(ttl / 2 > 0 ? ttl / 2 : 1);
+            sleep(sleep_sec);
         }
     } else {
         fprintf(stderr, "unknown lease subcommand: %s\n", argv[2]);
@@ -1826,10 +1831,11 @@ static int cmd_compact(int argc, char **argv) {
 
 static int cmd_txn(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl txn put KEY VALUE\n");
-        fprintf(stderr, "       cetcdctl txn cas KEY EXPECTED NEW\n");
-        fprintf(stderr, "       cetcdctl txn get KEY [RANGE_END]\n");
-        fprintf(stderr, "       cetcdctl txn del [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]\n");
+        fprintf(stderr, "usage: cetcdctl txn -i [-w json|fields]\n");
+        fprintf(stderr, "       cetcdctl txn put [-w json|fields] KEY VALUE\n");
+        fprintf(stderr, "       cetcdctl txn cas [-w json|fields] KEY EXPECTED NEW\n");
+        fprintf(stderr, "       cetcdctl txn get [-w json|fields] KEY [RANGE_END]\n");
+        fprintf(stderr, "       cetcdctl txn del [-w json|fields] [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]\n");
         return 1;
     }
     /* Parse -w json|fields for all txn subcommands */
@@ -2106,9 +2112,166 @@ static int cmd_txn(int argc, char **argv) {
         else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); printf("succeeded: true\n\n"); }
         else { printf("OK\n"); }
         return 0;
+    } else if (strcmp(argv[2], "-i") == 0 || strcmp(argv[2], "--interactive") == 0) {
+        /* Interactive txn mode: read transaction definition from stdin
+         *
+         * Format (line-based):
+         *   # Lines starting with # are comments
+         *   cmp KEY OP VALUE          Compare key's value (OP: =, ==, !=, >, <)
+         *   cmp_create KEY OP N        Compare key's create revision
+         *   cmp_mod KEY OP N          Compare key's mod revision
+         *   cmp_ver KEY OP N          Compare key's version
+         *   then                      Start success section
+         *   put KEY VALUE             Put operation
+         *   get KEY [RANGE_END]       Get operation
+         *   del KEY [RANGE_END]       Delete operation
+         *   else                      Start failure section
+         */
+        char line[1024];
+        uint8_t cmp_buf[4096]; size_t cpos = 0;
+        uint8_t succ_buf[4096]; size_t spos = 0;
+        uint8_t fail_buf[4096]; size_t fpos = 0;
+        int section = 0; /* 0=compare, 1=success, 2=failure */
+
+        while (fgets(line, sizeof(line), stdin)) {
+            size_t len = strlen(line);
+            while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) line[--len] = '\0';
+            char *p = line;
+            while (*p == ' ' || *p == '\t') p++;
+            if (*p == '#' || *p == '\0') continue;
+            if (strcmp(p, "then") == 0) { section = 1; continue; }
+            if (strcmp(p, "else") == 0) { section = 2; continue; }
+
+            char *tk = strtok(p, " \t");
+            if (!tk) continue;
+
+            if (strcmp(tk, "cmp") == 0 || strcmp(tk, "cmp_create") == 0 ||
+                strcmp(tk, "cmp_mod") == 0 || strcmp(tk, "cmp_ver") == 0) {
+                char *key = strtok(NULL, " \t");
+                char *op = strtok(NULL, " \t");
+                char *val = strtok(NULL, "");
+                if (!key || !op || !val) { fprintf(stderr, "invalid compare: %s\n", line); continue; }
+                while (*val == ' ' || *val == '\t') val++;
+                int result;
+                if (strcmp(op, "=") == 0 || strcmp(op, "==") == 0) result = 0;
+                else if (strcmp(op, ">") == 0) result = 1;
+                else if (strcmp(op, "<") == 0) result = 2;
+                else if (strcmp(op, "!=") == 0) result = 3;
+                else { fprintf(stderr, "invalid operator: %s (use =, !=, >, <)\n", op); continue; }
+                int target;
+                if (strcmp(tk, "cmp_ver") == 0) target = 0;
+                else if (strcmp(tk, "cmp_create") == 0) target = 1;
+                else if (strcmp(tk, "cmp_mod") == 0) target = 2;
+                else target = 3;
+                uint8_t cmp[512]; size_t cl = 0;
+                cl = encode_varint_field(cmp, sizeof(cmp), cl, 0x08, (uint64_t)result);
+                cl = encode_varint_field(cmp, sizeof(cmp), cl, 0x10, (uint64_t)target);
+                cl = encode_bytes_field(cmp, sizeof(cmp), cl, 0x1a, (const uint8_t *)key, strlen(key));
+                if (target == 3) {
+                    cl = encode_bytes_field(cmp, sizeof(cmp), cl, 0x3a, (const uint8_t *)val, strlen(val));
+                } else {
+                    uint8_t vtag = (target == 0) ? 0x20 : (target == 1) ? 0x28 : 0x30;
+                    cl = encode_varint_field(cmp, sizeof(cmp), cl, vtag, (uint64_t)atol(val));
+                }
+                cpos = encode_bytes_field(cmp_buf, sizeof(cmp_buf), cpos, 0x0a, cmp, cl);
+            } else if (strcmp(tk, "put") == 0) {
+                char *key = strtok(NULL, " \t");
+                char *val = strtok(NULL, "");
+                if (!key) { fprintf(stderr, "invalid put: %s\n", line); continue; }
+                if (!val) val = "";
+                while (*val == ' ' || *val == '\t') val++;
+                uint8_t put_inner[1024]; size_t pl = 0;
+                pl = encode_bytes_field(put_inner, sizeof(put_inner), pl, 0x0a, (const uint8_t *)key, strlen(key));
+                pl = encode_bytes_field(put_inner, sizeof(put_inner), pl, 0x12, (const uint8_t *)val, strlen(val));
+                uint8_t op[1100]; size_t ol = 0;
+                op[ol++] = 0x12;
+                ol = write_varint(op, sizeof(op), ol, (uint64_t)pl);
+                memcpy(op + ol, put_inner, pl); ol += pl;
+                if (section <= 1) spos = encode_bytes_field(succ_buf, sizeof(succ_buf), spos, 0x12, op, ol);
+                else fpos = encode_bytes_field(fail_buf, sizeof(fail_buf), fpos, 0x1a, op, ol);
+            } else if (strcmp(tk, "get") == 0) {
+                char *key = strtok(NULL, " \t");
+                char *rend = strtok(NULL, " \t");
+                if (!key) { fprintf(stderr, "invalid get: %s\n", line); continue; }
+                uint8_t range_inner[512]; size_t rl = 0;
+                rl = encode_bytes_field(range_inner, sizeof(range_inner), rl, 0x0a, (const uint8_t *)key, strlen(key));
+                if (rend) rl = encode_bytes_field(range_inner, sizeof(range_inner), rl, 0x12, (const uint8_t *)rend, strlen(rend));
+                uint8_t op[600]; size_t ol = 0;
+                op[ol++] = 0x0a;
+                ol = write_varint(op, sizeof(op), ol, (uint64_t)rl);
+                memcpy(op + ol, range_inner, rl); ol += rl;
+                if (section <= 1) spos = encode_bytes_field(succ_buf, sizeof(succ_buf), spos, 0x12, op, ol);
+                else fpos = encode_bytes_field(fail_buf, sizeof(fail_buf), fpos, 0x1a, op, ol);
+            } else if (strcmp(tk, "del") == 0) {
+                char *key = strtok(NULL, " \t");
+                char *rend = strtok(NULL, " \t");
+                if (!key) { fprintf(stderr, "invalid del: %s\n", line); continue; }
+                uint8_t del_inner[512]; size_t dl = 0;
+                dl = encode_bytes_field(del_inner, sizeof(del_inner), dl, 0x0a, (const uint8_t *)key, strlen(key));
+                if (rend) dl = encode_bytes_field(del_inner, sizeof(del_inner), dl, 0x12, (const uint8_t *)rend, strlen(rend));
+                uint8_t op[600]; size_t ol = 0;
+                op[ol++] = 0x1a;
+                ol = write_varint(op, sizeof(op), ol, (uint64_t)dl);
+                memcpy(op + ol, del_inner, dl); ol += dl;
+                if (section <= 1) spos = encode_bytes_field(succ_buf, sizeof(succ_buf), spos, 0x12, op, ol);
+                else fpos = encode_bytes_field(fail_buf, sizeof(fail_buf), fpos, 0x1a, op, ol);
+            } else {
+                fprintf(stderr, "unknown command in txn: %s\n", tk);
+            }
+        }
+        uint8_t req[8192], resp[4096];
+        size_t pos = 0;
+        if (cpos > 0) { memcpy(req + pos, cmp_buf, cpos); pos += cpos; }
+        if (spos > 0) { memcpy(req + pos, succ_buf, spos); pos += spos; }
+        if (fpos > 0) { memcpy(req + pos, fail_buf, fpos); pos += fpos; }
+        if (pos == 0) { fprintf(stderr, "empty transaction\n"); return 1; }
+        int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
+        if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        bool succeeded = false;
+        size_t rpos = 0;
+        while (rpos < (size_t)rlen) {
+            uint8_t tag = resp[rpos++];
+            if (tag == 0x10) {
+                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+                succeeded = (v != 0);
+            } else if (tag == 0x0a) {
+                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+                rpos += (size_t)l;
+            } else if (tag == 0x1a) {
+                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+                size_t op_end = rpos + (size_t)l;
+                while (rpos < op_end) {
+                    uint8_t sub_tag = resp[rpos++];
+                    if (sub_tag == 0x0a) {
+                        uint64_t rl = 0; read_varint(resp, op_end, &rpos, &rl);
+                        parse_range_response(resp + rpos, (size_t)rl);
+                        rpos += (size_t)rl;
+                    } else if (sub_tag == 0x12 || sub_tag == 0x1a) {
+                        uint64_t skip = 0; read_varint(resp, op_end, &rpos, &skip);
+                        rpos += (size_t)skip;
+                    } else {
+                        uint64_t skip = 0; read_varint(resp, op_end, &rpos, &skip);
+                    }
+                }
+                rpos = op_end;
+            } else {
+                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            }
+        }
+        if (want_json) {
+            fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen);
+            fputs(",\"succeeded\":", stdout); printf("%s}\n", succeeded ? "true" : "false");
+        } else if (want_fields) {
+            parse_and_print_header_json(resp, (size_t)rlen);
+            printf("succeeded: %s\n\n", succeeded ? "true" : "false");
+        } else {
+            printf("%s\n", succeeded ? "OK (compare succeeded)" : "FAILED (compare did not match)");
+        }
+        return succeeded ? 0 : 1;
     } else {
         fprintf(stderr, "unknown txn subcommand: %s\n", argv[2]);
-        fprintf(stderr, "usage: cetcdctl txn put [-w json|fields] KEY VALUE\n");
+        fprintf(stderr, "usage: cetcdctl txn -i [-w json|fields]\n");
+        fprintf(stderr, "       cetcdctl txn put [-w json|fields] KEY VALUE\n");
         fprintf(stderr, "       cetcdctl txn cas [-w json|fields] KEY EXPECTED NEW\n");
         fprintf(stderr, "       cetcdctl txn get [-w json|fields] KEY [RANGE_END]\n");
         fprintf(stderr, "       cetcdctl txn del [-w json|fields] [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]\n");
@@ -3400,12 +3563,30 @@ static int cmd_downgrade(int argc, char **argv) {
     return 0;
 }
 
+/* Encode comma-separated URLs as repeated string fields (proto repeated string) */
+static size_t encode_repeated_string_field(uint8_t *buf, size_t cap, size_t pos,
+                                           uint8_t tag, const char *urls) {
+    char copy[512];
+    strncpy(copy, urls, sizeof(copy) - 1);
+    copy[sizeof(copy) - 1] = '\0';
+    char *saveptr = NULL;
+    char *tok = strtok_r(copy, ",", &saveptr);
+    while (tok) {
+        while (*tok == ' ') tok++; /* trim leading space */
+        if (*tok) {
+            pos = encode_string_field(buf, cap, pos, tag, tok);
+        }
+        tok = strtok_r(NULL, ",", &saveptr);
+    }
+    return pos;
+}
+
 static int cmd_member(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl member list [-w json|table|fields]\n");
-        fprintf(stderr, "       cetcdctl member add [-w json|fields] [--peer-urls URL] [--name NAME] [--learner] [PEER_URL]\n");
+        fprintf(stderr, "       cetcdctl member add [-w json|fields] [--peer-urls URLS] [--name NAME] [--learner] [PEER_URL]\n");
         fprintf(stderr, "       cetcdctl member remove [-w json|fields] ID\n");
-        fprintf(stderr, "       cetcdctl member update [-w json|fields] ID PEER_URL\n");
+        fprintf(stderr, "       cetcdctl member update [-w json|fields] ID PEER_URLS\n");
         fprintf(stderr, "       cetcdctl member promote [-w json|fields] ID\n");
         return 1;
     }
@@ -3457,11 +3638,12 @@ static int cmd_member(int argc, char **argv) {
                 if (!peer_url) peer_url = argv[i];
             }
         }
-        if (!peer_url) { fprintf(stderr, "usage: cetcdctl member add [-w json] [--peer-urls URL] [--name NAME] [--learner] [PEER_URL]\n"); return 1; }
+        if (!peer_url) { fprintf(stderr, "usage: cetcdctl member add [-w json] [--peer-urls URLS] [--name NAME] [--learner] [PEER_URL]\n"); return 1; }
         (void)member_name; /* member name is display-only, not sent in MemberAddRequest */
-        uint8_t req[512], resp[4096];
+        uint8_t req[1024], resp[4096];
         size_t pos = 0;
-        pos = encode_string_field(req, sizeof(req), pos, 0x0a, peer_url);
+        /* peerURLs = repeated string (field 1, tag 0x0a) — split by comma */
+        pos = encode_repeated_string_field(req, sizeof(req), pos, 0x0a, peer_url);
         if (is_learner) {
             /* field 2 (isLearner) = bool, tag = 0x10 */
             pos = encode_varint_field(req, sizeof(req), pos, 0x10, 1);
@@ -3499,11 +3681,12 @@ static int cmd_member(int argc, char **argv) {
             if (!id_str) id_str = argv[i];
             else if (!peer_url) peer_url = argv[i];
         }
-        if (!id_str || !peer_url) { fprintf(stderr, "usage: cetcdctl member update [-w json|fields] ID PEER_URL\n"); return 1; }
-        uint8_t req[512], resp[256];
+        if (!id_str || !peer_url) { fprintf(stderr, "usage: cetcdctl member update [-w json|fields] ID PEER_URLS\n"); return 1; }
+        uint8_t req[1024], resp[256];
         size_t pos = 0;
         pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(id_str));
-        pos = encode_string_field(req, sizeof(req), pos, 0x12, peer_url);
+        /* peerURLs = repeated string (field 2, tag 0x12) — split by comma */
+        pos = encode_repeated_string_field(req, sizeof(req), pos, 0x12, peer_url);
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberUpdate", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
@@ -4612,7 +4795,7 @@ static int cmd_completion(int argc, char **argv) {
         printf("        watch) local opts=\"--prefix --range-end --prev-kv --start-rev --filter --hex --exec -w --write-out\";;\n");
         printf("        lease) local opts=\"--lease-id --keys --once -w --write-out\"\n");
         printf("              local subs=\"grant revoke timetolive list keepalive\";;\n");
-        printf("        txn) local opts=\"-w --write-out\"; local subs=\"put cas get del\";;\n");
+        printf("        txn) local opts=\"-w --write-out\"; local subs=\"-i put cas get del\";;\n");
         printf("        compact) local opts=\"--physical -w --write-out\";;\n");
         printf("        alarm) local opts=\"-w --write-out\"; local subs=\"list activate disarm\";;\n");
         printf("        member) local opts=\"--peer-urls --name --learner -w --write-out\"; local subs=\"list add remove update promote\";;\n");
@@ -4669,7 +4852,7 @@ static int cmd_completion(int argc, char **argv) {
         printf("        args)\n");
         printf("            case ${words[1]} in\n");
         printf("                lease) subs=(grant revoke timetolive list keepalive);;\n");
-        printf("                txn) subs=(put cas get del);;\n");
+        printf("                txn) subs=(-i put cas get del);;\n");
         printf("                alarm) subs=(list activate disarm);;\n");
         printf("                member) subs=(list add remove update promote);;\n");
         printf("                auth) subs=(enable disable status login);;\n");
@@ -4712,7 +4895,7 @@ static int cmd_completion(int argc, char **argv) {
         printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l key -d 'TLS key'\n");
         printf("# Subcommands\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from lease' -a 'grant revoke timetolive list keepalive'\n");
-        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from txn' -a 'put cas get del'\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from txn' -a '-i put cas get del'\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from alarm' -a 'list activate disarm'\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from member' -a 'list add remove update promote'\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from auth' -a 'enable disable status login'\n");
@@ -4770,7 +4953,8 @@ static void print_usage(void) {
     printf("  lease revoke [-w json|fields] ID  Revoke a lease by ID\n");
     printf("  lease timetolive [--keys] [-w json|fields] ID  Query remaining TTL\n");
     printf("  lease list [-w table|json|fields]  List all active leases\n");
-    printf("  lease keepalive [--once] [-w json|fields] ID  Keep a lease alive (loop by default, --once for single)\n");
+    printf("  lease keepalive [--once] [--interval SEC] [-w json|fields] ID  Keep a lease alive (loop by default, --once for single, --interval for custom interval)\n");
+    printf("  txn -i [-w json|fields]  Interactive transaction (read from stdin: cmp/put/get/del/then/else)\n");
     printf("  txn put [-w json|fields] KEY VALUE  Execute a transaction (Put)\n");
     printf("  txn cas [-w json|fields] KEY EXP NEW  Compare-and-swap (if KEY==EXP then KEY=NEW)\n");
     printf("  txn get [-w json|fields] KEY [RANGE_END]  Execute a transaction (Range)\n");
@@ -4785,9 +4969,9 @@ static void print_usage(void) {
     printf("  defrag [-w json|fields]       Defragment database (no-op for LMDB)\n");
     printf("  move-leader [-w json|fields] TARGET_ID  Transfer leadership to target node\n");
     printf("  member list [-w json|table|fields]  List cluster members\n");
-    printf("  member add [-w json|fields] [--peer-urls URL] [--name NAME] [--learner] [PEER_URL]  Add a cluster member\n");
+    printf("  member add [-w json|fields] [--peer-urls URLS] [--name NAME] [--learner] [PEER_URL]  Add a cluster member (comma-separated URLs supported)\n");
     printf("  member remove [-w json|fields] ID    Remove a cluster member\n");
-    printf("  member update [-w json|fields] ID URL  Update a member's peer URL\n");
+    printf("  member update [-w json|fields] ID PEER_URLS  Update a member's peer URLs (comma-separated supported)\n");
     printf("  member promote [-w json|fields] ID    Promote a member to voting member\n");
     printf("  auth enable [-w json|fields]     Enable authentication\n");
     printf("  auth disable [-w json|fields]     Disable authentication\n");

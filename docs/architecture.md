@@ -414,7 +414,10 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `completion bash|zsh|fish` (generate shell completion scripts for bash, zsh, and fish shells, covering all cetcdctl commands, subcommands, global options, and command-specific flags),
 `put --print-value-only` (output only the previous value when used with `--prev-kv`, implies `--prev-kv` if not explicitly set),
 `del --print-value-only` (output only the deleted values when used with `--prev-kv`, implies `--prev-kv` if not explicitly set),
-`check perf --load S|M|L` (workload size: s=10, m=100, l=1000 keys; runs multiple put/get operations and reports average latency) and `--prefix PREFIX` (key prefix for test keys)
+`check perf --load S|M|L` (workload size: s=10, m=100, l=1000 keys; runs multiple put/get operations and reports average latency) and `--prefix PREFIX` (key prefix for test keys),
+`lease keepalive --interval SEC` (custom keepalive interval instead of default ttl/2),
+`member add --peer-urls url1,url2` (comma-separated multiple peer URLs for cluster member addition; `member update` also supports comma-separated URLs),
+`txn -i` (interactive transaction mode: reads a transaction definition from stdin with `cmp`/`cmp_create`/`cmp_mod`/`cmp_ver` compare conditions, `then`/`else` sections, and `put`/`get`/`del` operations; builds a full TxnRequest with compare, success, and failure op lists and sends it as a single atomic Txn RPC; supports `-w json|fields` output)
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with

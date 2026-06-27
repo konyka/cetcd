@@ -351,6 +351,62 @@ Shell completion scripts can be generated for bash, zsh, and fish:
 ./build/bin/cetcdctl completion fish > ~/.config/fish/completions/cetcdctl.fish
 ```
 
+### Interactive transaction (`txn -i`)
+
+The `txn -i` mode reads a transaction definition from stdin and executes it atomically.
+The format is line-based with three sections: compare conditions, success operations,
+and failure operations:
+
+```sh
+# Example: if key "counter" has value "5", increment it; otherwise create it
+echo 'cmp counter = 5
+then
+put counter 6
+else
+put counter 1' | ./build/bin/cetcdctl txn -i
+
+# Example with revision comparison and multiple operations
+echo '# Compare mod revision
+# If mod_revision of "lock" > 10, delete it and get the result
+cmp_mod lock > 10
+then
+del lock
+get lock
+else
+get lock' | ./build/bin/cetcdctl txn -i -w json
+```
+
+Supported compare commands:
+- `cmp KEY OP VALUE` — compare key's value (OP: `=`, `==`, `!=`, `>`, `<`)
+- `cmp_create KEY OP N` — compare key's create revision
+- `cmp_mod KEY OP N` — compare key's mod revision
+- `cmp_ver KEY OP N` — compare key's version
+
+Supported operations (in `then`/`else` sections):
+- `put KEY VALUE` — store a key-value pair
+- `get KEY [RANGE_END]` — retrieve key(s)
+- `del KEY [RANGE_END]` — delete key(s)
+
+### Lease keepalive with custom interval
+
+```sh
+# Keep a lease alive with a 5-second interval (default is ttl/2)
+./build/bin/cetcdctl lease keepalive --interval 5 123
+
+# Single keepalive with custom interval
+./build/bin/cetcdctl lease keepalive --interval 5 --once 123
+```
+
+### Member add with multiple peer URLs
+
+```sh
+# Add a member with comma-separated peer URLs
+./build/bin/cetcdctl member add --peer-urls http://10.0.0.1:2380,http://10.0.0.2:2380 --name node2
+
+# Update a member's peer URLs (also comma-separated)
+./build/bin/cetcdctl member update 2 http://10.0.0.1:2380,http://10.0.0.2:2380
+```
+
 ### Global options
 
 | Option | Default | Description |
