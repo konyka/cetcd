@@ -2347,6 +2347,70 @@ static int cmd_status(int argc, char **argv) {
     return 0;
 }
 
+/* Collect all cluster member client URLs into an array */
+struct cluster_endpoint {
+    char host[256];
+    uint16_t port;
+};
+
+static int collect_cluster_endpoints(struct cluster_endpoint *eps, int max_eps) {
+    uint8_t mreq[] = {0x00}, mresp[4096];
+    int mrlen = do_rpc("/etcdserverpb.Cluster/MemberList", mreq, 1, mresp, sizeof(mresp));
+    if (mrlen < 0) return -1;
+    size_t mpos = 0;
+    int count = 0;
+    while (mpos < (size_t)mrlen && count < max_eps) {
+        uint8_t tag = mresp[mpos++];
+        if (tag == 0x12) {
+            uint64_t mlen = 0; read_varint(mresp, mrlen, &mpos, &mlen);
+            size_t mend = mpos + (size_t)mlen;
+            const uint8_t *curl = NULL; size_t curlen = 0;
+            while (mpos < mend) {
+                uint8_t mtag = mresp[mpos++];
+                if (mtag == 0x22) {
+                    uint64_t l = 0; read_varint(mresp, mend, &mpos, &l);
+                    curl = mresp + mpos; curlen = (size_t)l;
+                    mpos += l;
+                } else if (mtag == 0x08 || mtag == 0x28) {
+                    uint64_t v = 0; read_varint(mresp, mend, &mpos, &v);
+                } else if (mtag == 0x12 || mtag == 0x1a) {
+                    uint64_t l = 0; read_varint(mresp, mend, &mpos, &l);
+                    mpos += l;
+                } else {
+                    uint64_t v = 0; read_varint(mresp, mend, &mpos, &v);
+                }
+            }
+            mpos = mend;
+            if (curl && curlen > 0) {
+                char url[256];
+                size_t ul = curlen < sizeof(url) - 1 ? curlen : sizeof(url) - 1;
+                memcpy(url, curl, ul); url[ul] = '\0';
+                char *hs = url;
+                if (strncmp(url, "http://", 7) == 0) hs = url + 7;
+                else if (strncmp(url, "https://", 8) == 0) hs = url + 8;
+                char *colon = strchr(hs, ':');
+                if (colon) {
+                    *colon = '\0';
+                    strncpy(eps[count].host, hs, sizeof(eps[count].host) - 1);
+                    eps[count].host[sizeof(eps[count].host) - 1] = '\0';
+                    eps[count].port = (uint16_t)atoi(colon + 1);
+                } else {
+                    strncpy(eps[count].host, hs, sizeof(eps[count].host) - 1);
+                    eps[count].host[sizeof(eps[count].host) - 1] = '\0';
+                    eps[count].port = 2379;
+                }
+                count++;
+            }
+        } else if (tag == 0x0a) {
+            uint64_t l = 0; read_varint(mresp, mrlen, &mpos, &l);
+            mpos += l;
+        } else {
+            uint64_t v = 0; read_varint(mresp, mrlen, &mpos, &v);
+        }
+    }
+    return count;
+}
+
 static int cmd_endpoint(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl endpoint {health,status,hashkv} [--cluster]\n");
@@ -2368,93 +2432,47 @@ static int cmd_endpoint(int argc, char **argv) {
     }
     if (strcmp(argv[2], "health") == 0) {
         if (cluster) {
-            /* Get member list to find all endpoints */
-            uint8_t mreq[] = {0x00}, mresp[4096];
-            int mrlen = do_rpc("/etcdserverpb.Cluster/MemberList", mreq, 1, mresp, sizeof(mresp));
-            if (mrlen < 0) { fprintf(stderr, "failed to get member list\n"); return 1; }
-            /* Parse MemberList response to extract client URLs and check each */
-            size_t mpos = 0;
+            struct cluster_endpoint eps[32];
+            int n = collect_cluster_endpoints(eps, 32);
+            if (n < 0) { fprintf(stderr, "failed to get member list\n"); return 1; }
             const char *orig_host = g_host;
             uint16_t orig_port = g_port;
             int any_unhealthy = 0;
-            while (mpos < (size_t)mrlen) {
-                uint8_t tag = mresp[mpos++];
-                if (tag == 0x12) {
-                    uint64_t mlen = 0; read_varint(mresp, mrlen, &mpos, &mlen);
-                    size_t mend = mpos + (size_t)mlen;
-                    const uint8_t *client_url = NULL; size_t client_len = 0;
-                    while (mpos < mend) {
-                        uint8_t mtag = mresp[mpos++];
-                        if (mtag == 0x22) {
-                            uint64_t l = 0; read_varint(mresp, mend, &mpos, &l);
-                            client_url = mresp + mpos; client_len = (size_t)l;
-                            mpos += l;
-                        } else if (mtag == 0x08 || mtag == 0x28) {
-                            uint64_t v = 0; read_varint(mresp, mend, &mpos, &v);
-                        } else if (mtag == 0x12 || mtag == 0x1a) {
-                            uint64_t l = 0; read_varint(mresp, mend, &mpos, &l);
-                            mpos += l;
-                        } else {
-                            uint64_t v = 0; read_varint(mresp, mend, &mpos, &v);
-                        }
+            for (int i = 0; i < n; i++) {
+                g_host = eps[i].host;
+                g_port = eps[i].port;
+                uint8_t hreq[] = {0x00}, hresp[1024];
+                struct timeval t0, t1;
+                gettimeofday(&t0, NULL);
+                int hrlen = do_rpc("/etcdserverpb.Maintenance/Status", hreq, 1, hresp, sizeof(hresp));
+                gettimeofday(&t1, NULL);
+                double took_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_usec - t0.tv_usec) / 1000.0;
+                if (hrlen < 0) {
+                    any_unhealthy = 1;
+                    if (want_json) {
+                        printf("{\"endpoint\":\"%s:%d\",\"status\":\"unhealthy\",\"took\":\"%.3fms\",\"error\":\"failed to connect\"}\n", g_host, g_port, took_ms);
+                    } else if (want_fields) {
+                        printf("endpoint: %s:%d\n", g_host, g_port);
+                        printf("status: unhealthy\n");
+                        printf("took: %.3fms\n", took_ms);
+                        printf("error: failed to connect\n\n");
+                    } else {
+                        printf("%s:%d is unhealthy: failed to connect\n", g_host, g_port);
                     }
-                    mpos = mend;
-                    if (client_url && client_len > 0) {
-                        char url[256];
-                        size_t ul = client_len < sizeof(url) - 1 ? client_len : sizeof(url) - 1;
-                        memcpy(url, client_url, ul);
-                        url[ul] = '\0';
-                        char *host_start = url;
-                        if (strncmp(url, "http://", 7) == 0) host_start = url + 7;
-                        else if (strncmp(url, "https://", 8) == 0) host_start = url + 8;
-                        char *colon = strchr(host_start, ':');
-                        if (colon) {
-                            *colon = '\0';
-                            g_host = host_start;
-                            g_port = (uint16_t)atoi(colon + 1);
-                        } else {
-                            g_host = host_start;
-                            g_port = 2379;
-                        }
-                        uint8_t hreq[] = {0x00}, hresp[1024];
-                        struct timeval t0, t1;
-                        gettimeofday(&t0, NULL);
-                        int hrlen = do_rpc("/etcdserverpb.Maintenance/Status", hreq, 1, hresp, sizeof(hresp));
-                        gettimeofday(&t1, NULL);
-                        double took_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_usec - t0.tv_usec) / 1000.0;
-                        if (hrlen < 0) {
-                            any_unhealthy = 1;
-                            if (want_json) {
-                                printf("{\"endpoint\":\"%s:%d\",\"status\":\"unhealthy\",\"took\":\"%.3fms\",\"error\":\"failed to connect\"}\n", g_host, g_port, took_ms);
-                            } else if (want_fields) {
-                                printf("endpoint: %s:%d\n", g_host, g_port);
-                                printf("status: unhealthy\n");
-                                printf("took: %.3fms\n", took_ms);
-                                printf("error: failed to connect\n\n");
-                            } else {
-                                printf("%s:%d is unhealthy: failed to connect\n", g_host, g_port);
-                            }
-                        } else {
-                            if (want_json) {
-                                fputs("{\"endpoint\":\"", stdout);
-                                printf("%s:%d\",", g_host, g_port);
-                                parse_and_print_header_json(hresp, (size_t)hrlen);
-                                printf(",\"status\":\"healthy\",\"took\":\"%.3fms\"}\n", took_ms);
-                            } else if (want_fields) {
-                                printf("endpoint: %s:%d\n", g_host, g_port);
-                                parse_and_print_header_json(hresp, (size_t)hrlen);
-                                printf("status: healthy\n");
-                                printf("took: %.3fms\n\n", took_ms);
-                            } else {
-                                printf("%s:%d is healthy (%.3fms)\n", g_host, g_port, took_ms);
-                            }
-                        }
-                    }
-                } else if (tag == 0x0a) {
-                    uint64_t l = 0; read_varint(mresp, mrlen, &mpos, &l);
-                    mpos += l;
                 } else {
-                    uint64_t v = 0; read_varint(mresp, mrlen, &mpos, &v);
+                    if (want_json) {
+                        fputs("{\"endpoint\":\"", stdout);
+                        printf("%s:%d\",", g_host, g_port);
+                        parse_and_print_header_json(hresp, (size_t)hrlen);
+                        printf(",\"status\":\"healthy\",\"took\":\"%.3fms\"}\n", took_ms);
+                    } else if (want_fields) {
+                        printf("endpoint: %s:%d\n", g_host, g_port);
+                        parse_and_print_header_json(hresp, (size_t)hrlen);
+                        printf("status: healthy\n");
+                        printf("took: %.3fms\n\n", took_ms);
+                    } else {
+                        printf("%s:%d is healthy (%.3fms)\n", g_host, g_port, took_ms);
+                    }
                 }
             }
             g_host = orig_host;
@@ -2498,11 +2516,91 @@ static int cmd_endpoint(int argc, char **argv) {
         }
         return 0;
     } else if (strcmp(argv[2], "status") == 0) {
-        /* Endpoint status: same as status but with endpoint info */
+        if (cluster) {
+            struct cluster_endpoint eps[32];
+            int n = collect_cluster_endpoints(eps, 32);
+            if (n < 0) { fprintf(stderr, "failed to get member list\n"); return 1; }
+            const char *orig_host = g_host;
+            uint16_t orig_port = g_port;
+            if (want_table) {
+                printf("+--------------------------+----------------+-----------+-----------+\n");
+                printf("|         ENDPOINT         |      ID        |  REVISION | DB SIZE   |\n");
+                printf("+--------------------------+----------------+-----------+-----------+\n");
+            }
+            for (int i = 0; i < n; i++) {
+                g_host = eps[i].host;
+                g_port = eps[i].port;
+                uint8_t sreq[] = {0x00}, sresp[1024];
+                int srlen = do_rpc("/etcdserverpb.Maintenance/Status", sreq, 1, sresp, sizeof(sresp));
+                if (srlen < 0) continue;
+                size_t pos = 0;
+                const uint8_t *ver = NULL; size_t ver_len = 0;
+                uint64_t db_size = 0, leader = 0, raft_index = 0, raft_term = 0, revision = 0;
+                while (pos < (size_t)srlen) {
+                    uint8_t tag = sresp[pos++];
+                    if (tag == 0x12) {
+                        uint64_t l = 0; read_varint(sresp, srlen, &pos, &l);
+                        ver = sresp + pos; ver_len = (size_t)l; pos += l;
+                    } else if (tag == 0x18) {
+                        read_varint(sresp, srlen, &pos, &db_size);
+                    } else if (tag == 0x20) {
+                        read_varint(sresp, srlen, &pos, &leader);
+                    } else if (tag == 0x28) {
+                        read_varint(sresp, srlen, &pos, &raft_index);
+                    } else if (tag == 0x30) {
+                        read_varint(sresp, srlen, &pos, &raft_term);
+                    } else if (tag == 0x0a) {
+                        uint64_t l = 0; read_varint(sresp, srlen, &pos, &l);
+                        size_t hdr_end = pos + (size_t)l;
+                        while (pos < hdr_end) {
+                            uint8_t htag = sresp[pos++];
+                            if (htag == 0x18) { read_varint(sresp, hdr_end, &pos, &revision); }
+                            else { uint64_t v = 0; read_varint(sresp, hdr_end, &pos, &v); }
+                        }
+                    } else {
+                        uint64_t v = 0; read_varint(sresp, srlen, &pos, &v);
+                    }
+                }
+                if (want_json) {
+                    fputs("{\"endpoint\":\"", stdout);
+                    printf("%s:%d\",", g_host, g_port);
+                    parse_and_print_header_json(sresp, (size_t)srlen);
+                    fputs(",\"version\":", stdout);
+                    if (ver) print_json_string(ver, ver_len); else fputs("\"\"", stdout);
+                    fputs(",", stdout);
+                    printf("\"dbSize\":%llu,\"leader\":%llu,\"raftIndex\":%llu,\"raftTerm\":%llu,\"revision\":%llu}\n",
+                           (unsigned long long)db_size, (unsigned long long)leader,
+                           (unsigned long long)raft_index, (unsigned long long)raft_term,
+                           (unsigned long long)revision);
+                } else if (want_table) {
+                    printf("| %-24s | %14llu | %9llu | %9llu |\n",
+                           g_host, (unsigned long long)leader, (unsigned long long)revision,
+                           (unsigned long long)db_size);
+                } else if (want_fields) {
+                    printf("endpoint: %s:%d\n", g_host, g_port);
+                    printf("ID: %llu\n", (unsigned long long)leader);
+                    printf("revision: %llu\n", (unsigned long long)revision);
+                    printf("dbSize: %llu\n", (unsigned long long)db_size);
+                    printf("raftIndex: %llu\n", (unsigned long long)raft_index);
+                    printf("raftTerm: %llu\n", (unsigned long long)raft_term);
+                    if (ver) printf("version: %.*s\n", (int)ver_len, ver);
+                    printf("\n");
+                } else {
+                    printf("endpoint: %s:%d  revision: %llu  db_size: %llu\n",
+                           g_host, g_port, (unsigned long long)revision, (unsigned long long)db_size);
+                }
+            }
+            if (want_table) {
+                printf("+--------------------------+----------------+-----------+-----------+\n");
+            }
+            g_host = orig_host;
+            g_port = orig_port;
+            return 0;
+        }
+        /* Non-cluster endpoint status */
         uint8_t req[] = {0x00}, resp[1024];
         int rlen = do_rpc("/etcdserverpb.Maintenance/Status", req, 1, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        /* Parse StatusResponse to extract revision */
         size_t pos = 0;
         const uint8_t *ver = NULL; size_t ver_len = 0;
         uint64_t db_size = 0, leader = 0, raft_index = 0, raft_term = 0, revision = 0;
@@ -2520,7 +2618,6 @@ static int cmd_endpoint(int argc, char **argv) {
             } else if (tag == 0x30) {
                 read_varint(resp, rlen, &pos, &raft_term);
             } else if (tag == 0x0a) {
-                /* ResponseHeader: field 1 (cluster_id), field 2 (member_id), field 3 (revision) */
                 uint64_t l = 0; read_varint(resp, rlen, &pos, &l);
                 size_t hdr_end = pos + (size_t)l;
                 while (pos < hdr_end) {
@@ -2565,7 +2662,48 @@ static int cmd_endpoint(int argc, char **argv) {
         }
         return 0;
     } else if (strcmp(argv[2], "hashkv") == 0) {
-        /* Endpoint hashkv: call HashKV RPC */
+        if (cluster) {
+            struct cluster_endpoint eps[32];
+            int n = collect_cluster_endpoints(eps, 32);
+            if (n < 0) { fprintf(stderr, "failed to get member list\n"); return 1; }
+            const char *orig_host = g_host;
+            uint16_t orig_port = g_port;
+            for (int i = 0; i < n; i++) {
+                g_host = eps[i].host;
+                g_port = eps[i].port;
+                uint8_t hreq[] = {0x00}, hresp[256];
+                int hrlen = do_rpc("/etcdserverpb.Maintenance/HashKV", hreq, 1, hresp, sizeof(hresp));
+                if (hrlen < 0) continue;
+                size_t rpos = 0;
+                uint64_t hash_val = 0, compact_rev = 0;
+                while (rpos < (size_t)hrlen) {
+                    uint8_t tag = hresp[rpos++];
+                    if (tag == 0x10) { read_varint(hresp, hrlen, &rpos, &hash_val); }
+                    else if (tag == 0x18) { read_varint(hresp, hrlen, &rpos, &compact_rev); }
+                    else if (tag == 0x0a) { uint64_t l = 0; read_varint(hresp, hrlen, &rpos, &l); rpos += l; }
+                    else { uint64_t v = 0; read_varint(hresp, hrlen, &rpos, &v); }
+                }
+                if (want_json) {
+                    fputs("{\"endpoint\":\"", stdout);
+                    printf("%s:%d\",", g_host, g_port);
+                    parse_and_print_header_json(hresp, (size_t)hrlen);
+                    printf(",\"hash\":%llu,\"compact_revision\":%llu}\n",
+                           (unsigned long long)hash_val, (unsigned long long)compact_rev);
+                } else if (want_fields) {
+                    printf("endpoint: %s:%d\n", g_host, g_port);
+                    parse_and_print_header_json(hresp, (size_t)hrlen);
+                    printf("hash: %llu\n", (unsigned long long)hash_val);
+                    printf("compact_revision: %llu\n\n", (unsigned long long)compact_rev);
+                } else {
+                    printf("endpoint: %s:%d  hash: %llu  compact_revision: %llu\n",
+                           g_host, g_port, (unsigned long long)hash_val, (unsigned long long)compact_rev);
+                }
+            }
+            g_host = orig_host;
+            g_port = orig_port;
+            return 0;
+        }
+        /* Non-cluster endpoint hashkv */
         uint8_t req[] = {0x00}, resp[256];
         int rlen = do_rpc("/etcdserverpb.Maintenance/HashKV", req, 1, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
@@ -5098,8 +5236,8 @@ static void print_usage(void) {
     printf("  downgrade validate [-w json|fields] VER Validate downgrade version\n");
     printf("  version [-w json|fields]      Print the client version\n");
     printf("  endpoint health [--cluster] [-w json|fields]  Check server health (or all cluster members with --cluster)\n");
-    printf("  endpoint status [-w json|table|fields]  Get server status with endpoint info\n");
-    printf("  endpoint hashkv [-w json|fields]      Get KV hash per endpoint\n");
+    printf("  endpoint status [--cluster] [-w json|table|fields]  Get server status (or all cluster members with --cluster)\n");
+    printf("  endpoint hashkv [--cluster] [-w json|fields]      Get KV hash per endpoint (or all cluster members with --cluster)\n");
     printf("  check perf [--load S|M|L] [--prefix PREFIX] [-w json|fields]    Run a simple performance check\n");
     printf("  check datascale [-w json|fields] [--load N] [--prefix PREFIX]  Test database scalability\n");
     printf("  lock [--ttl N] [--print-value-only] [-w json|fields] LOCKNAME [CMD...]  Acquire a distributed lock\n");

@@ -418,7 +418,8 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `lease keepalive --interval SEC` (custom keepalive interval instead of default ttl/2),
 `member add --peer-urls url1,url2` (comma-separated multiple peer URLs for cluster member addition; `member update` also supports comma-separated URLs),
 `txn -i` (interactive transaction mode: reads a transaction definition from stdin with `cmp`/`cmp_create`/`cmp_mod`/`cmp_ver` compare conditions, `then`/`else` sections, and `put`/`get`/`del` operations; builds a full TxnRequest with compare, success, and failure op lists and sends it as a single atomic Txn RPC; supports `-w json|fields` output),
-`endpoint health --cluster` (checks the health of all cluster members by first calling MemberList to discover all member client URLs, then connecting to each endpoint individually and sending a Status RPC; supports `-w json|fields` output)
+`endpoint health --cluster` (checks the health of all cluster members by first calling MemberList to discover all member client URLs, then connecting to each endpoint individually and sending a Status RPC; supports `-w json|fields` output),
+`endpoint status --cluster` and `endpoint hashkv --cluster` (extend the `--cluster` flag to `endpoint status` and `endpoint hashkv` subcommands; uses the shared `collect_cluster_endpoints` helper to discover all member client URLs and queries each endpoint individually; `endpoint status --cluster` supports table format with multi-row output, `endpoint hashkv --cluster` supports json and fields output)
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
