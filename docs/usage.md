@@ -167,11 +167,16 @@ the stream.
 ### Lease management
 
 ```sh
-./build/bin/cetcdctl lease grant 60        # Grant a 60-second lease
-./build/bin/cetcdctl lease revoke 1        # Revoke lease ID 1
-./build/bin/cetcdctl lease timetolive 1    # Check remaining TTL
-./build/bin/cetcdctl lease keepalive 1     # Keep lease alive (loop)
-./build/bin/cetcdctl lease list            # List all leases
+./build/bin/cetcdctl lease grant 60                        # Grant a 60-second lease
+./build/bin/cetcdctl lease grant --lease-id 0x1234abcd 60  # Grant with custom lease ID (hex)
+./build/bin/cetcdctl lease grant 60 -w fields              # Grant with fields output
+./build/bin/cetcdctl lease revoke 1                        # Revoke lease ID 1
+./build/bin/cetcdctl lease revoke 1 -w fields              # Revoke with fields output
+./build/bin/cetcdctl lease timetolive 1                    # Check remaining TTL
+./build/bin/cetcdctl lease timetolive --keys 1 -w fields   # Include keys with fields output
+./build/bin/cetcdctl lease keepalive 1                     # Keep lease alive (loop)
+./build/bin/cetcdctl lease keepalive --once 1 -w fields   # Single keepalive with fields output
+./build/bin/cetcdctl lease list -w fields                  # List all leases in fields format
 ```
 
 ### Transactions
@@ -248,6 +253,11 @@ the stream.
 ./build/bin/cetcdctl auth enable -w json
 ./build/bin/cetcdctl user list -w json
 ./build/bin/cetcdctl role list -w json
+
+# Fields output for auth commands
+./build/bin/cetcdctl auth status -w fields
+./build/bin/cetcdctl user list -w fields
+./build/bin/cetcdctl role list -w fields
 ```
 
 ### Snapshot and maintenance
@@ -280,6 +290,10 @@ the stream.
 ./build/bin/cetcdctl member list -w fields            # List members in fields format
 ./build/bin/cetcdctl endpoint status -w fields        # Endpoint status in fields format
 ./build/bin/cetcdctl compact -w fields 5              # Compact with fields output
+./build/bin/cetcdctl defrag -w fields                # Defragment with fields output
+./build/bin/cetcdctl move-leader -w fields 1234567890  # Transfer leadership with fields output
+./build/bin/cetcdctl snapshot status backup.snap -w fields  # Snapshot info in fields format
+./build/bin/cetcdctl downgrade enable 3.5.0 -w fields  # Downgrade with fields output
 ```
 
 ### Global options
