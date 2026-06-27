@@ -117,6 +117,7 @@ It mirrors `etcdctl` command structure for familiarity.
 
 ```sh
 ./build/bin/cetcdctl put foo bar
+./build/bin/cetcdctl put foo -                     # Read value from stdin
 ./build/bin/cetcdctl get foo
 ./build/bin/cetcdctl get --prefix foo           # Get all keys with prefix
 ./build/bin/cetcdctl get --prefix ""             # Get all keys (empty prefix = all)
@@ -124,6 +125,7 @@ It mirrors `etcdctl` command structure for familiarity.
 ./build/bin/cetcdctl get --count-only foo        # Count matching keys only
 ./build/bin/cetcdctl get --keys-only foo         # Get keys without values
 ./build/bin/cetcdctl get --print-value-only foo  # Print only the value
+./build/bin/cetcdctl get --hex foo               # Output in hex format
 ./build/bin/cetcdctl del foo
 ./build/bin/cetcdctl del --prefix foo            # Delete all keys with prefix
 ./build/bin/cetcdctl del --prev-kv foo           # Return deleted key-values
@@ -142,11 +144,17 @@ so many concurrent watchers can share a single TCP connection.
 # Watch a key prefix
 ./build/bin/cetcdctl watch --prefix /services/
 
+# Watch an explicit range
+./build/bin/cetcdctl watch --range-end zzz foo
+
 # Watch from a specific revision
 ./build/bin/cetcdctl watch --start-rev 42 foo
 
 # Include the previous key-value in each event
 ./build/bin/cetcdctl watch --prev-kv foo
+
+# Output events in hex format
+./build/bin/cetcdctl watch --hex foo
 
 # JSON output with full KV metadata and header
 ./build/bin/cetcdctl watch -w json foo

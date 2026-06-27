@@ -363,7 +363,11 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `member add --name` flag (accepted for etcdctl compatibility; the name is display-only and not sent in the MemberAddRequest proto),
 `lock/elect --print-value-only` flag (when set, prints the lease ID instead of the lock key / proposal text),
 `snapshot save --compaction-periodical` no-op flag (accepted for etcdctl compatibility),
-`server-side \0 range_end fix` (the KV Range handler now correctly treats a `range_end` of `\0` (single null byte) as "all keys >= key" per etcd semantics, instead of treating it as a literal upper bound that excludes all printable keys)
+`server-side \0 range_end fix` (the KV Range handler now correctly treats a `range_end` of `\0` (single null byte) as "all keys >= key" per etcd semantics, instead of treating it as a literal upper bound that excludes all printable keys),
+`watch --prefix ""` buffer overflow fix (same fix as get/del: empty key with --prefix now uses `\0` as range_end),
+`watch --range-end KEY` flag (alternative to --prefix for specifying an explicit range_end),
+`watch --hex` flag (outputs key/value events in hexadecimal format, matching etcdctl behavior),
+`put KEY -` stdin support (when VALUE is `-`, reads value from stdin, matching etcdctl behavior; trailing newline is stripped)
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with

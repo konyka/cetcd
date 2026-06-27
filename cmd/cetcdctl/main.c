@@ -764,8 +764,33 @@ static int cmd_put(int argc, char **argv) {
         return 1;
     }
     if (!val && !ignore_value) {
-        fprintf(stderr, "usage: cetcdctl put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE]\n");
+        fprintf(stderr, "usage: cetcdctl put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE|-]\n");
         return 1;
+    }
+
+    /* If val is "-", read value from stdin */
+    char *stdin_val = NULL;
+    if (val && strcmp(val, "-") == 0) {
+        size_t cap = 4096;
+        stdin_val = (char *)malloc(cap);
+        if (!stdin_val) { fprintf(stderr, "out of memory\n"); return 1; }
+        size_t total = 0;
+        int c;
+        while ((c = getchar()) != EOF) {
+            if (total + 1 >= cap) {
+                cap *= 2;
+                char *tmp = (char *)realloc(stdin_val, cap);
+                if (!tmp) { free(stdin_val); fprintf(stderr, "out of memory\n"); return 1; }
+                stdin_val = tmp;
+            }
+            stdin_val[total++] = (char)c;
+        }
+        stdin_val[total] = '\0';
+        /* Strip trailing newline if present */
+        if (total > 0 && stdin_val[total - 1] == '\n') {
+            stdin_val[--total] = '\0';
+        }
+        val = stdin_val;
     }
 
     uint8_t req[4096], resp[4096];
@@ -793,7 +818,7 @@ static int cmd_put(int argc, char **argv) {
         pos = encode_varint_field(req, sizeof(req), pos, 0x30, 1);
     }
     int rlen = do_rpc("/etcdserverpb.KV/Put", req, pos, resp, sizeof(resp));
-    if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+    if (rlen < 0) { fprintf(stderr, "request failed\n"); if (stdin_val) free(stdin_val); return 1; }
     if (want_fields) {
         if (prev_kv) {
             size_t rpos = 0;
@@ -847,6 +872,7 @@ static int cmd_put(int argc, char **argv) {
                 }
             }
         }
+        if (stdin_val) free(stdin_val);
         return 0;
     } else if (want_json) {
         fputs("{", stdout);
@@ -893,6 +919,7 @@ static int cmd_put(int argc, char **argv) {
             fputs("}", stdout);
         }
         fputs("}\n", stdout);
+        if (stdin_val) free(stdin_val);
         return 0;
     } else if (prev_kv) {
         /* Parse PutResponse for prev_kv (field 2, tag 0x12) */
@@ -931,6 +958,7 @@ static int cmd_put(int argc, char **argv) {
         }
     }
     printf("OK\n");
+    if (stdin_val) free(stdin_val);
     return 0;
 }
 
@@ -3467,19 +3495,25 @@ static int cmd_role(int argc, char **argv) {
 }
 
 static int cmd_watch(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl watch [--prefix] [--prev-kv] [--start-rev N] [--filter TYPE] [-w json] KEY\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl watch [--prefix] [--range-end KEY] [--prev-kv] [--start-rev N] [--filter TYPE] [--hex] [-w json|fields] KEY\n"); return 1; }
     bool prefix = false;
     bool prev_kv = false;
     bool want_json = false;
     bool want_fields = false;
+    bool hex_output = false;
     int64_t start_rev = 0;
     int filter_type = -1; /* -1 = no filter, 0 = NOPUT, 1 = NODELETE */
     const char *key = NULL;
+    const char *range_end_arg = NULL;
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--prefix") == 0) {
             prefix = true;
+        } else if (strcmp(argv[i], "--range-end") == 0 && i + 1 < argc) {
+            range_end_arg = argv[++i];
         } else if (strcmp(argv[i], "--prev-kv") == 0) {
             prev_kv = true;
+        } else if (strcmp(argv[i], "--hex") == 0) {
+            hex_output = true;
         } else if (strcmp(argv[i], "--start-rev") == 0 || strcmp(argv[i], "--rev") == 0) {
             if (i + 1 >= argc) { fprintf(stderr, "%s requires a revision number\n", argv[i]); return 1; }
             start_rev = atol(argv[++i]);
@@ -3497,25 +3531,35 @@ static int cmd_watch(int argc, char **argv) {
             key = argv[i];
         }
     }
-    if (!key) { fprintf(stderr, "usage: cetcdctl watch [--prefix] [--prev-kv] [--start-rev N] [--filter TYPE] [-w json|fields] KEY\n"); return 1; }
+    if (!key) { fprintf(stderr, "usage: cetcdctl watch [--prefix] [--range-end KEY] [--prev-kv] [--start-rev N] [--filter TYPE] [--hex] [-w json|fields] KEY\n"); return 1; }
+    if (prefix && range_end_arg) { fprintf(stderr, "--prefix and --range-end are mutually exclusive\n"); return 1; }
     size_t key_len = strlen(key);
 
     /* Build WatchCreateRequest:
      *   field 1 (request_union) = WatchCreateRequest, tag = 0x0a
      *     WatchCreateRequest: field 1 (key) = bytes, tag = 0x0a
-     *                         field 2 (range_end) = bytes, tag = 0x12 (if prefix)
+     *                         field 2 (range_end) = bytes, tag = 0x12 (if prefix or range_end)
      */
     uint8_t create_inner[512];
     size_t cpos = 0;
     cpos = encode_bytes_field(create_inner, sizeof(create_inner), cpos, 0x0a,
                               (const uint8_t *)key, key_len);
     if (prefix) {
-        char range_end[256];
-        if (key_len >= sizeof(range_end)) { fprintf(stderr, "key too long\n"); return 1; }
-        memcpy(range_end, key, key_len);
-        range_end[key_len - 1]++;
+        if (key_len == 0) {
+            /* Empty key with --prefix means all keys */
+            uint8_t zero = 0;
+            cpos = encode_bytes_field(create_inner, sizeof(create_inner), cpos, 0x12, &zero, 1);
+        } else {
+            char range_end[256];
+            if (key_len >= sizeof(range_end)) { fprintf(stderr, "key too long\n"); return 1; }
+            memcpy(range_end, key, key_len);
+            range_end[key_len - 1]++;
+            cpos = encode_bytes_field(create_inner, sizeof(create_inner), cpos, 0x12,
+                                      (const uint8_t *)range_end, key_len);
+        }
+    } else if (range_end_arg) {
         cpos = encode_bytes_field(create_inner, sizeof(create_inner), cpos, 0x12,
-                                  (const uint8_t *)range_end, key_len);
+                                  (const uint8_t *)range_end_arg, strlen(range_end_arg));
     }
     if (start_rev > 0) {
         /* field 3 (start_revision) = int64, tag = 0x18 */
@@ -3642,8 +3686,18 @@ static int cmd_watch(int argc, char **argv) {
                         }
                         fputs("}", stdout);
                     } else {
-                        if (ek) printf("%.*s", (int)ekl, ek);
-                        if (ev && evl > 0) printf(" -> %.*s", (int)evl, ev);
+                        if (hex_output) {
+                            if (ek) {
+                                for (size_t i = 0; i < ekl; i++) printf("%02x", ek[i]);
+                            }
+                            if (ev && evl > 0) {
+                                printf(" -> ");
+                                for (size_t i = 0; i < evl; i++) printf("%02x", ev[i]);
+                            }
+                        } else {
+                            if (ek) printf("%.*s", (int)ekl, ek);
+                            if (ev && evl > 0) printf(" -> %.*s", (int)evl, ev);
+                        }
                         printf("\n");
                     }
                 } else if (etag == 0x1a) {
@@ -3684,9 +3738,19 @@ static int cmd_watch(int argc, char **argv) {
                         }
                         fputs("}", stdout);
                     } else if (pk) {
-                        printf(" (prev: %.*s", (int)pkl, pk);
-                        if (pv && pvl > 0) printf(" -> %.*s", (int)pvl, pv);
-                        printf(")");
+                        if (hex_output) {
+                            printf(" (prev: ");
+                            for (size_t i = 0; i < pkl; i++) printf("%02x", pk[i]);
+                            if (pv && pvl > 0) {
+                                printf(" -> ");
+                                for (size_t i = 0; i < pvl; i++) printf("%02x", pv[i]);
+                            }
+                            printf(")");
+                        } else {
+                            printf(" (prev: %.*s", (int)pkl, pk);
+                            if (pv && pvl > 0) printf(" -> %.*s", (int)pvl, pv);
+                            printf(")");
+                        }
                     }
                 } else {
                     uint64_t v = 0; read_varint(resp, eend, &rpos, &v);
@@ -3887,11 +3951,11 @@ static void print_usage(void) {
     printf("  --cert FILE     TLS certificate (no-op, plain TCP)\n");
     printf("  --key FILE      TLS key (no-op, plain TCP)\n\n");
     printf("Commands:\n");
-    printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE]  Store a key-value pair\n");
+    printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE|-]  Store a key-value pair\n");
     printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields|table] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
     printf("  del [--prefix] [--from-key] [--prev-kv] [-w json|fields] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --prev-kv)\n");
-    printf("  watch [--prefix] [--prev-kv] [--start-rev N] [--filter NOPUT|NODELETE] [-w json|fields] KEY  Watch key changes\n");
+    printf("  watch [--prefix] [--range-end KEY] [--prev-kv] [--start-rev N] [--filter NOPUT|NODELETE] [--hex] [-w json|fields] KEY  Watch key changes\n");
     printf("  lease grant TTL [-w json]  Grant a lease (TTL in seconds)\n");
     printf("  lease revoke ID [-w json]  Revoke a lease by ID\n");
     printf("  lease timetolive [--keys] [-w json] ID  Query remaining TTL\n");
