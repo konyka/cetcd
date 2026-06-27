@@ -261,11 +261,13 @@ to leases via `cetcd_lease_attach_key()` when a `Put` request specifies a lease 
 All Maintenance RPC responses (`Status`, `Hash`, `HashKV`, `Defragment`, `Alarm`,
 `MoveLeader`, `Snapshot`, `Downgrade`) include a `ResponseHeader` as field 1, matching the
 etcd v3.5 proto wire format. The `DowngradeResponse` now correctly returns only a header
-(field 1) instead of a version string. The `Alarm` handler processes three actions: GET (list current alarms), ACTIVATE (add a
-NOSPACE alarm), and DEACTIVATE (remove a NOSPACE alarm). It maintains a simple in-memory
-alarm state and returns an `AlarmResponse` with the current alarm list (field 2, repeated
-AlarmMember with memberID and alarm type). The `make_simple_response()` helper used by
-`Defragment` and `MoveLeader` returns a proper `ResponseHeader` with the current revision.
+(field 1) instead of a version string. The `Alarm` handler processes three actions: GET (list current alarms), ACTIVATE (add an
+alarm), and DEACTIVATE (remove an alarm). It supports both NOSPACE and CORRUPT alarm types
+simultaneously, with an in-memory alarm table (up to 8 entries) that allows independent
+activation/deactivation of each alarm type. It returns an `AlarmResponse` with the current
+alarm list (field 2, repeated AlarmMember with memberID and alarm type). The
+`make_simple_response()` helper used by `Defragment` and `MoveLeader` returns a proper
+`ResponseHeader` with the current revision.
 
 All Cluster RPC responses (`MemberList`, `MemberAdd`, `MemberRemove`, `MemberUpdate`,
 `MemberPromote`) include a `ResponseHeader` as field 1, matching the etcd v3.5 proto wire
@@ -367,7 +369,12 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `watch --prefix ""` buffer overflow fix (same fix as get/del: empty key with --prefix now uses `\0` as range_end),
 `watch --range-end KEY` flag (alternative to --prefix for specifying an explicit range_end),
 `watch --hex` flag (outputs key/value events in hexadecimal format, matching etcdctl behavior),
-`put KEY -` stdin support (when VALUE is `-`, reads value from stdin, matching etcdctl behavior; trailing newline is stripped)
+`put KEY -` stdin support (when VALUE is `-`, reads value from stdin, matching etcdctl behavior; trailing newline is stripped),
+`server-side alarm handler enhancement` (now supports both NOSPACE and CORRUPT alarm types simultaneously, with proper activate/deactivate for each type independently; previously only NOSPACE was handled),
+`txn del --prefix ""` buffer overflow fix (same `key_len - 1` underflow pattern as get/del/watch, now uses `\0` as range_end for empty prefix),
+`txn del --from-key` flag (accepted for etcdctl compatibility; uses `\0` as range_end for all keys >= key),
+`check datascale --prefix ""` buffer overflow fix (same pattern; cleanup delete now handles empty prefix correctly),
+`del --hex` flag (outputs prev-kv key/value in hexadecimal format, matching etcdctl behavior)
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with

@@ -1136,12 +1136,13 @@ static int cmd_get(int argc, char **argv) {
 }
 
 static int cmd_del(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--from-key] [--prev-kv] [-w json|fields] KEY [RANGE_END]\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--from-key] [--prev-kv] [--hex] [-w json|fields] KEY [RANGE_END]\n"); return 1; }
     bool prefix = false;
     bool from_key = false;
     bool prev_kv = false;
     bool want_json = false;
     bool want_fields = false;
+    bool hex_output = false;
     const char *key = NULL;
     const char *range_end = NULL;
 
@@ -1152,6 +1153,8 @@ static int cmd_del(int argc, char **argv) {
             from_key = true;
         } else if (strcmp(argv[i], "--prev-kv") == 0) {
             prev_kv = true;
+        } else if (strcmp(argv[i], "--hex") == 0) {
+            hex_output = true;
         } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) want_json = true;
             else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
@@ -1162,7 +1165,7 @@ static int cmd_del(int argc, char **argv) {
             range_end = argv[i];
         }
     }
-    if (!key) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--from-key] [--prev-kv] [-w json|fields] KEY [RANGE_END]\n"); return 1; }
+    if (!key) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--from-key] [--prev-kv] [--hex] [-w json|fields] KEY [RANGE_END]\n"); return 1; }
     if (prefix && from_key) { fprintf(stderr, "--prefix and --from-key are mutually exclusive\n"); return 1; }
     size_t key_len = strlen(key);
 
@@ -1350,8 +1353,16 @@ static int cmd_del(int argc, char **argv) {
             }
             rpos = kv_end;
             if (pk) {
-                printf("prev: %.*s", (int)pk_len, pk);
-                if (pv && pv_len > 0) printf(" -> %.*s", (int)pv_len, pv);
+                if (hex_output) {
+                    for (size_t i = 0; i < pk_len; i++) printf("%02x", pk[i]);
+                    if (pv && pv_len > 0) {
+                        printf(" -> ");
+                        for (size_t i = 0; i < pv_len; i++) printf("%02x", pv[i]);
+                    }
+                } else {
+                    printf("prev: %.*s", (int)pk_len, pk);
+                    if (pv && pv_len > 0) printf(" -> %.*s", (int)pv_len, pv);
+                }
                 printf("\n");
             }
         } else if (tag == 0x0a) {
@@ -1659,7 +1670,7 @@ static int cmd_txn(int argc, char **argv) {
         fprintf(stderr, "usage: cetcdctl txn put KEY VALUE\n");
         fprintf(stderr, "       cetcdctl txn cas KEY EXPECTED NEW\n");
         fprintf(stderr, "       cetcdctl txn get KEY [RANGE_END]\n");
-        fprintf(stderr, "       cetcdctl txn del [--prefix] [--prev-kv] KEY [RANGE_END]\n");
+        fprintf(stderr, "       cetcdctl txn del [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]\n");
         return 1;
     }
     /* Parse -w json for all txn subcommands */
@@ -1855,8 +1866,9 @@ static int cmd_txn(int argc, char **argv) {
         }
         return 0;
     } else if (strcmp(argv[2], "del") == 0) {
-        /* txn del [--prefix] [--prev-kv] KEY [RANGE_END] */
+        /* txn del [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END] */
         bool prefix = false;
+        bool from_key = false;
         bool prev_kv = false;
         const char *key = NULL;
         const char *range_end = NULL;
@@ -1864,6 +1876,8 @@ static int cmd_txn(int argc, char **argv) {
             if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) { i++; continue; }
             if (strcmp(argv[i], "--prefix") == 0) {
                 prefix = true;
+            } else if (strcmp(argv[i], "--from-key") == 0) {
+                from_key = true;
             } else if (strcmp(argv[i], "--prev-kv") == 0) {
                 prev_kv = true;
             } else if (!key) {
@@ -1872,7 +1886,8 @@ static int cmd_txn(int argc, char **argv) {
                 range_end = argv[i];
             }
         }
-        if (!key) { fprintf(stderr, "usage: cetcdctl txn del [--prefix] [--prev-kv] KEY [RANGE_END]\n"); return 1; }
+        if (!key) { fprintf(stderr, "usage: cetcdctl txn del [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]\n"); return 1; }
+        if (prefix && from_key) { fprintf(stderr, "--prefix and --from-key are mutually exclusive\n"); return 1; }
         size_t key_len = strlen(key);
 
         /* Build RequestDeleteRange inner: key(0x0a), range_end(0x12), prev_kv(0x20) */
@@ -1881,11 +1896,22 @@ static int cmd_txn(int argc, char **argv) {
         dpos = encode_bytes_field(del_inner, sizeof(del_inner), dpos, 0x0a,
                                    (const uint8_t *)key, key_len);
         if (prefix) {
-            char prefix_end[256];
-            memcpy(prefix_end, key, key_len);
-            prefix_end[key_len - 1]++;
-            dpos = encode_bytes_field(del_inner, sizeof(del_inner), dpos, 0x12,
-                                       (const uint8_t *)prefix_end, key_len);
+            if (key_len == 0) {
+                /* Empty key with --prefix means all keys */
+                uint8_t zero = 0;
+                dpos = encode_bytes_field(del_inner, sizeof(del_inner), dpos, 0x12, &zero, 1);
+            } else {
+                char prefix_end[256];
+                if (key_len >= sizeof(prefix_end)) { fprintf(stderr, "key too long\n"); return 1; }
+                memcpy(prefix_end, key, key_len);
+                prefix_end[key_len - 1]++;
+                dpos = encode_bytes_field(del_inner, sizeof(del_inner), dpos, 0x12,
+                                           (const uint8_t *)prefix_end, key_len);
+            }
+        } else if (from_key) {
+            /* range_end = \0 means all keys >= key */
+            uint8_t zero = 0;
+            dpos = encode_bytes_field(del_inner, sizeof(del_inner), dpos, 0x12, &zero, 1);
         } else if (range_end) {
             dpos = encode_bytes_field(del_inner, sizeof(del_inner), dpos, 0x12,
                                        (const uint8_t *)range_end, strlen(range_end));
@@ -1920,7 +1946,7 @@ static int cmd_txn(int argc, char **argv) {
         fprintf(stderr, "usage: cetcdctl txn put KEY VALUE\n");
         fprintf(stderr, "       cetcdctl txn cas KEY EXPECTED NEW\n");
         fprintf(stderr, "       cetcdctl txn get KEY [RANGE_END]\n");
-        fprintf(stderr, "       cetcdctl txn del [--prefix] [--prev-kv] KEY [RANGE_END]\n");
+        fprintf(stderr, "       cetcdctl txn del [--prefix] [--from-key] [--prev-kv] KEY [RANGE_END]\n");
         return 1;
     }
 }
@@ -2238,14 +2264,21 @@ static int cmd_check(int argc, char **argv) {
         {
             uint8_t del_req[512], del_resp[4096];
             size_t dpos = 0;
-            dpos = encode_bytes_field(del_req, sizeof(del_req), dpos, 0x0a,
-                                      (const uint8_t *)prefix, strlen(prefix));
-            char range_end[256];
             size_t plen = strlen(prefix);
-            memcpy(range_end, prefix, plen);
-            range_end[plen - 1]++;
-            dpos = encode_bytes_field(del_req, sizeof(del_req), dpos, 0x12,
-                                      (const uint8_t *)range_end, plen);
+            dpos = encode_bytes_field(del_req, sizeof(del_req), dpos, 0x0a,
+                                      (const uint8_t *)prefix, plen);
+            if (plen == 0) {
+                /* Empty prefix means all keys */
+                uint8_t zero = 0;
+                dpos = encode_bytes_field(del_req, sizeof(del_req), dpos, 0x12, &zero, 1);
+            } else {
+                char range_end[256];
+                if (plen >= sizeof(range_end)) { fprintf(stderr, "prefix too long\n"); return 1; }
+                memcpy(range_end, prefix, plen);
+                range_end[plen - 1]++;
+                dpos = encode_bytes_field(del_req, sizeof(del_req), dpos, 0x12,
+                                          (const uint8_t *)range_end, plen);
+            }
             do_rpc("/etcdserverpb.KV/DeleteRange", del_req, dpos, del_resp, sizeof(del_resp));
         }
         if (want_json) {
@@ -3954,7 +3987,7 @@ static void print_usage(void) {
     printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] KEY [VALUE|-]  Store a key-value pair\n");
     printf("  get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields|table] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
-    printf("  del [--prefix] [--from-key] [--prev-kv] [-w json|fields] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --prev-kv)\n");
+    printf("  del [--prefix] [--from-key] [--prev-kv] [--hex] [-w json|fields] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --prev-kv, --hex)\n");
     printf("  watch [--prefix] [--range-end KEY] [--prev-kv] [--start-rev N] [--filter NOPUT|NODELETE] [--hex] [-w json|fields] KEY  Watch key changes\n");
     printf("  lease grant TTL [-w json]  Grant a lease (TTL in seconds)\n");
     printf("  lease revoke ID [-w json]  Revoke a lease by ID\n");
