@@ -277,6 +277,9 @@ the stream.
 ./build/bin/cetcdctl del key1 --prev-kv --hex        # Delete with prev-kv in hex format
 ./build/bin/cetcdctl txn del --prefix --prev-kv mykey  # Transactional prefix delete
 ./build/bin/cetcdctl txn del --from-key mykey         # Transactional range delete (all keys >= mykey)
+./build/bin/cetcdctl member list -w fields            # List members in fields format
+./build/bin/cetcdctl endpoint status -w fields        # Endpoint status in fields format
+./build/bin/cetcdctl compact -w fields 5              # Compact with fields output
 ```
 
 ### Global options

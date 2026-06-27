@@ -575,7 +575,7 @@ static void parse_lease_ttl_response(const uint8_t *data, size_t len) {
     }
 }
 
-static void parse_member_list_response(const uint8_t *data, size_t len, int table_format, int json_format) {
+static void parse_member_list_response(const uint8_t *data, size_t len, int table_format, int json_format, int fields_format) {
     size_t pos = 0;
     int first = 1;
     if (table_format) {
@@ -645,6 +645,13 @@ static void parse_member_list_response(const uint8_t *data, size_t len, int tabl
                 printf("| %16llu | %6s | %19.*s |\n",
                        (unsigned long long)mid, "alive",
                        (int)peer_len, peer_url ? peer_url : (const uint8_t *)"");
+            } else if (fields_format) {
+                printf("ID: %llu\n", (unsigned long long)mid);
+                if (m_name) printf("name: %.*s\n", (int)name_len, m_name);
+                if (peer_url) printf("peerURLs: %.*s\n", (int)peer_len, peer_url);
+                if (client_url) printf("clientURLs: %.*s\n", (int)client_len, client_url);
+                if (is_learner) printf("isLearner: true\n");
+                printf("\n");
             } else {
                 printf("member ID: %llu peerURL: %.*s\n",
                        (unsigned long long)mid,
@@ -1635,18 +1642,20 @@ static int cmd_lease(int argc, char **argv) {
 static int cmd_compact(int argc, char **argv) {
     bool physical = false;
     bool want_json = false;
+    bool want_fields = false;
     int64_t rev = 0;
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--physical") == 0) {
             physical = true;
         } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) want_json = true;
+            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
             i++;
         } else if (!rev) {
             rev = strtoll(argv[i], NULL, 10);
         }
     }
-    if (rev <= 0) { fprintf(stderr, "usage: cetcdctl compact [--physical] [-w json] REV\n"); return 1; }
+    if (rev <= 0) { fprintf(stderr, "usage: cetcdctl compact [--physical] [-w json|fields] REV\n"); return 1; }
     uint8_t req[32], resp[256];
     size_t pos = 0;
     pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)rev);
@@ -1659,6 +1668,9 @@ static int cmd_compact(int argc, char **argv) {
         fputs("{", stdout);
         parse_and_print_header_json(resp, (size_t)rlen);
         fputs("}\n", stdout);
+    } else if (want_fields) {
+        parse_and_print_header_json(resp, (size_t)rlen);
+        fputs("\n", stdout);
     } else {
         printf("OK\n");
     }
@@ -2026,10 +2038,12 @@ static int cmd_endpoint(int argc, char **argv) {
     }
     int want_json = 0;
     int want_table = 0;
+    int want_fields = 0;
     for (int i = 3; i < argc; i++) {
         if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
             else if (strcmp(argv[i + 1], "table") == 0) want_table = 1;
+            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
             i++;
         }
     }
@@ -2112,13 +2126,16 @@ static int cmd_endpoint(int argc, char **argv) {
                    g_host, (unsigned long long)leader, (unsigned long long)revision,
                    (unsigned long long)db_size);
             printf("+--------------------------+----------------+-----------+-----------+\n");
+        } else if (want_fields) {
+            printf("endpoint: %s:%d\n", g_host, g_port);
+            printf("ID: %llu\n", (unsigned long long)leader);
+            printf("revision: %llu\n", (unsigned long long)revision);
+            printf("dbSize: %llu\n", (unsigned long long)db_size);
+            printf("raftIndex: %llu\n", (unsigned long long)raft_index);
+            printf("raftTerm: %llu\n", (unsigned long long)raft_term);
+            if (ver) printf("version: %.*s\n", (int)ver_len, ver);
+            printf("\n");
         } else {
-            printf("+--------------------------+----------------+-----------+\n");
-            printf("|         ENDPOINT         |      ID        |  REVISION |\n");
-            printf("+--------------------------+----------------+-----------+\n");
-            printf("| %-24s | %14llu | %9llu |\n",
-                   g_host, (unsigned long long)leader, (unsigned long long)revision);
-            printf("+--------------------------+----------------+-----------+\n");
             parse_status_response(resp, rlen);
         }
         return 0;
@@ -2817,11 +2834,24 @@ static int cmd_snapshot(int argc, char **argv) {
         /* Parse SnapshotResponse: field 1 (header), field 2 (remaining), field 3 (blob) */
         size_t spos = 0;
         const uint8_t *blob_data = NULL; size_t blob_len = 0;
+        uint64_t snap_revision = 0;
         while (spos < (size_t)rlen) {
             uint8_t stag = resp[spos++];
             if (stag == 0x0a) {
-                /* header (length-delimited) */
-                uint64_t l = 0; read_varint(resp, rlen, &spos, &l); spos += l;
+                /* header (length-delimited) — extract revision */
+                uint64_t l = 0; read_varint(resp, rlen, &spos, &l);
+                size_t hdr_end = spos + (size_t)l;
+                while (spos < hdr_end) {
+                    uint8_t htag = resp[spos++];
+                    if (htag == 0x18) { /* revision */
+                        read_varint(resp, hdr_end, &spos, &snap_revision);
+                    } else if (htag == 0x08 || htag == 0x10 || htag == 0x20) {
+                        uint64_t v = 0; read_varint(resp, hdr_end, &spos, &v);
+                    } else {
+                        uint64_t v = 0; read_varint(resp, hdr_end, &spos, &v);
+                    }
+                }
+                spos = hdr_end;
             } else if (stag == 0x10) {
                 /* remaining (varint) */
                 uint64_t v = 0; read_varint(resp, rlen, &spos, &v);
@@ -2838,8 +2868,14 @@ static int cmd_snapshot(int argc, char **argv) {
         if (filename) {
             FILE *f = fopen(filename, "wb");
             if (!f) { perror("fopen"); return 1; }
+            /* Write snapshot file header: 4-byte magic "CTS1" + 8-byte revision (LE) */
+            fwrite("CTS1", 1, 4, f);
+            uint8_t rev_bytes[8];
+            for (int i = 0; i < 8; i++) rev_bytes[i] = (uint8_t)((snap_revision >> (i * 8)) & 0xFF);
+            fwrite(rev_bytes, 1, 8, f);
             if (blob_data && blob_len > 0) fwrite(blob_data, 1, blob_len, f);
             fclose(f);
+            snapshot_size = blob_len + 12; /* include header */
             if (want_json) {
                 fputs("{", stdout);
                 parse_and_print_header_json(resp, (size_t)rlen);
@@ -2878,12 +2914,22 @@ static int cmd_snapshot(int argc, char **argv) {
         uint8_t *fdata = (uint8_t *)malloc(fsize);
         if (fdata) fread(fdata, 1, fsize, f);
         fclose(f);
-        /* Parse snapshot blob: repeated key_len(varint) + key + val_len(varint) + val */
+        /* Parse snapshot file: optional 12-byte header (magic "CTS1" + revision) + blob */
         int key_count = 0;
         uint32_t hash = 0;
+        uint64_t snap_rev = 0;
+        size_t data_offset = 0;
+        size_t data_size = (size_t)fsize;
+        if (fdata && fsize >= 12 && memcmp(fdata, "CTS1", 4) == 0) {
+            /* New format: has revision header */
+            for (int i = 0; i < 8; i++)
+                snap_rev |= ((uint64_t)fdata[4 + i]) << (i * 8);
+            data_offset = 12;
+            data_size = (size_t)fsize - 12;
+        }
         if (fdata) {
-            size_t sp = 0;
-            while (sp < (size_t)fsize) {
+            size_t sp = data_offset;
+            while (sp < data_offset + data_size) {
                 /* read key_len */
                 uint64_t kl = 0; if (read_varint(fdata, fsize, &sp, &kl) != 0) break;
                 if (sp + kl > (size_t)fsize) break;
@@ -2899,13 +2945,16 @@ static int cmd_snapshot(int argc, char **argv) {
         }
         if (fdata) free(fdata);
         if (snap_json) {
-            printf("{\"hash\":%u,\"revision\":0,\"total_keys\":%d,\"size\":%ld,\"filename\":\"%s\"}\n",
-                   hash, key_count, fsize, argv[3]);
+            printf("{\"hash\":%u,\"revision\":%llu,\"total_keys\":%d,\"size\":%ld,\"filename\":\"%s\"}\n",
+                   hash, (unsigned long long)snap_rev, key_count, fsize, argv[3]);
         } else {
             printf("+----------+----------+------------+---------+---------------------+\n");
             printf("|   hash   | revision | total_keys |  size   |     filename        |\n");
             printf("+----------+----------+------------+---------+---------------------+\n");
-            printf("| %8u | %8s | %10d | %7ld | %-19s |\n", hash, "-", key_count, fsize, argv[3]);
+            if (snap_rev > 0)
+                printf("| %8u | %8llu | %10d | %7ld | %-19s |\n", hash, (unsigned long long)snap_rev, key_count, fsize, argv[3]);
+            else
+                printf("| %8u | %8s | %10d | %7ld | %-19s |\n", hash, "-", key_count, fsize, argv[3]);
             printf("+----------+----------+------------+---------+---------------------+\n");
         }
         return 0;
@@ -2962,9 +3011,19 @@ static int cmd_snapshot(int argc, char **argv) {
         fread(snap_data, 1, snap_size, sf);
         fclose(sf);
         /* Parse KV pairs from the snapshot and count them */
+        /* Check for 12-byte header (magic "CTS1" + revision) */
+        size_t kv_offset = 0;
+        size_t kv_size = (size_t)snap_size;
+        uint64_t restore_rev = 0;
+        if (snap_size >= 12 && memcmp(snap_data, "CTS1", 4) == 0) {
+            for (int i = 0; i < 8; i++)
+                restore_rev |= ((uint64_t)snap_data[4 + i]) << (i * 8);
+            kv_offset = 12;
+            kv_size = (size_t)snap_size - 12;
+        }
         int kv_count = 0;
-        size_t sp = 0;
-        while (sp < (size_t)snap_size) {
+        size_t sp = kv_offset;
+        while (sp < kv_offset + kv_size) {
             uint64_t kl = 0; if (read_varint(snap_data, snap_size, &sp, &kl) != 0) break;
             if (sp + kl > (size_t)snap_size) break;
             sp += kl;
@@ -2980,13 +3039,17 @@ static int cmd_snapshot(int argc, char **argv) {
         /* Write the snapshot KV data to the data directory as snapshot.kv */
         FILE *df = fopen(check_path, "wb");
         if (!df) { perror("fopen data dir"); free(snap_data); return 1; }
-        fwrite(snap_data, 1, snap_size, df);
+        /* Write KV data only (skip header if present) */
+        fwrite(snap_data + kv_offset, 1, kv_size, df);
         fclose(df);
         free(snap_data);
         if (want_json) {
-            printf("{\"snapshot\":\"%s\",\"data_dir\":\"%s\",\"size\":%ld,\"keys\":%d}\n", snap_file, data_dir, snap_size, kv_count);
+            printf("{\"snapshot\":\"%s\",\"data_dir\":\"%s\",\"size\":%ld,\"keys\":%d,\"revision\":%llu}\n",
+                   snap_file, data_dir, snap_size, kv_count, (unsigned long long)restore_rev);
         } else {
-            printf("snapshot restored to %s (%ld bytes, %d keys)\n", check_path, snap_size, kv_count);
+            printf("snapshot restored to %s (%ld bytes, %d keys", check_path, snap_size, kv_count);
+            if (restore_rev > 0) printf(", revision %llu", (unsigned long long)restore_rev);
+            printf(")\n");
         }
         return 0;
     } else {
@@ -3046,7 +3109,7 @@ static int cmd_downgrade(int argc, char **argv) {
 
 static int cmd_member(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl member list [-w json|table]\n");
+        fprintf(stderr, "usage: cetcdctl member list [-w json|table|fields]\n");
         fprintf(stderr, "       cetcdctl member add [-w json] [--peer-urls URL] [--name NAME] [--learner] [PEER_URL]\n");
         fprintf(stderr, "       cetcdctl member remove [-w json] ID\n");
         fprintf(stderr, "       cetcdctl member update [-w json] ID PEER_URL\n");
@@ -3062,18 +3125,19 @@ static int cmd_member(int argc, char **argv) {
         }
     }
     if (strcmp(argv[2], "list") == 0) {
-        int table_fmt = 0, json_fmt = 0;
+        int table_fmt = 0, json_fmt = 0, fields_fmt = 0;
         for (int i = 3; i < argc; i++) {
             if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
                 if (strcmp(argv[i + 1], "table") == 0) table_fmt = 1;
                 else if (strcmp(argv[i + 1], "json") == 0) json_fmt = 1;
+                else if (strcmp(argv[i + 1], "fields") == 0) fields_fmt = 1;
                 i++;
             }
         }
         uint8_t req[] = {0x00}, resp[4096];
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberList", req, 1, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        parse_member_list_response(resp, rlen, table_fmt, json_fmt);
+        parse_member_list_response(resp, rlen, table_fmt, json_fmt, fields_fmt);
     } else if (strcmp(argv[2], "add") == 0) {
         const char *peer_url = NULL;
         const char *member_name = NULL;
@@ -3111,9 +3175,9 @@ static int cmd_member(int argc, char **argv) {
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberAdd", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) {
-            parse_member_list_response(resp, rlen, 0, 1);
+            parse_member_list_response(resp, rlen, 0, 1, 0);
         } else {
-            parse_member_list_response(resp, rlen, 0, 0);
+            parse_member_list_response(resp, rlen, 0, 0, 0);
         }
     } else if (strcmp(argv[2], "remove") == 0) {
         const char *id_str = NULL;
@@ -3998,7 +4062,7 @@ static void print_usage(void) {
     printf("  txn cas [-w json] KEY EXP NEW  Compare-and-swap (if KEY==EXP then KEY=NEW)\n");
     printf("  txn get [-w json] KEY [RANGE_END]  Execute a transaction (Range)\n");
     printf("  txn del [-w json] [--prefix] [--prev-kv] KEY [RANGE_END]  Execute a transaction (Delete)\n");
-    printf("  compact [--physical] [-w json] REV   Compact MVCC history to revision\n");
+    printf("  compact [--physical] [-w json|fields] REV  Compact MVCC history to revision\n");
     printf("  status [-w json|fields]  Get server status\n");
     printf("  alarm list [-w table|json|fields]  List all alarms\n");
     printf("  alarm activate [-w json] [TYPE]  Activate an alarm (NOSPACE|CORRUPT|NONE)\n");
@@ -4007,7 +4071,7 @@ static void print_usage(void) {
     printf("  hashkv [-w json]       Get KV store hash + compact revision\n");
     printf("  defrag [-w json]       Defragment database (no-op for LMDB)\n");
     printf("  move-leader [-w json] TARGET_ID  Transfer leadership to target node\n");
-    printf("  member list [-w json|table]  List cluster members\n");
+    printf("  member list [-w json|table|fields]  List cluster members\n");
     printf("  member add [-w json] [--peer-urls URL] [--name NAME] [--learner] [PEER_URL]  Add a cluster member\n");
     printf("  member remove [-w json] ID    Remove a cluster member\n");
     printf("  member update [-w json] ID URL  Update a member's peer URL\n");
@@ -4039,7 +4103,7 @@ static void print_usage(void) {
     printf("  downgrade validate [-w json] VER Validate downgrade version\n");
     printf("  version [-w json]      Print the client version\n");
     printf("  endpoint health [-w json]  Check server health\n");
-    printf("  endpoint status [-w json|table]  Get server status with endpoint info\n");
+    printf("  endpoint status [-w json|table|fields]  Get server status with endpoint info\n");
     printf("  endpoint hashkv [-w json]      Get KV hash per endpoint\n");
     printf("  check perf [-w json]    Run a simple performance check\n");
     printf("  check datascale [-w json] [--load N] [--prefix PREFIX]  Test database scalability\n");

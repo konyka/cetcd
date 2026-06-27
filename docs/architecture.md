@@ -374,7 +374,11 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `txn del --prefix ""` buffer overflow fix (same `key_len - 1` underflow pattern as get/del/watch, now uses `\0` as range_end for empty prefix),
 `txn del --from-key` flag (accepted for etcdctl compatibility; uses `\0` as range_end for all keys >= key),
 `check datascale --prefix ""` buffer overflow fix (same pattern; cleanup delete now handles empty prefix correctly),
-`del --hex` flag (outputs prev-kv key/value in hexadecimal format, matching etcdctl behavior)
+`del --hex` flag (outputs prev-kv key/value in hexadecimal format, matching etcdctl behavior),
+`snapshot file format with revision` (snapshot files now include a 12-byte header: 4-byte magic "CTS1" + 8-byte revision in little-endian; `snapshot status` displays the revision; `snapshot restore` skips the header and writes KV data only to `snapshot.kv`; old format files without the header are still supported for backward compatibility),
+`member list -w fields` (new output format showing ID, name, peerURLs, clientURLs, and isLearner for each member),
+`endpoint status -w fields` (new output format showing endpoint, ID, revision, dbSize, raftIndex, raftTerm, and version),
+`compact -w fields` (new output format showing ResponseHeader fields)
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
