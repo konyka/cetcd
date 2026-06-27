@@ -133,6 +133,7 @@ It mirrors `etcdctl` command structure for familiarity.
 ./build/bin/cetcdctl del --prefix foo            # Delete all keys with prefix
 ./build/bin/cetcdctl del --range-end zzz foo     # Delete keys from foo to zzz
 ./build/bin/cetcdctl del --prev-kv foo           # Return deleted key-values
+./build/bin/cetcdctl del --prev-kv --print-value-only foo  # Output only deleted values
 ```
 
 ### Watch streaming

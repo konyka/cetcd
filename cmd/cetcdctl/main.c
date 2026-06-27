@@ -1192,6 +1192,7 @@ static int cmd_del(int argc, char **argv) {
     bool want_json = false;
     bool want_fields = false;
     bool hex_output = false;
+    bool print_value_only = false;
     const char *key = NULL;
     const char *range_end = NULL;
 
@@ -1206,6 +1207,8 @@ static int cmd_del(int argc, char **argv) {
             prev_kv = true;
         } else if (strcmp(argv[i], "--hex") == 0) {
             hex_output = true;
+        } else if (strcmp(argv[i], "--print-value-only") == 0) {
+            print_value_only = true;
         } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) want_json = true;
             else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
@@ -1216,8 +1219,10 @@ static int cmd_del(int argc, char **argv) {
             range_end = argv[i];
         }
     }
-    if (!key) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--from-key] [--range-end KEY] [--prev-kv] [--hex] [-w json|fields] KEY [RANGE_END]\n"); return 1; }
+    if (!key) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--from-key] [--range-end KEY] [--prev-kv] [--hex] [--print-value-only] [-w json|fields] KEY [RANGE_END]\n"); return 1; }
     if (prefix && from_key) { fprintf(stderr, "--prefix and --from-key are mutually exclusive\n"); return 1; }
+    /* --print-value-only implies --prev-kv */
+    if (print_value_only) prev_kv = true;
     size_t key_len = strlen(key);
 
     uint8_t req[1024], resp[4096];
@@ -1375,6 +1380,38 @@ static int cmd_del(int argc, char **argv) {
         }
         if (has_prev_kvs) fputs("\"],", stdout);
         printf("\"deleted\":%llu}\n", (unsigned long long)deleted);
+        return 0;
+    }
+    if (print_value_only) {
+        /* Parse DeleteRangeResponse: output only values from prev_kvs */
+        size_t rpos = 0;
+        while (rpos < (size_t)rlen) {
+            uint8_t tag = resp[rpos++];
+            if (tag == 0x1a) {
+                /* prev_kvs: repeated KeyValue */
+                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+                size_t kv_end = rpos + (size_t)l;
+                const uint8_t *pv = NULL; size_t pv_len = 0;
+                while (rpos < kv_end) {
+                    uint8_t ktag = resp[rpos++];
+                    if (ktag == 0x2a) {
+                        uint64_t vl = 0; read_varint(resp, kv_end, &rpos, &vl);
+                        pv = resp + rpos; pv_len = (size_t)vl; rpos += vl;
+                    } else {
+                        uint64_t v = 0; read_varint(resp, kv_end, &rpos, &v);
+                    }
+                }
+                rpos = kv_end;
+                if (pv && pv_len > 0) {
+                    fwrite(pv, 1, pv_len, stdout);
+                    printf("\n");
+                }
+            } else if (tag == 0x0a || tag == 0x12) {
+                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
+            } else {
+                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            }
+        }
         return 0;
     }
     /* Parse DeleteRangeResponse: field 2 (deleted), field 3 (prev_kvs) */
@@ -4727,7 +4764,7 @@ static void print_usage(void) {
     printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] [--print-value-only] [-w json|fields] KEY [VALUE|-]  Store a key-value pair\n");
     printf("  get [--prefix] [--from-key] [--range-end KEY] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields|table] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
-    printf("  del [--prefix] [--from-key] [--range-end KEY] [--prev-kv] [--hex] [-w json|fields] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --range-end, --prev-kv, --hex)\n");
+    printf("  del [--prefix] [--from-key] [--range-end KEY] [--prev-kv] [--hex] [--print-value-only] [-w json|fields] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --range-end, --prev-kv, --hex, --print-value-only)\n");
     printf("  watch [--prefix] [--range-end KEY] [--prev-kv] [--start-rev N] [--filter NOPUT|NODELETE] [--hex] [--exec CMD] [-w json|fields] KEY  Watch key changes (--exec runs CMD with ETCD_WATCH_* env vars)\n");
     printf("  lease grant [--lease-id ID] [-w json|fields] TTL  Grant a lease (TTL in seconds)\n");
     printf("  lease revoke [-w json|fields] ID  Revoke a lease by ID\n");

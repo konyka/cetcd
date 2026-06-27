@@ -413,6 +413,7 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `user add --no-password` (create users without passwords for cert-based auth, sends UserAddOptions.no_password=true as field 3 in UserAddRequest; server-side handler updated to accept empty password when no_password option is set),
 `completion bash|zsh|fish` (generate shell completion scripts for bash, zsh, and fish shells, covering all cetcdctl commands, subcommands, global options, and command-specific flags),
 `put --print-value-only` (output only the previous value when used with `--prev-kv`, implies `--prev-kv` if not explicitly set),
+`del --print-value-only` (output only the deleted values when used with `--prev-kv`, implies `--prev-kv` if not explicitly set),
 `check perf --load S|M|L` (workload size: s=10, m=100, l=1000 keys; runs multiple put/get operations and reports average latency) and `--prefix PREFIX` (key prefix for test keys)
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
