@@ -2126,6 +2126,12 @@ static int cmd_endpoint(int argc, char **argv) {
         if (rlen < 0) {
             if (want_json) {
                 printf("{\"endpoint\":\"%s:%d\",\"status\":\"unhealthy\",\"took\":\"%.3fms\",\"error\":\"failed to connect\"}\n", g_host, g_port, took_ms);
+            } else if (want_fields) {
+                printf("endpoint: %s:%d\n", g_host, g_port);
+                printf("status: unhealthy\n");
+                printf("took: %.3fms\n", took_ms);
+                printf("error: failed to connect\n");
+                fputs("\n", stdout);
             } else {
                 printf("%s:%d is unhealthy: failed to connect\n", g_host, g_port);
             }
@@ -2136,6 +2142,12 @@ static int cmd_endpoint(int argc, char **argv) {
             printf("%s:%d\",", g_host, g_port);
             parse_and_print_header_json(resp, (size_t)rlen);
             printf(",\"status\":\"healthy\",\"took\":\"%.3fms\"}\n", took_ms);
+        } else if (want_fields) {
+            printf("endpoint: %s:%d\n", g_host, g_port);
+            parse_and_print_header_json(resp, (size_t)rlen);
+            printf("status: healthy\n");
+            printf("took: %.3fms\n", took_ms);
+            fputs("\n", stdout);
         } else {
             printf("%s:%d is healthy (%.3fms)\n", g_host, g_port, took_ms);
         }
@@ -2851,25 +2863,34 @@ static int cmd_alarm(int argc, char **argv) {
         if (!found_alarms && table_fmt) printf("(no alarms)\n");
     } else if (action == 1) { /* activate */
         if (json_fmt) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
+        else if (fields_fmt) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
         else printf("alarm activated %s\n", alarm_type_str);
     } else { /* disarm */
         if (json_fmt) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
+        else if (fields_fmt) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
         else printf("alarm disarmed\n");
     }
     return 0;
 }
 
 static int cmd_version(int argc, char **argv) {
-    int want_json = 0;
+    int want_json = 0, want_fields = 0;
     for (int i = 2; i < argc; i++) {
         if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
             i++;
         }
     }
     const char *ver = cetcd_version();
     if (want_json) {
         printf("{\"client\":\"cetcdctl\",\"server\":\"cetcd\",\"version\":\"%s\",\"etcd\":\"v3.5 compatible\"}\n", ver);
+    } else if (want_fields) {
+        printf("client: cetcdctl\n");
+        printf("server: cetcd\n");
+        printf("version: %s\n", ver);
+        printf("etcd: v3.5 compatible\n");
+        fputs("\n", stdout);
     } else {
         printf("cetcd version %s (etcd v3.5 compatible)\n", ver);
     }
@@ -3193,17 +3214,18 @@ static int cmd_downgrade(int argc, char **argv) {
 static int cmd_member(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl member list [-w json|table|fields]\n");
-        fprintf(stderr, "       cetcdctl member add [-w json] [--peer-urls URL] [--name NAME] [--learner] [PEER_URL]\n");
-        fprintf(stderr, "       cetcdctl member remove [-w json] ID\n");
-        fprintf(stderr, "       cetcdctl member update [-w json] ID PEER_URL\n");
-        fprintf(stderr, "       cetcdctl member promote [-w json] ID\n");
+        fprintf(stderr, "       cetcdctl member add [-w json|fields] [--peer-urls URL] [--name NAME] [--learner] [PEER_URL]\n");
+        fprintf(stderr, "       cetcdctl member remove [-w json|fields] ID\n");
+        fprintf(stderr, "       cetcdctl member update [-w json|fields] ID PEER_URL\n");
+        fprintf(stderr, "       cetcdctl member promote [-w json|fields] ID\n");
         return 1;
     }
-    /* Parse -w json for all subcommands */
-    int want_json = 0;
+    /* Parse -w json/fields for all subcommands */
+    int want_json = 0, want_fields = 0;
     for (int i = 3; i < argc; i++) {
         if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
             i++;
         }
     }
@@ -3259,6 +3281,8 @@ static int cmd_member(int argc, char **argv) {
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) {
             parse_member_list_response(resp, rlen, 0, 1, 0);
+        } else if (want_fields) {
+            parse_member_list_response(resp, rlen, 0, 0, 1);
         } else {
             parse_member_list_response(resp, rlen, 0, 0, 0);
         }
@@ -3269,13 +3293,15 @@ static int cmd_member(int argc, char **argv) {
             if (i > 3 && (strcmp(argv[i-1], "-w") == 0 || strcmp(argv[i-1], "--write-out") == 0)) continue;
             if (!id_str) id_str = argv[i];
         }
-        if (!id_str) { fprintf(stderr, "usage: cetcdctl member remove [-w json] ID\n"); return 1; }
+        if (!id_str) { fprintf(stderr, "usage: cetcdctl member remove [-w json|fields] ID\n"); return 1; }
         uint8_t req[32], resp[256];
         size_t pos = 0;
         pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(id_str));
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberRemove", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
+        else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
+        else { printf("OK\n"); }
     } else if (strcmp(argv[2], "update") == 0) {
         const char *id_str = NULL;
         const char *peer_url = NULL;
@@ -3284,27 +3310,31 @@ static int cmd_member(int argc, char **argv) {
             if (!id_str) id_str = argv[i];
             else if (!peer_url) peer_url = argv[i];
         }
-        if (!id_str || !peer_url) { fprintf(stderr, "usage: cetcdctl member update [-w json] ID PEER_URL\n"); return 1; }
+        if (!id_str || !peer_url) { fprintf(stderr, "usage: cetcdctl member update [-w json|fields] ID PEER_URL\n"); return 1; }
         uint8_t req[512], resp[256];
         size_t pos = 0;
         pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(id_str));
         pos = encode_string_field(req, sizeof(req), pos, 0x12, peer_url);
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberUpdate", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
+        else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
+        else { printf("OK\n"); }
     } else if (strcmp(argv[2], "promote") == 0) {
         const char *id_str = NULL;
         for (int i = 3; i < argc; i++) {
             if (argv[i][0] == '-') { if (i + 1 < argc && (strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0)) i++; continue; }
             if (!id_str) id_str = argv[i];
         }
-        if (!id_str) { fprintf(stderr, "usage: cetcdctl member promote [-w json] ID\n"); return 1; }
+        if (!id_str) { fprintf(stderr, "usage: cetcdctl member promote [-w json|fields] ID\n"); return 1; }
         uint8_t req[32], resp[256];
         size_t pos = 0;
         pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(id_str));
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberPromote", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
+        else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
+        else { printf("OK\n"); }
     } else {
         fprintf(stderr, "unknown member subcommand: %s\n", argv[2]);
         return 1;
@@ -3414,49 +3444,54 @@ static int cmd_auth(int argc, char **argv) {
 
 static int cmd_user(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl user add NAME PASS [-w json]\n");
-        fprintf(stderr, "       cetcdctl user delete NAME [-w json]\n");
-        fprintf(stderr, "       cetcdctl user get NAME [-w json]\n");
+        fprintf(stderr, "usage: cetcdctl user add NAME PASS [-w json|fields]\n");
+        fprintf(stderr, "       cetcdctl user delete NAME [-w json|fields]\n");
+        fprintf(stderr, "       cetcdctl user get NAME [-w json|fields]\n");
         fprintf(stderr, "       cetcdctl user list [-w json|table|fields]\n");
-        fprintf(stderr, "       cetcdctl user change-password NAME PASS [-w json]\n");
-        fprintf(stderr, "       cetcdctl user grant-role NAME ROLE [-w json]\n");
-        fprintf(stderr, "       cetcdctl user revoke-role NAME ROLE [-w json]\n");
+        fprintf(stderr, "       cetcdctl user change-password NAME PASS [-w json|fields]\n");
+        fprintf(stderr, "       cetcdctl user grant-role NAME ROLE [-w json|fields]\n");
+        fprintf(stderr, "       cetcdctl user revoke-role NAME ROLE [-w json|fields]\n");
         return 1;
     }
-    /* Parse -w json for all subcommands */
-    int want_json = 0;
+    /* Parse -w json/fields for all subcommands */
+    int want_json = 0, want_fields = 0;
     for (int i = 3; i < argc; i++) {
         if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
             i++;
         }
     }
     if (strcmp(argv[2], "add") == 0) {
-        if (argc < 5) { fprintf(stderr, "usage: cetcdctl user add NAME PASS [-w json]\n"); return 1; }
+        if (argc < 5) { fprintf(stderr, "usage: cetcdctl user add NAME PASS [-w json|fields]\n"); return 1; }
         uint8_t req[512], resp[256];
         size_t pos = 0;
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
         pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
         int rlen = do_rpc("/etcdserverpb.Auth/UserAdd", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
+        else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
+        else { printf("OK\n"); }
     } else if (strcmp(argv[2], "delete") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl user delete NAME [-w json]\n"); return 1; }
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl user delete NAME [-w json|fields]\n"); return 1; }
         uint8_t req[256], resp[256];
         size_t pos = 0;
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
         int rlen = do_rpc("/etcdserverpb.Auth/UserDelete", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
+        else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
+        else { printf("OK\n"); }
     } else if (strcmp(argv[2], "get") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl user get NAME [-w json]\n"); return 1; }
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl user get NAME [-w json|fields]\n"); return 1; }
         uint8_t req[256], resp[4096];
         size_t pos = 0;
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
         int rlen = do_rpc("/etcdserverpb.Auth/UserGet", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (!want_json) printf("roles:\n");
-        parse_string_list_response(resp, rlen, "roles", 0, want_json, 0);
+        if (!want_json && !want_fields) printf("roles:\n");
+        parse_string_list_response(resp, rlen, "roles", 0, want_json, want_fields);
     } else if (strcmp(argv[2], "list") == 0) {
         int table_fmt = 0, fields_fmt = 0;
         for (int i = 3; i < argc; i++) {
@@ -3478,25 +3513,31 @@ static int cmd_user(int argc, char **argv) {
         pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
         int rlen = do_rpc("/etcdserverpb.Auth/UserChangePassword", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
+        else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
+        else { printf("OK\n"); }
     } else if (strcmp(argv[2], "grant-role") == 0) {
-        if (argc < 5) { fprintf(stderr, "usage: cetcdctl user grant-role NAME ROLE [-w json]\n"); return 1; }
+        if (argc < 5) { fprintf(stderr, "usage: cetcdctl user grant-role NAME ROLE [-w json|fields]\n"); return 1; }
         uint8_t req[512], resp[256];
         size_t pos = 0;
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
         pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
         int rlen = do_rpc("/etcdserverpb.Auth/UserGrantRole", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
+        else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
+        else { printf("OK\n"); }
     } else if (strcmp(argv[2], "revoke-role") == 0) {
-        if (argc < 5) { fprintf(stderr, "usage: cetcdctl user revoke-role NAME ROLE [-w json]\n"); return 1; }
+        if (argc < 5) { fprintf(stderr, "usage: cetcdctl user revoke-role NAME ROLE [-w json|fields]\n"); return 1; }
         uint8_t req[512], resp[256];
         size_t pos = 0;
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
         pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
         int rlen = do_rpc("/etcdserverpb.Auth/UserRevokeRole", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
+        else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
+        else { printf("OK\n"); }
     } else {
         fprintf(stderr, "unknown user subcommand: %s\n", argv[2]);
         return 1;
@@ -3506,38 +3547,43 @@ static int cmd_user(int argc, char **argv) {
 
 static int cmd_role(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl role add NAME [-w json]\n");
-        fprintf(stderr, "       cetcdctl role delete NAME [-w json]\n");
-        fprintf(stderr, "       cetcdctl role get NAME [-w json]\n");
+        fprintf(stderr, "usage: cetcdctl role add NAME [-w json|fields]\n");
+        fprintf(stderr, "       cetcdctl role delete NAME [-w json|fields]\n");
+        fprintf(stderr, "       cetcdctl role get NAME [-w json|fields]\n");
         fprintf(stderr, "       cetcdctl role list [-w json|table|fields]\n");
-        fprintf(stderr, "       cetcdctl role grant-permission ROLE TYPE KEY [-w json]\n");
-        fprintf(stderr, "       cetcdctl role revoke-permission ROLE [-w json]\n");
+        fprintf(stderr, "       cetcdctl role grant-permission ROLE TYPE KEY [-w json|fields]\n");
+        fprintf(stderr, "       cetcdctl role revoke-permission ROLE [-w json|fields]\n");
         return 1;
     }
-    /* Parse -w json for all subcommands */
-    int want_json = 0;
+    /* Parse -w json/fields for all subcommands */
+    int want_json = 0, want_fields = 0;
     for (int i = 3; i < argc; i++) {
         if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
+            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
             i++;
         }
     }
     if (strcmp(argv[2], "add") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl role add NAME [-w json]\n"); return 1; }
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl role add NAME [-w json|fields]\n"); return 1; }
         uint8_t req[256], resp[256];
         size_t pos = 0;
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
         int rlen = do_rpc("/etcdserverpb.Auth/RoleAdd", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
+        else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
+        else { printf("OK\n"); }
     } else if (strcmp(argv[2], "delete") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl role delete NAME [-w json]\n"); return 1; }
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl role delete NAME [-w json|fields]\n"); return 1; }
         uint8_t req[256], resp[256];
         size_t pos = 0;
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
         int rlen = do_rpc("/etcdserverpb.Auth/RoleDelete", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
+        else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
+        else { printf("OK\n"); }
     } else if (strcmp(argv[2], "list") == 0) {
         int table_fmt = 0, fields_fmt = 0;
         for (int i = 3; i < argc; i++) {
@@ -3552,13 +3598,44 @@ static int cmd_role(int argc, char **argv) {
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         parse_string_list_response(resp, rlen, "roles", table_fmt, want_json, fields_fmt);
     } else if (strcmp(argv[2], "get") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl role get NAME [-w json]\n"); return 1; }
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl role get NAME [-w json|fields]\n"); return 1; }
         uint8_t req[256], resp[1024];
         size_t pos = 0;
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
         int rlen = do_rpc("/etcdserverpb.Auth/RoleGet", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) {
+        if (want_fields) {
+            parse_and_print_header_json(resp, (size_t)rlen);
+            printf("role: %s\n", argv[3]);
+            size_t rpos = 0;
+            while (rpos < (size_t)rlen) {
+                uint8_t tag = resp[rpos++];
+                if (tag == 0x12) {
+                    uint64_t plen = 0; read_varint(resp, rlen, &rpos, &plen);
+                    size_t pend = rpos + (size_t)plen;
+                    while (rpos < pend) {
+                        uint8_t ptag = resp[rpos++];
+                        if (ptag == 0x08) {
+                            uint64_t pt = 0; read_varint(resp, pend, &rpos, &pt);
+                            printf("permType: %s\n", pt == 0 ? "READ" : pt == 1 ? "WRITE" : "READWRITE");
+                        } else if (ptag == 0x0a) {
+                            uint64_t l = 0; read_varint(resp, pend, &rpos, &l);
+                            printf("key: %.*s\n", (int)l, resp + rpos);
+                            rpos += l;
+                        } else {
+                            uint64_t v = 0; read_varint(resp, pend, &rpos, &v);
+                        }
+                    }
+                    rpos = pend;
+                } else if (tag == 0x0a) {
+                    uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
+                    rpos += l;
+                } else {
+                    uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+                }
+            }
+            fputs("\n", stdout);
+        } else if (want_json) {
             fputs("{", stdout);
             parse_and_print_header_json(resp, (size_t)rlen);
             printf(",\"role\":\"%s\",\"perm\":[", argv[3]);
@@ -3632,7 +3709,7 @@ static int cmd_role(int argc, char **argv) {
         }
     } else if (strcmp(argv[2], "grant-permission") == 0) {
         if (argc < 6) {
-            fprintf(stderr, "usage: cetcdctl role grant-permission ROLE TYPE KEY [-w json]\n");
+            fprintf(stderr, "usage: cetcdctl role grant-permission ROLE TYPE KEY [-w json|fields]\n");
             fprintf(stderr, "  TYPE: read | write | readwrite\n");
             return 1;
         }
@@ -3667,15 +3744,19 @@ static int cmd_role(int argc, char **argv) {
 
         int rlen = do_rpc("/etcdserverpb.Auth/RoleGrantPermission", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
+        else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
+        else { printf("OK\n"); }
     } else if (strcmp(argv[2], "revoke-permission") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl role revoke-permission ROLE [-w json]\n"); return 1; }
+        if (argc < 4) { fprintf(stderr, "usage: cetcdctl role revoke-permission ROLE [-w json|fields]\n"); return 1; }
         uint8_t req[256], resp[256];
         size_t pos = 0;
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
         int rlen = do_rpc("/etcdserverpb.Auth/RoleRevokePermission", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); } else { printf("OK\n"); }
+        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
+        else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
+        else { printf("OK\n"); }
     } else {
         fprintf(stderr, "unknown role subcommand: %s\n", argv[2]);
         return 1;
@@ -3963,9 +4044,11 @@ static int cmd_watch(int argc, char **argv) {
 
 static int cmd_hash(int argc, char **argv) {
     bool want_json = false;
+    bool want_fields = false;
     for (int i = 2; i < argc; i++) {
         if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) want_json = true;
+            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
             i++;
         }
     }
@@ -3989,6 +4072,10 @@ static int cmd_hash(int argc, char **argv) {
         fputs("{", stdout);
         parse_and_print_header_json(resp, (size_t)rlen);
         printf(",\"hash\":%llu}\n", (unsigned long long)hash_val);
+    } else if (want_fields) {
+        parse_and_print_header_json(resp, (size_t)rlen);
+        printf("hash: %llu\n", (unsigned long long)hash_val);
+        fputs("\n", stdout);
     } else {
         printf("hash: %llu\n", (unsigned long long)hash_val);
     }
@@ -3997,9 +4084,11 @@ static int cmd_hash(int argc, char **argv) {
 
 static int cmd_hashkv(int argc, char **argv) {
     bool want_json = false;
+    bool want_fields = false;
     for (int i = 2; i < argc; i++) {
         if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) want_json = true;
+            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
             i++;
         }
     }
@@ -4026,6 +4115,11 @@ static int cmd_hashkv(int argc, char **argv) {
         parse_and_print_header_json(resp, (size_t)rlen);
         printf(",\"hash\":%llu,\"compact_revision\":%llu}\n",
                (unsigned long long)hash_val, (unsigned long long)compact_rev);
+    } else if (want_fields) {
+        parse_and_print_header_json(resp, (size_t)rlen);
+        printf("hash: %llu\n", (unsigned long long)hash_val);
+        printf("compact_revision: %llu\n", (unsigned long long)compact_rev);
+        fputs("\n", stdout);
     } else {
         printf("hash: %llu\n", (unsigned long long)hash_val);
         printf("compact_revision: %llu\n", (unsigned long long)compact_rev);
@@ -4167,35 +4261,35 @@ static void print_usage(void) {
     printf("  compact [--physical] [-w json|fields] REV  Compact MVCC history to revision\n");
     printf("  status [-w json|fields]  Get server status\n");
     printf("  alarm list [-w table|json|fields]  List all alarms\n");
-    printf("  alarm activate [-w json] [TYPE]  Activate an alarm (NOSPACE|CORRUPT|NONE)\n");
-    printf("  alarm disarm [-w json] [TYPE]     Disarm an alarm (NOSPACE|CORRUPT|NONE)\n");
-    printf("  hash [-w json]         Get KV store hash\n");
-    printf("  hashkv [-w json]       Get KV store hash + compact revision\n");
+    printf("  alarm activate [-w json|fields] [TYPE]  Activate an alarm (NOSPACE|CORRUPT|NONE)\n");
+    printf("  alarm disarm [-w json|fields] [TYPE]     Disarm an alarm (NOSPACE|CORRUPT|NONE)\n");
+    printf("  hash [-w json|fields]         Get KV store hash\n");
+    printf("  hashkv [-w json|fields]       Get KV store hash + compact revision\n");
     printf("  defrag [-w json|fields]       Defragment database (no-op for LMDB)\n");
     printf("  move-leader [-w json|fields] TARGET_ID  Transfer leadership to target node\n");
     printf("  member list [-w json|table|fields]  List cluster members\n");
-    printf("  member add [-w json] [--peer-urls URL] [--name NAME] [--learner] [PEER_URL]  Add a cluster member\n");
-    printf("  member remove [-w json] ID    Remove a cluster member\n");
-    printf("  member update [-w json] ID URL  Update a member's peer URL\n");
-    printf("  member promote [-w json] ID    Promote a member to voting member\n");
+    printf("  member add [-w json|fields] [--peer-urls URL] [--name NAME] [--learner] [PEER_URL]  Add a cluster member\n");
+    printf("  member remove [-w json|fields] ID    Remove a cluster member\n");
+    printf("  member update [-w json|fields] ID URL  Update a member's peer URL\n");
+    printf("  member promote [-w json|fields] ID    Promote a member to voting member\n");
     printf("  auth enable [-w json|fields]     Enable authentication\n");
     printf("  auth disable [-w json|fields]     Disable authentication\n");
     printf("  auth status [-w json|fields]     Query auth status\n");
     printf("  auth login NAME PASS [-w json]   Authenticate and get token\n");
-    printf("  user add NAME PASS [-w json]    Add a user\n");
-    printf("  user delete NAME [-w json]      Delete a user\n");
-    printf("  user get NAME [-w json]          Get user details (roles)\n");
+    printf("  user add NAME PASS [-w json|fields]    Add a user\n");
+    printf("  user delete NAME [-w json|fields]      Delete a user\n");
+    printf("  user get NAME [-w json|fields]          Get user details (roles)\n");
     printf("  user list [-w json|table|fields]       List all users\n");
-    printf("  user change-password NAME PASS [-w json]  Change user password\n");
-    printf("  user grant-role NAME ROLE [-w json]        Grant role to user\n");
-    printf("  user revoke-role NAME ROLE [-w json]       Revoke role from user\n");
-    printf("  role add NAME [-w json]          Add a role\n");
-    printf("  role delete NAME [-w json]       Delete a role\n");
-    printf("  role get NAME [-w json]          Get role details (permissions)\n");
+    printf("  user change-password NAME PASS [-w json|fields]  Change user password\n");
+    printf("  user grant-role NAME ROLE [-w json|fields]        Grant role to user\n");
+    printf("  user revoke-role NAME ROLE [-w json|fields]       Revoke role from user\n");
+    printf("  role add NAME [-w json|fields]          Add a role\n");
+    printf("  role delete NAME [-w json|fields]       Delete a role\n");
+    printf("  role get NAME [-w json|fields]          Get role details (permissions)\n");
     printf("  role list [-w json|table|fields]        List all roles\n");
-    printf("  role grant-permission ROLE TYPE KEY [-w json]\n");
+    printf("  role grant-permission ROLE TYPE KEY [-w json|fields]\n");
     printf("                         Grant permission (read|write|readwrite)\n");
-    printf("  role revoke-permission ROLE [-w json]\n");
+    printf("  role revoke-permission ROLE [-w json|fields]\n");
     printf("                         Revoke all permissions from role\n");
     printf("  snapshot save [FILE] [--compaction-periodical] [-w json]   Save a snapshot to file\n");
     printf("  snapshot status FILE [-w json|fields]  Show snapshot file info\n");
@@ -4203,10 +4297,10 @@ static void print_usage(void) {
     printf("  downgrade enable [-w json|fields] VER   Enable cluster downgrade\n");
     printf("  downgrade cancel [-w json|fields]       Cancel cluster downgrade\n");
     printf("  downgrade validate [-w json|fields] VER Validate downgrade version\n");
-    printf("  version [-w json]      Print the client version\n");
-    printf("  endpoint health [-w json]  Check server health\n");
+    printf("  version [-w json|fields]      Print the client version\n");
+    printf("  endpoint health [-w json|fields]  Check server health\n");
     printf("  endpoint status [-w json|table|fields]  Get server status with endpoint info\n");
-    printf("  endpoint hashkv [-w json]      Get KV hash per endpoint\n");
+    printf("  endpoint hashkv [-w json|fields]      Get KV hash per endpoint\n");
     printf("  check perf [-w json]    Run a simple performance check\n");
     printf("  check datascale [-w json] [--load N] [--prefix PREFIX]  Test database scalability\n");
     printf("  lock [--ttl N] [--print-value-only] LOCKNAME [CMD...]  Acquire a distributed lock\n");

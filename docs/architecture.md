@@ -387,7 +387,14 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `user list -w fields` (fields output listing each user with label),
 `role list -w fields` (fields output listing each role with label),
 `lease grant --lease-id ID` (custom lease ID in hex format, matching etcdctl behavior),
-`lease grant/revoke/timetolive/keepalive -w fields` (fields output showing ID, TTL, grantedTTL, and keys with --keys)
+`lease grant/revoke/timetolive/keepalive -w fields` (fields output showing ID, TTL, grantedTTL, and keys with --keys),
+`version -w fields` (fields output showing client, server, version, etcd compatibility),
+`endpoint health -w fields` (fields output showing endpoint, ResponseHeader, status, took time),
+`hash/hashkv -w fields` (fields output showing hash and compact_revision),
+`alarm activate/disarm -w fields` (fields output showing ResponseHeader),
+`member add/remove/update/promote -w fields` (fields output showing ResponseHeader, member add uses fields format for member list),
+`user add/delete/get/change-password/grant-role/revoke-role -w fields` (fields output showing ResponseHeader, user get shows roles in fields format),
+`role add/delete/get/grant-permission/revoke-permission -w fields` (fields output showing ResponseHeader, role get shows permissions in fields format)
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
