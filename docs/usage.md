@@ -407,6 +407,19 @@ Supported operations (in `then`/`else` sections):
 ./build/bin/cetcdctl member update 2 http://10.0.0.1:2380,http://10.0.0.2:2380
 ```
 
+### Endpoint health with cluster check
+
+```sh
+# Check health of all cluster members
+./build/bin/cetcdctl endpoint health --cluster
+
+# With JSON output
+./build/bin/cetcdctl endpoint health --cluster -w json
+
+# With fields output
+./build/bin/cetcdctl endpoint health --cluster -w fields
+```
+
 ### Global options
 
 | Option | Default | Description |

@@ -2349,22 +2349,119 @@ static int cmd_status(int argc, char **argv) {
 
 static int cmd_endpoint(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl endpoint {health,status,hashkv}\n");
+        fprintf(stderr, "usage: cetcdctl endpoint {health,status,hashkv} [--cluster]\n");
         return 1;
     }
     int want_json = 0;
     int want_table = 0;
     int want_fields = 0;
+    int cluster = 0;
     for (int i = 3; i < argc; i++) {
         if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
             else if (strcmp(argv[i + 1], "table") == 0) want_table = 1;
             else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
             i++;
+        } else if (strcmp(argv[i], "--cluster") == 0) {
+            cluster = 1;
         }
     }
     if (strcmp(argv[2], "health") == 0) {
-        /* Health check: send a Status RPC and check if we get a response */
+        if (cluster) {
+            /* Get member list to find all endpoints */
+            uint8_t mreq[] = {0x00}, mresp[4096];
+            int mrlen = do_rpc("/etcdserverpb.Cluster/MemberList", mreq, 1, mresp, sizeof(mresp));
+            if (mrlen < 0) { fprintf(stderr, "failed to get member list\n"); return 1; }
+            /* Parse MemberList response to extract client URLs and check each */
+            size_t mpos = 0;
+            const char *orig_host = g_host;
+            uint16_t orig_port = g_port;
+            int any_unhealthy = 0;
+            while (mpos < (size_t)mrlen) {
+                uint8_t tag = mresp[mpos++];
+                if (tag == 0x12) {
+                    uint64_t mlen = 0; read_varint(mresp, mrlen, &mpos, &mlen);
+                    size_t mend = mpos + (size_t)mlen;
+                    const uint8_t *client_url = NULL; size_t client_len = 0;
+                    while (mpos < mend) {
+                        uint8_t mtag = mresp[mpos++];
+                        if (mtag == 0x22) {
+                            uint64_t l = 0; read_varint(mresp, mend, &mpos, &l);
+                            client_url = mresp + mpos; client_len = (size_t)l;
+                            mpos += l;
+                        } else if (mtag == 0x08 || mtag == 0x28) {
+                            uint64_t v = 0; read_varint(mresp, mend, &mpos, &v);
+                        } else if (mtag == 0x12 || mtag == 0x1a) {
+                            uint64_t l = 0; read_varint(mresp, mend, &mpos, &l);
+                            mpos += l;
+                        } else {
+                            uint64_t v = 0; read_varint(mresp, mend, &mpos, &v);
+                        }
+                    }
+                    mpos = mend;
+                    if (client_url && client_len > 0) {
+                        char url[256];
+                        size_t ul = client_len < sizeof(url) - 1 ? client_len : sizeof(url) - 1;
+                        memcpy(url, client_url, ul);
+                        url[ul] = '\0';
+                        char *host_start = url;
+                        if (strncmp(url, "http://", 7) == 0) host_start = url + 7;
+                        else if (strncmp(url, "https://", 8) == 0) host_start = url + 8;
+                        char *colon = strchr(host_start, ':');
+                        if (colon) {
+                            *colon = '\0';
+                            g_host = host_start;
+                            g_port = (uint16_t)atoi(colon + 1);
+                        } else {
+                            g_host = host_start;
+                            g_port = 2379;
+                        }
+                        uint8_t hreq[] = {0x00}, hresp[1024];
+                        struct timeval t0, t1;
+                        gettimeofday(&t0, NULL);
+                        int hrlen = do_rpc("/etcdserverpb.Maintenance/Status", hreq, 1, hresp, sizeof(hresp));
+                        gettimeofday(&t1, NULL);
+                        double took_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_usec - t0.tv_usec) / 1000.0;
+                        if (hrlen < 0) {
+                            any_unhealthy = 1;
+                            if (want_json) {
+                                printf("{\"endpoint\":\"%s:%d\",\"status\":\"unhealthy\",\"took\":\"%.3fms\",\"error\":\"failed to connect\"}\n", g_host, g_port, took_ms);
+                            } else if (want_fields) {
+                                printf("endpoint: %s:%d\n", g_host, g_port);
+                                printf("status: unhealthy\n");
+                                printf("took: %.3fms\n", took_ms);
+                                printf("error: failed to connect\n\n");
+                            } else {
+                                printf("%s:%d is unhealthy: failed to connect\n", g_host, g_port);
+                            }
+                        } else {
+                            if (want_json) {
+                                fputs("{\"endpoint\":\"", stdout);
+                                printf("%s:%d\",", g_host, g_port);
+                                parse_and_print_header_json(hresp, (size_t)hrlen);
+                                printf(",\"status\":\"healthy\",\"took\":\"%.3fms\"}\n", took_ms);
+                            } else if (want_fields) {
+                                printf("endpoint: %s:%d\n", g_host, g_port);
+                                parse_and_print_header_json(hresp, (size_t)hrlen);
+                                printf("status: healthy\n");
+                                printf("took: %.3fms\n\n", took_ms);
+                            } else {
+                                printf("%s:%d is healthy (%.3fms)\n", g_host, g_port, took_ms);
+                            }
+                        }
+                    }
+                } else if (tag == 0x0a) {
+                    uint64_t l = 0; read_varint(mresp, mrlen, &mpos, &l);
+                    mpos += l;
+                } else {
+                    uint64_t v = 0; read_varint(mresp, mrlen, &mpos, &v);
+                }
+            }
+            g_host = orig_host;
+            g_port = orig_port;
+            return any_unhealthy ? 1 : 0;
+        }
+        /* Non-cluster health check: send a Status RPC and check if we get a response */
         uint8_t req[] = {0x00}, resp[1024];
         struct timeval t0, t1;
         gettimeofday(&t0, NULL);
@@ -4804,7 +4901,7 @@ static int cmd_completion(int argc, char **argv) {
         printf("        role) local opts=\"--prefix --range-end -w --write-out\"; local subs=\"add delete get list grant-permission revoke-permission\";;\n");
         printf("        snapshot) local opts=\"--compaction-periodical --data-dir --force -w --write-out\"; local subs=\"save status restore\";;\n");
         printf("        downgrade) local opts=\"-w --write-out\"; local subs=\"enable cancel validate\";;\n");
-        printf("        endpoint) local opts=\"-w --write-out\"; local subs=\"health status hashkv\";;\n");
+        printf("        endpoint) local opts=\"--cluster -w --write-out\"; local subs=\"health status hashkv\";;\n");
         printf("        check) local opts=\"--load --prefix -w --write-out\"; local subs=\"perf datascale\";;\n");
         printf("        lock) local opts=\"--ttl --print-value-only -w --write-out\";;\n");
         printf("        elect) local opts=\"--ttl --print-value-only -w --write-out\";;\n");
@@ -4904,6 +5001,7 @@ static int cmd_completion(int argc, char **argv) {
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from snapshot' -a 'save status restore'\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from downgrade' -a 'enable cancel validate'\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from endpoint' -a 'health status hashkv'\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from endpoint' -l cluster\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from check' -a 'perf datascale'\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from completion' -a 'bash zsh fish'\n");
         printf("# Common flags\n");
@@ -4999,7 +5097,7 @@ static void print_usage(void) {
     printf("  downgrade cancel [-w json|fields]       Cancel cluster downgrade\n");
     printf("  downgrade validate [-w json|fields] VER Validate downgrade version\n");
     printf("  version [-w json|fields]      Print the client version\n");
-    printf("  endpoint health [-w json|fields]  Check server health\n");
+    printf("  endpoint health [--cluster] [-w json|fields]  Check server health (or all cluster members with --cluster)\n");
     printf("  endpoint status [-w json|table|fields]  Get server status with endpoint info\n");
     printf("  endpoint hashkv [-w json|fields]      Get KV hash per endpoint\n");
     printf("  check perf [--load S|M|L] [--prefix PREFIX] [-w json|fields]    Run a simple performance check\n");
