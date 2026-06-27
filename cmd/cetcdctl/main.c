@@ -1019,6 +1019,7 @@ static int cmd_get(int argc, char **argv) {
         }
     }
     if (!key) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
+    if (prefix && from_key) { fprintf(stderr, "--prefix and --from-key are mutually exclusive\n"); return 1; }
 
     size_t key_len = strlen(key);
 
@@ -1028,12 +1029,18 @@ static int cmd_get(int argc, char **argv) {
                              (const uint8_t *)key, key_len);
     if (prefix) {
         /* range_end = key with last byte incremented (standard etcd prefix semantics) */
-        char prefix_end[256];
-        if (key_len >= sizeof(prefix_end)) { fprintf(stderr, "key too long\n"); return 1; }
-        memcpy(prefix_end, key, key_len);
-        prefix_end[key_len - 1]++;
-        pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
-                                 (const uint8_t *)prefix_end, key_len);
+        if (key_len == 0) {
+            /* Empty key with --prefix means all keys */
+            uint8_t zero = 0;
+            pos = encode_bytes_field(req, sizeof(req), pos, 0x12, &zero, 1);
+        } else {
+            char prefix_end[256];
+            if (key_len >= sizeof(prefix_end)) { fprintf(stderr, "key too long\n"); return 1; }
+            memcpy(prefix_end, key, key_len);
+            prefix_end[key_len - 1]++;
+            pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
+                                     (const uint8_t *)prefix_end, key_len);
+        }
     } else if (from_key) {
         /* range_end = \0 means all keys >= key */
         uint8_t zero = 0;
@@ -1128,6 +1135,7 @@ static int cmd_del(int argc, char **argv) {
         }
     }
     if (!key) { fprintf(stderr, "usage: cetcdctl del [--prefix] [--from-key] [--prev-kv] [-w json|fields] KEY [RANGE_END]\n"); return 1; }
+    if (prefix && from_key) { fprintf(stderr, "--prefix and --from-key are mutually exclusive\n"); return 1; }
     size_t key_len = strlen(key);
 
     uint8_t req[1024], resp[4096];
@@ -1135,12 +1143,18 @@ static int cmd_del(int argc, char **argv) {
     pos = encode_bytes_field(req, sizeof(req), pos, 0x0a,
                              (const uint8_t *)key, key_len);
     if (prefix) {
-        char prefix_end[256];
-        if (key_len >= sizeof(prefix_end)) { fprintf(stderr, "key too long\n"); return 1; }
-        memcpy(prefix_end, key, key_len);
-        prefix_end[key_len - 1]++;
-        pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
-                                 (const uint8_t *)prefix_end, key_len);
+        if (key_len == 0) {
+            /* Empty key with --prefix means all keys */
+            uint8_t zero = 0;
+            pos = encode_bytes_field(req, sizeof(req), pos, 0x12, &zero, 1);
+        } else {
+            char prefix_end[256];
+            if (key_len >= sizeof(prefix_end)) { fprintf(stderr, "key too long\n"); return 1; }
+            memcpy(prefix_end, key, key_len);
+            prefix_end[key_len - 1]++;
+            pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
+                                     (const uint8_t *)prefix_end, key_len);
+        }
     } else if (from_key) {
         /* range_end = \0 means all keys >= key */
         uint8_t zero = 0;
@@ -2247,22 +2261,25 @@ static void lock_signal_handler(int sig) {
 
 static int cmd_lock(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl lock [--ttl N] LOCKNAME [COMMAND...]\n");
+        fprintf(stderr, "usage: cetcdctl lock [--ttl N] [--print-value-only] LOCKNAME [COMMAND...]\n");
         return 1;
     }
     int ttl = 60; /* default lease TTL */
+    int print_value_only = 0;
     const char *lockname = NULL;
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--ttl") == 0 && i + 1 < argc) {
             ttl = atoi(argv[++i]);
             if (ttl <= 0) { fprintf(stderr, "invalid --ttl value\n"); return 1; }
+        } else if (strcmp(argv[i], "--print-value-only") == 0) {
+            print_value_only = 1;
         } else if (!lockname) {
             lockname = argv[i];
         }
         /* Remaining args after lockname are the command to execute */
         if (lockname) break;
     }
-    if (!lockname) { fprintf(stderr, "usage: cetcdctl lock [--ttl N] LOCKNAME [COMMAND...]\n"); return 1; }
+    if (!lockname) { fprintf(stderr, "usage: cetcdctl lock [--ttl N] [--print-value-only] LOCKNAME [COMMAND...]\n"); return 1; }
     size_t lockname_len = strlen(lockname);
 
     /* Build lock key: "/{lockname}" */
@@ -2370,8 +2387,12 @@ static int cmd_lock(int argc, char **argv) {
     signal(SIGINT, lock_signal_handler);
     signal(SIGTERM, lock_signal_handler);
 
-    /* Print the lock key (etcdctl prints the key name) */
-    printf("%.*s\n", (int)lock_key_len, lock_key);
+    /* Print the lock key or lease ID (etcdctl prints the key name) */
+    if (print_value_only) {
+        printf("%llu\n", (unsigned long long)lease_id);
+    } else {
+        printf("%.*s\n", (int)lock_key_len, lock_key);
+    }
     fflush(stdout);
 
     /* If a command is provided, execute it; otherwise wait for signal */
@@ -2427,23 +2448,26 @@ static int cmd_lock(int argc, char **argv) {
 
 static int cmd_elect(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl elect [--ttl N] ELECTION_NAME [PROPOSAL]\n");
+        fprintf(stderr, "usage: cetcdctl elect [--ttl N] [--print-value-only] ELECTION_NAME [PROPOSAL]\n");
         return 1;
     }
     int ttl = 60;
+    int print_value_only = 0;
     const char *election_name = NULL;
     const char *proposal = NULL;
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--ttl") == 0 && i + 1 < argc) {
             ttl = atoi(argv[++i]);
             if (ttl <= 0) { fprintf(stderr, "invalid --ttl value\n"); return 1; }
+        } else if (strcmp(argv[i], "--print-value-only") == 0) {
+            print_value_only = 1;
         } else if (!election_name) {
             election_name = argv[i];
         } else if (!proposal) {
             proposal = argv[i];
         }
     }
-    if (!election_name) { fprintf(stderr, "usage: cetcdctl elect [--ttl N] ELECTION_NAME [PROPOSAL]\n"); return 1; }
+    if (!election_name) { fprintf(stderr, "usage: cetcdctl elect [--ttl N] [--print-value-only] ELECTION_NAME [PROPOSAL]\n"); return 1; }
     if (!proposal) proposal = "cetcd";
     size_t name_len = strlen(election_name);
     size_t proposal_len = strlen(proposal);
@@ -2545,7 +2569,11 @@ static int cmd_elect(int argc, char **argv) {
     signal(SIGINT, lock_signal_handler);
     signal(SIGTERM, lock_signal_handler);
 
-    printf("%s\n", proposal);
+    if (print_value_only) {
+        printf("%llu\n", (unsigned long long)lease_id);
+    } else {
+        printf("%s\n", proposal);
+    }
     fflush(stdout);
 
     /* Wait for signal */
@@ -2557,25 +2585,17 @@ static int cmd_elect(int argc, char **argv) {
 
 static int cmd_alarm(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl alarm {list,activate,disarm} [TYPE]\n");
+        fprintf(stderr, "usage: cetcdctl alarm {list,activate,disarm} [TYPE] [-w json|table|fields]\n");
         return 1;
     }
 
     const char *subcmd = argv[2];
     int action = 0; /* 0=GET, 1=ACTIVATE, 2=DEACTIVATE */
     int alarm_type = 1; /* NOSPACE */
+    const char *alarm_type_str = "NOSPACE";
     int table_fmt = 0;
     int json_fmt = 0;
     int fields_fmt = 0;
-
-    for (int i = 3; i < argc; i++) {
-        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-            if (strcmp(argv[i + 1], "table") == 0) table_fmt = 1;
-            else if (strcmp(argv[i + 1], "json") == 0) json_fmt = 1;
-            else if (strcmp(argv[i + 1], "fields") == 0) fields_fmt = 1;
-            i++;
-        }
-    }
 
     if (strcmp(subcmd, "list") == 0) {
         action = 0;
@@ -2586,6 +2606,27 @@ static int cmd_alarm(int argc, char **argv) {
     } else {
         fprintf(stderr, "unknown alarm subcommand: %s\n", subcmd);
         return 1;
+    }
+
+    for (int i = 3; i < argc; i++) {
+        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "table") == 0) table_fmt = 1;
+            else if (strcmp(argv[i + 1], "json") == 0) json_fmt = 1;
+            else if (strcmp(argv[i + 1], "fields") == 0) fields_fmt = 1;
+            i++;
+        } else if (argv[i][0] != '-') {
+            /* Parse alarm type: none, nospace, corrupt */
+            if (strcmp(argv[i], "none") == 0 || strcmp(argv[i], "NONE") == 0) {
+                alarm_type = 0; alarm_type_str = "NONE";
+            } else if (strcmp(argv[i], "nospace") == 0 || strcmp(argv[i], "NOSPACE") == 0) {
+                alarm_type = 1; alarm_type_str = "NOSPACE";
+            } else if (strcmp(argv[i], "corrupt") == 0 || strcmp(argv[i], "CORRUPT") == 0) {
+                alarm_type = 2; alarm_type_str = "CORRUPT";
+            } else {
+                fprintf(stderr, "unknown alarm type: %s (use: none, nospace, corrupt)\n", argv[i]);
+                return 1;
+            }
+        }
     }
 
     /* Build AlarmRequest: action(0x08), memberID(0x10), alarm(0x18) */
@@ -2630,7 +2671,7 @@ static int cmd_alarm(int argc, char **argv) {
                 }
             }
             if (action == 0) { /* list */
-                const char *type_str = (alarm_val == 1) ? "NOSPACE" : "UNKNOWN";
+                const char *type_str = (alarm_val == 0) ? "NONE" : (alarm_val == 1) ? "NOSPACE" : (alarm_val == 2) ? "CORRUPT" : "UNKNOWN";
                 if (json_fmt) {
                     if (found_alarms) printf(",");
                     printf("{\"memberID\":%lu,\"alarm\":\"%s\"}", (unsigned long)member_id, type_str);
@@ -2664,7 +2705,7 @@ static int cmd_alarm(int argc, char **argv) {
         if (!found_alarms && table_fmt) printf("(no alarms)\n");
     } else if (action == 1) { /* activate */
         if (json_fmt) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
-        else printf("alarm activated NOSPACE\n");
+        else printf("alarm activated %s\n", alarm_type_str);
     } else { /* disarm */
         if (json_fmt) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
         else printf("alarm disarmed\n");
@@ -2703,6 +2744,8 @@ static int cmd_snapshot(int argc, char **argv) {
             if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
                 if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
                 i++;
+            } else if (strcmp(argv[i], "--compaction-periodical") == 0) {
+                /* no-op: accepted for etcdctl compatibility */
             } else if (!filename) {
                 filename = argv[i];
             }
@@ -2943,7 +2986,7 @@ static int cmd_downgrade(int argc, char **argv) {
 static int cmd_member(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl member list [-w json|table]\n");
-        fprintf(stderr, "       cetcdctl member add [-w json] [--peer-urls URL] [--learner] [PEER_URL]\n");
+        fprintf(stderr, "       cetcdctl member add [-w json] [--peer-urls URL] [--name NAME] [--learner] [PEER_URL]\n");
         fprintf(stderr, "       cetcdctl member remove [-w json] ID\n");
         fprintf(stderr, "       cetcdctl member update [-w json] ID PEER_URL\n");
         fprintf(stderr, "       cetcdctl member promote [-w json] ID\n");
@@ -2972,12 +3015,17 @@ static int cmd_member(int argc, char **argv) {
         parse_member_list_response(resp, rlen, table_fmt, json_fmt);
     } else if (strcmp(argv[2], "add") == 0) {
         const char *peer_url = NULL;
+        const char *member_name = NULL;
         int is_learner = 0;
         for (int i = 3; i < argc; i++) {
             if (strncmp(argv[i], "--peer-urls=", 12) == 0) {
                 peer_url = argv[i] + 12;
             } else if (strcmp(argv[i], "--peer-urls") == 0 && i + 1 < argc) {
                 peer_url = argv[++i];
+            } else if (strncmp(argv[i], "--name=", 7) == 0) {
+                member_name = argv[i] + 7;
+            } else if (strcmp(argv[i], "--name") == 0 && i + 1 < argc) {
+                member_name = argv[++i];
             } else if (strcmp(argv[i], "--learner") == 0) {
                 is_learner = 1;
             } else if (argv[i][0] == '-') {
@@ -2990,7 +3038,8 @@ static int cmd_member(int argc, char **argv) {
                 if (!peer_url) peer_url = argv[i];
             }
         }
-        if (!peer_url) { fprintf(stderr, "usage: cetcdctl member add [-w json] [--peer-urls URL] [--learner] [PEER_URL]\n"); return 1; }
+        if (!peer_url) { fprintf(stderr, "usage: cetcdctl member add [-w json] [--peer-urls URL] [--name NAME] [--learner] [PEER_URL]\n"); return 1; }
+        (void)member_name; /* member name is display-only, not sent in MemberAddRequest */
         uint8_t req[512], resp[4096];
         size_t pos = 0;
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, peer_url);
@@ -3855,14 +3904,14 @@ static void print_usage(void) {
     printf("  compact [--physical] [-w json] REV   Compact MVCC history to revision\n");
     printf("  status [-w json|fields]  Get server status\n");
     printf("  alarm list [-w table|json|fields]  List all alarms\n");
-    printf("  alarm activate [-w json] TYPE    Activate an alarm (NOSPACE)\n");
-    printf("  alarm disarm [-w json]            Disarm all alarms\n");
+    printf("  alarm activate [-w json] [TYPE]  Activate an alarm (NOSPACE|CORRUPT|NONE)\n");
+    printf("  alarm disarm [-w json] [TYPE]     Disarm an alarm (NOSPACE|CORRUPT|NONE)\n");
     printf("  hash [-w json]         Get KV store hash\n");
     printf("  hashkv [-w json]       Get KV store hash + compact revision\n");
     printf("  defrag [-w json]       Defragment database (no-op for LMDB)\n");
     printf("  move-leader [-w json] TARGET_ID  Transfer leadership to target node\n");
     printf("  member list [-w json|table]  List cluster members\n");
-    printf("  member add [-w json] [--peer-urls URL] [--learner] [PEER_URL]  Add a cluster member\n");
+    printf("  member add [-w json] [--peer-urls URL] [--name NAME] [--learner] [PEER_URL]  Add a cluster member\n");
     printf("  member remove [-w json] ID    Remove a cluster member\n");
     printf("  member update [-w json] ID URL  Update a member's peer URL\n");
     printf("  member promote [-w json] ID    Promote a member to voting member\n");
@@ -3885,7 +3934,7 @@ static void print_usage(void) {
     printf("                         Grant permission (read|write|readwrite)\n");
     printf("  role revoke-permission ROLE [-w json]\n");
     printf("                         Revoke all permissions from role\n");
-    printf("  snapshot save [FILE] [-w json]   Save a snapshot to file\n");
+    printf("  snapshot save [FILE] [--compaction-periodical] [-w json]   Save a snapshot to file\n");
     printf("  snapshot status FILE [-w json]  Show snapshot file info\n");
     printf("  snapshot restore FILE --data-dir DIR [--force] [-w json]  Restore snapshot to data dir\n");
     printf("  downgrade enable [-w json] VER   Enable cluster downgrade\n");
@@ -3897,8 +3946,8 @@ static void print_usage(void) {
     printf("  endpoint hashkv [-w json]      Get KV hash per endpoint\n");
     printf("  check perf [-w json]    Run a simple performance check\n");
     printf("  check datascale [-w json] [--load N] [--prefix PREFIX]  Test database scalability\n");
-    printf("  lock [--ttl N] LOCKNAME [CMD...]  Acquire a distributed lock\n");
-    printf("  elect [--ttl N] ELECTION_NAME [PROPOSAL]  Leader election\n");
+    printf("  lock [--ttl N] [--print-value-only] LOCKNAME [CMD...]  Acquire a distributed lock\n");
+    printf("  elect [--ttl N] [--print-value-only] ELECTION_NAME [PROPOSAL]  Leader election\n");
 }
 
 int main(int argc, char **argv) {

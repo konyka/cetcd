@@ -118,7 +118,15 @@ It mirrors `etcdctl` command structure for familiarity.
 ```sh
 ./build/bin/cetcdctl put foo bar
 ./build/bin/cetcdctl get foo
+./build/bin/cetcdctl get --prefix foo           # Get all keys with prefix
+./build/bin/cetcdctl get --prefix ""             # Get all keys (empty prefix = all)
+./build/bin/cetcdctl get --from-key foo          # Get all keys >= foo
+./build/bin/cetcdctl get --count-only foo        # Count matching keys only
+./build/bin/cetcdctl get --keys-only foo         # Get keys without values
+./build/bin/cetcdctl get --print-value-only foo  # Print only the value
 ./build/bin/cetcdctl del foo
+./build/bin/cetcdctl del --prefix foo            # Delete all keys with prefix
+./build/bin/cetcdctl del --prev-kv foo           # Return deleted key-values
 ```
 
 ### Watch streaming
@@ -174,8 +182,30 @@ the stream.
 
 ```sh
 ./build/bin/cetcdctl status                # Server status (version, raft index, etc.)
-./build/bin/cetcdctl alarm                 # Query active alarms
-./build/bin/cetcdctl member list           # List cluster members
+./build/bin/cetcdctl alarm list                       # List all alarms
+./build/bin/cetcdctl alarm activate NOSPACE           # Activate NOSPACE alarm
+./build/bin/cetcdctl alarm activate CORRUPT           # Activate CORRUPT alarm
+./build/bin/cetcdctl alarm disarm                    # Disarm alarms
+./build/bin/cetcdctl member list                     # List cluster members
+./build/bin/cetcdctl member add --peer-urls http://localhost:2380 --name node2  # Add member with name
+./build/bin/cetcdctl member remove 1234567890         # Remove member by ID
+./build/bin/cetcdctl member update 1234567890 http://localhost:2380  # Update member peer URL
+./build/bin/cetcdctl member promote 1234567890        # Promote learner to voting member
+```
+
+### Distributed locks and leader election
+
+```sh
+# Acquire a distributed lock (blocks until acquired)
+./build/bin/cetcdctl lock mylock               # Prints lock key, waits for signal
+./build/bin/cetcdctl lock --ttl 30 mylock     # Lock with 30s lease TTL
+./build/bin/cetcdctl lock --print-value-only mylock  # Print only lease ID
+./build/bin/cetcdctl lock mylock echo done    # Run command while holding lock
+
+# Leader election (blocks until elected)
+./build/bin/cetcdctl elect myelection         # Campaign with default proposal
+./build/bin/cetcdctl elect --ttl 30 myelection "leader"  # With custom proposal
+./build/bin/cetcdctl elect --print-value-only myelection  # Print only lease ID
 ```
 
 ### Authentication (RBAC)
@@ -216,6 +246,7 @@ the stream.
 
 ```sh
 ./build/bin/cetcdctl snapshot save backup.snap   # Save KV snapshot to file
+./build/bin/cetcdctl snapshot save backup.snap --compaction-periodical  # With etcd-compatible flag (no-op)
 ./build/bin/cetcdctl snapshot save backup.snap -w json  # Save with JSON output
 ./build/bin/cetcdctl snapshot status backup.snap # Show snapshot file info
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd  # Restore snapshot
@@ -224,6 +255,10 @@ the stream.
 ./build/bin/cetcdctl endpoint health -w json  # Health check with ResponseHeader
 ./build/bin/cetcdctl endpoint status -w table  # Status in table format
 ./build/bin/cetcdctl endpoint hashkv -w json   # HashKV with ResponseHeader
+./build/bin/cetcdctl alarm list                           # List all alarms
+./build/bin/cetcdctl alarm activate NOSPACE               # Activate NOSPACE alarm
+./build/bin/cetcdctl alarm activate CORRUPT               # Activate CORRUPT alarm
+./build/bin/cetcdctl alarm disarm                        # Disarm all alarms
 ./build/bin/cetcdctl downgrade enable             # Enable cluster downgrade
 ./build/bin/cetcdctl downgrade cancel             # Cancel downgrade
 ./build/bin/cetcdctl downgrade validate           # Validate downgrade state

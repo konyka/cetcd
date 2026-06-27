@@ -128,3 +128,4 @@ Thumbs.db
 # Reference proto files (not part of C build)
 /proto/
 
+data/

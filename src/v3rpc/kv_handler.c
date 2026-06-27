@@ -352,10 +352,19 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
         } else {
             /* Range query */
             cetcd_kv *kvs = NULL; size_t n = 0;
-            cetcd_mvcc_range(g_rpc_store, rev,
-                             key, key_len,
-                             range_end, range_end_len,
-                             &kvs, &n);
+            /* Special case: range_end of \0 (single null byte) means all keys >= key */
+            if (range_end_len == 1 && range_end[0] == 0) {
+                static const uint8_t max_key[] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
+                cetcd_mvcc_range(g_rpc_store, rev,
+                                 key, key_len,
+                                 max_key, sizeof(max_key),
+                                 &kvs, &n);
+            } else {
+                cetcd_mvcc_range(g_rpc_store, rev,
+                                 key, key_len,
+                                 range_end, range_end_len,
+                                 &kvs, &n);
+            }
             /* Apply min/max revision filters (fields 10-13) */
             if (n > 0 && (min_mod_rev > 0 || max_mod_rev > 0 || min_create_rev > 0 || max_create_rev > 0)) {
                 size_t w = 0;

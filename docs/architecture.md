@@ -356,7 +356,14 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `version -w json` enhanced (now includes `server` field with value `cetcd`),
 `snapshot restore -w json` enhanced (now includes `keys` count field in JSON output),
 `print_json_string` helper (unified JSON string escaping for all -w json outputs; now used by get/put/del/watch/member/status/endpoint/auth/role/lease commands for proper handling of special characters like \" \\ \n \r \t and control characters),
-`etcd-compatible server flags` (cetcd now accepts `--listen-client-urls`, `--listen-peer-urls` with URL format parsing, plus `--advertise-client-urls`, `--initial-advertise-peer-urls`, `--initial-cluster-state`, `--initial-cluster-token`, `--snapshot-count`, `--quota-backend-bytes`, `--force-new-cluster` as no-op compatibility flags)
+`etcd-compatible server flags` (cetcd now accepts `--listen-client-urls`, `--listen-peer-urls` with URL format parsing, plus `--advertise-client-urls`, `--initial-advertise-peer-urls`, `--initial-cluster-state`, `--initial-cluster-token`, `--snapshot-count`, `--quota-backend-bytes`, `--force-new-cluster` as no-op compatibility flags),
+`get/del --prefix ""` buffer overflow fix (empty key with `--prefix` now correctly uses `\0` as range_end to match all keys, instead of causing a `key_len - 1` underflow),
+`get/del --prefix --from-key` mutual exclusion (returns error when both flags are specified together),
+`alarm TYPE` argument parsing (`alarm activate` and `alarm disarm` now accept an optional TYPE argument: `NOSPACE`, `CORRUPT`, or `NONE`; `alarm list` output now displays `CORRUPT` alarm type correctly),
+`member add --name` flag (accepted for etcdctl compatibility; the name is display-only and not sent in the MemberAddRequest proto),
+`lock/elect --print-value-only` flag (when set, prints the lease ID instead of the lock key / proposal text),
+`snapshot save --compaction-periodical` no-op flag (accepted for etcdctl compatibility),
+`server-side \0 range_end fix` (the KV Range handler now correctly treats a `range_end` of `\0` (single null byte) as "all keys >= key" per etcd semantics, instead of treating it as a literal upper bound that excludes all printable keys)
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
