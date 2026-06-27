@@ -167,11 +167,20 @@ so many concurrent watchers can share a single TCP connection.
 # Execute a command on each watch event
 ./build/bin/cetcdctl watch --exec 'echo $ETCD_WATCH_EVENT_TYPE $ETCD_WATCH_KEY' foo
 # Sets ETCD_WATCH_EVENT_TYPE (PUT|DELETE), ETCD_WATCH_KEY, ETCD_WATCH_VALUE, ETCD_WATCH_REVISION env vars
+
+# Interactive watch mode: create and cancel watches at runtime
+./build/bin/cetcdctl watch -i
+# Then type commands:
+#   watch foo            — start watching key "foo"
+#   watch bar --prefix   — start watching prefix "bar"
+#   cancel 1             — cancel watch with ID 1
+#   Ctrl+D                — exit interactive mode
 ```
 
 The server keeps the stream open, delivering `WatchResponse` messages as matching
-`Put`/`Delete` operations are committed. Press `Ctrl-C` to cancel the watch and close
-the stream.
+`Put`/`Delete` operations are committed. The client keeps the TCP connection open
+and continuously reads responses, printing events as they arrive. Press `Ctrl-C`
+to cancel the watch and close the stream.
 
 ### Lease management
 
@@ -183,8 +192,9 @@ the stream.
 ./build/bin/cetcdctl lease revoke 1 -w fields              # Revoke with fields output
 ./build/bin/cetcdctl lease timetolive 1                    # Check remaining TTL
 ./build/bin/cetcdctl lease timetolive --keys 1 -w fields   # Include keys with fields output
-./build/bin/cetcdctl lease keepalive 1                     # Keep lease alive (loop)
+./build/bin/cetcdctl lease keepalive 1                     # Keep lease alive (loop, Ctrl+C to stop)
 ./build/bin/cetcdctl lease keepalive --once 1 -w fields   # Single keepalive with fields output
+./build/bin/cetcdctl lease keepalive --interval 5 1        # Keep alive with custom 5-second interval
 ./build/bin/cetcdctl lease list -w fields                  # List all leases in fields format
 ```
 

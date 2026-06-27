@@ -6,13 +6,13 @@
  *   - Server sends WatchResponse (events, confirmations)
  *
  * This implementation supports two modes:
- *   1. Legacy single-shot mode: when no event loop / stream writer is
- *      registered, WatchCreateRequest returns one confirmation response
- *      and immediately cancels the watcher.
- *   2. Streaming mode: when cetcd_v3rpc_set_loop() and
- *      cetcd_v3rpc_set_stream_writer() have been called, each
- *      WatchCreateRequest spawns a coroutine that yields until MVCC
- *      events arrive, then encodes and writes WatchResponses.
+ *   1. Legacy single-shot mode: when no stream writer is registered,
+ *      WatchCreateRequest returns one confirmation response and immediately
+ *      cancels the watcher.
+ *   2. Streaming mode: when cetcd_v3rpc_set_stream_writer() has been called,
+ *      each WatchCreateRequest subscribes to MVCC events via a notification
+ *      channel. When events arrive, a direct callback encodes and writes
+ *      WatchResponses to the client stream — no coroutines needed.
  */
 
 #include <stdlib.h>
@@ -22,7 +22,6 @@
 
 #include "cetcd/v3rpc.h"
 #include "cetcd/mvcc.h"
-#include "cetcd/io.h"
 #include "cetcd/log.h"
 
 extern cetcd_mvcc_store *g_rpc_store;
@@ -264,17 +263,10 @@ static void watch_event_cb(const cetcd_watch_event *ev, void *udata) {
 
 /* ── Streaming watcher state ───────────────────────────────────────────── */
 
-typedef struct {
-    cetcd_loop *loop;
-    cetcd_co   *co;
-} watcher_wake_ctx;
-
 typedef struct cetcd_stream_watcher_ctx {
     int64_t                 watch_id;
-    cetcd_co               *co;
     cetcd_stream_watcher   *sw;
     cetcd_mvcc_watch_notify notify;
-    watcher_wake_ctx        wake_ctx;
     int                     want_prev_kv;
     int                     filter_noput;
     int                     filter_nodelete;
@@ -285,21 +277,53 @@ typedef struct cetcd_stream_watcher_ctx {
 /* Global active streaming watchers (demux by watch_id). */
 static cetcd_stream_watcher_ctx *g_stream_watchers = NULL;
 
-static void watcher_wake_cb(void *udata) {
-    watcher_wake_ctx *ctx = (watcher_wake_ctx *)udata;
-    if (ctx && ctx->loop && ctx->co) {
-        cetcd_loop_schedule_resume(ctx->loop, ctx->co);
-    }
-}
-
 static void free_stream_watcher_ctx(cetcd_stream_watcher_ctx *wctx) {
     if (!wctx) return;
     cetcd_mvcc_watch_notify_destroy(&wctx->notify);
-    /* The cetcd_co wrapper is our metadata; libco owns the internal context.
-     * It is safe to free it here because the coroutine function is about to
-     * return and libco does not reference this wrapper during execution. */
-    free(wctx->co);
     free(wctx);
+}
+
+/* Direct callback: called from notify_push when MVCC events arrive.
+ * Encodes the events as a WatchResponse and writes it to the client stream
+ * immediately — no coroutine needed. */
+static void streaming_watch_notify_cb(void *udata) {
+    cetcd_stream_watcher_ctx *wctx = (cetcd_stream_watcher_ctx *)udata;
+    if (!wctx || wctx->canceled) return;
+
+    cetcd_watch_event *events = NULL;
+    size_t count = 0;
+    int rc = cetcd_mvcc_watch_recv(&wctx->notify, &events, &count);
+    if (rc != CETCD_OK || count == 0) return;
+
+    /* Apply watch filters: NOPUT and NODELETE */
+    size_t send_count = 0;
+    for (size_t i = 0; i < count; i++) {
+        if (wctx->filter_noput && events[i].type == CETCD_EVENT_PUT) continue;
+        if (wctx->filter_nodelete && events[i].type == CETCD_EVENT_DELETE) continue;
+        if (send_count != i) events[send_count] = events[i];
+        send_count++;
+    }
+    if (send_count > 0) {
+        cetcd_rpc_bytes resp = encode_watch_response(
+            wctx->watch_id, 0, 0,
+            events, send_count,
+            g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 1,
+            wctx->want_prev_kv);
+        if (resp.data && resp.len > 0 && g_rpc_stream_write_fn) {
+            g_rpc_stream_write_fn(resp.data, resp.len, g_rpc_stream_write_ctx);
+        }
+        cetcd_rpc_bytes_free(&resp);
+    }
+    /* Free event data that was deep-copied into the notification queue. */
+    for (size_t i = 0; i < count; i++) {
+        free((void*)events[i].kv.key.data);
+        free((void*)events[i].kv.value.data);
+        if (events[i].has_prev_kv) {
+            free((void*)events[i].prev_kv.key.data);
+            free((void*)events[i].prev_kv.value.data);
+        }
+    }
+    free(events);
 }
 
 static cetcd_stream_watcher_ctx *find_stream_watcher(int64_t watch_id) {
@@ -320,55 +344,6 @@ static void remove_stream_watcher(cetcd_stream_watcher_ctx *wctx) {
         }
         pp = &(*pp)->next;
     }
-}
-
-/* Watcher coroutine: yields until MVCC events arrive, then writes responses. */
-static void watcher_co_fn(void *arg) {
-    cetcd_stream_watcher_ctx *wctx = (cetcd_stream_watcher_ctx *)arg;
-    if (!wctx) return;
-
-    while (!wctx->canceled) {
-        cetcd_watch_event *events = NULL;
-        size_t count = 0;
-        int rc = cetcd_mvcc_watch_recv(&wctx->notify, &events, &count);
-        if (rc == CETCD_OK && count > 0) {
-            /* Apply watch filters: NOPUT and NODELETE */
-            size_t send_count = 0;
-            for (size_t i = 0; i < count; i++) {
-                if (wctx->filter_noput && events[i].type == CETCD_EVENT_PUT) continue;
-                if (wctx->filter_nodelete && events[i].type == CETCD_EVENT_DELETE) continue;
-                if (send_count != i) events[send_count] = events[i];
-                send_count++;
-            }
-            if (send_count > 0) {
-            cetcd_rpc_bytes resp = encode_watch_response(
-                wctx->watch_id, 0, 0,
-                events, send_count,
-                g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 1,
-                wctx->want_prev_kv);
-            if (resp.data && resp.len > 0 && g_rpc_stream_write_fn) {
-                g_rpc_stream_write_fn(resp.data, resp.len, g_rpc_stream_write_ctx);
-            }
-            cetcd_rpc_bytes_free(&resp);
-            }
-            /* Free event data that was deep-copied into the notification queue. */
-            for (size_t i = 0; i < count; i++) {
-                free((void*)events[i].kv.key.data);
-                free((void*)events[i].kv.value.data);
-                if (events[i].has_prev_kv) {
-                    free((void*)events[i].prev_kv.key.data);
-                    free((void*)events[i].prev_kv.value.data);
-                }
-            }
-            free(events);
-        }
-        /* Yield and wait for the next wake-up. */
-        cetcd_co_yield();
-    }
-
-    /* Coroutine is exiting; clean up the context. */
-    remove_stream_watcher(wctx);
-    free_stream_watcher_ctx(wctx);
 }
 
 /* ── Request parsing ───────────────────────────────────────────────────── */
@@ -536,8 +511,9 @@ static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p) {
                 wctx->sw = NULL;
             }
             wctx->canceled = 1;
-            /* Wake the coroutine so it can observe the cancel and exit. */
-            watcher_wake_cb(&wctx->wake_ctx);
+            /* Remove and free the watcher context. */
+            remove_stream_watcher(wctx);
+            free_stream_watcher_ctx(wctx);
         }
         out = encode_watch_response(watch_id, 0, 1, NULL, 0, current_rev, 0);
         return out;
@@ -560,20 +536,9 @@ static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p) {
         wctx->filter_nodelete = p->filter_nodelete;
         wctx->canceled = 0;
 
-        /* Create the coroutine (not started yet). */
-        wctx->co = cetcd_co_create(g_rpc_loop, watcher_co_fn, wctx,
-                                    CETCD_CO_DEFAULT_STACK_SIZE);
-        if (!wctx->co) {
-            free(wctx);
-            out = encode_watch_response(watch_id, 1, 0, NULL, 0, current_rev, 0);
-            return out;
-        }
-
-        /* Set up the notification channel. */
-        wctx->wake_ctx.loop = g_rpc_loop;
-        wctx->wake_ctx.co   = wctx->co;
+        /* Set up the notification channel with direct callback. */
         cetcd_mvcc_watch_notify_init(&wctx->notify,
-                                      watcher_wake_cb, &wctx->wake_ctx);
+                                      streaming_watch_notify_cb, wctx);
 
         /* Subscribe with MVCC. */
         wctx->sw = cetcd_mvcc_watch_subscribe(
@@ -583,7 +548,6 @@ static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p) {
             p->start_rev, p->want_prev_kv,
             &wctx->notify);
         if (!wctx->sw) {
-            free(wctx->co);
             free(wctx);
             out = encode_watch_response(watch_id, 1, 0, NULL, 0, current_rev, 0);
             return out;
@@ -614,7 +578,7 @@ cetcd_rpc_bytes watch_handle_watch(cetcd_v3rpc *rpc,
     parse_watch_request(req, req_len, &p);
 
     cetcd_rpc_bytes out;
-    if (g_rpc_loop && g_rpc_stream_write_fn) {
+    if (g_rpc_stream_write_fn) {
         out = handle_streaming_watch(&p);
     } else {
         out = handle_legacy_watch(&p);

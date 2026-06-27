@@ -64,6 +64,52 @@ static void peer_send_cb_(uint64_t to_id, const uint8_t *data, size_t len, void 
 static void on_peer_incoming_(cetcd_tcp *server, cetcd_tcp *client, void *arg);
 static void on_client_conn_(cetcd_tcp *server, cetcd_tcp *client, void *arg);
 
+/* --- Streaming watch support --- */
+
+/* Cleanup callback for uv_write in stream_write_ */
+static void stream_write_cleanup_(uv_write_t *req, int status) {
+    (void)status;
+    if (req->data) free(req->data);
+    free(req);
+}
+
+/* Write a WatchResponse frame to a client socket.
+ * The frame format matches the gRPC-like framing:
+ *   2B path_len (BE) + path + 1B compressed + 4B payload_len (BE) + payload */
+static void client_stream_write_(const uint8_t *data, size_t len, void *ctx) {
+    uv_stream_t *stream = (uv_stream_t *)ctx;
+    if (!stream || !data || len == 0) return;
+
+    static const char watch_path[] = "/etcdserverpb.Watch/Watch";
+    uint16_t plen = (uint16_t)(sizeof(watch_path) - 1);
+    uint32_t payload_len = (uint32_t)len;
+
+    /* Allocate frame on heap since uv_write is async */
+    size_t total = 2 + plen + 5 + len;
+    uint8_t *frame = (uint8_t *)malloc(total);
+    if (!frame) return;
+    size_t pos = 0;
+    frame[pos++] = (uint8_t)(plen >> 8);
+    frame[pos++] = (uint8_t)(plen & 0xFF);
+    memcpy(frame + pos, watch_path, plen);
+    pos += plen;
+    frame[pos++] = 0; /* compressed = false */
+    frame[pos++] = (uint8_t)((payload_len >> 24) & 0xFF);
+    frame[pos++] = (uint8_t)((payload_len >> 16) & 0xFF);
+    frame[pos++] = (uint8_t)((payload_len >> 8) & 0xFF);
+    frame[pos++] = (uint8_t)(payload_len & 0xFF);
+    memcpy(frame + pos, data, len);
+
+    uv_buf_t wbuf = uv_buf_init((char *)frame, (unsigned int)total);
+    uv_write_t *wr = (uv_write_t *)calloc(1, sizeof(uv_write_t));
+    if (wr) {
+        wr->data = frame;
+        uv_write(wr, stream, &wbuf, 1, stream_write_cleanup_);
+    } else {
+        free(frame);
+    }
+}
+
 static void on_metrics_connection_(uv_stream_t *server, int status);
 static void on_metrics_alloc_(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf);
 static void on_metrics_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf);
@@ -355,6 +401,12 @@ static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *
                                ((uint32_t)grpc_hdr[4]);
         size_t frame_len = header + 5 + payload_len;
         if (ctx->buf_pos < frame_len) break;
+
+        /* For Watch RPCs, set the stream writer to this client's socket
+         * so streaming events can be sent directly to this connection */
+        if (strcmp(path, "/etcdserverpb.Watch/Watch") == 0) {
+            cetcd_v3rpc_set_stream_writer(ctx->srv->rpc, client_stream_write_, stream);
+        }
 
         cetcd_server_rpc_result resp = cetcd_server_handle_rpc(ctx->srv,
             path, grpc_hdr + 5, payload_len);
@@ -807,6 +859,8 @@ int cetcd_server_serve(cetcd_server *srv) {
     }
 
     srv->started = true;
+    /* Enable streaming watch mode by setting the event loop */
+    cetcd_v3rpc_set_loop(srv->rpc, srv->loop);
     cetcd_loop_run(srv->loop);
     return 0;
 }

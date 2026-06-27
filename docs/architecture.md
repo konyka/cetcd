@@ -419,7 +419,10 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `member add --peer-urls url1,url2` (comma-separated multiple peer URLs for cluster member addition; `member update` also supports comma-separated URLs),
 `txn -i` (interactive transaction mode: reads a transaction definition from stdin with `cmp`/`cmp_create`/`cmp_mod`/`cmp_ver` compare conditions, `then`/`else` sections, and `put`/`get`/`del` operations; builds a full TxnRequest with compare, success, and failure op lists and sends it as a single atomic Txn RPC; supports `-w json|fields` output),
 `endpoint health --cluster` (checks the health of all cluster members by first calling MemberList to discover all member client URLs, then connecting to each endpoint individually and sending a Status RPC; supports `-w json|fields` output),
-`endpoint status --cluster` and `endpoint hashkv --cluster` (extend the `--cluster` flag to `endpoint status` and `endpoint hashkv` subcommands; uses the shared `collect_cluster_endpoints` helper to discover all member client URLs and queries each endpoint individually; `endpoint status --cluster` supports table format with multi-row output, `endpoint hashkv --cluster` supports json and fields output)
+`endpoint status --cluster` and `endpoint hashkv --cluster` (extend the `--cluster` flag to `endpoint status` and `endpoint hashkv` subcommands; uses the shared `collect_cluster_endpoints` helper to discover all member client URLs and queries each endpoint individually; `endpoint status --cluster` supports table format with multi-row output, `endpoint hashkv --cluster` supports json and fields output),
+`watch` streaming mode (keeps the TCP connection open after the initial WatchCreate request and continuously reads WatchResponses from the server, printing events as they arrive; supports SIGINT/Ctrl+C for clean exit),
+`watch -i` (interactive watch mode: uses `poll()` to multiplex stdin and the socket, allowing the user to create and cancel watches at runtime; commands: `watch KEY [opts]` to create a watch, `cancel ID` to cancel a watch, Ctrl+D to exit),
+`lease keepalive` SIGINT handling (Ctrl+C gracefully stops the keepalive loop and exits cleanly, restoring the previous signal handler)
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
@@ -494,56 +497,58 @@ with the proper protobuf encoding.
 ## 7. Watch streaming architecture
 
 The etcd `Watch` RPC is a long-lived, bidirectional gRPC stream. cetcd implements it
-with one libco coroutine per active watcher, integrated into the libuv reactor via
-`uv_async_t` handles.
+with a **direct callback** model: each `WatchCreateRequest` subscribes to the MVCC
+store via a notification channel, and when matching events are committed, a callback
+encodes and writes `WatchResponse` frames directly to the client's TCP stream.
+This avoids coroutines entirely, keeping the hot path simple and ASan-compatible.
 
 ### Per-watcher flow
 
 ```
-Client HTTP/2 stream
-  ├─ WatchCreateRequest arrives on reactor
-  │     └─ spawn watch coroutine
-  │           ├─ subscribe watcher to MVCC key/range
-  │           ├─ encode WatchResponse (created=true, watch_id)
-  │           ├─ cetcd_co_write() → yield
-  │           │
-  │           ▼
-  │     event arrives from MVCC / another reactor
-  │     uv_async_send() wakes the coroutine
+Client connection
+  ├─ WatchCreateRequest arrives (on_client_read_)
+  │     ├─ set stream writer for this connection
+  │     ├─ subscribe watcher to MVCC key/range
+  │     ├─ encode WatchResponse (created=true, watch_id)
+  │     └─ send confirmation back to client
+  │
+  │     ▼
+  │     Put/Delete committed (same or different connection)
+  │     MVCC notify_push() → streaming_watch_notify_cb()
+  │           ├─ drain events from notification queue
   │           ├─ encode WatchResponse(events)
-  │           ├─ cetcd_co_write() → yield
-  │           └─ loop until cancelled or stream closed
+  │           ├─ client_stream_write_() → uv_write() to client
+  │           └─ return (no yield, no coroutine)
 ```
 
-1. The gRPC layer receives a `WatchCreateRequest` on an HTTP/2 stream.
-2. A dedicated coroutine is spawned from the per-connection scheduler.
-3. The coroutine registers a watcher with the MVCC store for the requested key or
-   prefix and immediately sends the `created` response.
-4. The coroutine yields; the reactor continues processing other streams.
-5. When a matching `Put` or `Delete` is committed, MVCC invokes the watcher callback,
-   which calls `uv_async_send()` on the async handle associated with that coroutine.
-6. libuv fires the async callback on the reactor thread, resumes the coroutine, and
-   the coroutine encodes a `WatchResponse` containing the event(s).
-7. `cetcd_co_write()` yields until the TCP write completes, then the coroutine waits
-   again for the next event.
+1. The gRPC layer receives a `WatchCreateRequest` on a client connection.
+2. The handler sets the stream writer for this connection (`cetcd_v3rpc_set_stream_writer`)
+   and subscribes to MVCC events via a notification channel.
+3. The `created` confirmation is returned immediately to the client.
+4. When a matching `Put` or `Delete` is committed, MVCC invokes `notify_push()`,
+   which calls the direct callback `streaming_watch_notify_cb()`.
+5. The callback drains the notification queue, encodes a `WatchResponse`, and writes
+   it to the client stream via `uv_write()`.
+6. The connection stays open; subsequent events trigger additional callbacks.
 
 ### Multi-watcher multiplexing
 
-A single client connection may carry many concurrent `Watch` streams, each mapped to
-one HTTP/2 stream ID and one coroutine. The MVCC watcher registry is keyed by
-key/prefix; a single committed modification can fan out to many watcher coroutines,
-each notified independently through its own `uv_async_t`. No polling is required: an
-unblocked watcher coroutine consumes no CPU until an event arrives.
+A single client connection may carry many concurrent `Watch` streams. The MVCC
+watcher registry is keyed by key/prefix; a single committed modification can fan
+out to many watchers, each notified independently through its own notification
+channel. No polling is required: an idle watcher consumes no CPU until an event
+arrives.
 
 ### Performance characteristics
 
-- **4 KiB coroutine stacks** by default — tens of thousands of idle watchers cost
-  only a few hundred megabytes of virtual address space.
-- **Lock-free scheduling** between MVCC and the reactor via `uv_async_send()`; the
-  hot path is a memory write + event-loop wakeup.
-- **No kernel context switches** per event: yield/resume stays in user space.
-- Backpressure is natural: a slow consumer blocks its own coroutine on `co_write`,
-  but does not stall other watchers or RPCs on the same connection.
+- **Zero per-watcher overhead** — no coroutine stacks, no `ucontext` switches.
+- **Direct call path** — MVCC `notify_push()` calls the callback synchronously;
+  `uv_write()` queues the frame for libuv to send.
+- **ASan-compatible** — no `makecontext`/`swapcontext` needed, so sanitizers work
+  correctly during development.
+- Backpressure is handled by libuv's write queue; if the client is slow, `uv_write`
+  callbacks accumulate but other watchers and RPCs on the same connection are
+  not stalled.
 
 ---
 
