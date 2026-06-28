@@ -467,18 +467,15 @@ static void parse_range_response(const uint8_t *data, size_t len) {
     }
     if (g_count_only) {
         if (g_write_json) {
-            if (first_kv) {
-                /* No KVs were encountered, output header + empty kvs */
-                if (have_header) {
-                    printf("\"header\":{\"cluster_id\":%llu,\"member_id\":%llu,\"revision\":%llu,\"raft_term\":%llu},",
-                           (unsigned long long)hdr_cluster_id, (unsigned long long)hdr_member_id,
-                           (unsigned long long)hdr_revision, (unsigned long long)hdr_raft_term);
-                } else {
-                    fputs("\"header\":{},", stdout);
-                }
-                fputs("\"kvs\":[", stdout);
+            /* etcdctl format: {"header":{...},"count":N} — no kvs or more */
+            if (have_header) {
+                printf("{\"header\":{\"cluster_id\":%llu,\"member_id\":%llu,\"revision\":%llu,\"raft_term\":%llu},",
+                       (unsigned long long)hdr_cluster_id, (unsigned long long)hdr_member_id,
+                       (unsigned long long)hdr_revision, (unsigned long long)hdr_raft_term);
+            } else {
+                fputs("{\"header\":{},", stdout);
             }
-            printf("],\"count\":%d,\"more\":%s}\n", server_count >= 0 ? server_count : count, has_more ? "true" : "false");
+            printf("\"count\":%d}\n", server_count >= 0 ? server_count : count);
         } else if (g_write_fields) {
             if (have_header) {
                 printf("\"cluster_id\" : %llu\n", (unsigned long long)hdr_cluster_id);

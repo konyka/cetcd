@@ -653,7 +653,8 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 
 `cetcdctl global flags` (now accepts `--max-call-send-msg-size`, `--max-call-recv-msg-size`, `--insecure-skip-tls-verify`, `--insecure-transport`, `--password`, `--discovery-srv` as no-op compatibility flags; `--password` can be used with `--user USER` to provide the password separately),
 `get --count-only -w fields` (fields output now includes ResponseHeader fields and `"count" : N` line, matching etcdctl fields format),
-`snapshot restore` etcd-compatible flags (now accepts `--skip-hash-check`, `--initial-cluster`, `--initial-advertise-peer-urls`, `--name`, `--initial-cluster-token`, `--initial-cluster-state` as no-op flags for etcdctl compatibility)
+`snapshot restore` etcd-compatible flags (now accepts `--skip-hash-check`, `--initial-cluster`, `--initial-advertise-peer-urls`, `--name`, `--initial-cluster-token`, `--initial-cluster-state` as no-op flags for etcdctl compatibility),
+`get --count-only -w json` format fix (now outputs `{"header":{...},"count":N}` without `kvs` or `more` fields, matching etcdctl output format)
 
 ---
 
