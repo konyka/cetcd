@@ -2700,6 +2700,11 @@ static int cmd_endpoint(int argc, char **argv) {
         return 0;
     } else if (strcmp(argv[2], "hashkv") == 0) {
         if (cluster) {
+            if (want_table) {
+                printf("+----------------------+------------------+--------------------+\n");
+                printf("|      ENDPOINT        |       HASH       |  COMPACT_REV       |\n");
+                printf("+----------------------+------------------+--------------------+\n");
+            }
             struct cluster_endpoint eps[32];
             int n = collect_cluster_endpoints(eps, 32);
             if (n < 0) { fprintf(stderr, "failed to get member list\n"); return 1; }
@@ -2731,10 +2736,16 @@ static int cmd_endpoint(int argc, char **argv) {
                     parse_and_print_header_json(hresp, (size_t)hrlen);
                     printf("hash: %llu\n", (unsigned long long)hash_val);
                     printf("compact_revision: %llu\n\n", (unsigned long long)compact_rev);
+                } else if (want_table) {
+                    char ep_addr[64]; snprintf(ep_addr, sizeof(ep_addr), "%s:%d", g_host, g_port);
+                    printf("| %-20s | %016llx | %18llu |\n", ep_addr, (unsigned long long)hash_val, (unsigned long long)compact_rev);
                 } else {
                     printf("endpoint: %s:%d  hash: %llu  compact_revision: %llu\n",
                            g_host, g_port, (unsigned long long)hash_val, (unsigned long long)compact_rev);
                 }
+            }
+            if (want_table) {
+                printf("+----------------------+------------------+--------------------+\n");
             }
             g_host = orig_host;
             g_port = orig_port;
@@ -2764,6 +2775,13 @@ static int cmd_endpoint(int argc, char **argv) {
             printf("hash: %llu\n", (unsigned long long)hash_val);
             printf("compact_revision: %llu\n", (unsigned long long)compact_rev);
             fputs("\n", stdout);
+        } else if (want_table) {
+            printf("+----------------------+------------------+--------------------+\n");
+            printf("|      ENDPOINT        |       HASH       |  COMPACT_REV       |\n");
+            printf("+----------------------+------------------+--------------------+\n");
+            char ep_addr[64]; snprintf(ep_addr, sizeof(ep_addr), "%s:%d", g_host, g_port);
+            printf("| %-20s | %016llx | %18llu |\n", ep_addr, (unsigned long long)hash_val, (unsigned long long)compact_rev);
+            printf("+----------------------+------------------+--------------------+\n");
         } else {
             printf("endpoint: %s:%d  hash: %llu  compact_revision: %llu\n",
                    g_host, g_port, (unsigned long long)hash_val, (unsigned long long)compact_rev);
@@ -3688,7 +3706,7 @@ static int cmd_snapshot(int argc, char **argv) {
     } else if (strcmp(argv[2], "status") == 0) {
         /* Show snapshot file info */
         if (argc < 4) {
-            fprintf(stderr, "usage: cetcdctl snapshot status FILE [-w json|fields]\n");
+            fprintf(stderr, "usage: cetcdctl snapshot status FILE [-w json|fields|table]\n");
             return 1;
         }
         int snap_json = 0, snap_fields = 0;
@@ -4962,12 +4980,12 @@ static int cmd_watch(int argc, char **argv) {
 }
 
 static int cmd_hash(int argc, char **argv) {
-    bool want_json = false;
-    bool want_fields = false;
+    bool want_json = false, want_fields = false, want_table = false;
     for (int i = 2; i < argc; i++) {
         if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) want_json = true;
             else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
+            else if (strcmp(argv[i + 1], "table") == 0) want_table = true;
             i++;
         }
     }
@@ -4995,6 +5013,12 @@ static int cmd_hash(int argc, char **argv) {
         parse_and_print_header_json(resp, (size_t)rlen);
         printf("hash: %llu\n", (unsigned long long)hash_val);
         fputs("\n", stdout);
+    } else if (want_table) {
+        printf("+------------------+\n");
+        printf("|       HASH       |\n");
+        printf("+------------------+\n");
+        printf("| %016llu |\n", (unsigned long long)hash_val);
+        printf("+------------------+\n");
     } else {
         printf("hash: %llu\n", (unsigned long long)hash_val);
     }
@@ -5003,11 +5027,12 @@ static int cmd_hash(int argc, char **argv) {
 
 static int cmd_hashkv(int argc, char **argv) {
     bool want_json = false;
-    bool want_fields = false;
+    bool want_fields = false, want_table = false;
     for (int i = 2; i < argc; i++) {
         if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
             if (strcmp(argv[i + 1], "json") == 0) want_json = true;
             else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
+            else if (strcmp(argv[i + 1], "table") == 0) want_table = true;
             i++;
         }
     }
@@ -5039,6 +5064,12 @@ static int cmd_hashkv(int argc, char **argv) {
         printf("hash: %llu\n", (unsigned long long)hash_val);
         printf("compact_revision: %llu\n", (unsigned long long)compact_rev);
         fputs("\n", stdout);
+    } else if (want_table) {
+        printf("+------------------+--------------------+\n");
+        printf("|       HASH       |  COMPACT_REV       |\n");
+        printf("+------------------+--------------------+\n");
+        printf("| %016llu | %18llu |\n", (unsigned long long)hash_val, (unsigned long long)compact_rev);
+        printf("+------------------+--------------------+\n");
     } else {
         printf("hash: %llu\n", (unsigned long long)hash_val);
         printf("compact_revision: %llu\n", (unsigned long long)compact_rev);
@@ -5356,8 +5387,8 @@ static void print_usage(void) {
     printf("  alarm list [-w table|json|fields]  List all alarms\n");
     printf("  alarm activate [-w json|fields] [TYPE]  Activate an alarm (NOSPACE|CORRUPT|NONE)\n");
     printf("  alarm disarm [-w json|fields] [TYPE]     Disarm an alarm (NOSPACE|CORRUPT|NONE)\n");
-    printf("  hash [-w json|fields]         Get KV store hash\n");
-    printf("  hashkv [-w json|fields]       Get KV store hash + compact revision\n");
+    printf("  hash [-w json|fields|table]         Get KV store hash\n");
+    printf("  hashkv [-w json|fields|table]       Get KV store hash + compact revision\n");
     printf("  defrag [-w json|fields]       Defragment database (no-op for LMDB)\n");
     printf("  move-leader [-w json|fields] TARGET_ID  Transfer leadership to target node\n");
     printf("  member list [-w json|table|fields]  List cluster members\n");
@@ -5385,7 +5416,7 @@ static void print_usage(void) {
     printf("  role revoke-permission ROLE [TYPE KEY] [--prefix] [--range-end KEY] [-w json|fields]\n");
     printf("                         Revoke permission (all or specific key) from role\n");
     printf("  snapshot save [FILE] [--compaction-periodical] [-w json|fields|table]   Save a snapshot to file\n");
-    printf("  snapshot status FILE [-w json|fields]  Show snapshot file info\n");
+    printf("  snapshot status FILE [-w json|fields|table]  Show snapshot file info\n");
     printf("  snapshot restore FILE --data-dir DIR [--force] [-w json|fields]  Restore snapshot to data dir\n");
     printf("  downgrade enable [-w json|fields] VER   Enable cluster downgrade\n");
     printf("  downgrade cancel [-w json|fields]       Cancel cluster downgrade\n");
@@ -5393,7 +5424,7 @@ static void print_usage(void) {
     printf("  version [-w json|fields]      Print the client version\n");
     printf("  endpoint health [--cluster] [-w json|fields|table]  Check server health (or all cluster members with --cluster)\n");
     printf("  endpoint status [--cluster] [-w json|table|fields]  Get server status (or all cluster members with --cluster)\n");
-    printf("  endpoint hashkv [--cluster] [-w json|fields]      Get KV hash per endpoint (or all cluster members with --cluster)\n");
+    printf("  endpoint hashkv [--cluster] [-w json|table|fields]      Get KV hash per endpoint (or all cluster members with --cluster)\n");
     printf("  check perf [--load S|M|L] [--prefix PREFIX] [-w json|fields]    Run a simple performance check\n");
     printf("  check datascale [-w json|fields] [--load N] [--prefix PREFIX]  Test database scalability\n");
     printf("  lock [--ttl N] [--print-value-only] [-w json|fields] LOCKNAME [CMD...]  Acquire a distributed lock\n");

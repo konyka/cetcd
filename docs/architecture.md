@@ -429,7 +429,10 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `--endpoints` comma-separated multi-endpoint support (accepts `host1:port1,host2:port2` format, uses first endpoint; also accepts `http://host:port` URL format),
 `--command-timeout` Go duration format (accepts `5s`, `1m`, `1m30s`, `500ms` in addition to plain integer seconds),
 `endpoint health -w table` (table output format for health check with ENDPOINT/HEALTH/TOOK/ERROR columns, supports both single and `--cluster` modes),
-`snapshot save -w table` (table output format for snapshot save with REVISION/SIZE/[FILENAME] columns)
+`snapshot save -w table` (table output format for snapshot save with REVISION/SIZE/[FILENAME] columns),
+`endpoint hashkv -w table` (table output for endpoint hashkv with ENDPOINT/HASH/COMPACT_REV columns, supports both single and `--cluster` modes),
+`hash -w table` and `hashkv -w table` (table output for standalone hash/hashkv commands),
+`snapshot status -w table` (explicit table format parsing for snapshot status, matching etcdctl behavior)
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with

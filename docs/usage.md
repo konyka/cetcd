@@ -461,6 +461,17 @@ Several commands support `-w table` for tabular output:
 # Snapshot save in table format
 ./build/bin/cetcdctl snapshot save backup.snap -w table
 
+# Snapshot status in table format (default)
+./build/bin/cetcdctl snapshot status backup.snap -w table
+
+# Hash/hashkv in table format
+./build/bin/cetcdctl hash -w table
+./build/bin/cetcdctl hashkv -w table
+
+# Endpoint hashkv in table format
+./build/bin/cetcdctl endpoint hashkv -w table
+./build/bin/cetcdctl endpoint hashkv --cluster -w table
+
 # Other table-format commands
 ./build/bin/cetcdctl get --prefix foo -w table
 ./build/bin/cetcdctl member list -w table
