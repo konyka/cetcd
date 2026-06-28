@@ -158,6 +158,9 @@ so many concurrent watchers can share a single TCP connection.
 # Include the previous key-value in each event
 ./build/bin/cetcdctl watch --prev-kv foo
 
+# Request periodic progress notifications from the server
+./build/bin/cetcdctl watch --progress-notify foo
+
 # Output events in hex format
 ./build/bin/cetcdctl watch --hex foo
 
@@ -236,6 +239,8 @@ to cancel the watch and close the stream.
 
 ```sh
 # Acquire a distributed lock (blocks until acquired)
+# A keepalive child process is automatically forked to renew the lease
+# while the lock is held, preventing it from expiring.
 ./build/bin/cetcdctl lock mylock               # Prints lock key, waits for signal
 ./build/bin/cetcdctl lock --ttl 30 mylock     # Lock with 30s lease TTL
 ./build/bin/cetcdctl lock --print-value-only mylock  # Print only lease ID
@@ -244,6 +249,8 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl lock -w fields mylock     # Lock with fields output (header+key)
 
 # Leader election (blocks until elected)
+# A keepalive child process is automatically forked to renew the lease
+# while the leader holds the election, preventing it from expiring.
 ./build/bin/cetcdctl elect myelection         # Campaign with default proposal
 ./build/bin/cetcdctl elect --ttl 30 myelection "leader"  # With custom proposal
 ./build/bin/cetcdctl elect --print-value-only myelection  # Print only lease ID

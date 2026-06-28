@@ -97,6 +97,7 @@ static char          g_lock_key[256];
 static size_t        g_lock_key_len = 0;
 static uint64_t      g_lock_lease_id = 0;
 static volatile sig_atomic_t g_lock_held = 0;
+static pid_t         g_keepalive_pid = -1; /* keepalive child process for lock/elect */
 
 /* --- Lease keepalive SIGINT state --- */
 static volatile sig_atomic_t g_keepalive_stop = 0;
@@ -2948,6 +2949,11 @@ static int cmd_check(int argc, char **argv) {
 /* Signal handler for lock release on Ctrl+C */
 static void lock_signal_handler(int sig) {
     (void)sig;
+    /* Kill the keepalive child process if it exists */
+    if (g_keepalive_pid > 0) {
+        kill(g_keepalive_pid, SIGTERM);
+        g_keepalive_pid = -1;
+    }
     if (g_lock_held && g_lock_key_len > 0) {
         /* Delete the lock key */
         uint8_t req[512], resp[256];
@@ -3100,6 +3106,43 @@ static int cmd_lock(int argc, char **argv) {
     signal(SIGINT, lock_signal_handler);
     signal(SIGTERM, lock_signal_handler);
 
+    /* Fork a keepalive child process to periodically renew the lease */
+    g_keepalive_pid = fork();
+    if (g_keepalive_pid == 0) {
+        /* Child: send LeaseKeepAlive every ttl/2 seconds */
+        unsigned interval = (unsigned)(ttl / 2);
+        if (interval == 0) interval = 1;
+        for (;;) {
+            uint8_t ka_req[32], ka_resp[256];
+            size_t kp = 0;
+            kp = encode_varint_field(ka_req, sizeof(ka_req), kp, 0x08, lease_id);
+            int kl = do_rpc("/etcdserverpb.Lease/LeaseKeepAlive", ka_req, kp,
+                            ka_resp, sizeof(ka_resp));
+            if (kl < 0) _exit(1); /* server unreachable, exit */
+            /* Parse TTL from response (field 3, tag 0x18) */
+            unsigned new_ttl = 0;
+            size_t krp = 0;
+            while (krp < (size_t)kl) {
+                uint8_t tag = ka_resp[krp++];
+                if (tag == 0x18) {
+                    uint64_t v = 0; read_varint(ka_resp, kl, &krp, &v);
+                    new_ttl = (unsigned)v;
+                    break;
+                } else if (tag == 0x0a) {
+                    uint64_t l = 0; read_varint(ka_resp, kl, &krp, &l); krp += l;
+                } else {
+                    uint64_t v = 0; read_varint(ka_resp, kl, &krp, &v);
+                }
+            }
+            if (new_ttl == 0) _exit(0); /* lease expired or revoked */
+            unsigned sleep_sec = new_ttl / 2;
+            if (sleep_sec == 0) sleep_sec = 1;
+            sleep(sleep_sec);
+        }
+    } else if (g_keepalive_pid < 0) {
+        g_keepalive_pid = -1; /* fork failed, continue without keepalive */
+    }
+
     /* Print the lock key or lease ID (etcdctl prints the key name) */
     if (want_json) {
         fputs("{", stdout);
@@ -3148,7 +3191,8 @@ static int cmd_lock(int argc, char **argv) {
             perror("fork");
             ret = 1;
         }
-        /* Release the lock */
+        /* Kill keepalive child and release the lock */
+        if (g_keepalive_pid > 0) { kill(g_keepalive_pid, SIGTERM); waitpid(g_keepalive_pid, NULL, 0); g_keepalive_pid = -1; }
         g_lock_held = 0; /* signal handler won't double-delete */
         uint8_t del_req[512], del_resp[256];
         size_t dpos = 0;
@@ -3296,6 +3340,40 @@ static int cmd_elect(int argc, char **argv) {
     g_lock_held = 1;
     signal(SIGINT, lock_signal_handler);
     signal(SIGTERM, lock_signal_handler);
+
+    /* Fork a keepalive child process to periodically renew the lease */
+    g_keepalive_pid = fork();
+    if (g_keepalive_pid == 0) {
+        /* Child: send LeaseKeepAlive every ttl/2 seconds */
+        for (;;) {
+            uint8_t ka_req[32], ka_resp[256];
+            size_t kp = 0;
+            kp = encode_varint_field(ka_req, sizeof(ka_req), kp, 0x08, lease_id);
+            int kl = do_rpc("/etcdserverpb.Lease/LeaseKeepAlive", ka_req, kp,
+                            ka_resp, sizeof(ka_resp));
+            if (kl < 0) _exit(1);
+            unsigned new_ttl = 0;
+            size_t krp = 0;
+            while (krp < (size_t)kl) {
+                uint8_t tag = ka_resp[krp++];
+                if (tag == 0x18) {
+                    uint64_t v = 0; read_varint(ka_resp, kl, &krp, &v);
+                    new_ttl = (unsigned)v;
+                    break;
+                } else if (tag == 0x0a) {
+                    uint64_t l = 0; read_varint(ka_resp, kl, &krp, &l); krp += l;
+                } else {
+                    uint64_t v = 0; read_varint(ka_resp, kl, &krp, &v);
+                }
+            }
+            if (new_ttl == 0) _exit(0);
+            unsigned sleep_sec = new_ttl / 2;
+            if (sleep_sec == 0) sleep_sec = 1;
+            sleep(sleep_sec);
+        }
+    } else if (g_keepalive_pid < 0) {
+        g_keepalive_pid = -1;
+    }
 
     if (want_json) {
         fputs("{", stdout);
@@ -4518,7 +4596,7 @@ static size_t build_watch_create(uint8_t *buf, size_t cap,
                                   const char *key, size_t key_len,
                                   bool prefix, const char *range_end_arg,
                                   int64_t start_rev, bool prev_kv,
-                                  int filter_type) {
+                                  int filter_type, bool progress_notify) {
     uint8_t create_inner[512];
     size_t cpos = 0;
     cpos = encode_bytes_field(create_inner, sizeof(create_inner), cpos, 0x0a,
@@ -4541,6 +4619,8 @@ static size_t build_watch_create(uint8_t *buf, size_t cap,
     }
     if (start_rev > 0)
         cpos = encode_varint_field(create_inner, sizeof(create_inner), cpos, 0x18, (uint64_t)start_rev);
+    if (progress_notify)
+        cpos = encode_varint_field(create_inner, sizeof(create_inner), cpos, 0x20, 1);
     if (prev_kv)
         cpos = encode_varint_field(create_inner, sizeof(create_inner), cpos, 0x30, 1);
     if (filter_type >= 0)
@@ -4701,9 +4781,10 @@ static int print_watch_response(const uint8_t *resp, size_t rlen,
 }
 
 static int cmd_watch(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--start-rev N] [--filter TYPE] [--hex] [--exec CMD] [-w json|fields] KEY\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--progress-notify] [--start-rev N] [--filter TYPE] [--hex] [--exec CMD] [-w json|fields] KEY\n"); return 1; }
     bool prefix = false;
     bool prev_kv = false;
+    bool progress_notify = false;
     bool want_json = false;
     bool want_fields = false;
     bool hex_output = false;
@@ -4722,6 +4803,8 @@ static int cmd_watch(int argc, char **argv) {
             range_end_arg = argv[++i];
         } else if (strcmp(argv[i], "--prev-kv") == 0) {
             prev_kv = true;
+        } else if (strcmp(argv[i], "--progress-notify") == 0) {
+            progress_notify = true;
         } else if (strcmp(argv[i], "--hex") == 0) {
             hex_output = true;
         } else if (strcmp(argv[i], "--start-rev") == 0 || strcmp(argv[i], "--rev") == 0) {
@@ -4743,7 +4826,7 @@ static int cmd_watch(int argc, char **argv) {
             key = argv[i];
         }
     }
-    if (!interactive && !key) { fprintf(stderr, "usage: cetcdctl watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--start-rev N] [--filter TYPE] [--hex] [--exec CMD] [-w json|fields] KEY\n"); return 1; }
+    if (!interactive && !key) { fprintf(stderr, "usage: cetcdctl watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--progress-notify] [--start-rev N] [--filter TYPE] [--hex] [--exec CMD] [-w json|fields] KEY\n"); return 1; }
     if (prefix && range_end_arg) { fprintf(stderr, "--prefix and --range-end are mutually exclusive\n"); return 1; }
 
     /* Connect to server and keep the connection open for streaming */
@@ -4764,7 +4847,7 @@ static int cmd_watch(int argc, char **argv) {
         uint8_t watch_buf[1024];
         size_t wpos = build_watch_create(watch_buf, sizeof(watch_buf),
                                          key, key_len, prefix, range_end_arg,
-                                         start_rev, prev_kv, filter_type);
+                                         start_rev, prev_kv, filter_type, progress_notify);
         if (wpos == 0) { fprintf(stderr, "key too long\n"); close(fd); return 1; }
         if (send_request(fd, "/etcdserverpb.Watch/Watch", watch_buf, wpos) != 0) {
             fprintf(stderr, "send failed\n"); close(fd); return 1;
@@ -4797,13 +4880,14 @@ static int cmd_watch(int argc, char **argv) {
                 if (!cmd) continue;
                 if (strcmp(cmd, "watch") == 0) {
                     char *wkey = strtok(NULL, " \t");
-                    if (!wkey) { fprintf(stderr, "usage: watch KEY [--prefix] [--prev-kv] [--start-rev N]\n"); continue; }
-                    bool wprefix = false, wprev_kv = false;
+                    if (!wkey) { fprintf(stderr, "usage: watch KEY [--prefix] [--prev-kv] [--progress-notify] [--start-rev N]\n"); continue; }
+                    bool wprefix = false, wprev_kv = false, wprogress_notify = false;
                     int64_t wstart_rev = 0;
                     char *tok;
                     while ((tok = strtok(NULL, " \t")) != NULL) {
                         if (strcmp(tok, "--prefix") == 0) wprefix = true;
                         else if (strcmp(tok, "--prev-kv") == 0) wprev_kv = true;
+                        else if (strcmp(tok, "--progress-notify") == 0) wprogress_notify = true;
                         else if (strcmp(tok, "--start-rev") == 0 || strcmp(tok, "--rev") == 0) {
                             char *sr = strtok(NULL, " \t");
                             if (sr) wstart_rev = atol(sr);
@@ -4811,7 +4895,7 @@ static int cmd_watch(int argc, char **argv) {
                     }
                     size_t wklen = strlen(wkey);
                     uint8_t wbuf[1024];
-                    size_t wp = build_watch_create(wbuf, sizeof(wbuf), wkey, wklen, wprefix, NULL, wstart_rev, wprev_kv, -1);
+                    size_t wp = build_watch_create(wbuf, sizeof(wbuf), wkey, wklen, wprefix, NULL, wstart_rev, wprev_kv, -1, wprogress_notify);
                     if (wp > 0) { send_request(fd, "/etcdserverpb.Watch/Watch", wbuf, wp); fprintf(stderr, "watch created for key '%s'\n", wkey); }
                 } else if (strcmp(cmd, "cancel") == 0) {
                     char *id_str = strtok(NULL, " \t");
@@ -5064,7 +5148,7 @@ static int cmd_completion(int argc, char **argv) {
         printf("        put) local opts=\"--prev-kv --ignore-value --ignore-lease --lease -w --write-out\";;\n");
         printf("        get) local opts=\"--prefix --from-key --range-end --keys-only --count-only --print-value-only --hex --consistency --rev --limit --sort-by --sort-order --min-mod-rev --max-mod-rev --min-create-rev --max-create-rev -w --write-out\";;\n");
         printf("        del) local opts=\"--prefix --from-key --range-end --prev-kv --hex -w --write-out\";;\n");
-        printf("        watch) local opts=\"-i --interactive --prefix --range-end --prev-kv --start-rev --filter --hex --exec -w --write-out\";;\n");
+        printf("        watch) local opts=\"-i --interactive --prefix --range-end --prev-kv --progress-notify --start-rev --filter --hex --exec -w --write-out\";;\n");
         printf("        lease) local opts=\"--lease-id --keys --once --interval -w --write-out\"\n");
         printf("              local subs=\"grant revoke timetolive list keepalive\";;\n");
         printf("        txn) local opts=\"-w --write-out\"; local subs=\"-i put cas get del\";;\n");
@@ -5183,7 +5267,7 @@ static int cmd_completion(int argc, char **argv) {
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from put' -l prev-kv -l ignore-value -l ignore-lease -l lease -s w -l write-out\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from get' -l prefix -l from-key -l range-end -l keys-only -l count-only -l print-value-only -l hex -l consistency -l rev -l limit -l sort-by -l sort-order -l min-mod-rev -l max-mod-rev -l min-create-rev -l max-create-rev -s w -l write-out\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from del' -l prefix -l from-key -l range-end -l prev-kv -l hex -s w -l write-out\n");
-        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from watch' -s i -l interactive -l prefix -l range-end -l prev-kv -l start-rev -l filter -l hex -l exec -s w -l write-out\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from watch' -s i -l interactive -l prefix -l range-end -l prev-kv -l progress-notify -l start-rev -l filter -l hex -l exec -s w -l write-out\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from lease' -l lease-id -l keys -l once -l interval -s w -l write-out\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from txn' -s w -l write-out\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from compact' -l physical -s w -l write-out\n");
@@ -5221,7 +5305,7 @@ static void print_usage(void) {
     printf("  get [--prefix] [--from-key] [--range-end KEY] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields|table] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
     printf("  del [--prefix] [--from-key] [--range-end KEY] [--prev-kv] [--hex] [--print-value-only] [-w json|fields] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --range-end, --prev-kv, --hex, --print-value-only)\n");
-    printf("  watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--start-rev N] [--filter NOPUT|NODELETE] [--hex] [--exec CMD] [-w json|fields] KEY  Watch key changes (-i for interactive mode, --exec runs CMD with ETCD_WATCH_* env vars)\n");
+    printf("  watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--progress-notify] [--start-rev N] [--filter NOPUT|NODELETE] [--hex] [--exec CMD] [-w json|fields] KEY  Watch key changes (-i for interactive mode, --progress-notify for periodic progress updates, --exec runs CMD with ETCD_WATCH_* env vars)\n");
     printf("  lease grant [--lease-id ID] [-w json|fields] TTL  Grant a lease (TTL in seconds)\n");
     printf("  lease revoke [-w json|fields] ID  Revoke a lease by ID\n");
     printf("  lease timetolive [--keys] [-w json|fields] ID  Query remaining TTL\n");
