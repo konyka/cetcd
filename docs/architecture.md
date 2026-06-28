@@ -425,7 +425,11 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `lease keepalive` SIGINT handling (Ctrl+C gracefully stops the keepalive loop and exits cleanly, restoring the previous signal handler),
 `lock` lease keepalive (forks a child process that periodically sends LeaseKeepAlive RPCs every ttl/2 seconds while the lock is held, preventing the lease from expiring; the child is killed on lock release or signal),
 `elect` lease keepalive (same fork-based keepalive mechanism as `lock`, ensuring the leader's lease does not expire while holding the election),
-`watch --progress-notify` (sets WatchCreateRequest field 4, tag 0x20 to request periodic progress notifications from the server, matching etcdctl behavior)
+`watch --progress-notify` (sets WatchCreateRequest field 4, tag 0x20 to request periodic progress notifications from the server, matching etcdctl behavior),
+`--endpoints` comma-separated multi-endpoint support (accepts `host1:port1,host2:port2` format, uses first endpoint; also accepts `http://host:port` URL format),
+`--command-timeout` Go duration format (accepts `5s`, `1m`, `1m30s`, `500ms` in addition to plain integer seconds),
+`endpoint health -w table` (table output format for health check with ENDPOINT/HEALTH/TOOK/ERROR columns, supports both single and `--cluster` modes),
+`snapshot save -w table` (table output format for snapshot save with REVISION/SIZE/[FILENAME] columns)
 
 The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with

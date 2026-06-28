@@ -2446,6 +2446,11 @@ static int cmd_endpoint(int argc, char **argv) {
         }
     }
     if (strcmp(argv[2], "health") == 0) {
+        if (want_table) {
+            printf("+----------------------+--------+-----------+--------------------+\n");
+            printf("|      ENDPOINT        | HEALTH |   TOOK    |       ERROR        |\n");
+            printf("+----------------------+--------+-----------+--------------------+\n");
+        }
         if (cluster) {
             struct cluster_endpoint eps[32];
             int n = collect_cluster_endpoints(eps, 32);
@@ -2471,6 +2476,9 @@ static int cmd_endpoint(int argc, char **argv) {
                         printf("status: unhealthy\n");
                         printf("took: %.3fms\n", took_ms);
                         printf("error: failed to connect\n\n");
+                    } else if (want_table) {
+                        char ep_addr[64]; snprintf(ep_addr, sizeof(ep_addr), "%s:%d", g_host, g_port);
+                        printf("| %-20s | %-6s | %7.1fms | %-18s |\n", ep_addr, "false", took_ms, "failed to connect");
                     } else {
                         printf("%s:%d is unhealthy: failed to connect\n", g_host, g_port);
                     }
@@ -2485,10 +2493,16 @@ static int cmd_endpoint(int argc, char **argv) {
                         parse_and_print_header_json(hresp, (size_t)hrlen);
                         printf("status: healthy\n");
                         printf("took: %.3fms\n\n", took_ms);
+                    } else if (want_table) {
+                        char ep_addr2[64]; snprintf(ep_addr2, sizeof(ep_addr2), "%s:%d", g_host, g_port);
+                        printf("| %-20s | %-6s | %7.1fms | %-18s |\n", ep_addr2, "true", took_ms, "");
                     } else {
                         printf("%s:%d is healthy (%.3fms)\n", g_host, g_port, took_ms);
                     }
                 }
+            }
+            if (want_table) {
+                printf("+----------------------+--------+-----------+--------------------+\n");
             }
             g_host = orig_host;
             g_port = orig_port;
@@ -2510,6 +2524,10 @@ static int cmd_endpoint(int argc, char **argv) {
                 printf("took: %.3fms\n", took_ms);
                 printf("error: failed to connect\n");
                 fputs("\n", stdout);
+            } else if (want_table) {
+                char ep_addr[64]; snprintf(ep_addr, sizeof(ep_addr), "%s:%d", g_host, g_port);
+                printf("| %-20s | %-6s | %7.1fms | %-18s |\n", ep_addr, "false", took_ms, "failed to connect");
+                printf("+----------------------+--------+-----------+--------------------+\n");
             } else {
                 printf("%s:%d is unhealthy: failed to connect\n", g_host, g_port);
             }
@@ -2526,6 +2544,10 @@ static int cmd_endpoint(int argc, char **argv) {
             printf("status: healthy\n");
             printf("took: %.3fms\n", took_ms);
             fputs("\n", stdout);
+        } else if (want_table) {
+            char ep_addr[64]; snprintf(ep_addr, sizeof(ep_addr), "%s:%d", g_host, g_port);
+            printf("| %-20s | %-6s | %7.1fms | %-18s |\n", ep_addr, "true", took_ms, "");
+            printf("+----------------------+--------+-----------+--------------------+\n");
         } else {
             printf("%s:%d is healthy (%.3fms)\n", g_host, g_port, took_ms);
         }
@@ -3563,12 +3585,13 @@ static int cmd_snapshot(int argc, char **argv) {
         return 1;
     }
     if (strcmp(argv[2], "save") == 0) {
-        int want_json = 0, want_fields = 0;
+        int want_json = 0, want_fields = 0, want_table = 0;
         const char *filename = NULL;
         for (int i = 3; i < argc; i++) {
             if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
                 if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
                 else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
+                else if (strcmp(argv[i + 1], "table") == 0) want_table = 1;
                 i++;
             } else if (strcmp(argv[i], "--compaction-periodical") == 0) {
                 /* no-op: accepted for etcdctl compatibility */
@@ -3633,6 +3656,12 @@ static int cmd_snapshot(int argc, char **argv) {
                 printf("snapshot: %s\n", filename);
                 printf("size: %zu\n", snapshot_size);
                 fputs("\n", stdout);
+            } else if (want_table) {
+                printf("+------------+----------+----------------+\n");
+                printf("| REVISION  |   SIZE   |    FILENAME    |\n");
+                printf("+------------+----------+----------------+\n");
+                printf("| %-10llu | %8zu | %-14s |\n", (unsigned long long)snap_revision, snapshot_size, filename);
+                printf("+------------+----------+----------------+\n");
             } else {
                 printf("snapshot saved to %s (%zu bytes)\n", filename, snapshot_size);
             }
@@ -3645,6 +3674,12 @@ static int cmd_snapshot(int argc, char **argv) {
                 parse_and_print_header_json(resp, (size_t)rlen);
                 printf("size: %zu\n", snapshot_size);
                 fputs("\n", stdout);
+            } else if (want_table) {
+                printf("+------------+----------+\n");
+                printf("| REVISION  |   SIZE   |\n");
+                printf("+------------+----------+\n");
+                printf("| %-10llu | %8zu |\n", (unsigned long long)snap_revision, snapshot_size);
+                printf("+------------+----------+\n");
             } else {
                 printf("snapshot: %zu bytes received\n", snapshot_size);
             }
@@ -5349,14 +5384,14 @@ static void print_usage(void) {
     printf("                         Grant permission (read|write|readwrite)\n");
     printf("  role revoke-permission ROLE [TYPE KEY] [--prefix] [--range-end KEY] [-w json|fields]\n");
     printf("                         Revoke permission (all or specific key) from role\n");
-    printf("  snapshot save [FILE] [--compaction-periodical] [-w json|fields]   Save a snapshot to file\n");
+    printf("  snapshot save [FILE] [--compaction-periodical] [-w json|fields|table]   Save a snapshot to file\n");
     printf("  snapshot status FILE [-w json|fields]  Show snapshot file info\n");
     printf("  snapshot restore FILE --data-dir DIR [--force] [-w json|fields]  Restore snapshot to data dir\n");
     printf("  downgrade enable [-w json|fields] VER   Enable cluster downgrade\n");
     printf("  downgrade cancel [-w json|fields]       Cancel cluster downgrade\n");
     printf("  downgrade validate [-w json|fields] VER Validate downgrade version\n");
     printf("  version [-w json|fields]      Print the client version\n");
-    printf("  endpoint health [--cluster] [-w json|fields]  Check server health (or all cluster members with --cluster)\n");
+    printf("  endpoint health [--cluster] [-w json|fields|table]  Check server health (or all cluster members with --cluster)\n");
     printf("  endpoint status [--cluster] [-w json|table|fields]  Get server status (or all cluster members with --cluster)\n");
     printf("  endpoint hashkv [--cluster] [-w json|fields]      Get KV hash per endpoint (or all cluster members with --cluster)\n");
     printf("  check perf [--load S|M|L] [--prefix PREFIX] [-w json|fields]    Run a simple performance check\n");
@@ -5377,24 +5412,53 @@ int main(int argc, char **argv) {
             g_port = (uint16_t)atoi(argv[cmd_start + 1]);
             cmd_start += 2;
         } else if ((strcmp(argv[cmd_start], "--endpoints") == 0 || strcmp(argv[cmd_start], "--endpoint") == 0) && cmd_start + 1 < argc) {
-            /* Parse first endpoint: host:port format */
-            const char *ep = argv[cmd_start + 1];
-            const char *colon = strchr(ep, ':');
+            /* Parse first endpoint from comma-separated list: host:port or http://host:port format */
+            static char ep_buf[512];
+            strncpy(ep_buf, argv[cmd_start + 1], sizeof(ep_buf) - 1);
+            ep_buf[sizeof(ep_buf) - 1] = '\0';
+            char *comma = strchr(ep_buf, ',');
+            if (comma) *comma = '\0';
+            char *ep_start = ep_buf;
+            if (strncmp(ep_start, "http://", 7) == 0) ep_start += 7;
+            else if (strncmp(ep_start, "https://", 8) == 0) ep_start += 8;
+            const char *colon = strchr(ep_start, ':');
             if (colon) {
-                size_t hlen = (size_t)(colon - ep);
+                size_t hlen = (size_t)(colon - ep_start);
                 if (hlen > 0 && hlen < 256) {
                     static char host_buf[256];
-                    memcpy(host_buf, ep, hlen);
+                    memcpy(host_buf, ep_start, hlen);
                     host_buf[hlen] = '\0';
                     g_host = host_buf;
                     g_port = (uint16_t)atoi(colon + 1);
                 }
             } else {
-                g_host = ep;
+                g_host = ep_start;
             }
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--command-timeout") == 0 && cmd_start + 1 < argc) {
-            int timeout_sec = atoi(argv[cmd_start + 1]);
+            /* Parse timeout: supports integer seconds or Go duration format (5s, 1m, 1m30s, 500ms) */
+            const char *ts = argv[cmd_start + 1];
+            int timeout_sec = 0;
+            int is_pure_num = 1;
+            for (const char *p = ts; *p; p++) {
+                if (*p < '0' || *p > '9') { is_pure_num = 0; break; }
+            }
+            if (is_pure_num) {
+                timeout_sec = atoi(ts);
+            } else {
+                const char *p = ts;
+                while (*p) {
+                    char *endp;
+                    long val = strtol(p, &endp, 10);
+                    if (endp == p) break;
+                    p = endp;
+                    if (strncmp(p, "ms", 2) == 0) { timeout_sec += (int)((val + 999) / 1000); p += 2; }
+                    else if (*p == 'h') { timeout_sec += (int)(val * 3600); p++; }
+                    else if (*p == 'm') { timeout_sec += (int)(val * 60); p++; }
+                    else if (*p == 's') { timeout_sec += (int)val; p++; }
+                    else { timeout_sec += (int)val; break; }
+                }
+            }
             if (timeout_sec > 0) {
                 signal(SIGALRM, (void (*)(int))_exit);
                 alarm((unsigned)timeout_sec);

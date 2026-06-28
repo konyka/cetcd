@@ -446,6 +446,28 @@ Supported operations (in `then`/`else` sections):
 |--------|---------|-------------|
 | `--host ADDR` | 127.0.0.1 | Server address |
 | `--port PORT` | 2379 | Server port |
+| `--endpoints EP` | 127.0.0.1:2379 | Server endpoint (host:port, comma-separated for multiple, http:// prefix supported) |
+| `--command-timeout SEC` | none | Timeout for commands (integer seconds or Go duration: `5s`, `1m`, `1m30s`, `500ms`) |
+
+### Table output formats
+
+Several commands support `-w table` for tabular output:
+
+```sh
+# Endpoint health in table format
+./build/bin/cetcdctl endpoint health -w table
+./build/bin/cetcdctl endpoint health --cluster -w table
+
+# Snapshot save in table format
+./build/bin/cetcdctl snapshot save backup.snap -w table
+
+# Other table-format commands
+./build/bin/cetcdctl get --prefix foo -w table
+./build/bin/cetcdctl member list -w table
+./build/bin/cetcdctl lease list -w table
+./build/bin/cetcdctl alarm list -w table
+./build/bin/cetcdctl endpoint status -w table
+```
 
 ---
 
