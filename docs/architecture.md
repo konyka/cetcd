@@ -358,7 +358,7 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `version -w json` enhanced (now includes `server` field with value `cetcd`),
 `snapshot restore -w json` enhanced (now includes `keys` count field in JSON output),
 `print_json_string` helper (unified JSON string escaping for all -w json outputs; now used by get/put/del/watch/member/status/endpoint/auth/role/lease commands for proper handling of special characters like \" \\ \n \r \t and control characters),
-`etcd-compatible server flags` (cetcd now accepts `--listen-client-urls`, `--listen-peer-urls` with URL format parsing, plus `--advertise-client-urls`, `--initial-advertise-peer-urls`, `--initial-cluster-state`, `--initial-cluster-token`, `--snapshot-count`, `--quota-backend-bytes`, `--force-new-cluster` as no-op compatibility flags),
+`etcd-compatible server flags` (cetcd now accepts `--listen-client-urls`, `--listen-peer-urls` with URL format parsing, plus `--advertise-client-urls`, `--initial-advertise-peer-urls`, `--initial-cluster-state`, `--initial-cluster-token`, `--snapshot-count`, `--quota-backend-bytes`, `--force-new-cluster`, `--max-txn-ops`, `--max-request-bytes`, `--auth-token`, `--bcrypt-cost`, `--cert-file`, `--key-file`, `--trusted-ca-file`, `--client-cert-auth`, `--auto-tls`, `--peer-cert-file`, `--peer-key-file`, `--peer-trusted-ca-file`, `--peer-client-cert-auth`, `--peer-auto-tls`, `--cipher-suites`, `--logger`, `--log-outputs`, `--grpc-keepalive-*`, `--experimental-*` as no-op compatibility flags; `--election-tick` and `--heartbeat-tick` are now accepted as actual Raft timing parameters),
 `get/del --prefix ""` buffer overflow fix (empty key with `--prefix` now correctly uses `\0` as range_end to match all keys, instead of causing a `key_len - 1` underflow),
 `get/del --prefix --from-key` mutual exclusion (returns error when both flags are specified together),
 `alarm TYPE` argument parsing (`alarm activate` and `alarm disarm` now accept an optional TYPE argument: `NOSPACE`, `CORRUPT`, or `NONE`; `alarm list` output now displays `CORRUPT` alarm type correctly),
@@ -650,6 +650,8 @@ The CRC32C lookup table in `libcetcd_base/hash.c` is initialised lazily using
 C11 atomics (`memory_order_release`/`acquire`) to remain thread-safe without a
 mutex. The per-key watcher fan-out and cluster membership queries use
 `_Thread_local` storage where re-entrancy is a concern.
+
+`cetcdctl global flags` (now accepts `--max-call-send-msg-size`, `--max-call-recv-msg-size`, `--insecure-skip-tls-verify`, `--insecure-transport`, `--password`, `--discovery-srv` as no-op compatibility flags; `--password` can be used with `--user USER` to provide the password separately)
 
 ---
 

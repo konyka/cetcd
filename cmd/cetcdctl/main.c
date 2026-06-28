@@ -91,6 +91,7 @@ static int         g_debug = 0; /* flag for --debug */
 static int         g_insecure = 0; /* flag for --insecure (no-op, plain TCP) */
 static int         g_dial_timeout = 0; /* flag for --dial-timeout (seconds) */
 static char        g_auth_token[256] = ""; /* token from --user */
+static char        g_password[256] = ""; /* password from --password flag */
 
 /* --- Lock state for signal handler --- */
 static char          g_lock_key[256];
@@ -5195,7 +5196,7 @@ static int cmd_completion(int argc, char **argv) {
         printf("        cword=$COMP_CWORD\n");
         printf("    }\n");
         printf("    local cmds=\"put get del watch lease txn compact status alarm hash hashkv defrag move-leader member auth user role snapshot downgrade version endpoint check lock elect completion\"\n");
-        printf("    local gopts=\"--host --port --endpoints --endpoint --user --command-timeout --debug --insecure --dial-timeout --keepalive-time --keepalive-timeout --cacert --cert --key\"\n");
+        printf("    local gopts=\"--host --port --endpoints --endpoint --user --password --command-timeout --debug --insecure --insecure-skip-tls-verify --insecure-transport --dial-timeout --keepalive-time --keepalive-timeout --cacert --cert --key --max-call-send-msg-size --max-call-recv-msg-size --discovery-srv\"\n");
         printf("    # Find the subcommand\n");
         printf("    cmd=\"\"\n");
         printf("    for ((i=1; i<cword; i++)); do\n");
@@ -5268,6 +5269,12 @@ static int cmd_completion(int argc, char **argv) {
         printf("        '--cacert[CA cert]:file' \\\n");
         printf("        '--cert[TLS cert]:file' \\\n");
         printf("        '--key[TLS key]:file' \\\n");
+        printf("        '--max-call-send-msg-size[Max send size]:bytes' \\\n");
+        printf("        '--max-call-recv-msg-size[Max recv size]:bytes' \\\n");
+        printf("        '--insecure-skip-tls-verify[Skip TLS verify]' \\\n");
+        printf("        '--insecure-transport[Disable TLS transport]' \\\n");
+        printf("        '--password[Password]:pass' \\\n");
+        printf("        '--discovery-srv[Discovery SRV]:domain' \\\n");
         printf("        '1:command:compadd -a cmds' \\\n");
         printf("        '*::arg:->args'\n");
         printf("    case $state in\n");
@@ -5315,6 +5322,12 @@ static int cmd_completion(int argc, char **argv) {
         printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l cacert -d 'CA cert'\n");
         printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l cert -d 'TLS cert'\n");
         printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l key -d 'TLS key'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l max-call-send-msg-size -d 'Max gRPC send size'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l max-call-recv-msg-size -d 'Max gRPC recv size'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l insecure-skip-tls-verify -d 'Skip TLS verify'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l insecure-transport -d 'Disable TLS transport'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l password -d 'Password for --user'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l discovery-srv -d 'Discovery service'\n");
         printf("# Subcommands\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from lease' -a 'grant revoke timetolive list keepalive'\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from txn' -a '-i put cas get del'\n");
@@ -5365,7 +5378,13 @@ static void print_usage(void) {
     printf("  --keepalive-timeout SEC  Keepalive timeout (no-op, plain TCP)\n");
     printf("  --cacert FILE   TLS CA certificate (no-op, plain TCP)\n");
     printf("  --cert FILE     TLS certificate (no-op, plain TCP)\n");
-    printf("  --key FILE      TLS key (no-op, plain TCP)\n\n");
+    printf("  --key FILE      TLS key (no-op, plain TCP)\n");
+    printf("  --max-call-send-msg-size N  Max gRPC send message size (no-op)\n");
+    printf("  --max-call-recv-msg-size N  Max gRPC recv message size (no-op)\n");
+    printf("  --insecure-skip-tls-verify  Skip TLS verification (no-op, plain TCP)\n");
+    printf("  --insecure-transport  Disable TLS for transport (no-op, plain TCP)\n");
+    printf("  --password PASS  Password for --user authentication\n");
+    printf("  --discovery-srv DOMAIN  Discovery service (no-op)\n\n");
     printf("Commands:\n");
     printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] [--print-value-only] [-w json|fields] KEY [VALUE|-]  Store a key-value pair\n");
     printf("  get [--prefix] [--from-key] [--range-end KEY] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields|table] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
@@ -5519,10 +5538,39 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[cmd_start], "--key") == 0 && cmd_start + 1 < argc) {
             /* Accepted for compatibility, no-op (plain TCP) */
             cmd_start += 2;
+        } else if (strcmp(argv[cmd_start], "--max-call-send-msg-size") == 0 && cmd_start + 1 < argc) {
+            /* Accepted for compatibility, no-op */
+            cmd_start += 2;
+        } else if (strcmp(argv[cmd_start], "--max-call-recv-msg-size") == 0 && cmd_start + 1 < argc) {
+            /* Accepted for compatibility, no-op */
+            cmd_start += 2;
+        } else if (strcmp(argv[cmd_start], "--insecure-skip-tls-verify") == 0) {
+            /* Accepted for compatibility, no-op (plain TCP) */
+            cmd_start += 1;
+        } else if (strcmp(argv[cmd_start], "--insecure-transport") == 0) {
+            /* Accepted for compatibility, no-op (plain TCP) */
+            cmd_start += 1;
+        } else if (strcmp(argv[cmd_start], "--password") == 0 && cmd_start + 1 < argc) {
+            /* Password for --user: stored and appended when --user has no password */
+            strncpy(g_password, argv[cmd_start + 1], sizeof(g_password) - 1);
+            g_password[sizeof(g_password) - 1] = '\0';
+            cmd_start += 2;
+        } else if (strcmp(argv[cmd_start], "--discovery-srv") == 0 && cmd_start + 1 < argc) {
+            /* Accepted for compatibility, no-op */
+            cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--user") == 0 && cmd_start + 1 < argc) {
             const char *cred = argv[cmd_start + 1];
-            if (do_authenticate(cred) != 0) {
-                return 1;
+            /* If --password was provided and cred has no ':', append password */
+            if (g_password[0] && strchr(cred, ':') == NULL) {
+                char cred_buf[512];
+                snprintf(cred_buf, sizeof(cred_buf), "%s:%s", cred, g_password);
+                if (do_authenticate(cred_buf) != 0) {
+                    return 1;
+                }
+            } else {
+                if (do_authenticate(cred) != 0) {
+                    return 1;
+                }
             }
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--help") == 0 || strcmp(argv[cmd_start], "-h") == 0) {

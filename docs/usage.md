@@ -104,6 +104,28 @@ cetcd accepts several etcd server flags for migration compatibility:
   --initial-cluster-state new --initial-cluster-token etcd-cluster \
   --snapshot-count 10000 --quota-backend-bytes 2147483648 \
   --data-dir ./data
+
+# TLS-related flags (accepted as no-op, cetcd uses plain TCP)
+./build/bin/cetcd --cert-file server.crt --key-file server.key \
+  --trusted-ca-file ca.crt --client-cert-auth --auto-tls \
+  --peer-cert-file peer.crt --peer-key-file peer.key \
+  --peer-trusted-ca-file peer-ca.crt --peer-client-cert-auth \
+  --peer-auto-tls --cipher-suites TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+
+# Limit and auth flags (accepted as no-op)
+./build/bin/cetcd --max-txn-ops 128 --max-request-bytes 1572864 \
+  --auth-token jwt --bcrypt-cost 11
+
+# gRPC keepalive and logger flags (accepted as no-op)
+./build/bin/cetcd --grpc-keepalive-time 10s --grpc-keepalive-timeout 5s \
+  --grpc-keepalive-min-time 5s --logger zap --log-outputs stderr
+
+# Experimental flags (accepted as no-op)
+./build/bin/cetcd --experimental-initial-corrupt-check \
+  --experimental-compaction-batch-limit 1000
+
+# Raft timing parameters (actually applied)
+./build/bin/cetcd --election-tick 10 --heartbeat-tick 1
 ```
 
 ---
@@ -448,6 +470,21 @@ Supported operations (in `then`/`else` sections):
 | `--port PORT` | 2379 | Server port |
 | `--endpoints EP` | 127.0.0.1:2379 | Server endpoint (host:port, comma-separated for multiple, http:// prefix supported) |
 | `--command-timeout SEC` | none | Timeout for commands (integer seconds or Go duration: `5s`, `1m`, `1m30s`, `500ms`) |
+| `--user USER:PASS` | none | Authenticate with server before command |
+| `--password PASS` | none | Password for `--user` (when USER has no `:PASS`) |
+| `--debug` | off | Print RPC path and response size |
+| `--insecure` | off | Skip TLS certificate verification (no-op, plain TCP) |
+| `--insecure-skip-tls-verify` | off | Same as `--insecure` (no-op) |
+| `--insecure-transport` | off | Disable TLS transport (no-op) |
+| `--dial-timeout SEC` | none | Connection timeout |
+| `--keepalive-time SEC` | none | Keepalive ping interval (no-op, plain TCP) |
+| `--keepalive-timeout SEC` | none | Keepalive timeout (no-op, plain TCP) |
+| `--cacert FILE` | none | TLS CA certificate (no-op, plain TCP) |
+| `--cert FILE` | none | TLS certificate (no-op, plain TCP) |
+| `--key FILE` | none | TLS key (no-op, plain TCP) |
+| `--max-call-send-msg-size N` | none | Max gRPC send message size (no-op) |
+| `--max-call-recv-msg-size N` | none | Max gRPC recv message size (no-op) |
+| `--discovery-srv DOMAIN` | none | Discovery service (no-op) |
 
 ### Table output formats
 

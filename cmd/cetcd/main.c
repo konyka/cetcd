@@ -29,6 +29,8 @@ static void print_usage(const char *prog) {
     printf("  --metrics-port PORT Metrics listen port (default: 2381, 0 to disable)\n");
     printf("  --node-id ID     Node ID (default: 1)\n");
     printf("  --initial-cluster NODE1=ADDR:PORT,NODE2=...  Initial cluster membership\n");
+    printf("  --election-tick N   Raft election tick (default: 10)\n");
+    printf("  --heartbeat-tick N  Raft heartbeat tick (default: 1)\n");
     printf("  --log-level LVL  Log level: trace,debug,info,warn,error (default: info)\n");
     printf("  --log-format FMT Log format: text,json (default: text)\n");
     printf("\n  etcd-compatible flags (accepted for compatibility):\n");
@@ -41,6 +43,25 @@ static void print_usage(const char *prog) {
     printf("  --snapshot-count N   Accepted but no-op\n");
     printf("  --quota-backend-bytes N  Accepted but no-op\n");
     printf("  --force-new-cluster  Accepted but no-op\n");
+    printf("  --max-txn-ops N     Accepted but no-op\n");
+    printf("  --max-request-bytes N  Accepted but no-op\n");
+    printf("  --grpc-keepalive-*  Accepted but no-op (plain TCP)\n");
+    printf("  --auth-token TYPE   Accepted but no-op\n");
+    printf("  --bcrypt-cost N     Accepted but no-op\n");
+    printf("  --cert-file FILE    Accepted but no-op (plain TCP)\n");
+    printf("  --key-file FILE     Accepted but no-op (plain TCP)\n");
+    printf("  --trusted-ca-file FILE  Accepted but no-op (plain TCP)\n");
+    printf("  --client-cert-auth  Accepted but no-op (plain TCP)\n");
+    printf("  --auto-tls           Accepted but no-op (plain TCP)\n");
+    printf("  --peer-cert-file FILE    Accepted but no-op (plain TCP)\n");
+    printf("  --peer-key-file FILE     Accepted but no-op (plain TCP)\n");
+    printf("  --peer-trusted-ca-file FILE  Accepted but no-op (plain TCP)\n");
+    printf("  --peer-client-cert-auth  Accepted but no-op (plain TCP)\n");
+    printf("  --peer-auto-tls      Accepted but no-op (plain TCP)\n");
+    printf("  --cipher-suites LIST  Accepted but no-op (plain TCP)\n");
+    printf("  --logger TYPE       Accepted but no-op (uses built-in logger)\n");
+    printf("  --log-outputs LIST   Accepted but no-op (logs to stderr)\n");
+    printf("  --experimental-*    Accepted but no-op\n");
     printf("  --help           Show this help\n");
 }
 
@@ -154,6 +175,12 @@ int main(int argc, char **argv) {
             } else {
                 strncpy(cfg.peer_addr, addr_start, sizeof(cfg.peer_addr) - 1);
             }
+        } else if (strcmp(argv[i], "--election-tick") == 0 && i + 1 < argc) {
+            cfg.election_tick = (int)atoi(argv[++i]);
+            if (cfg.election_tick <= 0) cfg.election_tick = 10;
+        } else if (strcmp(argv[i], "--heartbeat-tick") == 0 && i + 1 < argc) {
+            cfg.heartbeat_tick = (int)atoi(argv[++i]);
+            if (cfg.heartbeat_tick <= 0) cfg.heartbeat_tick = 1;
         } else if (strcmp(argv[i], "--advertise-client-urls") == 0 && i + 1 < argc) {
             i++; /* no-op, accepted for etcd compatibility */
         } else if (strcmp(argv[i], "--initial-advertise-peer-urls") == 0 && i + 1 < argc) {
@@ -168,6 +195,45 @@ int main(int argc, char **argv) {
             i++; /* no-op, accepted for etcd compatibility */
         } else if (strcmp(argv[i], "--force-new-cluster") == 0) {
             /* no-op, accepted for etcd compatibility */
+        } else if (strcmp(argv[i], "--max-txn-ops") == 0 && i + 1 < argc) {
+            i++; /* no-op */
+        } else if (strcmp(argv[i], "--max-request-bytes") == 0 && i + 1 < argc) {
+            i++; /* no-op */
+        } else if (strcmp(argv[i], "--auth-token") == 0 && i + 1 < argc) {
+            i++; /* no-op */
+        } else if (strcmp(argv[i], "--bcrypt-cost") == 0 && i + 1 < argc) {
+            i++; /* no-op */
+        } else if (strcmp(argv[i], "--cert-file") == 0 && i + 1 < argc) {
+            i++; /* no-op, plain TCP */
+        } else if (strcmp(argv[i], "--key-file") == 0 && i + 1 < argc) {
+            i++; /* no-op, plain TCP */
+        } else if (strcmp(argv[i], "--trusted-ca-file") == 0 && i + 1 < argc) {
+            i++; /* no-op, plain TCP */
+        } else if (strcmp(argv[i], "--client-cert-auth") == 0) {
+            /* no-op, plain TCP */
+        } else if (strcmp(argv[i], "--auto-tls") == 0) {
+            /* no-op, plain TCP */
+        } else if (strcmp(argv[i], "--peer-cert-file") == 0 && i + 1 < argc) {
+            i++; /* no-op, plain TCP */
+        } else if (strcmp(argv[i], "--peer-key-file") == 0 && i + 1 < argc) {
+            i++; /* no-op, plain TCP */
+        } else if (strcmp(argv[i], "--peer-trusted-ca-file") == 0 && i + 1 < argc) {
+            i++; /* no-op, plain TCP */
+        } else if (strcmp(argv[i], "--peer-client-cert-auth") == 0) {
+            /* no-op, plain TCP */
+        } else if (strcmp(argv[i], "--peer-auto-tls") == 0) {
+            /* no-op, plain TCP */
+        } else if (strcmp(argv[i], "--cipher-suites") == 0 && i + 1 < argc) {
+            i++; /* no-op, plain TCP */
+        } else if (strcmp(argv[i], "--logger") == 0 && i + 1 < argc) {
+            i++; /* no-op, uses built-in logger */
+        } else if (strcmp(argv[i], "--log-outputs") == 0 && i + 1 < argc) {
+            i++; /* no-op, logs to stderr */
+        } else if (strncmp(argv[i], "--grpc-keepalive-", 17) == 0 && i + 1 < argc) {
+            i++; /* no-op, plain TCP */
+        } else if (strncmp(argv[i], "--experimental-", 15) == 0) {
+            /* no-op, accepted for etcd compatibility */
+            if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* skip value if present */
         }
     }
     strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
