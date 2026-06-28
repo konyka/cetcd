@@ -337,6 +337,8 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd --force  # Force overwrite
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd -w json  # Restore with JSON output
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd -w fields  # Restore with fields output
+./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd --skip-hash-check  # Skip hash check (etcd-compatible)
+./build/bin/cetcdctl get --prefix foo --count-only -w fields  # Count-only with fields output
 ./build/bin/cetcdctl endpoint health -w json  # Health check with ResponseHeader
 ./build/bin/cetcdctl endpoint status -w table  # Status in table format
 ./build/bin/cetcdctl endpoint hashkv -w json   # HashKV with ResponseHeader

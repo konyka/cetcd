@@ -651,7 +651,9 @@ C11 atomics (`memory_order_release`/`acquire`) to remain thread-safe without a
 mutex. The per-key watcher fan-out and cluster membership queries use
 `_Thread_local` storage where re-entrancy is a concern.
 
-`cetcdctl global flags` (now accepts `--max-call-send-msg-size`, `--max-call-recv-msg-size`, `--insecure-skip-tls-verify`, `--insecure-transport`, `--password`, `--discovery-srv` as no-op compatibility flags; `--password` can be used with `--user USER` to provide the password separately)
+`cetcdctl global flags` (now accepts `--max-call-send-msg-size`, `--max-call-recv-msg-size`, `--insecure-skip-tls-verify`, `--insecure-transport`, `--password`, `--discovery-srv` as no-op compatibility flags; `--password` can be used with `--user USER` to provide the password separately),
+`get --count-only -w fields` (fields output now includes ResponseHeader fields and `"count" : N` line, matching etcdctl fields format),
+`snapshot restore` etcd-compatible flags (now accepts `--skip-hash-check`, `--initial-cluster`, `--initial-advertise-peer-urls`, `--name`, `--initial-cluster-token`, `--initial-cluster-state` as no-op flags for etcdctl compatibility)
 
 ---
 

@@ -479,6 +479,14 @@ static void parse_range_response(const uint8_t *data, size_t len) {
                 fputs("\"kvs\":[", stdout);
             }
             printf("],\"count\":%d,\"more\":%s}\n", server_count >= 0 ? server_count : count, has_more ? "true" : "false");
+        } else if (g_write_fields) {
+            if (have_header) {
+                printf("\"cluster_id\" : %llu\n", (unsigned long long)hdr_cluster_id);
+                printf("\"member_id\" : %llu\n", (unsigned long long)hdr_member_id);
+                printf("\"revision\" : %llu\n", (unsigned long long)hdr_revision);
+                printf("\"raft_term\" : %llu\n", (unsigned long long)hdr_raft_term);
+            }
+            printf("\"count\" : %d\n", server_count >= 0 ? server_count : count);
         } else {
             printf("%d\n", server_count >= 0 ? server_count : count);
         }
@@ -3799,12 +3807,24 @@ static int cmd_snapshot(int argc, char **argv) {
                 if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
                 else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
                 i++;
+            } else if (strcmp(argv[i], "--skip-hash-check") == 0) {
+                /* Accepted for etcdctl compatibility, no-op */
+            } else if (strcmp(argv[i], "--initial-cluster") == 0 && i + 1 < argc) {
+                i++; /* no-op, single-node restore */
+            } else if (strcmp(argv[i], "--initial-advertise-peer-urls") == 0 && i + 1 < argc) {
+                i++; /* no-op, single-node restore */
+            } else if (strcmp(argv[i], "--name") == 0 && i + 1 < argc) {
+                i++; /* no-op, accepted for compatibility */
+            } else if (strcmp(argv[i], "--initial-cluster-token") == 0 && i + 1 < argc) {
+                i++; /* no-op, accepted for compatibility */
+            } else if (strcmp(argv[i], "--initial-cluster-state") == 0 && i + 1 < argc) {
+                i++; /* no-op, accepted for compatibility */
             } else if (!snap_file && argv[i][0] != '-') {
                 snap_file = argv[i];
             }
         }
         if (!snap_file) {
-            fprintf(stderr, "usage: cetcdctl snapshot restore FILE --data-dir DIR [--force] [-w json|fields]\n");
+            fprintf(stderr, "usage: cetcdctl snapshot restore FILE --data-dir DIR [--force] [--skip-hash-check] [-w json|fields]\n");
             return 1;
         }
         if (!data_dir) {
@@ -5436,7 +5456,7 @@ static void print_usage(void) {
     printf("                         Revoke permission (all or specific key) from role\n");
     printf("  snapshot save [FILE] [--compaction-periodical] [-w json|fields|table]   Save a snapshot to file\n");
     printf("  snapshot status FILE [-w json|fields|table]  Show snapshot file info\n");
-    printf("  snapshot restore FILE --data-dir DIR [--force] [-w json|fields]  Restore snapshot to data dir\n");
+    printf("  snapshot restore FILE --data-dir DIR [--force] [--skip-hash-check] [-w json|fields]  Restore snapshot to data dir\n");
     printf("  downgrade enable [-w json|fields] VER   Enable cluster downgrade\n");
     printf("  downgrade cancel [-w json|fields]       Cancel cluster downgrade\n");
     printf("  downgrade validate [-w json|fields] VER Validate downgrade version\n");
