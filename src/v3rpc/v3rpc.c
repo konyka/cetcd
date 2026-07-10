@@ -303,3 +303,5 @@ cetcd_mvcc_store *cetcd_v3rpc_store(cetcd_v3rpc *rpc) {
 cetcd_lease_mgr *cetcd_v3rpc_leases(cetcd_v3rpc *rpc) {
     return rpc ? rpc->leases : NULL;
 }
+
+/* cetcd_v3rpc_detach_stream_writer is implemented in watch_handler.c */

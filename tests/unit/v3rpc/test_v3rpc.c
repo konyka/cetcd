@@ -3636,6 +3636,17 @@ static void mock_stream_write_fn(const uint8_t *data, size_t len, void *ctx) {
     mock_write_called++;
 }
 
+static int mock_writes_a = 0;
+static int mock_writes_b = 0;
+static void mock_write_a(const uint8_t *data, size_t len, void *ctx) {
+    (void)data; (void)len; (void)ctx;
+    mock_writes_a++;
+}
+static void mock_write_b(const uint8_t *data, size_t len, void *ctx) {
+    (void)data; (void)len; (void)ctx;
+    mock_writes_b++;
+}
+
 /* Reset the global streaming state before/after each test. */
 static void reset_streaming_globals(void) {
     g_rpc_loop = NULL;
@@ -3708,6 +3719,91 @@ CETCD_TEST_CASE(test_watch_create_streaming) {
     CETCD_ASSERT_TRUE(found_watch_id);
 
     cetcd_rpc_bytes_free(&resp);
+    reset_streaming_globals();
+    cetcd_v3rpc_free(rpc);
+    cetcd_loop_free(loop);
+}
+
+CETCD_TEST_CASE(test_watch_per_connection_writer) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    CETCD_ASSERT_NOT_NULL(rpc);
+    cetcd_loop *loop = cetcd_loop_new();
+    cetcd_v3rpc_set_loop(rpc, loop);
+
+    mock_writes_a = mock_writes_b = 0;
+
+    /* Conn A creates watch on "akey" */
+    cetcd_v3rpc_set_stream_writer(rpc, mock_write_a, (void *)(uintptr_t)1);
+    {
+        uint8_t inner[16]; size_t ip = 0;
+        inner[ip++] = 0x0a; inner[ip++] = 0x04;
+        memcpy(inner + ip, "akey", 4); ip += 4;
+        inner[ip++] = 0x38; inner[ip++] = 0x0a; /* watch_id=10 */
+        uint8_t buf[32]; size_t bp = 0;
+        buf[bp++] = 0x0a; buf[bp++] = (uint8_t)ip;
+        memcpy(buf + bp, inner, ip); bp += ip;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Watch/Watch", buf, bp);
+        CETCD_ASSERT_NOT_NULL(r.data);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Conn B creates watch on "bkey" — must not steal A's writer */
+    cetcd_v3rpc_set_stream_writer(rpc, mock_write_b, (void *)(uintptr_t)2);
+    {
+        uint8_t inner[16]; size_t ip = 0;
+        inner[ip++] = 0x0a; inner[ip++] = 0x04;
+        memcpy(inner + ip, "bkey", 4); ip += 4;
+        inner[ip++] = 0x38; inner[ip++] = 0x14; /* watch_id=20 */
+        uint8_t buf[32]; size_t bp = 0;
+        buf[bp++] = 0x0a; buf[bp++] = (uint8_t)ip;
+        memcpy(buf + bp, inner, ip); bp += ip;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Watch/Watch", buf, bp);
+        CETCD_ASSERT_NOT_NULL(r.data);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Put akey → only writer A should fire */
+    {
+        uint8_t put[16]; size_t p = 0;
+        put[p++] = 0x0a; put[p++] = 0x04;
+        memcpy(put + p, "akey", 4); p += 4;
+        put[p++] = 0x12; put[p++] = 0x02;
+        memcpy(put + p, "v1", 2); p += 2;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put, p);
+        cetcd_rpc_bytes_free(&r);
+    }
+    CETCD_ASSERT_TRUE(mock_writes_a >= 1);
+    CETCD_ASSERT_EQ_INT(mock_writes_b, 0);
+
+    /* Put bkey → only writer B */
+    int a_before = mock_writes_a;
+    {
+        uint8_t put[16]; size_t p = 0;
+        put[p++] = 0x0a; put[p++] = 0x04;
+        memcpy(put + p, "bkey", 4); p += 4;
+        put[p++] = 0x12; put[p++] = 0x02;
+        memcpy(put + p, "v2", 2); p += 2;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put, p);
+        cetcd_rpc_bytes_free(&r);
+    }
+    CETCD_ASSERT_EQ_INT(mock_writes_a, a_before);
+    CETCD_ASSERT_TRUE(mock_writes_b >= 1);
+
+    /* Detach conn A — further akey puts must not call write_a */
+    cetcd_v3rpc_detach_stream_writer((void *)(uintptr_t)1);
+    a_before = mock_writes_a;
+    {
+        uint8_t put[16]; size_t p = 0;
+        put[p++] = 0x0a; put[p++] = 0x04;
+        memcpy(put + p, "akey", 4); p += 4;
+        put[p++] = 0x12; put[p++] = 0x02;
+        memcpy(put + p, "v3", 2); p += 2;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put, p);
+        cetcd_rpc_bytes_free(&r);
+    }
+    CETCD_ASSERT_EQ_INT(mock_writes_a, a_before);
+
+    cetcd_v3rpc_detach_stream_writer((void *)(uintptr_t)2);
     reset_streaming_globals();
     cetcd_v3rpc_free(rpc);
     cetcd_loop_free(loop);
@@ -3948,6 +4044,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_txn_range_sort_order),
     CETCD_TEST_ENTRY(v3rpc_txn_range_revision_filter),
     CETCD_TEST_ENTRY(test_watch_create_streaming),
+    CETCD_TEST_ENTRY(test_watch_per_connection_writer),
     CETCD_TEST_ENTRY(test_watch_cancel),
     CETCD_TEST_ENTRY(v3rpc_watch_noput_filter),
 CETCD_TEST_LIST_END

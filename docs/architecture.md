@@ -561,14 +561,16 @@ Client connection
 ```
 
 1. The gRPC layer receives a `WatchCreateRequest` on a client connection.
-2. The handler sets the stream writer for this connection (`cetcd_v3rpc_set_stream_writer`)
-   and subscribes to MVCC events via a notification channel.
+2. The handler snapshots the current stream writer (`cetcd_v3rpc_set_stream_writer`)
+   **into that watcher** and subscribes to MVCC events via a notification channel.
+   Later WatchCreates on other connections do not overwrite earlier writers.
 3. The `created` confirmation is returned immediately to the client.
 4. When a matching `Put` or `Delete` is committed, MVCC invokes `notify_push()`,
    which calls the direct callback `streaming_watch_notify_cb()`.
 5. The callback drains the notification queue, encodes a `WatchResponse`, and writes
-   it to the client stream via `uv_write()`.
-6. The connection stays open; subsequent events trigger additional callbacks.
+   it via the **per-watcher** `write_fn`/`write_ctx` (the originating connection).
+6. On connection close, `cetcd_v3rpc_detach_stream_writer` cancels watchers bound to
+   that socket so events are not written to a freed handle.
 
 ### Multi-watcher multiplexing
 

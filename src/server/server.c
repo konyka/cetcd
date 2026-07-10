@@ -164,6 +164,8 @@ typedef struct client_ctx_ {
 } client_ctx_;
 
 static void client_close_cb_(uv_handle_t *handle) {
+    /* Detach any Watch streams bound to this connection before freeing. */
+    cetcd_v3rpc_detach_stream_writer(handle);
     client_ctx_ *ctx = (client_ctx_ *)handle->data;
     if (ctx) free(ctx);
 }

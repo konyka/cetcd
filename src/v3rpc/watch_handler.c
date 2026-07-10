@@ -271,6 +271,9 @@ typedef struct cetcd_stream_watcher_ctx {
     int                     filter_noput;
     int                     filter_nodelete;
     volatile int            canceled;
+    /* Per-connection writer captured at WatchCreate (not the global). */
+    cetcd_stream_write_fn   write_fn;
+    void                   *write_ctx;
     struct cetcd_stream_watcher_ctx *next;
 } cetcd_stream_watcher_ctx;
 
@@ -309,8 +312,8 @@ static void streaming_watch_notify_cb(void *udata) {
             events, send_count,
             g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 1,
             wctx->want_prev_kv);
-        if (resp.data && resp.len > 0 && g_rpc_stream_write_fn) {
-            g_rpc_stream_write_fn(resp.data, resp.len, g_rpc_stream_write_ctx);
+        if (resp.data && resp.len > 0 && wctx->write_fn) {
+            wctx->write_fn(resp.data, resp.len, wctx->write_ctx);
         }
         cetcd_rpc_bytes_free(&resp);
     }
@@ -535,6 +538,9 @@ static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p) {
         wctx->filter_noput = p->filter_noput;
         wctx->filter_nodelete = p->filter_nodelete;
         wctx->canceled = 0;
+        /* Bind to the connection that issued this WatchCreate. */
+        wctx->write_fn = g_rpc_stream_write_fn;
+        wctx->write_ctx = g_rpc_stream_write_ctx;
 
         /* Set up the notification channel with direct callback. */
         cetcd_mvcc_watch_notify_init(&wctx->notify,
@@ -586,4 +592,24 @@ cetcd_rpc_bytes watch_handle_watch(cetcd_v3rpc *rpc,
 
     free_watch_request_parsed(&p);
     return out;
+}
+
+void cetcd_v3rpc_detach_stream_writer(void *write_ctx) {
+    if (!write_ctx) return;
+    cetcd_stream_watcher_ctx *cur = g_stream_watchers;
+    while (cur) {
+        cetcd_stream_watcher_ctx *next = cur->next;
+        if (cur->write_ctx == write_ctx) {
+            if (g_rpc_store && cur->sw) {
+                cetcd_mvcc_watch_unsubscribe(g_rpc_store, cur->sw);
+                cur->sw = NULL;
+            }
+            cur->canceled = 1;
+            cur->write_fn = NULL;
+            cur->write_ctx = NULL;
+            remove_stream_watcher(cur);
+            free_stream_watcher_ctx(cur);
+        }
+        cur = next;
+    }
 }
