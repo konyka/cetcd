@@ -36,18 +36,26 @@
 
 ## 项目概述
 
-cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使用纯 C 语言编写，目标是与 etcd v3.5 的 gRPC API **线兼容**——现有的 `etcdctl` 和官方客户端库可以直接使用。
+cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使用纯 C 语言编写，目标是与 etcd v3.5 的 gRPC API **语义兼容**（protobuf 消息与 RPC 目录）。当前客户端传输为 `cetcdctl` 使用的自定义 TCP 帧协议；**官方 `etcdctl` / Go 客户端尚不能直连**（HTTP/2 gRPC 服务端路径待接入）。
 
 ### 核心目标
 
 | 目标 | 说明 |
 |------|------|
-| **线兼容** | 支持 etcd v3.5 全部 41 个 RPC（KV、Watch、Lease、Cluster、Auth、Maintenance） |
+| **API 兼容** | 支持 etcd v3.5 全部 41 个 RPC 的处理与 protobuf 编解码（KV、Watch、Lease、Cluster、Auth、Maintenance） |
+| **线兼容（进行中）** | HTTP/2 + gRPC（nghttp2）库已就绪，服务端 accept 路径尚未切换 |
 | **跨平台** | Linux（主要）、macOS、FreeBSD、Windows（MSVC + MinGW-w64） |
 | **性能对等** | 3 节点 70/30 Put/Range 工作负载下达到或超过 Go 版 etcd |
 | **纯 C** | C99 基准，需要 C11 原子操作，公共头文件无 GNU/MSVC 扩展 |
 | **可测试** | 全程 TDD，通过可注入时钟/网络实现确定性 Raft 测试 |
 | **可观测** | 结构化 JSON 日志、Prometheus `/metrics`（默认 2381）、pprof 性能分析端点 |
+
+### 当前实现要点（v0.3.x）
+
+- **持久化**：配置 `--data-dir` 时，MVCC 当前键世代写入 LMDB，重启后自动加载。
+- **租约过期**：server 100ms tick 调用 `cetcd_lease_mgr_tick`，过期时删除关联键。
+- **Peer 发送**：复用 TCP 连接，避免每条 Raft 消息新建短连接。
+- **历史 Range**：`cetcd_mvcc_range(rev>0)` 按 history 回放，支持 `--rev`。
 
 ### 版本信息
 

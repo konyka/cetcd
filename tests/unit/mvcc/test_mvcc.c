@@ -1,6 +1,12 @@
+#define _POSIX_C_SOURCE 200809L
 #include "cetcd/base.h"
 #include "cetcd/mvcc.h"
+#include "cetcd/backend.h"
 #include "cetcd_test.h"
+
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 static void free_kv_fields(cetcd_kv *kv) {
     free((void*)kv->key.data);
@@ -182,6 +188,81 @@ CETCD_TEST_CASE(mvcc_compact) {
     cetcd_mvcc_store_free(s);
 }
 
+CETCD_TEST_CASE(mvcc_range_at_revision) {
+    cetcd_mvcc_store *s = cetcd_mvcc_store_new();
+    const uint8_t ka[] = "a";
+    const uint8_t kb[] = "b";
+    const uint8_t kc[] = "c";
+    const uint8_t v1[] = "1";
+    const uint8_t v2[] = "2";
+    const uint8_t v3[] = "3";
+
+    cetcd_mvcc_put(s, ka, 1, v1, 1, 0); /* rev 1 */
+    cetcd_mvcc_put(s, kb, 1, v2, 1, 0); /* rev 2 */
+    cetcd_mvcc_put(s, ka, 1, v3, 1, 0); /* rev 3 overwrite a */
+    cetcd_mvcc_delete(s, kb, 1);        /* rev 4 delete b */
+    cetcd_mvcc_put(s, kc, 1, v1, 1, 0); /* rev 5 */
+
+    cetcd_kv *results = NULL;
+    size_t count = 0;
+    /* At rev 2: a=1, b=2 */
+    int rc = cetcd_mvcc_range(s, 2, ka, 1, (const uint8_t *)"\xff", 1, &results, &count);
+    CETCD_ASSERT_EQ_INT(rc, CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)count, 2);
+    cetcd_kv_free_contents(results, count);
+
+    /* At rev 4: a=3, b deleted → only a */
+    results = NULL; count = 0;
+    rc = cetcd_mvcc_range(s, 4, ka, 1, (const uint8_t *)"\xff", 1, &results, &count);
+    CETCD_ASSERT_EQ_INT(rc, CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)count, 1);
+    CETCD_ASSERT_TRUE(results[0].key.len == 1 && results[0].key.data[0] == 'a');
+    CETCD_ASSERT_TRUE(results[0].value.len == 1 && results[0].value.data[0] == '3');
+    cetcd_kv_free_contents(results, count);
+
+    cetcd_mvcc_store_free(s);
+}
+
+CETCD_TEST_CASE(mvcc_persist_roundtrip) {
+    char path_template[] = "/tmp/cetcd-test-mvcc-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(path_template));
+
+    cetcd_backend_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.path = path_template;
+    cfg.map_size = 16 * 1024 * 1024;
+    cfg.max_dbs = 8;
+    cetcd_backend *be = cetcd_backend_open(&cfg);
+    CETCD_ASSERT_NOT_NULL(be);
+
+    cetcd_mvcc_store *s1 = cetcd_mvcc_store_new();
+    CETCD_ASSERT_NOT_NULL(s1);
+    cetcd_mvcc_set_backend(s1, be);
+
+    const uint8_t k[] = "persist-key";
+    const uint8_t v[] = "persist-val";
+    cetcd_revision r = cetcd_mvcc_put(s1, k, sizeof(k) - 1, v, sizeof(v) - 1, 0);
+    CETCD_ASSERT_TRUE(r.main == 1);
+    cetcd_mvcc_store_free(s1);
+    cetcd_backend_close(be);
+
+    be = cetcd_backend_open(&cfg);
+    CETCD_ASSERT_NOT_NULL(be);
+    cetcd_mvcc_store *s2 = cetcd_mvcc_store_new();
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_load(s2, be), CETCD_OK);
+    CETCD_ASSERT_TRUE(cetcd_mvcc_revision(s2) == 1);
+
+    cetcd_kv out = {0};
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s2, 0, k, sizeof(k) - 1, &out), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)out.value.len, (int)(sizeof(v) - 1));
+    CETCD_ASSERT_TRUE(memcmp(out.value.data, v, sizeof(v) - 1) == 0);
+    free((void *)out.key.data);
+    free((void *)out.value.data);
+
+    cetcd_mvcc_store_free(s2);
+    cetcd_backend_close(be);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(mvcc_put_get_basic),
     CETCD_TEST_ENTRY(mvcc_multiple_puts_same_key),
@@ -190,6 +271,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(mvcc_watch_single_key),
     CETCD_TEST_ENTRY(mvcc_watch_prefix),
     CETCD_TEST_ENTRY(mvcc_compact),
+    CETCD_TEST_ENTRY(mvcc_range_at_revision),
+    CETCD_TEST_ENTRY(mvcc_persist_roundtrip),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

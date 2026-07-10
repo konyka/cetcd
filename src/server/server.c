@@ -32,6 +32,7 @@
 #  include <unistd.h>
 #  include <sys/socket.h>
 #  include <netinet/in.h>
+#  include <netinet/tcp.h>
 #  include <arpa/inet.h>
 #  include <fcntl.h>
 #  define cetcd_mkdir(path) mkdir(path, 0755)
@@ -55,6 +56,12 @@ struct cetcd_server {
     int                  peer_fd;
     bool                 started;
     bool                 metrics_listener_init;
+    /* Cached outbound peer sockets (id → fd), reused across messages. */
+    struct {
+        uint64_t id;
+        int      fd;
+    } peer_conns[CETCD_MAX_INITIAL_PEERS];
+    uint32_t             n_peer_conns;
 };
 
 static int  ensure_dir(const char *path);
@@ -63,8 +70,41 @@ static void process_ready_(cetcd_server *srv);
 static void peer_send_cb_(uint64_t to_id, const uint8_t *data, size_t len, void *udata);
 static void on_peer_incoming_(cetcd_tcp *server, cetcd_tcp *client, void *arg);
 static void on_client_conn_(cetcd_tcp *server, cetcd_tcp *client, void *arg);
+static void lease_expire_cb_(cetcd_lease_id id,
+                              const uint8_t *const *keys,
+                              const size_t *key_lens,
+                              size_t count,
+                              void *udata);
+static void close_peer_conns_(cetcd_server *srv);
 
 /* --- Streaming watch support --- */
+
+static void close_peer_conns_(cetcd_server *srv) {
+    if (!srv) return;
+    for (uint32_t i = 0; i < srv->n_peer_conns; i++) {
+        if (srv->peer_conns[i].fd >= 0)
+            cetcd_close_socket(srv->peer_conns[i].fd);
+        srv->peer_conns[i].fd = -1;
+        srv->peer_conns[i].id = 0;
+    }
+    srv->n_peer_conns = 0;
+}
+
+static void lease_expire_cb_(cetcd_lease_id id,
+                              const uint8_t *const *keys,
+                              const size_t *key_lens,
+                              size_t count,
+                              void *udata) {
+    (void)id;
+    cetcd_server *srv = (cetcd_server *)udata;
+    if (!srv || !srv->rpc) return;
+    cetcd_mvcc_store *store = cetcd_v3rpc_store(srv->rpc);
+    if (!store || !keys || !key_lens) return;
+    for (size_t i = 0; i < count; i++) {
+        if (keys[i] && key_lens[i] > 0)
+            cetcd_mvcc_delete(store, keys[i], key_lens[i]);
+    }
+}
 
 /* Cleanup callback for uv_write in stream_write_ */
 static void stream_write_cleanup_(uv_write_t *req, int status) {
@@ -412,24 +452,32 @@ static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *
             path, grpc_hdr + 5, payload_len);
 
         if (resp.data && resp.len > 0) {
-            uint8_t resp_hdr[2 + 256 + 5];
-            size_t pos = 0;
-            resp_hdr[pos++] = (uint8_t)(path_len >> 8);
-            resp_hdr[pos++] = (uint8_t)(path_len & 0xFF);
-            memcpy(resp_hdr + pos, path, path_len);
-            pos += path_len;
-            resp_hdr[pos++] = 0;
-            resp_hdr[pos++] = (uint8_t)((resp.len >> 24) & 0xFF);
-            resp_hdr[pos++] = (uint8_t)((resp.len >> 16) & 0xFF);
-            resp_hdr[pos++] = (uint8_t)((resp.len >> 8) & 0xFF);
-            resp_hdr[pos++] = (uint8_t)(resp.len & 0xFF);
+            /* Own a single heap frame for the async write (header + payload).
+             * Stack buffers and resp.data must not outlive uv_write. */
+            size_t hdr_len = 2 + path_len + 5;
+            size_t total = hdr_len + resp.len;
+            uint8_t *frame = (uint8_t *)malloc(total);
+            if (frame) {
+                size_t pos = 0;
+                frame[pos++] = (uint8_t)(path_len >> 8);
+                frame[pos++] = (uint8_t)(path_len & 0xFF);
+                memcpy(frame + pos, path, path_len);
+                pos += path_len;
+                frame[pos++] = 0;
+                frame[pos++] = (uint8_t)((resp.len >> 24) & 0xFF);
+                frame[pos++] = (uint8_t)((resp.len >> 16) & 0xFF);
+                frame[pos++] = (uint8_t)((resp.len >> 8) & 0xFF);
+                frame[pos++] = (uint8_t)(resp.len & 0xFF);
+                memcpy(frame + pos, resp.data, resp.len);
 
-            uv_buf_t wbuf[2];
-            wbuf[0] = uv_buf_init((char *)resp_hdr, (unsigned int)pos);
-            wbuf[1] = uv_buf_init((char *)resp.data, (unsigned int)resp.len);
-            uv_write_t *wr = (uv_write_t *)calloc(1, sizeof(uv_write_t));
-            if (wr) {
-                uv_write(wr, stream, wbuf, 2, (void (*)(uv_write_t *, int))free);
+                uv_write_t *wr = (uv_write_t *)calloc(1, sizeof(uv_write_t));
+                if (wr) {
+                    wr->data = frame;
+                    uv_buf_t wbuf = uv_buf_init((char *)frame, (unsigned int)total);
+                    uv_write(wr, stream, &wbuf, 1, stream_write_cleanup_);
+                } else {
+                    free(frame);
+                }
             }
         }
         cetcd_server_rpc_result_free(&resp);
@@ -475,24 +523,57 @@ static void peer_send_cb_(uint64_t to_id, const uint8_t *data, size_t len, void 
     if (!srv || !srv->cluster || len == 0) return;
     const cetcd_peer_info *pi = cetcd_cluster_get_peer(srv->cluster, to_id);
     if (!pi) return;
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return;
-    struct sockaddr_in sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sin_family = AF_INET;
-    sa.sin_port = htons(pi->port);
-    inet_pton(AF_INET, pi->addr, &sa.sin_addr);
-    if (connect(fd, (struct sockaddr *)&sa, sizeof(sa)) == 0) {
-        /* Frame: 4-byte big-endian length prefix + payload */
-        uint8_t hdr[4];
-        hdr[0] = (uint8_t)((len >> 24) & 0xFF);
-        hdr[1] = (uint8_t)((len >> 16) & 0xFF);
-        hdr[2] = (uint8_t)((len >> 8) & 0xFF);
-        hdr[3] = (uint8_t)(len & 0xFF);
-        send(fd, hdr, 4, CETCD_MSG_NOSIGNAL);
-        send(fd, data, len, CETCD_MSG_NOSIGNAL);
+
+    /* Reuse a cached TCP connection when possible. */
+    int fd = -1;
+    uint32_t slot = UINT32_MAX;
+    for (uint32_t i = 0; i < srv->n_peer_conns; i++) {
+        if (srv->peer_conns[i].id == to_id) {
+            fd = srv->peer_conns[i].fd;
+            slot = i;
+            break;
+        }
     }
-    cetcd_close_socket(fd);
+    if (fd < 0) {
+        fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (fd < 0) return;
+#if !defined(_WIN32)
+        int one = 1;
+        setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+#endif
+        struct sockaddr_in sa;
+        memset(&sa, 0, sizeof(sa));
+        sa.sin_family = AF_INET;
+        sa.sin_port = htons(pi->port);
+        inet_pton(AF_INET, pi->addr, &sa.sin_addr);
+        if (connect(fd, (struct sockaddr *)&sa, sizeof(sa)) != 0) {
+            cetcd_close_socket(fd);
+            return;
+        }
+        if (srv->n_peer_conns < CETCD_MAX_INITIAL_PEERS) {
+            slot = srv->n_peer_conns++;
+            srv->peer_conns[slot].id = to_id;
+            srv->peer_conns[slot].fd = fd;
+        }
+    }
+
+    uint8_t hdr[4];
+    hdr[0] = (uint8_t)((len >> 24) & 0xFF);
+    hdr[1] = (uint8_t)((len >> 16) & 0xFF);
+    hdr[2] = (uint8_t)((len >> 8) & 0xFF);
+    hdr[3] = (uint8_t)(len & 0xFF);
+    ssize_t n1 = send(fd, hdr, 4, CETCD_MSG_NOSIGNAL);
+    ssize_t n2 = (n1 == 4) ? send(fd, data, len, CETCD_MSG_NOSIGNAL) : -1;
+    if (n1 != 4 || n2 != (ssize_t)len) {
+        /* Drop broken connection so the next send reconnects. */
+        cetcd_close_socket(fd);
+        if (slot < srv->n_peer_conns) {
+            srv->peer_conns[slot] = srv->peer_conns[--srv->n_peer_conns];
+        }
+    } else if (slot == UINT32_MAX) {
+        /* Cache full: close ephemeral connection after one-shot send. */
+        cetcd_close_socket(fd);
+    }
 }
 
 static void on_peer_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf);
@@ -672,6 +753,7 @@ cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
 
 void cetcd_server_free(cetcd_server *srv) {
     if (!srv) return;
+    close_peer_conns_(srv);
     if (srv->tick_timer) { cetcd_timer_stop(srv->tick_timer); cetcd_timer_free(srv->tick_timer); }
     if (srv->peer_listener) { cetcd_tcp_free(srv->peer_listener); srv->peer_listener = NULL; }
     if (srv->listener) { cetcd_tcp_free(srv->listener); srv->listener = NULL; }
@@ -704,12 +786,27 @@ int cetcd_server_start(cetcd_server *srv) {
             srv->backend = cetcd_backend_open(&be_cfg);
         }
 
+        /* Load persisted MVCC state and attach backend for incremental writes. */
+        if (srv->backend && srv->rpc) {
+            cetcd_mvcc_store *store = cetcd_v3rpc_store(srv->rpc);
+            if (store) {
+                cetcd_mvcc_load(store, srv->backend);
+            }
+        }
+
         if (!srv->wal_enc) {
             char wal_path[600];
             snprintf(wal_path, sizeof(wal_path), "%s/wal", srv->cfg.data_dir);
-            ensure_dir(srv->cfg.data_dir);
+            ensure_dir(wal_path);
             srv->wal_enc = cetcd_wal_encoder_create(wal_path);
         }
+    }
+
+    /* Wire lease expiry → MVCC key deletion. */
+    if (srv->rpc) {
+        cetcd_lease_mgr *leases = cetcd_v3rpc_leases(srv->rpc);
+        if (leases)
+            cetcd_lease_mgr_set_expire(leases, lease_expire_cb_, srv);
     }
 
     for (uint32_t i = 0; i < srv->cfg.n_initial_peers; i++) {
@@ -922,6 +1019,11 @@ static void raft_tick_cb_(void *arg) {
     if (!srv->raft) return;
     cetcd_raft_tick(srv->raft);
     if (srv->metrics) cetcd_metrics_counter(srv->metrics, "raft_ticks_total", 1);
+    /* Advance lease deadlines (tick interval is 100ms). */
+    if (srv->rpc) {
+        cetcd_lease_mgr *leases = cetcd_v3rpc_leases(srv->rpc);
+        if (leases) cetcd_lease_mgr_tick(leases, 100);
+    }
     process_ready_(srv);
 }
 

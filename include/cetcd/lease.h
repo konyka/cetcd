@@ -24,6 +24,11 @@ typedef void (*cetcd_lease_expire_fn)(cetcd_lease_id id,
 cetcd_lease_mgr *cetcd_lease_mgr_new(cetcd_lease_expire_fn on_expire, void *udata);
 void             cetcd_lease_mgr_free(cetcd_lease_mgr *mgr);
 
+/* Replace the expire callback (e.g. after wiring MVCC into the server). */
+void cetcd_lease_mgr_set_expire(cetcd_lease_mgr *mgr,
+                                 cetcd_lease_expire_fn on_expire,
+                                 void *udata);
+
 cetcd_lease_id cetcd_lease_grant(cetcd_lease_mgr *mgr, int64_t ttl_seconds);
 int            cetcd_lease_revoke(cetcd_lease_mgr *mgr, cetcd_lease_id id);
 int            cetcd_lease_keep_alive(cetcd_lease_mgr *mgr, cetcd_lease_id id, int64_t ttl_seconds);

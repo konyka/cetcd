@@ -1,8 +1,13 @@
 #include "cetcd/base.h"
 #include "cetcd/mvcc.h"
 #include "cetcd/treap.h"
+#include "cetcd/backend.h"
 #include <stdlib.h>
 #include <string.h>
+
+#define MVCC_BUCKET_KEY  "key"
+#define MVCC_BUCKET_META "meta"
+static const uint8_t MVCC_META_REV[] = "revision";
 
 
 typedef struct {
@@ -54,7 +59,96 @@ struct cetcd_mvcc_store {
     cetcd_stream_watcher **stream_watchers;
     size_t                stream_watcher_count;
     size_t                stream_watcher_cap;
+    /* Optional LMDB mirror for crash recovery (not owned). */
+    cetcd_backend  *backend;
 };
+
+static void write_le64_(uint8_t *p, uint64_t v) {
+    p[0] = (uint8_t)(v);
+    p[1] = (uint8_t)(v >> 8);
+    p[2] = (uint8_t)(v >> 16);
+    p[3] = (uint8_t)(v >> 24);
+    p[4] = (uint8_t)(v >> 32);
+    p[5] = (uint8_t)(v >> 40);
+    p[6] = (uint8_t)(v >> 48);
+    p[7] = (uint8_t)(v >> 56);
+}
+
+static uint64_t read_le64_(const uint8_t *p) {
+    return (uint64_t)p[0]
+         | ((uint64_t)p[1] << 8)
+         | ((uint64_t)p[2] << 16)
+         | ((uint64_t)p[3] << 24)
+         | ((uint64_t)p[4] << 32)
+         | ((uint64_t)p[5] << 40)
+         | ((uint64_t)p[6] << 48)
+         | ((uint64_t)p[7] << 56);
+}
+
+/* Persist format: 6×int64 LE + value bytes
+ * create_main, create_sub, mod_main, mod_sub, version, lease_id, then value. */
+static int encode_kg_(const key_generation *kg, uint8_t **out, size_t *out_len) {
+    size_t vlen = kg->value.len;
+    size_t total = 48 + vlen;
+    uint8_t *buf = (uint8_t *)malloc(total);
+    if (!buf) return CETCD_ERR_NOMEM;
+    write_le64_(buf + 0,  (uint64_t)kg->create_rev.main);
+    write_le64_(buf + 8,  (uint64_t)kg->create_rev.sub);
+    write_le64_(buf + 16, (uint64_t)kg->mod_rev.main);
+    write_le64_(buf + 24, (uint64_t)kg->mod_rev.sub);
+    write_le64_(buf + 32, (uint64_t)kg->version);
+    write_le64_(buf + 40, (uint64_t)kg->lease_id);
+    if (vlen && kg->value.data) memcpy(buf + 48, kg->value.data, vlen);
+    *out = buf;
+    *out_len = total;
+    return CETCD_OK;
+}
+
+static int decode_kg_(const uint8_t *data, size_t len, key_generation *kg) {
+    if (!data || len < 48 || !kg) return CETCD_ERR_CORRUPT;
+    memset(kg, 0, sizeof(*kg));
+    kg->create_rev.main = (int64_t)read_le64_(data + 0);
+    kg->create_rev.sub  = (int64_t)read_le64_(data + 8);
+    kg->mod_rev.main    = (int64_t)read_le64_(data + 16);
+    kg->mod_rev.sub     = (int64_t)read_le64_(data + 24);
+    kg->version         = (int64_t)read_le64_(data + 32);
+    kg->lease_id        = (int64_t)read_le64_(data + 40);
+    kg->deleted         = false;
+    size_t vlen = len - 48;
+    if (vlen > 0) {
+        kg->value.data = (const uint8_t *)malloc(vlen);
+        if (!kg->value.data) return CETCD_ERR_NOMEM;
+        memcpy((void *)kg->value.data, data + 48, vlen);
+        kg->value.len = vlen;
+    }
+    return CETCD_OK;
+}
+
+static void persist_rev_(cetcd_mvcc_store *s) {
+    if (!s || !s->backend) return;
+    uint8_t buf[8];
+    write_le64_(buf, (uint64_t)s->main_rev);
+    cetcd_backend_put(s->backend, MVCC_BUCKET_META,
+                      MVCC_META_REV, sizeof(MVCC_META_REV) - 1,
+                      buf, sizeof(buf));
+}
+
+static void persist_put_(cetcd_mvcc_store *s, const uint8_t *key, size_t key_len,
+                          const key_generation *kg) {
+    if (!s || !s->backend || !key || !kg) return;
+    uint8_t *blob = NULL;
+    size_t blob_len = 0;
+    if (encode_kg_(kg, &blob, &blob_len) != CETCD_OK) return;
+    cetcd_backend_put(s->backend, MVCC_BUCKET_KEY, key, key_len, blob, blob_len);
+    free(blob);
+    persist_rev_(s);
+}
+
+static void persist_del_(cetcd_mvcc_store *s, const uint8_t *key, size_t key_len) {
+    if (!s || !s->backend || !key) return;
+    cetcd_backend_del(s->backend, MVCC_BUCKET_KEY, key, key_len);
+    persist_rev_(s);
+}
 
 
 struct cetcd_watcher {
@@ -337,6 +431,7 @@ cetcd_revision cetcd_mvcc_put(cetcd_mvcc_store *s,
     evkv.lease_id = kg->lease_id;
     mvcc_notify_watchers(s, &evkv, &new_rev, CETCD_EVENT_PUT,
                          has_prev ? &prev_evkv : NULL);
+    persist_put_(s, key, key_len, kg);
     free((void*)evkv.key.data);
     free((void*)evkv.value.data);
     if (has_prev) {
@@ -395,6 +490,7 @@ cetcd_revision cetcd_mvcc_delete(cetcd_mvcc_store *s,
         evkv.lease_id = kg->lease_id;
         mvcc_notify_watchers(s, &evkv, &new_rev, CETCD_EVENT_DELETE,
                              has_prev ? &prev_evkv : NULL);
+        persist_del_(s, key, key_len);
         free((void*)evkv.key.data);
         if (has_prev) {
             free((void*)prev_evkv.key.data);
@@ -444,15 +540,99 @@ int cetcd_mvcc_get(cetcd_mvcc_store *s, int64_t rev,
     return CETCD_ERR_NOTFOUND;
 }
 
+static int key_in_range_(const uint8_t *key, size_t key_len,
+                          const uint8_t *lo, size_t lo_len,
+                          const uint8_t *hi, size_t hi_len) {
+    if (lo && lo_len > 0) {
+        size_t n = key_len < lo_len ? key_len : lo_len;
+        int c = memcmp(key, lo, n);
+        if (c < 0 || (c == 0 && key_len < lo_len)) return 0;
+    }
+    if (hi && hi_len > 0) {
+        size_t n = key_len < hi_len ? key_len : hi_len;
+        int c = memcmp(key, hi, n);
+        if (c > 0 || (c == 0 && key_len >= hi_len)) return 0;
+    }
+    return 1;
+}
+
 int cetcd_mvcc_range(cetcd_mvcc_store *s, int64_t rev,
                       const uint8_t *key_start, size_t start_len,
                       const uint8_t *key_end, size_t end_len,
                       cetcd_kv **out, size_t *out_count) {
     if (!s || !out || !out_count) return CETCD_ERR_INVAL;
-    cetcd_slice lo = cetcd_slice_make(key_start, start_len);
-    cetcd_slice hi = cetcd_slice_make(key_end, end_len);
+    if (rev == 0) {
+        cetcd_slice lo = cetcd_slice_make(key_start, start_len);
+        cetcd_slice hi = cetcd_slice_make(key_end, end_len);
+        range_ctx ctx = {0};
+        cetcd_treap_range(s->index, lo, hi, range_collect_cb, &ctx);
+        *out = ctx.rows;
+        *out_count = ctx.nr;
+        return CETCD_OK;
+    }
+
+    /* Historical range: walk history newest→oldest, keep first match per key. */
     range_ctx ctx = {0};
-    cetcd_treap_range(s->index, lo, hi, range_collect_cb, &ctx);
+    for (int i = (int)s->history_count - 1; i >= 0; i--) {
+        revision_entry *e = &s->history[i];
+        if (e->rev.main > rev) continue;
+        if (!key_in_range_(e->key.data, e->key.len, key_start, start_len,
+                           key_end, end_len))
+            continue;
+        /* Skip if we already recorded this key (newer revision wins). */
+        int seen = 0;
+        for (size_t j = 0; j < ctx.nr; j++) {
+            if (ctx.rows[j].key.len == e->key.len &&
+                memcmp(ctx.rows[j].key.data, e->key.data, e->key.len) == 0) {
+                seen = 1;
+                break;
+            }
+        }
+        if (seen) continue;
+        if (e->type == CETCD_EVENT_DELETE) {
+            /* Mark as seen via a tombstone placeholder so older puts are skipped.
+             * Use a zero-length key marker by storing a deleted sentinel with
+             * empty value and version=-1; filter them out after the scan. */
+            if (ctx.nr == ctx.cap) {
+                size_t nc = ctx.cap ? ctx.cap * 2 : 4;
+                cetcd_kv *tmp = (cetcd_kv *)realloc(ctx.rows, nc * sizeof(*tmp));
+                if (!tmp) { cetcd_kv_free_contents(ctx.rows, ctx.nr); return CETCD_ERR_NOMEM; }
+                ctx.rows = tmp;
+                ctx.cap = nc;
+            }
+            cetcd_kv *kv = &ctx.rows[ctx.nr++];
+            memset(kv, 0, sizeof(*kv));
+            kv->key = dup_slice(e->key);
+            kv->version = -1; /* tombstone */
+            continue;
+        }
+        if (ctx.nr == ctx.cap) {
+            size_t nc = ctx.cap ? ctx.cap * 2 : 4;
+            cetcd_kv *tmp = (cetcd_kv *)realloc(ctx.rows, nc * sizeof(*tmp));
+            if (!tmp) { cetcd_kv_free_contents(ctx.rows, ctx.nr); return CETCD_ERR_NOMEM; }
+            ctx.rows = tmp;
+            ctx.cap = nc;
+        }
+        cetcd_kv *kv = &ctx.rows[ctx.nr++];
+        kv->key = dup_slice(e->key);
+        kv->value = dup_slice(e->value);
+        kv->create_rev = e->create_rev;
+        kv->mod_rev = e->rev;
+        kv->version = e->version;
+        kv->lease_id = e->lease_id;
+    }
+    /* Compact out tombstones */
+    size_t w = 0;
+    for (size_t r = 0; r < ctx.nr; r++) {
+        if (ctx.rows[r].version < 0) {
+            free((void *)ctx.rows[r].key.data);
+            free((void *)ctx.rows[r].value.data);
+            continue;
+        }
+        if (w != r) ctx.rows[w] = ctx.rows[r];
+        w++;
+    }
+    ctx.nr = w;
     *out = ctx.rows;
     *out_count = ctx.nr;
     return CETCD_OK;
@@ -683,4 +863,57 @@ int cetcd_mvcc_compact(cetcd_mvcc_store *s, int64_t compact_rev) {
 
 int64_t cetcd_mvcc_compacted_revision(const cetcd_mvcc_store *s) {
     return s ? s->compacted_rev : 0;
+}
+
+void cetcd_mvcc_set_backend(cetcd_mvcc_store *s, cetcd_backend *be) {
+    if (!s) return;
+    s->backend = be;
+}
+
+typedef struct {
+    cetcd_mvcc_store *store;
+    int               err;
+} load_ctx_;
+
+static bool load_kv_cb_(const uint8_t *key, size_t key_len,
+                         const uint8_t *val, size_t val_len,
+                         void *udata) {
+    load_ctx_ *ctx = (load_ctx_ *)udata;
+    key_generation *kg = (key_generation *)calloc(1, sizeof(*kg));
+    if (!kg) { ctx->err = CETCD_ERR_NOMEM; return false; }
+    if (decode_kg_(val, val_len, kg) != CETCD_OK) {
+        free(kg);
+        ctx->err = CETCD_ERR_CORRUPT;
+        return false;
+    }
+    cetcd_slice kslice = cetcd_slice_make(key, key_len);
+    /* treap_put copies the key; kg is owned by the treap. */
+    if (cetcd_treap_put(ctx->store->index, kslice, kg) != 0) {
+        free_key_generation(kg);
+        ctx->err = CETCD_ERR_NOMEM;
+        return false;
+    }
+    if (kg->mod_rev.main > ctx->store->main_rev)
+        ctx->store->main_rev = kg->mod_rev.main;
+    return true;
+}
+
+int cetcd_mvcc_load(cetcd_mvcc_store *s, cetcd_backend *be) {
+    if (!s || !be) return CETCD_ERR_INVAL;
+    s->backend = be;
+
+    uint8_t *rev_buf = NULL;
+    size_t rev_len = 0;
+    if (cetcd_backend_get(be, MVCC_BUCKET_META,
+                          MVCC_META_REV, sizeof(MVCC_META_REV) - 1,
+                          &rev_buf, &rev_len) == CETCD_OK &&
+        rev_buf && rev_len >= 8) {
+        s->main_rev = (int64_t)read_le64_(rev_buf);
+    }
+    free(rev_buf);
+
+    load_ctx_ ctx = { .store = s, .err = CETCD_OK };
+    int rc = cetcd_backend_foreach(be, MVCC_BUCKET_KEY, load_kv_cb_, &ctx);
+    if (rc != CETCD_OK) return rc;
+    return ctx.err;
 }

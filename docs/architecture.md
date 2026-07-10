@@ -3,13 +3,25 @@
 > **Status**: living document. See `notes.html` for delta history.
 
 cetcd is a from-scratch reimplementation of [etcd](https://github.com/etcd-io/etcd) in pure C
-(C99 floor with required C11 `<stdatomic.h>`). It targets wire compatibility with the
-**etcd v3.5 stable API** so that existing tools (`etcdctl`, official client libraries) work
-unchanged.
+(C99 floor with required C11 `<stdatomic.h>`). It targets **API semantic compatibility** with
+the etcd v3.5 gRPC surface (protobuf message shapes and RPC catalogue) so that `cetcdctl`
+and future HTTP/2 gRPC clients can share the same handlers.
 
 This document is the canonical reference for what cetcd *is* and *is not*, and how its
 internals are organised. For deeper rationale on individual decisions, see
 [`docs/adr/`](./adr/).
+
+### Current maturity (v0.3.x)
+
+| Area | Status |
+|------|--------|
+| KV / Watch / Lease / Cluster / Auth / Maintenance handlers | Implemented (protobuf wire format) |
+| Client transport | **Custom length-prefixed TCP frames** used by `cetcdctl` (not yet HTTP/2 gRPC) |
+| Official `etcdctl` / Go clients | **Not yet compatible** — requires nghttp2 server path |
+| MVCC persistence | LMDB mirror of current key generations + revision; restart reload works |
+| Raft | State machine + peer TCP framing; KV writes currently apply directly to MVCC |
+| Lease expiry | Server tick advances leases and deletes attached keys |
+| Auth enforcement on data plane | Partial (Authenticate exists; KV path does not yet gate on tokens) |
 
 ---
 
@@ -17,8 +29,9 @@ internals are organised. For deeper rationale on individual decisions, see
 
 ### Goals
 
-- **Wire compatibility** with the etcd v3.5 gRPC API — all 41 RPCs across KV, Watch, Lease,
-  Cluster, Auth, Maintenance.
+- **API compatibility** with the etcd v3.5 gRPC surface — all 41 RPCs across KV, Watch, Lease,
+  Cluster, Auth, Maintenance (handlers + protobuf encoding).
+- **Wire compatibility** (HTTP/2 + gRPC) as a near-term goal so official clients work unchanged.
 - **Cross-platform**: Linux (primary), macOS, FreeBSD, Windows (MSVC + MinGW-w64).
 - **Performance** parity or better with Go etcd on a 3-node 70/30 Put/Range workload.
 - **Pure C, C99 floor**. C11 atomics required. No GNU/MSVC extensions in public headers.
@@ -153,25 +166,31 @@ etcd. Segment rotation at 64 MiB by default.
 ### Backend (LMDB)
 
 The backend uses **LMDB** (single-writer / many-reader memory-mapped B+tree). One environment
-per cetcd instance, with logical sub-databases corresponding to etcd's bbolt buckets:
+per cetcd instance. Current buckets used by the live server:
 
-- `key` — committed MVCC key-value pairs, keyed by encoded revision.
-- `lease` — lease metadata.
-- `auth`, `authUsers`, `authRoles` — RBAC tables.
-- `members`, `cluster`, `alarm`, `meta` — cluster state.
+- `key` — current MVCC key generations (value blob: create/mod rev, version, lease, value).
+- `meta` — store revision (`revision` key).
 
-cetcd is **not** disk-format compatible with bbolt. A one-way migrator `cetcd-migrate` ships
-to convert an existing etcd data directory into a cetcd LMDB env.
-See [ADR 0002 — LMDB backend](./adr/0002-lmdb-backend.md).
+Additional buckets (`lease`, `auth*`, `members`, …) are reserved for upcoming persistence
+of those subsystems. cetcd is **not** disk-format compatible with bbolt; use `cetcd-migrate`
+to convert an etcd data directory. See [ADR 0002](./adr/0002-lmdb-backend.md).
+
+On `cetcd_server_start` with a configured `data_dir`, the server opens LMDB, calls
+`cetcd_mvcc_load`, and attaches the backend so subsequent put/delete are mirrored.
 
 ### MVCC
 
-The revision index uses a **treap** (probabilistically balanced BST) mapping
-`key → keyIndex { generations[] { revisions[] } }`, mirroring etcd's `mvcc/key_index.go`.
-Reads at a given revision do an inorder walk; ranges use the LMDB cursor.
+The live index is an in-memory **treap** (`key → key_generation`). A linear `history[]`
+array records put/delete events for historical `get`/`range` at `rev > 0`. Compaction
+trims history at or below `compact_rev`.
 
-Watchers attach to a per-key bucket; commit notifications fan out via lock-free queues to
-each watcher's coroutine.
+When a backend is attached (`cetcd_mvcc_set_backend` / `cetcd_mvcc_load`), each successful
+put/delete also updates LMDB so a process restart restores the latest key set and revision.
+Historical revisions older than the last process lifetime are not yet recovered from disk
+(WAL replay of applied entries is the next step).
+
+Watchers are scanned on each mutation (callback + streaming notification channels).
+Per-key lock-free fan-out remains a design goal.
 
 ### Snapshot
 
@@ -221,31 +240,36 @@ The Raft module **does no I/O and spawns no threads**. The embedder owns persist
 
 ## 6. Wire protocol
 
-cetcd speaks etcd v3 gRPC over HTTP/2:
+### Client protocol (current)
+
+The live server accepts a **custom framed TCP protocol** (used by `cetcdctl`):
+
+```
+2B path_len (BE) + path + 1B compressed + 4B payload_len (BE) + protobuf payload
+```
+
+RPC path strings match etcd (`/etcdserverpb.KV/Put`, …). Request/response bodies are
+etcd v3.5 protobuf messages. This is **not** HTTP/2 gRPC; official `etcdctl` cannot
+connect until the nghttp2 server path is wired into `cetcd_server_serve`.
+
+### HTTP/2 / gRPC (library ready, server not yet)
+
+`libcetcd_http2` uses nghttp2 for session management (preface, SETTINGS, HPACK,
+multiplexing). When nghttp2 is absent, stubs compile so the rest of the tree builds.
+Integrating this into the accept path is the remaining step for true wire compatibility.
 
 - 6 services: `KV`, `Watch`, `Lease`, `Cluster`, `Maintenance`, `Auth`.
-- 41 RPCs (full catalogue in [`docs/wiki/Home.md`](../docs/wiki/Home.md)).
-- 4 streaming RPCs: `RangeStream`, `Watch` (bidi), `LeaseKeepAlive` (bidi), `Snapshot` (server-stream).
-- Protobuf wire-types are generated from etcd v3.5's `.proto` files vendored under
-  `proto/v3.5/`.
+- 41 RPCs (catalogue in [`docs/wiki/Home.md`](./wiki/Home.md)); `RangeStream` not yet dispatched.
+- Streaming: Watch (bidi over the custom frame), LeaseKeepAlive / Snapshot are unary-shaped today.
+- Protobuf types come from etcd v3.5 `.proto` files under `proto/v3.5/`.
 
-The HTTP/2 layer uses nghttp2 for full session management — connection preface,
-SETTINGS exchange, HPACK header compression, stream multiplexing, and DATA/HEADERS
-frame processing. HTTP-level message validation is disabled via
-`nghttp2_option_set_no_http_messaging` because gRPC does not require full HTTP
-semantics (e.g. `:authority`, content-length consistency). When nghttp2 is not
-available, a stub implementation provides safe no-ops so the rest of the codebase
-compiles and the gRPC framing helpers remain functional.
+### Peer transport (current)
 
-The peer transport (`libcetcd_peer`) mirrors etcd's `rafthttp` over HTTP/2 streams. Peer URLs
-take the form `http(s)://host:peer-port/raft/stream/{message,msgapp}/{member-id}` — same as
-etcd, so cetcd nodes can act as peers in a mixed cetcd/etcd cluster (validated in Phase 7).
-The cluster management API supports peer enumeration by index (`cetcd_cluster_get_peer_by_index`),
-in-place peer info updates (`cetcd_cluster_update_peer`), and self-ID queries (`cetcd_cluster_self_id`).
-The `MemberList` RPC iterates all peers to return a complete cluster membership view, `MemberUpdate`
-actually modifies peer addresses, `Maintenance.Status` returns the real Raft leader ID and term from
-the live `cetcd_raft` instance, and `Maintenance.MoveLeader` triggers `CETCD_MSG_TRANSFER_LEADER`
-for actual leadership transfer.
+Peer messages use a **4-byte BE length prefix + raft wire payload** over TCP, with
+**connection reuse** across sends. This is not yet etcd `rafthttp` over HTTP/2.
+The cluster management API supports peer enumeration (`cetcd_cluster_get_peer_by_index`),
+updates (`cetcd_cluster_update_peer`), and self-ID queries. `MemberList` / `MemberUpdate`,
+`Maintenance.Status` (leader/term), and `MoveLeader` (`CETCD_MSG_TRANSFER_LEADER`) are wired.
 
 The `Lease.LeaseLeases` RPC returns the actual list of active lease IDs via
 `cetcd_lease_mgr_leases()`, and `Lease.LeaseKeepAlive` uses the original granted TTL
@@ -615,15 +639,15 @@ ctest --test-dir build --output-on-failure
 
 ### Test
 
-- Unit tests: **Unity + CMock**, one binary per `libcetcd_*`, registered with `ctest`.
-- Integration: shell-driven, spawns real `cetcd` and `etcdctl` processes.
-- Fuzzing: libFuzzer harnesses (`tests/fuzz/`) on proto, WAL, raft step function.
-- Sanitizers: ASan, UBSan, TSan, MSan — each a separate CI job.
+- Unit tests: custom harness (`tests/harness/cetcd_test.h`), one binary per module via `ctest`.
+- Integration: in-process + forked `cetcd_server_serve` TCP tests (`tests/integration/`).
+- Persistence: MVCC LMDB round-trip unit test + live-server restart verification.
+- Fuzzing: `CETCD_BUILD_FUZZ` option exists; harnesses under `tests/fuzz/` are not yet populated.
+- Sanitizers: ASan/UBSan enabled on Linux/macOS CI Debug builds.
 
 ### CI
 
-`.github/workflows/ci.yml` — matrix of {Linux-gcc, Linux-clang, macOS, Windows-MSVC,
-Windows-MinGW, FreeBSD, Linux-cross-aarch64}. Coverage uploaded to codecov.
+`.github/workflows/ci.yml` — Ubuntu, macOS, Windows (Debug + Release).
 
 ---
 

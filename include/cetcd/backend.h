@@ -56,6 +56,13 @@ int  cetcd_txn_del(cetcd_txn *txn, const char *bucket,
 
 uint64_t cetcd_backend_size(cetcd_backend *be);
 
+/* Iterate all keys in a bucket. Callback returns false to stop early. */
+typedef bool (*cetcd_backend_iter_fn)(const uint8_t *key, size_t key_len,
+                                       const uint8_t *val, size_t val_len,
+                                       void *udata);
+int cetcd_backend_foreach(cetcd_backend *be, const char *bucket,
+                           cetcd_backend_iter_fn fn, void *udata);
+
 #ifdef __cplusplus
 }
 #endif

@@ -81,6 +81,14 @@ void cetcd_lease_mgr_free(cetcd_lease_mgr *mgr) {
     free(mgr);
 }
 
+void cetcd_lease_mgr_set_expire(cetcd_lease_mgr *mgr,
+                                 cetcd_lease_expire_fn on_expire,
+                                 void *udata) {
+    if (!mgr) return;
+    mgr->on_expire = on_expire;
+    mgr->expire_udata = udata;
+}
+
 cetcd_lease_id cetcd_lease_grant(cetcd_lease_mgr *mgr, int64_t ttl_seconds) {
     if (!mgr || ttl_seconds <= 0) return 0; /* 0 indicates invalid id */
     if (ensure_cap_(mgr) != 0) return 0;

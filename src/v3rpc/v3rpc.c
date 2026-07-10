@@ -295,3 +295,11 @@ void cetcd_v3rpc_set_stream_writer(cetcd_v3rpc *rpc,
     g_rpc_stream_write_ctx = ctx;
     (void)rpc;
 }
+
+cetcd_mvcc_store *cetcd_v3rpc_store(cetcd_v3rpc *rpc) {
+    return rpc ? rpc->store : NULL;
+}
+
+cetcd_lease_mgr *cetcd_v3rpc_leases(cetcd_v3rpc *rpc) {
+    return rpc ? rpc->leases : NULL;
+}

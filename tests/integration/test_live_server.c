@@ -87,7 +87,8 @@ CETCD_TEST_CASE(live_server_snapshot_after_writes) {
 }
 
 CETCD_TEST_CASE(live_server_persistent_backend) {
-    const char *data_dir = "/tmp/cetcd_test_persist_13";
+    char data_dir[] = "/tmp/cetcd_test_persist_XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
 
     cetcd_server_config cfg;
     memset(&cfg, 0, sizeof(cfg));
@@ -105,7 +106,34 @@ CETCD_TEST_CASE(live_server_persistent_backend) {
     CETCD_ASSERT_NOT_NULL(resp.data);
     cetcd_server_rpc_result_free(&resp);
 
-    CETCD_ASSERT_TRUE(cetcd_server_revision(srv) > 0);
+    int64_t rev = cetcd_server_revision(srv);
+    CETCD_ASSERT_TRUE(rev > 0);
+
+    cetcd_server_stop(srv);
+    cetcd_server_free(srv);
+
+    /* Restart and verify the key survived LMDB persistence. */
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 23792;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+    srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+    CETCD_ASSERT_TRUE(cetcd_server_revision(srv) >= rev);
+
+    uint8_t range_req[] = {0x0a, 0x04, 't','e','s','t'};
+    resp = cetcd_server_handle_rpc(srv, "/etcdserverpb.KV/Range",
+                                   range_req, sizeof(range_req));
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    /* Response should contain the value "data". */
+    int found = 0;
+    for (size_t i = 0; i + 4 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "data", 4) == 0) { found = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(found);
+    cetcd_server_rpc_result_free(&resp);
 
     cetcd_server_stop(srv);
     cetcd_server_free(srv);

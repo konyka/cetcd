@@ -8,6 +8,9 @@
 #include "cetcd/base.h"
 #include "cetcd/slice.h"
 
+/* Forward declare backend to avoid a hard include cycle in public headers. */
+typedef struct cetcd_backend cetcd_backend;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -176,6 +179,17 @@ int cetcd_mvcc_compact(cetcd_mvcc_store *s, int64_t compact_rev);
 
 /* Return the current compacted revision (0 if no compaction done). */
 int64_t cetcd_mvcc_compacted_revision(const cetcd_mvcc_store *s);
+
+/* --- Persistence (LMDB) --- */
+
+/* Attach a backend for incremental persistence of put/delete.
+ * When set, each successful put/delete is mirrored to bucket "key".
+ * Pass NULL to detach. Does not take ownership of `be`. */
+void cetcd_mvcc_set_backend(cetcd_mvcc_store *s, cetcd_backend *be);
+
+/* Load current key generations and revision from backend into an empty store.
+ * Returns CETCD_OK even if the bucket is empty. */
+int cetcd_mvcc_load(cetcd_mvcc_store *s, cetcd_backend *be);
 
 #ifdef __cplusplus
 }

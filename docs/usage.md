@@ -1,6 +1,9 @@
 # cetcd Usage
 
-> **Status**: actively developed. cetcd supports the full etcd v3.5 gRPC API (41 RPCs).
+> **Status**: actively developed. cetcd implements the etcd v3.5 RPC catalogue (protobuf
+> semantics) and speaks a **custom framed TCP protocol** via `cetcdctl`. Official
+> `etcdctl` / HTTP/2 gRPC clients are **not yet supported** — see
+> [architecture.md §Wire protocol](./architecture.md#6-wire-protocol).
 
 ## 1. Building from source
 
@@ -66,6 +69,9 @@ ctest --test-dir build --output-on-failure
 
 This starts a single-node cetcd server listening on port 2379 for client
 requests and port 2380 for peer-to-peer (Raft) communication.
+
+With `--data-dir` set, KV put/delete are mirrored into LMDB under that directory.
+Stopping and restarting the same `data-dir` reloads keys and the store revision.
 
 ### Three-node static cluster
 

@@ -202,3 +202,38 @@ uint64_t cetcd_backend_size(cetcd_backend *be) {
                            (uint64_t)st.ms_overflow_pages;
     return total_pages * (uint64_t)st.ms_psize;
 }
+
+int cetcd_backend_foreach(cetcd_backend *be, const char *bucket,
+                           cetcd_backend_iter_fn fn, void *udata) {
+    if (!be || !be->env || !bucket || !fn) return CETCD_ERR_INVAL;
+    cetcd_txn *txn = cetcd_txn_begin(be, true);
+    if (!txn) return CETCD_ERR_IO;
+    MDB_dbi dbi;
+    /* Read-only: do not pass MDB_CREATE (requires a write txn). */
+    int open_rc = mdb_dbi_open(txn->txn, bucket, 0, &dbi);
+    if (open_rc == MDB_NOTFOUND) {
+        cetcd_txn_abort(txn);
+        return CETCD_OK; /* bucket never created → empty */
+    }
+    if (open_rc != MDB_SUCCESS) {
+        cetcd_txn_abort(txn);
+        return CETCD_ERR_IO;
+    }
+    MDB_cursor *cur = NULL;
+    if (mdb_cursor_open(txn->txn, dbi, &cur) != MDB_SUCCESS) {
+        cetcd_txn_abort(txn);
+        return CETCD_ERR_IO;
+    }
+    MDB_val mkey, mval;
+    int rc = mdb_cursor_get(cur, &mkey, &mval, MDB_FIRST);
+    while (rc == MDB_SUCCESS) {
+        bool cont = fn((const uint8_t *)mkey.mv_data, (size_t)mkey.mv_size,
+                       (const uint8_t *)mval.mv_data, (size_t)mval.mv_size,
+                       udata);
+        if (!cont) break;
+        rc = mdb_cursor_get(cur, &mkey, &mval, MDB_NEXT);
+    }
+    mdb_cursor_close(cur);
+    cetcd_txn_abort(txn);
+    return CETCD_OK;
+}
