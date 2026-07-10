@@ -574,6 +574,9 @@ Client connection
    it via the **per-watcher** `write_fn`/`write_ctx` (the originating connection).
 6. On connection close, `cetcd_v3rpc_detach_stream_writer` cancels watchers bound to
    that socket so events are not written to a freed handle.
+7. Watchers created with `progress_notify` receive header-only progress frames about
+   every 10s via `cetcd_v3rpc_watch_tick` (server 100ms tick). Clients may also send
+   `WatchProgressRequest` to force an immediate progress on that connection.
 
 ### Multi-watcher multiplexing
 

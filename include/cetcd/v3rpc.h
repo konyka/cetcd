@@ -50,6 +50,9 @@ CETCD_API void cetcd_v3rpc_set_stream_writer(cetcd_v3rpc *rpc,
  * Prevents use-after-free of the socket and stops event fan-out to dead peers. */
 CETCD_API void cetcd_v3rpc_detach_stream_writer(void *write_ctx);
 
+/* Drive periodic Watch progress_notify (call from server tick, ~100ms). */
+CETCD_API void cetcd_v3rpc_watch_tick(void);
+
 /* Accessors for server wiring (persistence, lease tick). */
 CETCD_API struct cetcd_mvcc_store *cetcd_v3rpc_store(cetcd_v3rpc *rpc);
 CETCD_API struct cetcd_lease_mgr  *cetcd_v3rpc_leases(cetcd_v3rpc *rpc);

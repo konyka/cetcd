@@ -1025,6 +1025,7 @@ static void raft_tick_cb_(void *arg) {
     if (srv->rpc) {
         cetcd_lease_mgr *leases = cetcd_v3rpc_leases(srv->rpc);
         if (leases) cetcd_lease_mgr_tick(leases, 100);
+        cetcd_v3rpc_watch_tick();
     }
     process_ready_(srv);
 }

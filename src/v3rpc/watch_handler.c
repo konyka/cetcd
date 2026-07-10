@@ -270,6 +270,8 @@ typedef struct cetcd_stream_watcher_ctx {
     int                     want_prev_kv;
     int                     filter_noput;
     int                     filter_nodelete;
+    int                     want_progress_notify;
+    int                     ticks_since_progress; /* 100ms ticks since last progress */
     volatile int            canceled;
     /* Per-connection writer captured at WatchCreate (not the global). */
     cetcd_stream_write_fn   write_fn;
@@ -365,6 +367,7 @@ typedef struct {
     int      fragment;             /* field 8 (bool, tag 0x40) */
     bool     is_create;
     bool     is_cancel;
+    bool     is_progress;          /* WatchProgressRequest (field 3, tag 0x1a) */
     int64_t  cancel_id;
 } watch_request_parsed;
 
@@ -442,6 +445,11 @@ static void parse_watch_request(const uint8_t *req, size_t req_len,
                 }
             }
             pos = cend;
+        } else if (tag == 0x1a) { /* WatchProgressRequest (empty message) */
+            out->is_progress = true;
+            uint64_t clen = 0;
+            if (read_varint_w(req, req_len, &pos, &clen) != 0) break;
+            pos += (size_t)clen;
         } else {
             uint64_t skip = 0; read_varint_w(req, req_len, &pos, &skip);
         }
@@ -504,6 +512,26 @@ static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p) {
     cetcd_rpc_bytes out = {NULL, 0};
     int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
 
+    if (p->is_progress) {
+        /* Client-requested progress: notify all watchers on this connection. */
+        cetcd_stream_watcher_ctx *cur = g_stream_watchers;
+        while (cur) {
+            if (!cur->canceled && cur->write_fn &&
+                cur->write_ctx == g_rpc_stream_write_ctx) {
+                cetcd_rpc_bytes prog = encode_watch_response(
+                    cur->watch_id, 0, 0, NULL, 0, current_rev, 0);
+                if (prog.data && prog.len > 0) {
+                    cur->write_fn(prog.data, prog.len, cur->write_ctx);
+                    cur->ticks_since_progress = 0;
+                }
+                cetcd_rpc_bytes_free(&prog);
+            }
+            cur = cur->next;
+        }
+        /* Unary ack is empty; progress frames already streamed. */
+        return out;
+    }
+
     if (p->is_cancel) {
         int64_t watch_id = p->cancel_id;
         cetcd_stream_watcher_ctx *wctx = find_stream_watcher(watch_id);
@@ -537,6 +565,8 @@ static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p) {
         wctx->want_prev_kv = p->want_prev_kv;
         wctx->filter_noput = p->filter_noput;
         wctx->filter_nodelete = p->filter_nodelete;
+        wctx->want_progress_notify = p->want_progress_notify;
+        wctx->ticks_since_progress = 0;
         wctx->canceled = 0;
         /* Bind to the connection that issued this WatchCreate. */
         wctx->write_fn = g_rpc_stream_write_fn;
@@ -609,6 +639,30 @@ void cetcd_v3rpc_detach_stream_writer(void *write_ctx) {
             cur->write_ctx = NULL;
             remove_stream_watcher(cur);
             free_stream_watcher_ctx(cur);
+        }
+        cur = next;
+    }
+}
+
+/* Periodic progress for watchers created with progress_notify=true.
+ * Called from the server 100ms tick; emit about every 10s (100 ticks). */
+#define CETCD_WATCH_PROGRESS_TICKS 100
+
+void cetcd_v3rpc_watch_tick(void) {
+    int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+    cetcd_stream_watcher_ctx *cur = g_stream_watchers;
+    while (cur) {
+        cetcd_stream_watcher_ctx *next = cur->next;
+        if (!cur->canceled && cur->want_progress_notify && cur->write_fn) {
+            cur->ticks_since_progress++;
+            if (cur->ticks_since_progress >= CETCD_WATCH_PROGRESS_TICKS) {
+                cetcd_rpc_bytes prog = encode_watch_response(
+                    cur->watch_id, 0, 0, NULL, 0, current_rev, 0);
+                if (prog.data && prog.len > 0)
+                    cur->write_fn(prog.data, prog.len, cur->write_ctx);
+                cetcd_rpc_bytes_free(&prog);
+                cur->ticks_since_progress = 0;
+            }
         }
         cur = next;
     }
