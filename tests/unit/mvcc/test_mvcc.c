@@ -6,6 +6,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include <unistd.h>
 
 static void free_kv_fields(cetcd_kv *kv) {
@@ -315,6 +316,71 @@ CETCD_TEST_CASE(mvcc_delete_keys_batch_persist) {
     cetcd_backend_close(be);
 }
 
+CETCD_TEST_CASE(mvcc_persist_fail_closed) {
+    char path_template[] = "/tmp/cetcd-test-mvcc-failclosed-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(path_template));
+
+    cetcd_backend_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.path = path_template;
+    cfg.map_size = 64 * 1024; /* tiny map to force MDB_MAP_FULL */
+    cfg.max_dbs = 8;
+    cetcd_backend *be = cetcd_backend_open(&cfg);
+    CETCD_ASSERT_NOT_NULL(be);
+
+    cetcd_mvcc_store *s = cetcd_mvcc_store_new();
+    cetcd_mvcc_set_backend(s, be);
+
+    uint8_t big[2048];
+    memset(big, 'x', sizeof(big));
+    int64_t last_ok = 0;
+    int saw_fail = 0;
+    for (int i = 0; i < 200; i++) {
+        uint8_t key[16];
+        int klen = snprintf((char *)key, sizeof(key), "k%04d", i);
+        CETCD_ASSERT_TRUE(klen > 0);
+        int64_t before = cetcd_mvcc_revision(s);
+        cetcd_revision r = cetcd_mvcc_put(s, key, (size_t)klen, big, sizeof(big), 0);
+        if (r.main == 0) {
+            CETCD_ASSERT_TRUE(cetcd_mvcc_revision(s) == before);
+            saw_fail = 1;
+            /* Prior successful key must still be readable. */
+            if (last_ok > 0) {
+                uint8_t okkey[16];
+                int oklen = snprintf((char *)okkey, sizeof(okkey), "k%04d", (int)last_ok - 1);
+                cetcd_kv out = {0};
+                CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 0, okkey, (size_t)oklen, &out), CETCD_OK);
+                free((void *)out.key.data);
+                free((void *)out.value.data);
+            }
+            break;
+        }
+        CETCD_ASSERT_TRUE(r.main == before + 1);
+        last_ok = r.main;
+    }
+    CETCD_ASSERT_TRUE(saw_fail);
+
+    /* Delete of an existing key must also fail-closed once the map is full. */
+    if (last_ok > 0) {
+        uint8_t okkey[16];
+        int oklen = snprintf((char *)okkey, sizeof(okkey), "k%04d", 0);
+        int64_t before = cetcd_mvcc_revision(s);
+        cetcd_revision rd = cetcd_mvcc_delete(s, okkey, (size_t)oklen);
+        /* May succeed if delete shrinks space, or fail-closed — either is OK,
+         * but on failure revision must not advance and key must remain. */
+        if (rd.main == 0) {
+            CETCD_ASSERT_TRUE(cetcd_mvcc_revision(s) == before);
+            cetcd_kv out = {0};
+            CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 0, okkey, (size_t)oklen, &out), CETCD_OK);
+            free((void *)out.key.data);
+            free((void *)out.value.data);
+        }
+    }
+
+    cetcd_mvcc_store_free(s);
+    cetcd_backend_close(be);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(mvcc_put_get_basic),
     CETCD_TEST_ENTRY(mvcc_multiple_puts_same_key),
@@ -326,6 +392,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(mvcc_range_at_revision),
     CETCD_TEST_ENTRY(mvcc_persist_roundtrip),
     CETCD_TEST_ENTRY(mvcc_delete_keys_batch_persist),
+    CETCD_TEST_ENTRY(mvcc_persist_fail_closed),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

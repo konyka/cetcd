@@ -190,7 +190,8 @@ int64_t cetcd_mvcc_compacted_revision(const cetcd_mvcc_store *s);
 /* --- Persistence (LMDB) --- */
 
 /* Attach a backend for incremental persistence of put/delete.
- * When set, each successful put/delete is mirrored to bucket "key".
+ * When set, each put/delete persists to LMDB first (fail-closed): on error the
+ * in-memory store is unchanged and the write returns revision {0,0}.
  * Pass NULL to detach. Does not take ownership of `be`. */
 void cetcd_mvcc_set_backend(cetcd_mvcc_store *s, cetcd_backend *be);
 

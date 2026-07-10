@@ -145,8 +145,8 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                                                val ? val : (const uint8_t*)"", val ? val_len : 0,
                                                lease_id);
             rev = r.main;
-            /* Attach key to lease */
-            if (g_rpc_lease_mgr && lease_id > 0) {
+            /* Attach key to lease only if the put actually committed. */
+            if (r.main > 0 && g_rpc_lease_mgr && lease_id > 0) {
                 cetcd_lease_attach_key(g_rpc_lease_mgr, (cetcd_lease_id)lease_id,
                                         key, key_len);
             }
@@ -986,7 +986,7 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                 }
                 cetcd_revision r = cetcd_mvcc_put(g_rpc_store, pk, pk_len, pv, pv_len, lease_id);
                 if (r.main > final_rev) final_rev = r.main;
-                if (g_rpc_lease_mgr && lease_id > 0) {
+                if (r.main > 0 && g_rpc_lease_mgr && lease_id > 0) {
                     cetcd_lease_attach_key(g_rpc_lease_mgr, (cetcd_lease_id)lease_id,
                                             pk, pk_len);
                 }
