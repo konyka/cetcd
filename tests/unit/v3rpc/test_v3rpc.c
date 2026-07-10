@@ -1452,6 +1452,80 @@ CETCD_TEST_CASE(v3rpc_lease_revoke_has_header) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_lease_revoke_deletes_keys) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Grant lease */
+    uint8_t grant_buf[4]; size_t pos = 0;
+    grant_buf[pos++] = 0x08; grant_buf[pos++] = 0x3c;
+    grant_buf[pos++] = 0x10; grant_buf[pos++] = 0x00;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseGrant", grant_buf, pos);
+    CETCD_ASSERT_NOT_NULL(r.data);
+    int64_t lease_id = 0;
+    size_t rpos = 0;
+    while (rpos < r.len) {
+        uint8_t tag = r.data[rpos++];
+        if (tag == 0x0a) {
+            uint64_t l = 0; int shift = 0;
+            while (rpos < r.len) {
+                uint8_t b = r.data[rpos++];
+                l |= (uint64_t)(b & 0x7F) << shift;
+                if (!(b & 0x80)) break;
+                shift += 7;
+            }
+            rpos += (size_t)l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < r.len) {
+                uint8_t b = r.data[rpos++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if (!(b & 0x80)) break;
+                shift += 7;
+            }
+            if (tag == 0x10) { lease_id = (int64_t)v; break; }
+        }
+    }
+    cetcd_rpc_bytes_free(&r);
+    CETCD_ASSERT_TRUE(lease_id > 0);
+
+    /* Put key attached to lease */
+    uint8_t put_buf[32]; pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x03;
+    memcpy(put_buf + pos, "rk1", 3); pos += 3;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x02;
+    memcpy(put_buf + pos, "v1", 2); pos += 2;
+    put_buf[pos++] = 0x18;
+    uint64_t lid = (uint64_t)lease_id;
+    do { uint8_t b = lid & 0x7F; lid >>= 7; if (lid) b |= 0x80; put_buf[pos++] = b; } while (lid);
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* Revoke → key must disappear */
+    uint8_t revoke_buf[8]; pos = 0;
+    revoke_buf[pos++] = 0x08;
+    lid = (uint64_t)lease_id;
+    do { uint8_t b = lid & 0x7F; lid >>= 7; if (lid) b |= 0x80; revoke_buf[pos++] = b; } while (lid);
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Lease/LeaseRevoke", revoke_buf, pos);
+    CETCD_ASSERT_NOT_NULL(r.data);
+    cetcd_rpc_bytes_free(&r);
+
+    uint8_t range_buf[8]; pos = 0;
+    range_buf[pos++] = 0x0a; range_buf[pos++] = 0x03;
+    memcpy(range_buf + pos, "rk1", 3); pos += 3;
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_buf, pos);
+    CETCD_ASSERT_NOT_NULL(r.data);
+    /* No kvs field (0x12) with the value — count-only empty or header-only. */
+    int found_val = 0;
+    for (size_t i = 0; i + 2 <= r.len; i++) {
+        if (memcmp(r.data + i, "v1", 2) == 0) { found_val = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(!found_val);
+    cetcd_rpc_bytes_free(&r);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_watch_response_correct_tags) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -3833,6 +3907,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_txn_response_has_header),
     CETCD_TEST_ENTRY(v3rpc_compact_has_header),
     CETCD_TEST_ENTRY(v3rpc_lease_revoke_has_header),
+    CETCD_TEST_ENTRY(v3rpc_lease_revoke_deletes_keys),
     CETCD_TEST_ENTRY(v3rpc_watch_response_correct_tags),
     CETCD_TEST_ENTRY(v3rpc_put_prev_kv),
     CETCD_TEST_ENTRY(v3rpc_delete_prev_kv),

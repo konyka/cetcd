@@ -80,6 +80,12 @@ CETCD_TEST_CASE(mvcc_delete) {
     CETCD_ASSERT_TRUE(memcmp(out_old.value.data, v, 2) == 0);
     free_kv_fields(&out_old);
 
+    /* Deleting a missing / already-deleted key must not bump revision. */
+    int64_t before = cetcd_mvcc_revision(s);
+    cetcd_revision noop = cetcd_mvcc_delete(s, k, 4);
+    CETCD_ASSERT_TRUE(noop.main == 0);
+    CETCD_ASSERT_TRUE(cetcd_mvcc_revision(s) == before);
+
     cetcd_mvcc_store_free(s);
 }
 

@@ -41,6 +41,16 @@ int  cetcd_backend_get(cetcd_backend *be, const char *bucket,
 int  cetcd_backend_del(cetcd_backend *be, const char *bucket,
                        const uint8_t *key, size_t key_len);
 
+/* Put (or delete when val==NULL) a key and a second meta key in one txn.
+ * Used by MVCC to avoid a second begin/commit per mutation. */
+int  cetcd_backend_put2(cetcd_backend *be,
+                        const char *bucket1,
+                        const uint8_t *key1, size_t key1_len,
+                        const uint8_t *val1, size_t val1_len,
+                        const char *bucket2,
+                        const uint8_t *key2, size_t key2_len,
+                        const uint8_t *val2, size_t val2_len);
+
 /* ── Transactional KV ops ────────────────────────────────────────── */
 
 int  cetcd_txn_put(cetcd_txn *txn, const char *bucket,

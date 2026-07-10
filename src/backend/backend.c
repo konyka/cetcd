@@ -147,6 +147,37 @@ int cetcd_backend_del(cetcd_backend *be, const char *bucket,
     return CETCD_ERR_IO;
 }
 
+int cetcd_backend_put2(cetcd_backend *be,
+                       const char *bucket1,
+                       const uint8_t *key1, size_t key1_len,
+                       const uint8_t *val1, size_t val1_len,
+                       const char *bucket2,
+                       const uint8_t *key2, size_t key2_len,
+                       const uint8_t *val2, size_t val2_len) {
+    if (!be || !bucket1 || !key1 || !bucket2 || !key2 || !val2) return CETCD_ERR_INVAL;
+    cetcd_txn *txn = cetcd_txn_begin(be, false);
+    if (!txn) return CETCD_ERR_IO;
+    int rc;
+    if (val1) {
+        rc = _put_internal(txn, bucket1, key1, key1_len, val1, val1_len);
+    } else {
+        MDB_dbi dbi;
+        if (_get_dbi(txn->txn, bucket1, &dbi) != 0) {
+            cetcd_txn_abort(txn);
+            return CETCD_ERR_IO;
+        }
+        MDB_val mkey = {.mv_data = (void *)key1, .mv_size = key1_len};
+        int r = mdb_del(txn->txn, dbi, &mkey, NULL);
+        /* Missing key is OK when mirroring an MVCC delete. */
+        rc = (r == MDB_SUCCESS || r == MDB_NOTFOUND) ? CETCD_OK : CETCD_ERR_IO;
+    }
+    if (rc != CETCD_OK) { cetcd_txn_abort(txn); return rc; }
+    rc = _put_internal(txn, bucket2, key2, key2_len, val2, val2_len);
+    if (rc == CETCD_OK) rc = cetcd_txn_commit(txn);
+    else cetcd_txn_abort(txn);
+    return rc;
+}
+
 int cetcd_txn_put(cetcd_txn *txn, const char *bucket,
                    const uint8_t *key, size_t key_len,
                    const uint8_t *val, size_t val_len) {

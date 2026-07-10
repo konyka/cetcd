@@ -177,17 +177,22 @@ to convert an etcd data directory. See [ADR 0002](./adr/0002-lmdb-backend.md).
 
 On `cetcd_server_start` with a configured `data_dir`, the server opens LMDB, calls
 `cetcd_mvcc_load`, and attaches the backend so subsequent put/delete are mirrored.
+Each mutation writes the key blob and store revision in a **single LMDB transaction**
+(`cetcd_backend_put2`) to avoid double begin/commit on the hot path.
 
 ### MVCC
 
 The live index is an in-memory **treap** (`key → key_generation`). A linear `history[]`
 array records put/delete events for historical `get`/`range` at `rev > 0`. Compaction
-trims history at or below `compact_rev`.
+trims history at or below `compact_rev`. Deletes hard-remove the live treap node (history
+retains the event); deleting a missing key is a no-op and does not bump revision.
 
 When a backend is attached (`cetcd_mvcc_set_backend` / `cetcd_mvcc_load`), each successful
 put/delete also updates LMDB so a process restart restores the latest key set and revision.
 Historical revisions older than the last process lifetime are not yet recovered from disk
 (WAL replay of applied entries is the next step).
+
+`LeaseRevoke` and lease expiry both delete attached keys from MVCC before dropping the lease.
 
 Watchers are scanned on each mutation (callback + streaming notification channels).
 Per-key lock-free fan-out remains a design goal.

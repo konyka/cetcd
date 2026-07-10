@@ -124,30 +124,30 @@ static int decode_kg_(const uint8_t *data, size_t len, key_generation *kg) {
     return CETCD_OK;
 }
 
-static void persist_rev_(cetcd_mvcc_store *s) {
-    if (!s || !s->backend) return;
-    uint8_t buf[8];
-    write_le64_(buf, (uint64_t)s->main_rev);
-    cetcd_backend_put(s->backend, MVCC_BUCKET_META,
-                      MVCC_META_REV, sizeof(MVCC_META_REV) - 1,
-                      buf, sizeof(buf));
-}
-
 static void persist_put_(cetcd_mvcc_store *s, const uint8_t *key, size_t key_len,
                           const key_generation *kg) {
     if (!s || !s->backend || !key || !kg) return;
     uint8_t *blob = NULL;
     size_t blob_len = 0;
     if (encode_kg_(kg, &blob, &blob_len) != CETCD_OK) return;
-    cetcd_backend_put(s->backend, MVCC_BUCKET_KEY, key, key_len, blob, blob_len);
+    uint8_t rev_buf[8];
+    write_le64_(rev_buf, (uint64_t)s->main_rev);
+    cetcd_backend_put2(s->backend,
+                       MVCC_BUCKET_KEY, key, key_len, blob, blob_len,
+                       MVCC_BUCKET_META, MVCC_META_REV, sizeof(MVCC_META_REV) - 1,
+                       rev_buf, sizeof(rev_buf));
     free(blob);
-    persist_rev_(s);
 }
 
 static void persist_del_(cetcd_mvcc_store *s, const uint8_t *key, size_t key_len) {
     if (!s || !s->backend || !key) return;
-    cetcd_backend_del(s->backend, MVCC_BUCKET_KEY, key, key_len);
-    persist_rev_(s);
+    uint8_t rev_buf[8];
+    write_le64_(rev_buf, (uint64_t)s->main_rev);
+    /* val1=NULL → delete key in same txn as revision update */
+    cetcd_backend_put2(s->backend,
+                       MVCC_BUCKET_KEY, key, key_len, NULL, 0,
+                       MVCC_BUCKET_META, MVCC_META_REV, sizeof(MVCC_META_REV) - 1,
+                       rev_buf, sizeof(rev_buf));
 }
 
 
@@ -445,58 +445,54 @@ cetcd_revision cetcd_mvcc_delete(cetcd_mvcc_store *s,
                                   const uint8_t *key, size_t key_len) {
     cetcd_revision zero = {0, 0};
     if (!s || !key) return zero;
-    s->main_rev++;
-    cetcd_revision new_rev = {s->main_rev, 0};
 
     cetcd_slice kslice = cetcd_slice_make(key, key_len);
     void *existing = NULL;
+    if (!cetcd_treap_get(s->index, kslice, &existing)) return zero;
+    key_generation *kg = (key_generation *)existing;
+    if (kg->deleted) return zero;
 
-    if (cetcd_treap_get(s->index, kslice, &existing)) {
-        key_generation *kg = (key_generation*)existing;
+    s->main_rev++;
+    cetcd_revision new_rev = {s->main_rev, 0};
 
-        /* Capture prev_kv for delete event BEFORE marking deleted */
-        cetcd_kv prev_evkv;
-        memset(&prev_evkv, 0, sizeof(prev_evkv));
-        int has_prev = 0;
-        if (!kg->deleted) {
-            prev_evkv.key = dup_slice(kslice);
-            prev_evkv.value = dup_slice(kg->value);
-            prev_evkv.create_rev = kg->create_rev;
-            prev_evkv.mod_rev = kg->mod_rev;
-            prev_evkv.version = kg->version;
-            prev_evkv.lease_id = kg->lease_id;
-            has_prev = 1;
-        }
+    cetcd_kv prev_evkv;
+    memset(&prev_evkv, 0, sizeof(prev_evkv));
+    prev_evkv.key = dup_slice(kslice);
+    prev_evkv.value = dup_slice(kg->value);
+    prev_evkv.create_rev = kg->create_rev;
+    prev_evkv.mod_rev = kg->mod_rev;
+    prev_evkv.version = kg->version;
+    prev_evkv.lease_id = kg->lease_id;
 
-        kg->deleted = true;
-        kg->mod_rev = new_rev;
+    revision_entry e;
+    e.key = dup_slice(kslice);
+    e.value = (cetcd_slice){NULL, 0};
+    e.rev = new_rev;
+    e.type = CETCD_EVENT_DELETE;
+    e.version = kg->version;
+    e.create_rev = kg->create_rev;
+    e.lease_id = kg->lease_id;
+    push_history(s, e);
 
-        revision_entry e;
-        e.key = dup_slice(kslice);
-        e.value = (cetcd_slice){NULL, 0};
-        e.rev = new_rev;
-        e.type = CETCD_EVENT_DELETE;
-        e.version = kg->version;
-        e.create_rev = kg->create_rev;
-        e.lease_id = kg->lease_id;
-        push_history(s, e);
+    cetcd_kv evkv;
+    evkv.key = dup_slice(kslice);
+    evkv.value = (cetcd_slice){NULL, 0};
+    evkv.create_rev = kg->create_rev;
+    evkv.mod_rev = new_rev;
+    evkv.version = kg->version;
+    evkv.lease_id = kg->lease_id;
+    mvcc_notify_watchers(s, &evkv, &new_rev, CETCD_EVENT_DELETE, &prev_evkv);
+    persist_del_(s, key, key_len);
 
-        cetcd_kv evkv;
-        evkv.key = dup_slice(kslice);
-        evkv.value = (cetcd_slice){NULL, 0};
-        evkv.create_rev = kg->create_rev;
-        evkv.mod_rev = new_rev;
-        evkv.version = kg->version;
-        evkv.lease_id = kg->lease_id;
-        mvcc_notify_watchers(s, &evkv, &new_rev, CETCD_EVENT_DELETE,
-                             has_prev ? &prev_evkv : NULL);
-        persist_del_(s, key, key_len);
-        free((void*)evkv.key.data);
-        if (has_prev) {
-            free((void*)prev_evkv.key.data);
-            free((void*)prev_evkv.value.data);
-        }
+    /* Hard-remove from the live index; history retains the delete event. */
+    void *removed = NULL;
+    if (cetcd_treap_del(s->index, kslice, &removed) && removed) {
+        free_key_generation((key_generation *)removed);
     }
+
+    free((void *)evkv.key.data);
+    free((void *)prev_evkv.key.data);
+    free((void *)prev_evkv.value.data);
     return new_rev;
 }
 

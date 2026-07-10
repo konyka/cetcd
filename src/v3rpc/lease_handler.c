@@ -101,7 +101,18 @@ cetcd_rpc_bytes lease_handle_revoke(cetcd_v3rpc *rpc, const uint8_t *req, size_t
             if (pos < req_len) pos++;
         }
     }
-    if (id > 0) {
+    if (id > 0 && g_rpc_lease_mgr) {
+        /* Match etcd: revoke deletes all keys attached to the lease. */
+        const uint8_t *const *keys = NULL;
+        const size_t *key_lens = NULL;
+        size_t n = cetcd_lease_keys(g_rpc_lease_mgr, (cetcd_lease_id)id,
+                                    &keys, &key_lens);
+        if (g_rpc_store && keys && key_lens) {
+            for (size_t i = 0; i < n; i++) {
+                if (keys[i] && key_lens[i] > 0)
+                    cetcd_mvcc_delete(g_rpc_store, keys[i], key_lens[i]);
+            }
+        }
         cetcd_lease_revoke(g_rpc_lease_mgr, (cetcd_lease_id)id);
     }
     /* LeaseRevokeResponse: header with revision */
