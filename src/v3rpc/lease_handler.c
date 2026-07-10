@@ -108,10 +108,7 @@ cetcd_rpc_bytes lease_handle_revoke(cetcd_v3rpc *rpc, const uint8_t *req, size_t
         size_t n = cetcd_lease_keys(g_rpc_lease_mgr, (cetcd_lease_id)id,
                                     &keys, &key_lens);
         if (g_rpc_store && keys && key_lens) {
-            for (size_t i = 0; i < n; i++) {
-                if (keys[i] && key_lens[i] > 0)
-                    cetcd_mvcc_delete(g_rpc_store, keys[i], key_lens[i]);
-            }
+            cetcd_mvcc_delete_keys(g_rpc_store, keys, key_lens, n);
         }
         cetcd_lease_revoke(g_rpc_lease_mgr, (cetcd_lease_id)id);
     }

@@ -51,6 +51,16 @@ int  cetcd_backend_put2(cetcd_backend *be,
                         const uint8_t *key2, size_t key2_len,
                         const uint8_t *val2, size_t val2_len);
 
+/* Delete N keys from bucket1 and write meta key/val in one txn. */
+int  cetcd_backend_del_n(cetcd_backend *be,
+                         const char *bucket,
+                         const uint8_t *const *keys,
+                         const size_t *key_lens,
+                         size_t n,
+                         const char *meta_bucket,
+                         const uint8_t *meta_key, size_t meta_key_len,
+                         const uint8_t *meta_val, size_t meta_val_len);
+
 /* ── Transactional KV ops ────────────────────────────────────────── */
 
 int  cetcd_txn_put(cetcd_txn *txn, const char *bucket,

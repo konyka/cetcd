@@ -79,6 +79,13 @@ cetcd_revision cetcd_mvcc_put(cetcd_mvcc_store *s,
 cetcd_revision cetcd_mvcc_delete(cetcd_mvcc_store *s,
                                   const uint8_t *key, size_t key_len);
 
+/* Delete many keys with one LMDB transaction (memory updates still per-key).
+ * Returns the last non-zero revision produced, or {0,0} if none deleted. */
+cetcd_revision cetcd_mvcc_delete_keys(cetcd_mvcc_store *s,
+                                       const uint8_t *const *keys,
+                                       const size_t *key_lens,
+                                       size_t n);
+
 /* --- Read operations (at a given revision, 0 = current) --- */
 
 int cetcd_mvcc_get(cetcd_mvcc_store *s, int64_t rev,

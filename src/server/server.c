@@ -100,10 +100,7 @@ static void lease_expire_cb_(cetcd_lease_id id,
     if (!srv || !srv->rpc) return;
     cetcd_mvcc_store *store = cetcd_v3rpc_store(srv->rpc);
     if (!store || !keys || !key_lens) return;
-    for (size_t i = 0; i < count; i++) {
-        if (keys[i] && key_lens[i] > 0)
-            cetcd_mvcc_delete(store, keys[i], key_lens[i]);
-    }
+    cetcd_mvcc_delete_keys(store, keys, key_lens, count);
 }
 
 /* Cleanup callback for uv_write in stream_write_ */

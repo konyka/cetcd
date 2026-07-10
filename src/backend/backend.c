@@ -178,6 +178,38 @@ int cetcd_backend_put2(cetcd_backend *be,
     return rc;
 }
 
+int cetcd_backend_del_n(cetcd_backend *be,
+                        const char *bucket,
+                        const uint8_t *const *keys,
+                        const size_t *key_lens,
+                        size_t n,
+                        const char *meta_bucket,
+                        const uint8_t *meta_key, size_t meta_key_len,
+                        const uint8_t *meta_val, size_t meta_val_len) {
+    if (!be || !bucket || !meta_bucket || !meta_key || !meta_val) return CETCD_ERR_INVAL;
+    if (n > 0 && (!keys || !key_lens)) return CETCD_ERR_INVAL;
+    cetcd_txn *txn = cetcd_txn_begin(be, false);
+    if (!txn) return CETCD_ERR_IO;
+    for (size_t i = 0; i < n; i++) {
+        if (!keys[i] || key_lens[i] == 0) continue;
+        MDB_dbi dbi;
+        if (_get_dbi(txn->txn, bucket, &dbi) != 0) {
+            cetcd_txn_abort(txn);
+            return CETCD_ERR_IO;
+        }
+        MDB_val mkey = {.mv_data = (void *)keys[i], .mv_size = key_lens[i]};
+        int r = mdb_del(txn->txn, dbi, &mkey, NULL);
+        if (r != MDB_SUCCESS && r != MDB_NOTFOUND) {
+            cetcd_txn_abort(txn);
+            return CETCD_ERR_IO;
+        }
+    }
+    int rc = _put_internal(txn, meta_bucket, meta_key, meta_key_len, meta_val, meta_val_len);
+    if (rc == CETCD_OK) rc = cetcd_txn_commit(txn);
+    else cetcd_txn_abort(txn);
+    return rc;
+}
+
 int cetcd_txn_put(cetcd_txn *txn, const char *bucket,
                    const uint8_t *key, size_t key_len,
                    const uint8_t *val, size_t val_len) {
