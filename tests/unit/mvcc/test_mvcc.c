@@ -265,6 +265,13 @@ CETCD_TEST_CASE(mvcc_persist_roundtrip) {
     free((void *)out.key.data);
     free((void *)out.value.data);
 
+    /* Historical get at the loaded revision must also succeed (synthetic history). */
+    memset(&out, 0, sizeof(out));
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s2, 1, k, sizeof(k) - 1, &out), CETCD_OK);
+    CETCD_ASSERT_TRUE(memcmp(out.value.data, v, sizeof(v) - 1) == 0);
+    free((void *)out.key.data);
+    free((void *)out.value.data);
+
     cetcd_mvcc_store_free(s2);
     cetcd_backend_close(be);
 }

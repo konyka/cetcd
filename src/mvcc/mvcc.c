@@ -2,6 +2,7 @@
 #include "cetcd/mvcc.h"
 #include "cetcd/treap.h"
 #include "cetcd/backend.h"
+#include "cetcd/log.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -124,30 +125,37 @@ static int decode_kg_(const uint8_t *data, size_t len, key_generation *kg) {
     return CETCD_OK;
 }
 
-static void persist_put_(cetcd_mvcc_store *s, const uint8_t *key, size_t key_len,
-                          const key_generation *kg) {
-    if (!s || !s->backend || !key || !kg) return;
+static int persist_put_(cetcd_mvcc_store *s, const uint8_t *key, size_t key_len,
+                         const key_generation *kg) {
+    if (!s || !s->backend || !key || !kg) return CETCD_OK;
     uint8_t *blob = NULL;
     size_t blob_len = 0;
-    if (encode_kg_(kg, &blob, &blob_len) != CETCD_OK) return;
+    if (encode_kg_(kg, &blob, &blob_len) != CETCD_OK) return CETCD_ERR_NOMEM;
     uint8_t rev_buf[8];
     write_le64_(rev_buf, (uint64_t)s->main_rev);
-    cetcd_backend_put2(s->backend,
+    int rc = cetcd_backend_put2(s->backend,
                        MVCC_BUCKET_KEY, key, key_len, blob, blob_len,
                        MVCC_BUCKET_META, MVCC_META_REV, sizeof(MVCC_META_REV) - 1,
                        rev_buf, sizeof(rev_buf));
     free(blob);
+    if (rc != CETCD_OK) {
+        CETCD_WARN("mvcc persist put failed rc=%d key_len=%zu", rc, key_len);
+    }
+    return rc;
 }
 
-static void persist_del_(cetcd_mvcc_store *s, const uint8_t *key, size_t key_len) {
-    if (!s || !s->backend || !key) return;
+static int persist_del_(cetcd_mvcc_store *s, const uint8_t *key, size_t key_len) {
+    if (!s || !s->backend || !key) return CETCD_OK;
     uint8_t rev_buf[8];
     write_le64_(rev_buf, (uint64_t)s->main_rev);
-    /* val1=NULL → delete key in same txn as revision update */
-    cetcd_backend_put2(s->backend,
+    int rc = cetcd_backend_put2(s->backend,
                        MVCC_BUCKET_KEY, key, key_len, NULL, 0,
                        MVCC_BUCKET_META, MVCC_META_REV, sizeof(MVCC_META_REV) - 1,
                        rev_buf, sizeof(rev_buf));
+    if (rc != CETCD_OK) {
+        CETCD_WARN("mvcc persist del failed rc=%d key_len=%zu", rc, key_len);
+    }
+    return rc;
 }
 
 
@@ -431,7 +439,7 @@ cetcd_revision cetcd_mvcc_put(cetcd_mvcc_store *s,
     evkv.lease_id = kg->lease_id;
     mvcc_notify_watchers(s, &evkv, &new_rev, CETCD_EVENT_PUT,
                          has_prev ? &prev_evkv : NULL);
-    persist_put_(s, key, key_len, kg);
+    (void)persist_put_(s, key, key_len, kg);
     free((void*)evkv.key.data);
     free((void*)evkv.value.data);
     if (has_prev) {
@@ -482,7 +490,7 @@ cetcd_revision cetcd_mvcc_delete(cetcd_mvcc_store *s,
     evkv.version = kg->version;
     evkv.lease_id = kg->lease_id;
     mvcc_notify_watchers(s, &evkv, &new_rev, CETCD_EVENT_DELETE, &prev_evkv);
-    persist_del_(s, key, key_len);
+    (void)persist_del_(s, key, key_len);
 
     /* Hard-remove from the live index; history retains the delete event. */
     void *removed = NULL;
@@ -891,6 +899,17 @@ static bool load_kv_cb_(const uint8_t *key, size_t key_len,
     }
     if (kg->mod_rev.main > ctx->store->main_rev)
         ctx->store->main_rev = kg->mod_rev.main;
+
+    /* Seed history so rev>0 get/range work after restart (current generation only). */
+    revision_entry e;
+    e.key = dup_slice(kslice);
+    e.value = dup_slice(kg->value);
+    e.rev = kg->mod_rev;
+    e.type = CETCD_EVENT_PUT;
+    e.version = kg->version;
+    e.create_rev = kg->create_rev;
+    e.lease_id = kg->lease_id;
+    push_history(ctx->store, e);
     return true;
 }
 

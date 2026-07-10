@@ -189,10 +189,13 @@ retains the event); deleting a missing key is a no-op and does not bump revision
 
 When a backend is attached (`cetcd_mvcc_set_backend` / `cetcd_mvcc_load`), each successful
 put/delete also updates LMDB so a process restart restores the latest key set and revision.
-Historical revisions older than the last process lifetime are not yet recovered from disk
-(WAL replay of applied entries is the next step).
+Load seeds a synthetic history entry per live key so `rev>0` get/range against the current
+generation works after restart; intermediate revisions from before the crash are not recovered
+(WAL replay of applied entries is the next step). Persist failures are logged via `CETCD_WARN`.
 
 `LeaseRevoke` and lease expiry both delete attached keys from MVCC before dropping the lease.
+`DeleteRange` / Txn delete and Put with `lease=0` detach keys from the lease index so
+`LeaseTimeToLive(keys=true)` stays consistent.
 
 Watchers are scanned on each mutation (callback + streaming notification channels).
 Per-key lock-free fan-out remains a design goal.

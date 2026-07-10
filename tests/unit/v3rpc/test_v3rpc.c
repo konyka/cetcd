@@ -2061,6 +2061,113 @@ CETCD_TEST_CASE(v3rpc_put_ignore_value) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_put_clear_lease_and_delete_detaches) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Grant lease */
+    uint8_t grant_buf[4]; size_t pos = 0;
+    grant_buf[pos++] = 0x08; grant_buf[pos++] = 0x3c;
+    grant_buf[pos++] = 0x10; grant_buf[pos++] = 0x00;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Lease/LeaseGrant", grant_buf, pos);
+    CETCD_ASSERT_NOT_NULL(r.data);
+    int64_t lease_id = 0;
+    size_t rpos = 0;
+    while (rpos < r.len) {
+        uint8_t tag = r.data[rpos++];
+        if (tag == 0x0a) {
+            uint64_t l = 0; int shift = 0;
+            while (rpos < r.len) {
+                uint8_t b = r.data[rpos++];
+                l |= (uint64_t)(b & 0x7F) << shift;
+                if (!(b & 0x80)) break;
+                shift += 7;
+            }
+            rpos += (size_t)l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < r.len) {
+                uint8_t b = r.data[rpos++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if (!(b & 0x80)) break;
+                shift += 7;
+            }
+            if (tag == 0x10) { lease_id = (int64_t)v; break; }
+        }
+    }
+    cetcd_rpc_bytes_free(&r);
+    CETCD_ASSERT_TRUE(lease_id > 0);
+
+    /* Put key with lease */
+    uint8_t put[32]; pos = 0;
+    put[pos++] = 0x0a; put[pos++] = 0x03;
+    memcpy(put + pos, "lkx", 3); pos += 3;
+    put[pos++] = 0x12; put[pos++] = 0x02;
+    memcpy(put + pos, "v1", 2); pos += 2;
+    put[pos++] = 0x18;
+    uint64_t lid = (uint64_t)lease_id;
+    do { uint8_t b = lid & 0x7F; lid >>= 7; if (lid) b |= 0x80; put[pos++] = b; } while (lid);
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* Put again with lease=0 → should clear binding */
+    pos = 0;
+    put[pos++] = 0x0a; put[pos++] = 0x03;
+    memcpy(put + pos, "lkx", 3); pos += 3;
+    put[pos++] = 0x12; put[pos++] = 0x02;
+    memcpy(put + pos, "v2", 2); pos += 2;
+    put[pos++] = 0x18; put[pos++] = 0x00; /* lease = 0 */
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* TimeToLive with keys=true should not list lkx */
+    uint8_t ttl[8]; pos = 0;
+    ttl[pos++] = 0x08;
+    lid = (uint64_t)lease_id;
+    do { uint8_t b = lid & 0x7F; lid >>= 7; if (lid) b |= 0x80; ttl[pos++] = b; } while (lid);
+    ttl[pos++] = 0x10; ttl[pos++] = 0x01;
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Lease/LeaseTimeToLive", ttl, pos);
+    CETCD_ASSERT_NOT_NULL(r.data);
+    int found = 0;
+    for (size_t i = 0; i + 3 <= r.len; i++) {
+        if (memcmp(r.data + i, "lkx", 3) == 0) { found = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(!found);
+    cetcd_rpc_bytes_free(&r);
+
+    /* Re-attach then DeleteRange must also detach */
+    pos = 0;
+    put[pos++] = 0x0a; put[pos++] = 0x03;
+    memcpy(put + pos, "lkx", 3); pos += 3;
+    put[pos++] = 0x12; put[pos++] = 0x02;
+    memcpy(put + pos, "v3", 2); pos += 2;
+    put[pos++] = 0x18;
+    lid = (uint64_t)lease_id;
+    do { uint8_t b = lid & 0x7F; lid >>= 7; if (lid) b |= 0x80; put[pos++] = b; } while (lid);
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    uint8_t del[8]; pos = 0;
+    del[pos++] = 0x0a; del[pos++] = 0x03;
+    memcpy(del + pos, "lkx", 3); pos += 3;
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/DeleteRange", del, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    pos = 0;
+    ttl[pos++] = 0x08;
+    lid = (uint64_t)lease_id;
+    do { uint8_t b = lid & 0x7F; lid >>= 7; if (lid) b |= 0x80; ttl[pos++] = b; } while (lid);
+    ttl[pos++] = 0x10; ttl[pos++] = 0x01;
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Lease/LeaseTimeToLive", ttl, pos);
+    found = 0;
+    for (size_t i = 0; i + 3 <= r.len; i++) {
+        if (memcmp(r.data + i, "lkx", 3) == 0) { found = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(!found);
+    cetcd_rpc_bytes_free(&r);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_put_ignore_lease) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -4016,6 +4123,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_auth_responses_have_header),
     CETCD_TEST_ENTRY(v3rpc_authenticate_has_token_field2),
     CETCD_TEST_ENTRY(v3rpc_put_ignore_value),
+    CETCD_TEST_ENTRY(v3rpc_put_clear_lease_and_delete_detaches),
     CETCD_TEST_ENTRY(v3rpc_put_ignore_lease),
     CETCD_TEST_ENTRY(v3rpc_auth_status_has_header),
     CETCD_TEST_ENTRY(v3rpc_lease_grant_has_header),
