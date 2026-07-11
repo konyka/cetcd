@@ -227,6 +227,13 @@ CETCD_TEST_CASE(mvcc_range_at_revision) {
     CETCD_ASSERT_TRUE(results[0].value.len == 1 && results[0].value.data[0] == '3');
     cetcd_kv_free_contents(results, count);
 
+    /* At rev 5: a=3, c=1 (b still deleted) */
+    results = NULL; count = 0;
+    rc = cetcd_mvcc_range(s, 5, ka, 1, (const uint8_t *)"\xff", 1, &results, &count);
+    CETCD_ASSERT_EQ_INT(rc, CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)count, 2);
+    cetcd_kv_free_contents(results, count);
+
     cetcd_mvcc_store_free(s);
 }
 

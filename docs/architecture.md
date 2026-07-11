@@ -188,6 +188,8 @@ The live index is an in-memory **treap** (`key → key_generation`). A linear `h
 array records put/delete events for historical `get`/`range` at `rev > 0`. Compaction
 trims history at or below `compact_rev`. Deletes hard-remove the live treap node (history
 retains the event); deleting a missing key is a no-op and does not bump revision.
+Historical `range` walks history newest→oldest and uses a hashmap of first-seen keys
+(expected O(n) over matching events) instead of an O(n²) linear dedup scan.
 
 When a backend is attached (`cetcd_mvcc_set_backend` / `cetcd_mvcc_load`), each successful
 put/delete also updates LMDB so a process restart restores the latest key set and revision.

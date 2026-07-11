@@ -2,6 +2,7 @@
 #include "cetcd/mvcc.h"
 #include "cetcd/treap.h"
 #include "cetcd/backend.h"
+#include "cetcd/hashmap.h"
 #include "cetcd/log.h"
 #include <stdlib.h>
 #include <string.h>
@@ -683,45 +684,35 @@ int cetcd_mvcc_range(cetcd_mvcc_store *s, int64_t rev,
         return CETCD_OK;
     }
 
-    /* Historical range: walk history newest→oldest, keep first match per key. */
+    /* Historical range: walk newest→oldest; hashmap marks first-seen keys
+     * (puts and deletes) so each key is O(1) expected, not O(n) scan. */
     range_ctx ctx = {0};
+    cetcd_hashmap *seen = cetcd_hashmap_new(0);
+    if (!seen) return CETCD_ERR_NOMEM;
+
     for (int i = (int)s->history_count - 1; i >= 0; i--) {
         revision_entry *e = &s->history[i];
         if (e->rev.main > rev) continue;
         if (!key_in_range_(e->key.data, e->key.len, key_start, start_len,
                            key_end, end_len))
             continue;
-        /* Skip if we already recorded this key (newer revision wins). */
-        int seen = 0;
-        for (size_t j = 0; j < ctx.nr; j++) {
-            if (ctx.rows[j].key.len == e->key.len &&
-                memcmp(ctx.rows[j].key.data, e->key.data, e->key.len) == 0) {
-                seen = 1;
-                break;
-            }
+        if (cetcd_hashmap_contains(seen, e->key)) continue;
+        if (cetcd_hashmap_put(seen, e->key, (void *)(uintptr_t)1) != CETCD_OK) {
+            cetcd_hashmap_free(seen);
+            cetcd_kv_free_contents(ctx.rows, ctx.nr);
+            return CETCD_ERR_NOMEM;
         }
-        if (seen) continue;
-        if (e->type == CETCD_EVENT_DELETE) {
-            /* Mark as seen via a tombstone placeholder so older puts are skipped.
-             * Use a zero-length key marker by storing a deleted sentinel with
-             * empty value and version=-1; filter them out after the scan. */
-            if (ctx.nr == ctx.cap) {
-                size_t nc = ctx.cap ? ctx.cap * 2 : 4;
-                cetcd_kv *tmp = (cetcd_kv *)realloc(ctx.rows, nc * sizeof(*tmp));
-                if (!tmp) { cetcd_kv_free_contents(ctx.rows, ctx.nr); return CETCD_ERR_NOMEM; }
-                ctx.rows = tmp;
-                ctx.cap = nc;
-            }
-            cetcd_kv *kv = &ctx.rows[ctx.nr++];
-            memset(kv, 0, sizeof(*kv));
-            kv->key = dup_slice(e->key);
-            kv->version = -1; /* tombstone */
-            continue;
-        }
+        if (e->type == CETCD_EVENT_DELETE)
+            continue; /* tombstone: suppress older puts for this key */
+
         if (ctx.nr == ctx.cap) {
             size_t nc = ctx.cap ? ctx.cap * 2 : 4;
             cetcd_kv *tmp = (cetcd_kv *)realloc(ctx.rows, nc * sizeof(*tmp));
-            if (!tmp) { cetcd_kv_free_contents(ctx.rows, ctx.nr); return CETCD_ERR_NOMEM; }
+            if (!tmp) {
+                cetcd_hashmap_free(seen);
+                cetcd_kv_free_contents(ctx.rows, ctx.nr);
+                return CETCD_ERR_NOMEM;
+            }
             ctx.rows = tmp;
             ctx.cap = nc;
         }
@@ -733,18 +724,7 @@ int cetcd_mvcc_range(cetcd_mvcc_store *s, int64_t rev,
         kv->version = e->version;
         kv->lease_id = e->lease_id;
     }
-    /* Compact out tombstones */
-    size_t w = 0;
-    for (size_t r = 0; r < ctx.nr; r++) {
-        if (ctx.rows[r].version < 0) {
-            free((void *)ctx.rows[r].key.data);
-            free((void *)ctx.rows[r].value.data);
-            continue;
-        }
-        if (w != r) ctx.rows[w] = ctx.rows[r];
-        w++;
-    }
-    ctx.nr = w;
+    cetcd_hashmap_free(seen);
     *out = ctx.rows;
     *out_count = ctx.nr;
     return CETCD_OK;
