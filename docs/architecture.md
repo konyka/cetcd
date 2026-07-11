@@ -179,7 +179,8 @@ On `cetcd_server_start` with a configured `data_dir`, the server opens LMDB, cal
 `cetcd_mvcc_load`, and attaches the backend so subsequent put/delete are mirrored.
 Each mutation writes the key blob and store revision in a **single LMDB transaction**
 (`cetcd_backend_put2`) to avoid double begin/commit on the hot path. Multi-key deletes
-(lease expire/revoke) use `cetcd_mvcc_delete_keys` → one `cetcd_backend_del_n` txn.
+(lease expire/revoke, `DeleteRange` / Txn range delete) use `cetcd_mvcc_delete_keys` →
+one `cetcd_backend_del_n` txn.
 
 ### MVCC
 
@@ -197,7 +198,9 @@ generation works after restart; intermediate revisions from before the crash are
 (WAL replay of applied entries is the next step).
 
 `LeaseRevoke` and lease expiry both delete attached keys from MVCC before dropping the lease.
-`DeleteRange` / Txn delete and Put with `lease=0` detach keys from the lease index so
+`DeleteRange` / Txn range delete batch through `cetcd_mvcc_delete_keys`; lease detach runs
+only after a successful delete so fail-closed persist errors do not orphan lease index
+entries. Put with `lease=0` also detaches keys from the lease index so
 `LeaseTimeToLive(keys=true)` stays consistent.
 
 Watchers are scanned on each mutation (callback + streaming notification channels).

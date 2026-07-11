@@ -10,23 +10,64 @@
 extern cetcd_mvcc_store *g_rpc_store;
 extern cetcd_lease_mgr  *g_rpc_lease_mgr;
 
-/* Detach key from its lease (if any) then delete from MVCC. */
+/* Detach key from its lease (if any) then delete from MVCC.
+ * Lease detach runs only after a successful delete (fail-closed safe). */
 static cetcd_revision delete_and_detach_(const uint8_t *key, size_t key_len) {
     cetcd_revision zero = {0, 0};
     if (!g_rpc_store || !key) return zero;
+    int64_t lease_id = 0;
     if (g_rpc_lease_mgr) {
         cetcd_kv kv;
         memset(&kv, 0, sizeof(kv));
         if (cetcd_mvcc_get(g_rpc_store, 0, key, key_len, &kv) == 0) {
-            if (kv.lease_id > 0) {
-                cetcd_lease_detach_key(g_rpc_lease_mgr, (cetcd_lease_id)kv.lease_id,
-                                        key, key_len);
-            }
+            lease_id = kv.lease_id;
             free((void *)kv.key.data);
             free((void *)kv.value.data);
         }
     }
-    return cetcd_mvcc_delete(g_rpc_store, key, key_len);
+    cetcd_revision r = cetcd_mvcc_delete(g_rpc_store, key, key_len);
+    if (r.main > 0 && g_rpc_lease_mgr && lease_id > 0) {
+        cetcd_lease_detach_key(g_rpc_lease_mgr, (cetcd_lease_id)lease_id,
+                                key, key_len);
+    }
+    return r;
+}
+
+/* Batch-delete keys from a prior Range snapshot (one LMDB txn). */
+static cetcd_revision delete_kvs_and_detach_(const cetcd_kv *kvs, size_t n) {
+    cetcd_revision zero = {0, 0};
+    if (!g_rpc_store || !kvs || n == 0) return zero;
+
+    const uint8_t **keys = (const uint8_t **)calloc(n, sizeof(*keys));
+    size_t *lens = (size_t *)calloc(n, sizeof(*lens));
+    if (!keys || !lens) {
+        free(keys);
+        free(lens);
+        cetcd_revision last = zero;
+        for (size_t i = 0; i < n; i++) {
+            cetcd_revision r = delete_and_detach_(kvs[i].key.data, kvs[i].key.len);
+            if (r.main > last.main) last = r;
+        }
+        return last;
+    }
+
+    for (size_t i = 0; i < n; i++) {
+        keys[i] = kvs[i].key.data;
+        lens[i] = kvs[i].key.len;
+    }
+    cetcd_revision r = cetcd_mvcc_delete_keys(g_rpc_store, keys, lens, n);
+    if (r.main > 0 && g_rpc_lease_mgr) {
+        for (size_t i = 0; i < n; i++) {
+            if (kvs[i].lease_id > 0) {
+                cetcd_lease_detach_key(g_rpc_lease_mgr,
+                                        (cetcd_lease_id)kvs[i].lease_id,
+                                        kvs[i].key.data, kvs[i].key.len);
+            }
+        }
+    }
+    free(keys);
+    free(lens);
+    return r;
 }
 
 /* Forward declare to be linked with v3rpc.c */
@@ -576,10 +617,9 @@ cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, siz
             rev = r.main;
             if (!prev_kv_flag && rev > 0) deleted_count = 1;
         } else {
-            /* Range delete: get all keys, then delete each one */
+            /* Range delete: snapshot keys, then one batch LMDB delete. */
             cetcd_kv *kvs = NULL; size_t n = 0;
             cetcd_mvcc_range(g_rpc_store, 0, key, key_len, range_end, range_end_len, &kvs, &n);
-            deleted_count = (int64_t)n;
 
             if (prev_kv_flag && n > 0) {
                 prev_kvs_cap = n * 256;
@@ -620,10 +660,13 @@ cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, siz
                 }
             }
 
-            /* Delete each key */
-            for (size_t i = 0; i < n; i++) {
-                cetcd_revision r = delete_and_detach_(kvs[i].key.data, kvs[i].key.len);
-                if (r.main > rev) rev = r.main;
+            cetcd_revision r = delete_kvs_and_detach_(kvs, n);
+            rev = r.main;
+            if (r.main > 0) {
+                deleted_count = (int64_t)n;
+            } else {
+                deleted_count = 0;
+                if (prev_kvs_buf) { free(prev_kvs_buf); prev_kvs_buf = NULL; prev_kvs_len = 0; }
             }
             if (rev == 0 && g_rpc_store) rev = cetcd_mvcc_revision(g_rpc_store);
             if (kvs) cetcd_kv_free_contents(kvs, n);
@@ -1047,10 +1090,9 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
             uint8_t *prev_kvs_buf = NULL; size_t prev_kvs_len = 0; size_t prev_kvs_cap = 0;
             if (dk && g_rpc_store) {
                 if (drange_end && drange_end_len > 0) {
-                    /* Range delete */
+                    /* Range delete: one batch LMDB txn */
                     cetcd_kv *kvs = NULL; size_t n = 0;
                     cetcd_mvcc_range(g_rpc_store, 0, dk, dk_len, drange_end, drange_end_len, &kvs, &n);
-                    deleted_count = (int64_t)n;
                     if (want_prev_kv && n > 0) {
                         prev_kvs_cap = n * 256;
                         prev_kvs_buf = (uint8_t *)malloc(prev_kvs_cap);
@@ -1084,9 +1126,13 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                             }
                         }
                     }
-                    for (size_t j = 0; j < n; j++) {
-                        cetcd_revision r = delete_and_detach_(kvs[j].key.data, kvs[j].key.len);
-                        if (r.main > del_rev) del_rev = r.main;
+                    cetcd_revision r = delete_kvs_and_detach_(kvs, n);
+                    del_rev = r.main;
+                    if (r.main > 0) {
+                        deleted_count = (int64_t)n;
+                    } else {
+                        deleted_count = 0;
+                        if (prev_kvs_buf) { free(prev_kvs_buf); prev_kvs_buf = NULL; prev_kvs_len = 0; }
                     }
                     if (kvs) cetcd_kv_free_contents(kvs, n);
                 } else {
