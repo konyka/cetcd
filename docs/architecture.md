@@ -550,7 +550,9 @@ callback so the Watch handler can include it in the event.
 The `WatchCreateRequest` parser also supports `progress_notify` (field 4), `filters` (field 5,
 NOPUT=0 and NODELETE=1, both packed and non-packed varint encoding), and `fragment` (field 8).
 When filters are specified, PUT and/or DELETE events are suppressed accordingly in both legacy
-and streaming watch modes.
+and streaming watch modes. If `start_revision > 0` and is below the store's `compacted_rev`,
+WatchCreate returns `created=true`, `canceled=true`, and `compact_revision` (field 5, tag
+`0x28`) without subscribing — matching etcd's ErrCompacted watch behavior.
 
 The cetcdctl response parsing for `del`, `txn cas`, and `watch` now correctly skips the
 `ResponseHeader` (tag 0x0a) before parsing response-specific fields, ensuring compatibility

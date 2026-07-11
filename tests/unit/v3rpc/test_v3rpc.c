@@ -1660,6 +1660,90 @@ CETCD_TEST_CASE(v3rpc_watch_response_correct_tags) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_watch_start_rev_compacted) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put k1 (rev=1), Put k2 (rev=2) */
+    uint8_t put1[16]; size_t p = 0;
+    put1[p++] = 0x0a; put1[p++] = 0x02; memcpy(put1 + p, "k1", 2); p += 2;
+    put1[p++] = 0x12; put1[p++] = 0x02; memcpy(put1 + p, "v1", 2); p += 2;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put1, p);
+    cetcd_rpc_bytes_free(&r);
+
+    uint8_t put2[16]; p = 0;
+    put2[p++] = 0x0a; put2[p++] = 0x02; memcpy(put2 + p, "k2", 2); p += 2;
+    put2[p++] = 0x12; put2[p++] = 0x02; memcpy(put2 + p, "v2", 2); p += 2;
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put2, p);
+    cetcd_rpc_bytes_free(&r);
+
+    /* Compact at revision 2 */
+    uint8_t compact_buf[4]; p = 0;
+    compact_buf[p++] = 0x08; compact_buf[p++] = 0x02;
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Compact", compact_buf, p);
+    cetcd_rpc_bytes_free(&r);
+
+    /* WatchCreate key=k1 start_revision=1 → canceled + compact_revision=2 */
+    uint8_t create_inner[16]; size_t cpos = 0;
+    create_inner[cpos++] = 0x0a; create_inner[cpos++] = 0x02;
+    memcpy(create_inner + cpos, "k1", 2); cpos += 2;
+    create_inner[cpos++] = 0x18; create_inner[cpos++] = 0x01;
+
+    uint8_t watch_buf[32]; size_t wpos = 0;
+    watch_buf[wpos++] = 0x0a;
+    watch_buf[wpos++] = (uint8_t)cpos;
+    memcpy(watch_buf + wpos, create_inner, cpos); wpos += cpos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Watch/Watch", watch_buf, wpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+
+    int found_canceled = 0;
+    int found_compact_rev = 0;
+    int found_event = 0;
+    size_t rpos = 0;
+    while (rpos < resp.len) {
+        uint8_t tag = resp.data[rpos++];
+        if (tag == 0x0a) {
+            uint64_t l = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                l |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) break;
+                shift += 7;
+            }
+            rpos += (size_t)l;
+        } else if (tag == 0x5a) {
+            found_event = 1;
+            uint64_t l = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                l |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) break;
+                shift += 7;
+            }
+            rpos += (size_t)l;
+        } else if ((tag & 0x07) == 0) { /* varint wire type */
+            uint64_t v = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) break;
+                shift += 7;
+            }
+            if (tag == 0x20 && v == 1) found_canceled = 1;
+            if (tag == 0x28 && v == 2) found_compact_rev = 1;
+        } else {
+            break;
+        }
+    }
+    CETCD_ASSERT_TRUE(found_canceled);
+    CETCD_ASSERT_TRUE(found_compact_rev);
+    CETCD_ASSERT_FALSE(found_event);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_put_prev_kv) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -4423,6 +4507,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_lease_revoke_has_header),
     CETCD_TEST_ENTRY(v3rpc_lease_revoke_deletes_keys),
     CETCD_TEST_ENTRY(v3rpc_watch_response_correct_tags),
+    CETCD_TEST_ENTRY(v3rpc_watch_start_rev_compacted),
     CETCD_TEST_ENTRY(v3rpc_put_prev_kv),
     CETCD_TEST_ENTRY(v3rpc_delete_prev_kv),
     CETCD_TEST_ENTRY(v3rpc_delete_range_multiple),

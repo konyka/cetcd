@@ -184,14 +184,16 @@ static size_t encode_event(uint8_t *buf, size_t cap, size_t pos,
     return pos;
 }
 
-/* Encode a WatchResponse protobuf.  Caller frees out->data with free(). */
+/* Encode a WatchResponse protobuf.  Caller frees out->data with free().
+ * compact_revision > 0 emits field 5 (tag 0x28); used when start_rev is compacted. */
 static cetcd_rpc_bytes encode_watch_response(int64_t watch_id,
                                               int created,
                                               int canceled,
                                               const cetcd_watch_event *events,
                                               size_t event_count,
                                               int64_t current_rev,
-                                              int want_prev_kv) {
+                                              int want_prev_kv,
+                                              int64_t compact_revision) {
     cetcd_rpc_bytes out = {NULL, 0};
 
     /* ResponseHeader inner: field 3 = revision */
@@ -227,6 +229,12 @@ static cetcd_rpc_bytes encode_watch_response(int64_t watch_id,
         resp[rpos++] = 0x01;
     }
 
+    /* field 5 = compact_revision */
+    if (compact_revision > 0) {
+        resp[rpos++] = 0x28;
+        rpos = write_varint_w(resp, cap, rpos, (uint64_t)compact_revision);
+    }
+
     /* field 11 = repeated Event */
     for (size_t i = 0; i < event_count; i++) {
         rpos = encode_event(resp, cap, rpos, &events[i], want_prev_kv);
@@ -239,6 +247,17 @@ static cetcd_rpc_bytes encode_watch_response(int64_t watch_id,
     out.data = final;
     out.len = rpos;
     return out;
+}
+
+/* start_rev > 0 and below compacted_rev → cannot create watch (etcd ErrCompacted). */
+static int watch_start_rev_compacted_(int64_t start_rev, int64_t *compact_rev_out) {
+    if (start_rev <= 0 || !g_rpc_store) return 0;
+    int64_t cr = cetcd_mvcc_compacted_revision(g_rpc_store);
+    if (cr > 0 && start_rev < cr) {
+        if (compact_rev_out) *compact_rev_out = cr;
+        return 1;
+    }
+    return 0;
 }
 
 /* ── Legacy single-shot event collector ────────────────────────────────── */
@@ -323,7 +342,7 @@ static void streaming_watch_notify_cb(void *udata) {
             wctx->watch_id, 0, 0,
             events, send_count,
             g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 1,
-            wctx->want_prev_kv);
+            wctx->want_prev_kv, 0);
         if (resp.data && resp.len > 0 && wctx->write_fn) {
             wctx->write_fn(resp.data, resp.len, wctx->write_ctx);
         }
@@ -481,12 +500,17 @@ static cetcd_rpc_bytes handle_legacy_watch(const watch_request_parsed *p) {
 
     if (p->is_cancel) {
         watch_id = p->cancel_id;
-        out = encode_watch_response(watch_id, 0, 1, NULL, 0, current_rev, 0);
+        out = encode_watch_response(watch_id, 0, 1, NULL, 0, current_rev, 0, 0);
         return out;
     }
 
     if (p->is_create && p->key && g_rpc_store) {
         watch_id = (p->client_watch_id > 0) ? p->client_watch_id : g_watch_id_counter++;
+        int64_t compact_rev = 0;
+        if (watch_start_rev_compacted_(p->start_rev, &compact_rev)) {
+            return encode_watch_response(watch_id, 1, 1, NULL, 0,
+                                         current_rev, 0, compact_rev);
+        }
         watch_event_collector collector = {NULL, 0, 0, p->want_prev_kv, p->filter_noput, p->filter_nodelete};
         cetcd_watcher *w = cetcd_mvcc_watch(g_rpc_store, p->key, p->key_len,
                                              p->start_rev,
@@ -494,7 +518,7 @@ static cetcd_rpc_bytes handle_legacy_watch(const watch_request_parsed *p) {
         out = encode_watch_response(watch_id, 1, 0,
                                     NULL, 0,
                                     cetcd_mvcc_revision(g_rpc_store),
-                                    p->want_prev_kv);
+                                    p->want_prev_kv, 0);
         /* Append collected events */
         if (collector.len > 0 && out.data) {
             uint8_t *merged = (uint8_t *)malloc(out.len + collector.len);
@@ -512,7 +536,7 @@ static cetcd_rpc_bytes handle_legacy_watch(const watch_request_parsed *p) {
     }
 
     /* Fallback: created=true with no watch_id */
-    out = encode_watch_response(0, 1, 0, NULL, 0, current_rev, 0);
+    out = encode_watch_response(0, 1, 0, NULL, 0, current_rev, 0, 0);
     return out;
 }
 
@@ -529,7 +553,7 @@ static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p) {
             if (!cur->canceled && cur->write_fn &&
                 cur->write_ctx == g_rpc_stream_write_ctx) {
                 cetcd_rpc_bytes prog = encode_watch_response(
-                    cur->watch_id, 0, 0, NULL, 0, current_rev, 0);
+                    cur->watch_id, 0, 0, NULL, 0, current_rev, 0, 0);
                 if (prog.data && prog.len > 0) {
                     cur->write_fn(prog.data, prog.len, cur->write_ctx);
                     cur->ticks_since_progress = 0;
@@ -556,7 +580,7 @@ static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p) {
             remove_stream_watcher(wctx);
             free_stream_watcher_ctx(wctx);
         }
-        out = encode_watch_response(watch_id, 0, 1, NULL, 0, current_rev, 0);
+        out = encode_watch_response(watch_id, 0, 1, NULL, 0, current_rev, 0, 0);
         return out;
     }
 
@@ -565,10 +589,16 @@ static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p) {
                            ? p->client_watch_id
                            : g_watch_id_counter++;
 
+        int64_t compact_rev = 0;
+        if (watch_start_rev_compacted_(p->start_rev, &compact_rev)) {
+            return encode_watch_response(watch_id, 1, 1, NULL, 0,
+                                         current_rev, 0, compact_rev);
+        }
+
         cetcd_stream_watcher_ctx *wctx =
             (cetcd_stream_watcher_ctx *)calloc(1, sizeof(*wctx));
         if (!wctx) {
-            out = encode_watch_response(watch_id, 1, 0, NULL, 0, current_rev, 0);
+            out = encode_watch_response(watch_id, 1, 0, NULL, 0, current_rev, 0, 0);
             return out;
         }
         wctx->watch_id = watch_id;
@@ -595,7 +625,7 @@ static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p) {
             &wctx->notify);
         if (!wctx->sw) {
             free(wctx);
-            out = encode_watch_response(watch_id, 1, 0, NULL, 0, current_rev, 0);
+            out = encode_watch_response(watch_id, 1, 0, NULL, 0, current_rev, 0, 0);
             return out;
         }
 
@@ -604,14 +634,14 @@ static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p) {
         g_stream_watchers = wctx;
 
         /* Return the create confirmation immediately. */
-        out = encode_watch_response(watch_id, 1, 0, NULL, 0, current_rev, 0);
+        out = encode_watch_response(watch_id, 1, 0, NULL, 0, current_rev, 0, 0);
         CETCD_INFO("watch id=%lld created in streaming mode",
                    (long long)watch_id);
         return out;
     }
 
     /* Fallback. */
-    out = encode_watch_response(0, 1, 0, NULL, 0, current_rev, 0);
+    out = encode_watch_response(0, 1, 0, NULL, 0, current_rev, 0, 0);
     return out;
 }
 
@@ -667,7 +697,7 @@ void cetcd_v3rpc_watch_tick(void) {
             cur->ticks_since_progress++;
             if (cur->ticks_since_progress >= CETCD_WATCH_PROGRESS_TICKS) {
                 cetcd_rpc_bytes prog = encode_watch_response(
-                    cur->watch_id, 0, 0, NULL, 0, current_rev, 0);
+                    cur->watch_id, 0, 0, NULL, 0, current_rev, 0, 0);
                 if (prog.data && prog.len > 0)
                     cur->write_fn(prog.data, prog.len, cur->write_ctx);
                 cetcd_rpc_bytes_free(&prog);
