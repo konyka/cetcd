@@ -13,6 +13,7 @@ typedef uint64_t cetcd_lease_id;
 
 typedef struct cetcd_lease cetcd_lease;
 typedef struct cetcd_lease_mgr cetcd_lease_mgr;
+typedef struct cetcd_mvcc_store cetcd_mvcc_store;
 
 /* Callback when a lease expires. Keys attached to the lease are passed. */
 typedef void (*cetcd_lease_expire_fn)(cetcd_lease_id id,
@@ -66,6 +67,10 @@ size_t cetcd_lease_mgr_leases(const cetcd_lease_mgr *mgr,
 size_t cetcd_lease_keys(const cetcd_lease_mgr *mgr, cetcd_lease_id id,
                          const uint8_t *const **out_keys,
                          const size_t **out_lens);
+
+/* Rebuild in-memory lease index from live MVCC keys (after cetcd_mvcc_load).
+ * Grants missing lease IDs with a default TTL until lease-bucket persistence. */
+int cetcd_lease_reindex_from_store(cetcd_lease_mgr *mgr, cetcd_mvcc_store *store);
 
 #ifdef __cplusplus
 }

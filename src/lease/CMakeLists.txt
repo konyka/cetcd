@@ -3,4 +3,5 @@ cetcd_add_module(lease
         lease.c
     PUBLIC_DEPS
         cetcd_base
+        cetcd_mvcc
 )

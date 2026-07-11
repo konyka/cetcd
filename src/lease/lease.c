@@ -1,9 +1,13 @@
 #include "cetcd/lease.h"
 #include "cetcd/base.h"
+#include "cetcd/mvcc.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+
+/* Temporary TTL for leases rebuilt from MVCC after restart (no lease bucket yet). */
+#define CETCD_LEASE_REBUILD_TTL 300
 
 /* Internal lease structure matching the header contract. */
 typedef struct cetcd_lease {
@@ -295,4 +299,28 @@ size_t cetcd_lease_keys(const cetcd_lease_mgr *mgr, cetcd_lease_id id,
     *out_keys = (const uint8_t *const *)l->keys;
     *out_lens = (const size_t *)l->key_lens;
     return l->key_count;
+}
+
+int cetcd_lease_reindex_from_store(cetcd_lease_mgr *mgr, cetcd_mvcc_store *store) {
+    if (!mgr || !store) return CETCD_ERR_INVAL;
+
+    static const uint8_t from_key[] = {0};
+    cetcd_kv *kvs = NULL;
+    size_t n = 0;
+    if (cetcd_mvcc_range(store, 0, (const uint8_t *)"", 0,
+                         from_key, 1, &kvs, &n) != CETCD_OK) {
+        return CETCD_OK;
+    }
+
+    for (size_t i = 0; i < n; i++) {
+        if (kvs[i].lease_id <= 0) continue;
+        cetcd_lease_id lid = (cetcd_lease_id)kvs[i].lease_id;
+        if (!cetcd_lease_exists(mgr, lid)) {
+            if (cetcd_lease_grant_id(mgr, lid, CETCD_LEASE_REBUILD_TTL) == 0)
+                continue;
+        }
+        cetcd_lease_attach_key(mgr, lid, kvs[i].key.data, kvs[i].key.len);
+    }
+    if (kvs) cetcd_kv_free_contents(kvs, n);
+    return CETCD_OK;
 }

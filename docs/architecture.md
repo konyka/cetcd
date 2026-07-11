@@ -176,7 +176,9 @@ of those subsystems. cetcd is **not** disk-format compatible with bbolt; use `ce
 to convert an etcd data directory. See [ADR 0002](./adr/0002-lmdb-backend.md).
 
 On `cetcd_server_start` with a configured `data_dir`, the server opens LMDB, calls
-`cetcd_mvcc_load`, and attaches the backend so subsequent put/delete are mirrored.
+`cetcd_mvcc_load`, rebuilds the in-memory lease index from live key `lease_id`s via
+`cetcd_lease_reindex_from_store` (default TTL until a `lease` bucket exists), and
+attaches the backend so subsequent put/delete are mirrored.
 Each mutation writes the key blob and store revision in a **single LMDB transaction**
 (`cetcd_backend_put2`) to avoid double begin/commit on the hot path. Multi-key deletes
 (lease expire/revoke, `DeleteRange` / Txn range delete) use `cetcd_mvcc_delete_keys` →

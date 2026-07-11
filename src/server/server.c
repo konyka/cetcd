@@ -790,6 +790,10 @@ int cetcd_server_start(cetcd_server *srv) {
             cetcd_mvcc_store *store = cetcd_v3rpc_store(srv->rpc);
             if (store) {
                 cetcd_mvcc_load(store, srv->backend);
+                /* Lease mgr is memory-only; rebuild index from key.lease_id. */
+                cetcd_lease_mgr *leases = cetcd_v3rpc_leases(srv->rpc);
+                if (leases)
+                    cetcd_lease_reindex_from_store(leases, store);
             }
         }
 

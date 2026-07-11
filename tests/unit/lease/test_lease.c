@@ -1,5 +1,6 @@
 #include "cetcd/base.h"
 #include "cetcd/lease.h"
+#include "cetcd/mvcc.h"
 #include "cetcd_test.h"
 
 static int g_expired_count;
@@ -217,6 +218,37 @@ CETCD_TEST_CASE(lease_grant_custom_id_bumps_next) {
     cetcd_lease_mgr_free(mgr);
 }
 
+CETCD_TEST_CASE(lease_reindex_from_store) {
+    cetcd_lease_mgr *mgr = cetcd_lease_mgr_new(test_expire_cb, NULL);
+    cetcd_mvcc_store *store = cetcd_mvcc_store_new();
+    CETCD_ASSERT_NOT_NULL(mgr);
+    CETCD_ASSERT_NOT_NULL(store);
+
+    const uint8_t k1[] = "lk1", k2[] = "lk2", k3[] = "nolease", v[] = "v";
+    cetcd_mvcc_put(store, k1, 3, v, 1, 0x42);
+    cetcd_mvcc_put(store, k2, 3, v, 1, 0x42);
+    cetcd_mvcc_put(store, k3, 7, v, 1, 0);
+
+    CETCD_ASSERT_EQ_INT(cetcd_lease_reindex_from_store(mgr, store), CETCD_OK);
+    CETCD_ASSERT_TRUE(cetcd_lease_exists(mgr, 0x42));
+    CETCD_ASSERT_EQ_INT((int)cetcd_lease_mgr_count(mgr), 1);
+    CETCD_ASSERT_EQ_INT((int)cetcd_lease_granted_ttl(mgr, 0x42), 300);
+
+    const uint8_t *const *keys = NULL;
+    const size_t *lens = NULL;
+    size_t n = cetcd_lease_keys(mgr, 0x42, &keys, &lens);
+    CETCD_ASSERT_EQ_INT((int)n, 2);
+
+    /* Idempotent reindex. */
+    CETCD_ASSERT_EQ_INT(cetcd_lease_reindex_from_store(mgr, store), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)cetcd_lease_mgr_count(mgr), 1);
+    n = cetcd_lease_keys(mgr, 0x42, &keys, &lens);
+    CETCD_ASSERT_EQ_INT((int)n, 2);
+
+    cetcd_mvcc_store_free(store);
+    cetcd_lease_mgr_free(mgr);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(lease_grant_revoke),
     CETCD_TEST_ENTRY(lease_expire),
@@ -228,6 +260,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(lease_mgr_leases),
     CETCD_TEST_ENTRY(lease_grant_custom_id),
     CETCD_TEST_ENTRY(lease_grant_custom_id_bumps_next),
+    CETCD_TEST_ENTRY(lease_reindex_from_store),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

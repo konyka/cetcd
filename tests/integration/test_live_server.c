@@ -139,6 +139,84 @@ CETCD_TEST_CASE(live_server_persistent_backend) {
     cetcd_server_free(srv);
 }
 
+CETCD_TEST_CASE(live_server_lease_reindex_after_restart) {
+    char data_dir[] = "/tmp/cetcd_test_lease_reidx_XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 23794;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+
+    /* Grant custom lease 0x55 with TTL=60. */
+    uint8_t grant_req[] = {0x08, 0x3c, 0x10, 0x55};
+    cetcd_server_rpc_result resp = cetcd_server_handle_rpc(srv,
+        "/etcdserverpb.Lease/LeaseGrant", grant_req, sizeof(grant_req));
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_server_rpc_result_free(&resp);
+
+    /* Put key "lk1"="v" with lease 0x55 (field 3 tag 0x18). */
+    uint8_t put_req[] = {
+        0x0a, 0x03, 'l','k','1',
+        0x12, 0x01, 'v',
+        0x18, 0x55
+    };
+    resp = cetcd_server_handle_rpc(srv, "/etcdserverpb.KV/Put",
+                                   put_req, sizeof(put_req));
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_server_rpc_result_free(&resp);
+
+    cetcd_server_stop(srv);
+    cetcd_server_free(srv);
+
+    /* Restart: lease mgr must be rebuilt from MVCC lease_id. */
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 23794;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+    srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+
+    /* LeaseTimeToLive ID=0x55 keys=true → response should contain "lk1". */
+    uint8_t ttl_req[] = {0x08, 0x55, 0x10, 0x01};
+    resp = cetcd_server_handle_rpc(srv,
+        "/etcdserverpb.Lease/LeaseTimeToLive", ttl_req, sizeof(ttl_req));
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found = 0;
+    for (size_t i = 0; i + 3 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "lk1", 3) == 0) { found = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(found);
+    cetcd_server_rpc_result_free(&resp);
+
+    /* Revoke should delete the attached key. */
+    uint8_t revoke_req[] = {0x08, 0x55};
+    resp = cetcd_server_handle_rpc(srv,
+        "/etcdserverpb.Lease/LeaseRevoke", revoke_req, sizeof(revoke_req));
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_server_rpc_result_free(&resp);
+
+    uint8_t range_req[] = {0x0a, 0x03, 'l','k','1'};
+    resp = cetcd_server_handle_rpc(srv, "/etcdserverpb.KV/Range",
+                                   range_req, sizeof(range_req));
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    found = 0;
+    for (size_t i = 0; i + 3 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "lk1", 3) == 0) { found = 1; break; }
+    }
+    CETCD_ASSERT_FALSE(found);
+    cetcd_server_rpc_result_free(&resp);
+
+    cetcd_server_stop(srv);
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_CASE(live_server_tcp_listen) {
     pid_t pid = fork();
     if (pid == 0) {
@@ -579,6 +657,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_start_stop),
     CETCD_TEST_ENTRY(live_server_snapshot_after_writes),
     CETCD_TEST_ENTRY(live_server_persistent_backend),
+    CETCD_TEST_ENTRY(live_server_lease_reindex_after_restart),
     CETCD_TEST_ENTRY(live_server_tcp_listen),
     CETCD_TEST_ENTRY(live_server_cluster_membership),
     CETCD_TEST_ENTRY(live_server_peer_port_listen),
