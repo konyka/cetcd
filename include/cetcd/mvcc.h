@@ -155,7 +155,7 @@ typedef struct cetcd_stream_watcher cetcd_stream_watcher;
  * the watcher coroutine.
  *
  * range_end == NULL / range_end_len == 0  ->  exact-key watch
- * range_end points to a single '\0' byte   ->  prefix watch
+ * range_end points to a single '\0' byte   ->  FromKey (all keys >= key)
  * otherwise                                ->  range [key, range_end)
  */
 CETCD_API cetcd_stream_watcher *cetcd_mvcc_watch_subscribe(

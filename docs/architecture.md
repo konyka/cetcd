@@ -193,7 +193,7 @@ does not bump revision.
 Historical `range` walks history newest→oldest and uses a hashmap of first-seen keys
 (expected O(n) over matching events) instead of an O(n²) linear dedup scan.
 `range_end` of a single `\0` byte means all keys ≥ `key` (etcd FromKey), so
-DeleteRange/Txn share one open-ended upper-bound expansion with Range.
+DeleteRange/Txn and streaming Watch share one open-ended upper-bound expansion with Range.
 
 When a backend is attached (`cetcd_mvcc_set_backend` / `cetcd_mvcc_load`), each successful
 put/delete also updates LMDB so a process restart restores the latest key set and revision.
@@ -392,7 +392,7 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `check perf -w json` fixed (now includes real ResponseHeader from Put response),
 `member add --peer-urls URL` / `--learner` (etcdctl-compatible flags for adding cluster members; --learner sends isLearner=true in MemberAddRequest),
 `check datascale [--load N] [--prefix PREFIX] [-w json]` (new subcommand to test database scalability by loading N keys and reporting DB size and elapsed time),
-`watch --filter NOPUT|NODELETE` (filter event types in watch, maps to WatchCreateRequest.filters field 7),
+`watch --filter NOPUT|NODELETE` (filter event types in watch, maps to WatchCreateRequest.filters field 5),
 `alarm activate/disarm -w json` (JSON output for alarm activate/disarm with real ResponseHeader),
 `member list -w json` enhanced (now parses name, clientURLs, and isLearner fields from Member proto; server also returns name="default" and clientURLs),
 `snapshot status` enhanced (now parses snapshot blob to count keys and compute hash, includes total_keys column),

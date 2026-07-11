@@ -45,6 +45,9 @@ static void mvcc_notify_watchers(cetcd_mvcc_store *s, const cetcd_kv *kv,
                                   const cetcd_kv *prev_kv);
 static bool range_collect_cb(cetcd_slice key, void *val, void *udata);
 static bool free_kg_iter(cetcd_slice key, void *value, void *udata);
+static int key_in_range_(const uint8_t *key, size_t key_len,
+                          const uint8_t *lo, size_t lo_len,
+                          const uint8_t *hi, size_t hi_len);
 
 
 struct cetcd_mvcc_store {
@@ -253,18 +256,10 @@ static bool watch_match(const cetcd_watcher *w, const uint8_t *key, size_t key_l
 static bool stream_watch_match(const cetcd_stream_watcher *w,
                                 const uint8_t *key, size_t key_len) {
     if (w->is_range) {
-        /* Range watch: key >= pattern AND key < range_end */
-        if (key_len < w->pattern_len) return false;
-        if (memcmp(key, w->pattern, w->pattern_len) < 0) return false;
-        if (w->range_end && w->range_end_len > 0) {
-            size_t cmp_len = key_len < w->range_end_len ? key_len : w->range_end_len;
-            int c = memcmp(key, w->range_end, cmp_len);
-            if (c >= 0) {
-                if (c == 0 && key_len < w->range_end_len) return true;
-                return false;
-            }
-        }
-        return true;
+        /* Same bounds as cetcd_mvcc_range / key_in_range_: [pattern, range_end). */
+        return key_in_range_(key, key_len,
+                             w->pattern, w->pattern_len,
+                             w->range_end, w->range_end_len) != 0;
     }
     if (w->is_prefix) {
         if (key_len < w->pattern_len) return false;
@@ -861,14 +856,18 @@ cetcd_stream_watcher *cetcd_mvcc_watch_subscribe(
     sw->want_prev_kv = want_prev_kv;
     sw->notify = notify;
 
-    /* Determine watch type */
+    /* Determine watch type (align range_end='\0' with Range FromKey). */
     if (range_end && range_end_len > 0) {
         if (range_end_len == 1 && range_end[0] == '\0') {
-            /* Single '\0' byte means prefix watch */
-            sw->is_prefix = true;
-            sw->is_range = false;
-            sw->range_end = NULL;
-            sw->range_end_len = 0;
+            static const uint8_t max_key[] = {
+                0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
+            };
+            sw->is_prefix = false;
+            sw->is_range = true;
+            sw->range_end = (uint8_t *)malloc(sizeof(max_key));
+            if (!sw->range_end) { free(sw->pattern); free(sw); return NULL; }
+            memcpy(sw->range_end, max_key, sizeof(max_key));
+            sw->range_end_len = sizeof(max_key);
         } else {
             /* Range watch [key, range_end) */
             sw->is_prefix = false;

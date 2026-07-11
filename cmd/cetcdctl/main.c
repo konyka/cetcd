@@ -4695,7 +4695,7 @@ static size_t build_watch_create(uint8_t *buf, size_t cap,
     if (prev_kv)
         cpos = encode_varint_field(create_inner, sizeof(create_inner), cpos, 0x30, 1);
     if (filter_type >= 0)
-        cpos = encode_varint_field(create_inner, sizeof(create_inner), cpos, 0x38, (uint64_t)filter_type);
+        cpos = encode_varint_field(create_inner, sizeof(create_inner), cpos, 0x28, (uint64_t)filter_type);
     size_t wpos = 0;
     buf[wpos++] = 0x0a;
     wpos = write_varint(buf, cap, wpos, (uint64_t)cpos);
