@@ -106,6 +106,26 @@ cetcd_lease_id cetcd_lease_grant(cetcd_lease_mgr *mgr, int64_t ttl_seconds) {
     return l.id;
 }
 
+cetcd_lease_id cetcd_lease_grant_id(cetcd_lease_mgr *mgr, cetcd_lease_id id,
+                                    int64_t ttl_seconds) {
+    if (!mgr || id == 0 || ttl_seconds <= 0) return 0;
+    if (cetcd_lease_exists(mgr, id)) return 0;
+    if (ensure_cap_(mgr) != 0) return 0;
+
+    cetcd_lease l;
+    l.id = id;
+    l.ttl_seconds = ttl_seconds;
+    l.deadline_ms = mgr->now_ms + ttl_seconds * 1000;
+    l.keys = NULL;
+    l.key_lens = NULL;
+    l.key_count = 0;
+    l.key_cap = 0;
+
+    mgr->leases[mgr->count++] = l;
+    if (mgr->next_id <= id) mgr->next_id = id + 1;
+    return l.id;
+}
+
 int cetcd_lease_revoke(cetcd_lease_mgr *mgr, cetcd_lease_id id) {
     if (!mgr) return CETCD_ERR_INVAL;
     for (size_t i = 0; i < mgr->count; ++i) {

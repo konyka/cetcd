@@ -30,6 +30,10 @@ void cetcd_lease_mgr_set_expire(cetcd_lease_mgr *mgr,
                                  void *udata);
 
 cetcd_lease_id cetcd_lease_grant(cetcd_lease_mgr *mgr, int64_t ttl_seconds);
+/* Grant with a caller-chosen ID (etcd LeaseGrantRequest.ID). Returns 0 if
+ * id==0, ttl<=0, or the ID already exists. Advances next auto-id past `id`. */
+cetcd_lease_id cetcd_lease_grant_id(cetcd_lease_mgr *mgr, cetcd_lease_id id,
+                                    int64_t ttl_seconds);
 int            cetcd_lease_revoke(cetcd_lease_mgr *mgr, cetcd_lease_id id);
 int            cetcd_lease_keep_alive(cetcd_lease_mgr *mgr, cetcd_lease_id id, int64_t ttl_seconds);
 

@@ -232,6 +232,87 @@ CETCD_TEST_CASE(v3rpc_lease_grant_revoke) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_lease_grant_custom_id) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* LeaseGrantRequest: ttl=60, id=0xDEAD */
+    uint8_t grant_buf[16];
+    size_t pos = 0;
+    grant_buf[pos++] = 0x08;
+    grant_buf[pos++] = 0x3c;
+    grant_buf[pos++] = 0x10;
+    uint64_t want = 0xDEAD;
+    do {
+        uint8_t b = (uint8_t)(want & 0x7F);
+        want >>= 7;
+        if (want) b |= 0x80;
+        grant_buf[pos++] = b;
+    } while (want);
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseGrant", grant_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int64_t lease_id = 0;
+    size_t rpos = 0;
+    while (rpos < resp.len) {
+        uint8_t tag = resp.data[rpos++];
+        if (tag == 0x0a) {
+            uint64_t l = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                l |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) break;
+                shift += 7;
+            }
+            rpos += (size_t)l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) break;
+                shift += 7;
+            }
+            if (tag == 0x10) { lease_id = (int64_t)v; break; }
+        }
+    }
+    cetcd_rpc_bytes_free(&resp);
+    CETCD_ASSERT_EQ_INT((int)lease_id, 0xDEAD);
+
+    /* Duplicate custom ID fails closed (response ID 0). */
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseGrant", grant_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    lease_id = -1;
+    rpos = 0;
+    while (rpos < resp.len) {
+        uint8_t tag = resp.data[rpos++];
+        if (tag == 0x0a) {
+            uint64_t l = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                l |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) break;
+                shift += 7;
+            }
+            rpos += (size_t)l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) break;
+                shift += 7;
+            }
+            if (tag == 0x10) { lease_id = (int64_t)v; break; }
+        }
+    }
+    cetcd_rpc_bytes_free(&resp);
+    CETCD_ASSERT_EQ_INT((int)lease_id, 0);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_delete_range) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -4295,6 +4376,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_delete_returns_count),
     CETCD_TEST_ENTRY(v3rpc_unknown_path),
     CETCD_TEST_ENTRY(v3rpc_lease_grant_revoke),
+    CETCD_TEST_ENTRY(v3rpc_lease_grant_custom_id),
     CETCD_TEST_ENTRY(v3rpc_delete_range),
     CETCD_TEST_ENTRY(v3rpc_auth_enable_disable),
     CETCD_TEST_ENTRY(v3rpc_auth_user_add_authenticate),

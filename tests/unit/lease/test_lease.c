@@ -186,6 +186,37 @@ CETCD_TEST_CASE(lease_mgr_leases) {
     cetcd_lease_mgr_free(mgr);
 }
 
+CETCD_TEST_CASE(lease_grant_custom_id) {
+    cetcd_lease_mgr *mgr = cetcd_lease_mgr_new(test_expire_cb, NULL);
+    CETCD_ASSERT_NOT_NULL(mgr);
+
+    cetcd_lease_id lid = cetcd_lease_grant_id(mgr, 0xBEEF, 30);
+    CETCD_ASSERT_EQ_INT((int)lid, 0xBEEF);
+    CETCD_ASSERT_TRUE(cetcd_lease_exists(mgr, 0xBEEF));
+    CETCD_ASSERT_EQ_INT((int)cetcd_lease_granted_ttl(mgr, 0xBEEF), 30);
+
+    /* Duplicate ID fails closed. */
+    CETCD_ASSERT_EQ_INT((int)cetcd_lease_grant_id(mgr, 0xBEEF, 10), 0);
+    CETCD_ASSERT_EQ_INT((int)cetcd_lease_mgr_count(mgr), 1);
+
+    /* id==0 / ttl<=0 rejected. */
+    CETCD_ASSERT_EQ_INT((int)cetcd_lease_grant_id(mgr, 0, 10), 0);
+    CETCD_ASSERT_EQ_INT((int)cetcd_lease_grant_id(mgr, 42, 0), 0);
+
+    cetcd_lease_mgr_free(mgr);
+}
+
+CETCD_TEST_CASE(lease_grant_custom_id_bumps_next) {
+    cetcd_lease_mgr *mgr = cetcd_lease_mgr_new(test_expire_cb, NULL);
+    CETCD_ASSERT_NOT_NULL(mgr);
+
+    CETCD_ASSERT_EQ_INT((int)cetcd_lease_grant_id(mgr, 0x1000, 10), 0x1000);
+    cetcd_lease_id auto_id = cetcd_lease_grant(mgr, 10);
+    CETCD_ASSERT_EQ_INT((int)auto_id, 0x1001);
+
+    cetcd_lease_mgr_free(mgr);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(lease_grant_revoke),
     CETCD_TEST_ENTRY(lease_expire),
@@ -195,6 +226,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(lease_revoke_nonexistent),
     CETCD_TEST_ENTRY(lease_granted_ttl),
     CETCD_TEST_ENTRY(lease_mgr_leases),
+    CETCD_TEST_ENTRY(lease_grant_custom_id),
+    CETCD_TEST_ENTRY(lease_grant_custom_id_bumps_next),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

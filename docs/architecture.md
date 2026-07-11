@@ -304,6 +304,9 @@ etcd v3.5 proto wire format. The `LeaseTimeToLive` handler also parses the `keys
 boolean field from the request and returns attached keys (field 5) when requested,
 using the new `cetcd_lease_keys()` API. The `LeaseGrant` response also attaches keys
 to leases via `cetcd_lease_attach_key()` when a `Put` request specifies a lease ID.
+`LeaseGrant` honors a non-zero request `ID` via `cetcd_lease_grant_id()` (duplicate
+IDs fail closed with response ID `0`); auto-grant still uses `cetcd_lease_grant()`,
+and `next_id` advances past any custom ID to avoid collisions.
 
 All Maintenance RPC responses (`Status`, `Hash`, `HashKV`, `Defragment`, `Alarm`,
 `MoveLeader`, `Snapshot`, `Downgrade`) include a `ResponseHeader` as field 1, matching the

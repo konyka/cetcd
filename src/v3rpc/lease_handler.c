@@ -86,7 +86,11 @@ cetcd_rpc_bytes lease_handle_grant(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
         }
     }
     if (ttl <= 0) ttl = 60; /* default TTL */
-    cetcd_lease_id lid = cetcd_lease_grant(g_rpc_lease_mgr, ttl);
+    cetcd_lease_id lid = 0;
+    if (id > 0)
+        lid = cetcd_lease_grant_id(g_rpc_lease_mgr, (cetcd_lease_id)id, ttl);
+    else
+        lid = cetcd_lease_grant(g_rpc_lease_mgr, ttl);
     return make_lease_response(lid, ttl);
 }
 
