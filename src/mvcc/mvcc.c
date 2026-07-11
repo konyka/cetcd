@@ -1050,6 +1050,16 @@ typedef struct {
     int               err;
 } load_ctx_;
 
+static int history_rev_cmp_(const void *a, const void *b) {
+    const revision_entry *ea = (const revision_entry *)a;
+    const revision_entry *eb = (const revision_entry *)b;
+    if (ea->rev.main != eb->rev.main)
+        return (ea->rev.main < eb->rev.main) ? -1 : 1;
+    if (ea->rev.sub != eb->rev.sub)
+        return (ea->rev.sub < eb->rev.sub) ? -1 : 1;
+    return 0;
+}
+
 static bool load_kv_cb_(const uint8_t *key, size_t key_len,
                          const uint8_t *val, size_t val_len,
                          void *udata) {
@@ -1111,5 +1121,11 @@ int cetcd_mvcc_load(cetcd_mvcc_store *s, cetcd_backend *be) {
     load_ctx_ ctx = { .store = s, .err = CETCD_OK };
     int rc = cetcd_backend_foreach(be, MVCC_BUCKET_KEY, load_kv_cb_, &ctx);
     if (rc != CETCD_OK) return rc;
-    return ctx.err;
+    if (ctx.err != CETCD_OK) return ctx.err;
+
+    /* LMDB foreach is key-ordered; Watch replay needs revision order. */
+    if (s->history_count > 1) {
+        qsort(s->history, s->history_count, sizeof(s->history[0]), history_rev_cmp_);
+    }
+    return CETCD_OK;
 }

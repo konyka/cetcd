@@ -593,6 +593,57 @@ CETCD_TEST_CASE(mvcc_watch_replay_prev_kv) {
     cetcd_mvcc_store_free(s);
 }
 
+CETCD_TEST_CASE(mvcc_load_watch_replay_order) {
+    char path_template[] = "/tmp/cetcd-test-mvcc-replay-ord-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(path_template));
+
+    cetcd_backend_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.path = path_template;
+    cfg.map_size = 16 * 1024 * 1024;
+    cfg.max_dbs = 8;
+    cetcd_backend *be = cetcd_backend_open(&cfg);
+    CETCD_ASSERT_NOT_NULL(be);
+
+    cetcd_mvcc_store *s1 = cetcd_mvcc_store_new();
+    cetcd_mvcc_set_backend(s1, be);
+    const uint8_t foo[] = "foo", bar[] = "bar", v[] = "x";
+    /* foo@1 then bar@2 — key order is bar before foo after LMDB load. */
+    cetcd_mvcc_put(s1, foo, 3, v, 1, 0);
+    cetcd_mvcc_put(s1, bar, 3, v, 1, 0);
+    cetcd_mvcc_store_free(s1);
+    cetcd_backend_close(be);
+
+    be = cetcd_backend_open(&cfg);
+    cetcd_mvcc_store *s2 = cetcd_mvcc_store_new();
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_load(s2, be), CETCD_OK);
+
+    cetcd_mvcc_watch_notify notify;
+    cetcd_mvcc_watch_notify_init(&notify, stream_wake_noop_, NULL);
+    static const uint8_t nul[] = {0};
+    cetcd_stream_watcher *sw = cetcd_mvcc_watch_subscribe(
+        s2, 1, (const uint8_t *)"", 0, nul, 1, 1, 0, &notify);
+    CETCD_ASSERT_NOT_NULL(sw);
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_watch_replay(s2, sw), CETCD_OK);
+
+    cetcd_watch_event *evs = NULL;
+    size_t n = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_watch_recv(&notify, &evs, &n), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)n, 2);
+    CETCD_ASSERT_TRUE(evs[0].kv.key.len == 3 && memcmp(evs[0].kv.key.data, "foo", 3) == 0);
+    CETCD_ASSERT_TRUE(evs[1].kv.key.len == 3 && memcmp(evs[1].kv.key.data, "bar", 3) == 0);
+    for (size_t i = 0; i < n; i++) {
+        free((void *)evs[i].kv.key.data);
+        free((void *)evs[i].kv.value.data);
+    }
+    free(evs);
+
+    cetcd_mvcc_watch_unsubscribe(s2, sw);
+    cetcd_mvcc_watch_notify_destroy(&notify);
+    cetcd_mvcc_store_free(s2);
+    cetcd_backend_close(be);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(mvcc_put_get_basic),
     CETCD_TEST_ENTRY(mvcc_multiple_puts_same_key),
@@ -604,6 +655,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(mvcc_watch_from_key_null_end),
     CETCD_TEST_ENTRY(mvcc_watch_replay_start_rev),
     CETCD_TEST_ENTRY(mvcc_watch_replay_prev_kv),
+    CETCD_TEST_ENTRY(mvcc_load_watch_replay_order),
     CETCD_TEST_ENTRY(mvcc_compact),
     CETCD_TEST_ENTRY(mvcc_compact_persist_roundtrip),
     CETCD_TEST_ENTRY(mvcc_range_at_revision),

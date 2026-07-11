@@ -205,7 +205,9 @@ Mutations are **fail-closed**: LMDB is written first; on persist failure the in-
 revision, and watchers are left unchanged and the API returns revision `{0,0}`.
 Load seeds a synthetic history entry per live key so `rev>0` get/range against the current
 generation works after restart; intermediate revisions from before the crash are not recovered
-(WAL replay of applied entries is the next step).
+(WAL replay of applied entries is the next step). After load, synthetic history is sorted by
+`(rev.main, rev.sub)` so Watch replay delivers events in revision order (LMDB foreach is
+key-ordered).
 
 `LeaseRevoke` and lease expiry both delete attached keys from MVCC before dropping the lease.
 `DeleteRange` / Txn range delete batch through `cetcd_mvcc_delete_keys`; lease detach/attach
