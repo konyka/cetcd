@@ -4107,6 +4107,18 @@ static void mock_write_b(const uint8_t *data, size_t len, void *ctx) {
     mock_writes_b++;
 }
 
+/* Capture last streamed WatchResponse for compact-cancel assertions. */
+static uint8_t g_stream_cap[512];
+static size_t  g_stream_cap_len = 0;
+static int     g_stream_cap_n = 0;
+static void mock_stream_capture_fn(const uint8_t *data, size_t len, void *ctx) {
+    (void)ctx;
+    g_stream_cap_n++;
+    if (len > sizeof(g_stream_cap)) len = sizeof(g_stream_cap);
+    memcpy(g_stream_cap, data, len);
+    g_stream_cap_len = len;
+}
+
 /* Reset the global streaming state before/after each test. */
 static void reset_streaming_globals(void) {
     g_rpc_loop = NULL;
@@ -4179,6 +4191,101 @@ CETCD_TEST_CASE(test_watch_create_streaming) {
     CETCD_ASSERT_TRUE(found_watch_id);
 
     cetcd_rpc_bytes_free(&resp);
+    reset_streaming_globals();
+    cetcd_v3rpc_free(rpc);
+    cetcd_loop_free(loop);
+}
+
+CETCD_TEST_CASE(v3rpc_watch_canceled_on_compact) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    cetcd_loop *loop = cetcd_loop_new();
+    cetcd_v3rpc_set_loop(rpc, loop);
+
+    /* Put k1 (rev=1), Put k2 (rev=2) */
+    uint8_t put1[16]; size_t p = 0;
+    put1[p++] = 0x0a; put1[p++] = 0x02; memcpy(put1 + p, "k1", 2); p += 2;
+    put1[p++] = 0x12; put1[p++] = 0x02; memcpy(put1 + p, "v1", 2); p += 2;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put1, p);
+    cetcd_rpc_bytes_free(&r);
+    uint8_t put2[16]; p = 0;
+    put2[p++] = 0x0a; put2[p++] = 0x02; memcpy(put2 + p, "k2", 2); p += 2;
+    put2[p++] = 0x12; put2[p++] = 0x02; memcpy(put2 + p, "v2", 2); p += 2;
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put2, p);
+    cetcd_rpc_bytes_free(&r);
+
+    g_stream_cap_n = 0;
+    g_stream_cap_len = 0;
+    cetcd_v3rpc_set_stream_writer(rpc, mock_stream_capture_fn, NULL);
+
+    /* WatchCreate key=k1 start_revision=1 (before compact) */
+    uint8_t create_inner[16]; size_t cpos = 0;
+    create_inner[cpos++] = 0x0a; create_inner[cpos++] = 0x02;
+    memcpy(create_inner + cpos, "k1", 2); cpos += 2;
+    create_inner[cpos++] = 0x18; create_inner[cpos++] = 0x01;
+    uint8_t watch_buf[32]; size_t wpos = 0;
+    watch_buf[wpos++] = 0x0a;
+    watch_buf[wpos++] = (uint8_t)cpos;
+    memcpy(watch_buf + wpos, create_inner, cpos); wpos += cpos;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Watch/Watch", watch_buf, wpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+    CETCD_ASSERT_EQ_INT(g_stream_cap_n, 0); /* create ack is unary, not streamed */
+
+    /* Compact at 2 → active watch with start_rev=1 must be canceled on stream */
+    uint8_t compact_buf[4]; p = 0;
+    compact_buf[p++] = 0x08; compact_buf[p++] = 0x02;
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Compact", compact_buf, p);
+    cetcd_rpc_bytes_free(&r);
+
+    CETCD_ASSERT_TRUE(g_stream_cap_n >= 1);
+    int found_canceled = 0, found_compact_rev = 0;
+    size_t rpos = 0;
+    while (rpos < g_stream_cap_len) {
+        uint8_t tag = g_stream_cap[rpos++];
+        if (tag == 0x0a || tag == 0x5a) {
+            uint64_t l = 0; int shift = 0;
+            while (rpos < g_stream_cap_len) {
+                uint8_t b = g_stream_cap[rpos++];
+                l |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) break;
+                shift += 7;
+            }
+            rpos += (size_t)l;
+        } else if ((tag & 0x07) == 0) {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < g_stream_cap_len) {
+                uint8_t b = g_stream_cap[rpos++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) break;
+                shift += 7;
+            }
+            if (tag == 0x20 && v == 1) found_canceled = 1;
+            if (tag == 0x28 && v == 2) found_compact_rev = 1;
+        } else {
+            break;
+        }
+    }
+    CETCD_ASSERT_TRUE(found_canceled);
+    CETCD_ASSERT_TRUE(found_compact_rev);
+
+    /* Negative: start_revision=0 survives Compact */
+    g_stream_cap_n = 0;
+    g_stream_cap_len = 0;
+    {
+        uint8_t inner[8]; size_t ip = 0;
+        inner[ip++] = 0x0a; inner[ip++] = 0x02;
+        memcpy(inner + ip, "k2", 2); ip += 2;
+        uint8_t wb[16]; size_t wp = 0;
+        wb[wp++] = 0x0a; wb[wp++] = (uint8_t)ip;
+        memcpy(wb + wp, inner, ip); wp += ip;
+        resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Watch/Watch", wb, wp);
+        cetcd_rpc_bytes_free(&resp);
+    }
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Compact", compact_buf, p);
+    cetcd_rpc_bytes_free(&r);
+    CETCD_ASSERT_EQ_INT(g_stream_cap_n, 0);
+
     reset_streaming_globals();
     cetcd_v3rpc_free(rpc);
     cetcd_loop_free(loop);
@@ -4550,6 +4657,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_txn_range_sort_order),
     CETCD_TEST_ENTRY(v3rpc_txn_range_revision_filter),
     CETCD_TEST_ENTRY(test_watch_create_streaming),
+    CETCD_TEST_ENTRY(v3rpc_watch_canceled_on_compact),
     CETCD_TEST_ENTRY(test_watch_per_connection_writer),
     CETCD_TEST_ENTRY(test_watch_progress_notify),
     CETCD_TEST_ENTRY(test_watch_cancel),

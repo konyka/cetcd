@@ -553,6 +553,9 @@ When filters are specified, PUT and/or DELETE events are suppressed accordingly 
 and streaming watch modes. If `start_revision > 0` and is below the store's `compacted_rev`,
 WatchCreate returns `created=true`, `canceled=true`, and `compact_revision` (field 5, tag
 `0x28`) without subscribing — matching etcd's ErrCompacted watch behavior.
+Successful compaction also cancels already-active streaming watches whose
+`start_revision` is strictly below the new compact revision (via
+`cetcd_v3rpc_watch_cancel_compacted`), so clients are not left on a silent dead watch.
 
 The cetcdctl response parsing for `del`, `txn cas`, and `watch` now correctly skips the
 `ResponseHeader` (tag 0x0a) before parsing response-specific fields, ensuring compatibility

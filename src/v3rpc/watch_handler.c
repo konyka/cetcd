@@ -294,6 +294,7 @@ static void watch_event_cb(const cetcd_watch_event *ev, void *udata) {
 
 typedef struct cetcd_stream_watcher_ctx {
     int64_t                 watch_id;
+    int64_t                 start_rev; /* WatchCreate start_revision (0 = from now) */
     cetcd_stream_watcher   *sw;
     cetcd_mvcc_watch_notify notify;
     int                     want_prev_kv;
@@ -602,6 +603,7 @@ static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p) {
             return out;
         }
         wctx->watch_id = watch_id;
+        wctx->start_rev = p->start_rev;
         wctx->want_prev_kv = p->want_prev_kv;
         wctx->filter_noput = p->filter_noput;
         wctx->filter_nodelete = p->filter_nodelete;
@@ -703,6 +705,32 @@ void cetcd_v3rpc_watch_tick(void) {
                 cetcd_rpc_bytes_free(&prog);
                 cur->ticks_since_progress = 0;
             }
+        }
+        cur = next;
+    }
+}
+
+void cetcd_v3rpc_watch_cancel_compacted(int64_t compact_rev) {
+    if (compact_rev <= 0) return;
+    int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+    cetcd_stream_watcher_ctx *cur = g_stream_watchers;
+    while (cur) {
+        cetcd_stream_watcher_ctx *next = cur->next;
+        if (!cur->canceled && cur->write_fn &&
+            cur->start_rev > 0 && cur->start_rev < compact_rev) {
+            cetcd_rpc_bytes cancel = encode_watch_response(
+                cur->watch_id, 0, 1, NULL, 0, current_rev, 0, compact_rev);
+            if (cancel.data && cancel.len > 0)
+                cur->write_fn(cancel.data, cancel.len, cur->write_ctx);
+            cetcd_rpc_bytes_free(&cancel);
+
+            if (g_rpc_store && cur->sw) {
+                cetcd_mvcc_watch_unsubscribe(g_rpc_store, cur->sw);
+                cur->sw = NULL;
+            }
+            cur->canceled = 1;
+            remove_stream_watcher(cur);
+            free_stream_watcher_ctx(cur);
         }
         cur = next;
     }

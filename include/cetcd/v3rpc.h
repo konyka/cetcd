@@ -53,6 +53,10 @@ CETCD_API void cetcd_v3rpc_detach_stream_writer(void *write_ctx);
 /* Drive periodic Watch progress_notify (call from server tick, ~100ms). */
 CETCD_API void cetcd_v3rpc_watch_tick(void);
 
+/* After successful compaction, cancel streaming watches whose start_rev
+ * is strictly below compact_rev (etcd ErrCompacted on active watchers). */
+CETCD_API void cetcd_v3rpc_watch_cancel_compacted(int64_t compact_rev);
+
 /* Accessors for server wiring (persistence, lease tick). */
 CETCD_API struct cetcd_mvcc_store *cetcd_v3rpc_store(cetcd_v3rpc *rpc);
 CETCD_API struct cetcd_lease_mgr  *cetcd_v3rpc_leases(cetcd_v3rpc *rpc);

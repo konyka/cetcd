@@ -862,7 +862,10 @@ int cetcd_server_compact(cetcd_server *srv, int64_t rev) {
     if (!srv || !srv->rpc) return CETCD_ERR_INVAL;
     extern cetcd_mvcc_store *g_rpc_store;
     if (!g_rpc_store) return CETCD_ERR_INVAL;
-    return cetcd_mvcc_compact(g_rpc_store, rev);
+    int rc = cetcd_mvcc_compact(g_rpc_store, rev);
+    if (rc == CETCD_OK)
+        cetcd_v3rpc_watch_cancel_compacted(rev);
+    return rc;
 }
 
 cetcd_snap *cetcd_server_snapshot(cetcd_server *srv) {
