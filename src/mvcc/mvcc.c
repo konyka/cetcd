@@ -674,11 +674,24 @@ int cetcd_mvcc_range(cetcd_mvcc_store *s, int64_t rev,
                       const uint8_t *key_end, size_t end_len,
                       cetcd_kv **out, size_t *out_count) {
     if (!s || !out || !out_count) return CETCD_ERR_INVAL;
+
+    /* etcd: range_end of a single '\0' means all keys >= key_start (FromKey).
+     * Approximate open upper bound with 8×0xFF like the former Range RPC path. */
+    static const uint8_t max_key[] = {
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
+    };
+    const uint8_t *hi = key_end;
+    size_t hi_len = end_len;
+    if (key_end && end_len == 1 && key_end[0] == 0) {
+        hi = max_key;
+        hi_len = sizeof(max_key);
+    }
+
     if (rev == 0) {
         cetcd_slice lo = cetcd_slice_make(key_start, start_len);
-        cetcd_slice hi = cetcd_slice_make(key_end, end_len);
+        cetcd_slice hi_s = cetcd_slice_make(hi, hi_len);
         range_ctx ctx = {0};
-        cetcd_treap_range(s->index, lo, hi, range_collect_cb, &ctx);
+        cetcd_treap_range(s->index, lo, hi_s, range_collect_cb, &ctx);
         *out = ctx.rows;
         *out_count = ctx.nr;
         return CETCD_OK;
@@ -694,7 +707,7 @@ int cetcd_mvcc_range(cetcd_mvcc_store *s, int64_t rev,
         revision_entry *e = &s->history[i];
         if (e->rev.main > rev) continue;
         if (!key_in_range_(e->key.data, e->key.len, key_start, start_len,
-                           key_end, end_len))
+                           hi, hi_len))
             continue;
         if (cetcd_hashmap_contains(seen, e->key)) continue;
         if (cetcd_hashmap_put(seen, e->key, (void *)(uintptr_t)1) != CETCD_OK) {

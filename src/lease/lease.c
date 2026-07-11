@@ -163,6 +163,13 @@ int cetcd_lease_attach_key(cetcd_lease_mgr *mgr, cetcd_lease_id id,
     if (!mgr) return CETCD_ERR_INVAL;
     cetcd_lease *l = lease_by_id_(mgr, id);
     if (!l) return CETCD_ERR_NOTFOUND;
+    /* Idempotent: same key already attached → no-op. */
+    for (size_t i = 0; i < l->key_count; ++i) {
+        if (l->key_lens[i] == key_len &&
+            ((key_len == 0) || memcmp(l->keys[i], key, key_len) == 0)) {
+            return CETCD_OK;
+        }
+    }
     /* ensure capacity */
     if (l->key_count == l->key_cap) {
         size_t new_cap = (l->key_cap == 0) ? 4 : l->key_cap * 2;

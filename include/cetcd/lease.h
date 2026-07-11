@@ -36,7 +36,8 @@ int            cetcd_lease_keep_alive(cetcd_lease_mgr *mgr, cetcd_lease_id id, i
 bool           cetcd_lease_exists(const cetcd_lease_mgr *mgr, cetcd_lease_id id);
 int64_t        cetcd_lease_ttl_remaining(const cetcd_lease_mgr *mgr, cetcd_lease_id id);
 
-/* Attach/detach a key to a lease (called by MVCC on put). */
+/* Attach/detach a key to a lease (called by MVCC on put).
+ * attach is idempotent for the same (lease, key). */
 int cetcd_lease_attach_key(cetcd_lease_mgr *mgr, cetcd_lease_id id,
                             const uint8_t *key, size_t key_len);
 int cetcd_lease_detach_key(cetcd_lease_mgr *mgr, cetcd_lease_id id,

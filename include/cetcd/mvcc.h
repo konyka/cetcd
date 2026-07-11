@@ -92,7 +92,8 @@ int cetcd_mvcc_get(cetcd_mvcc_store *s, int64_t rev,
                     const uint8_t *key, size_t key_len,
                     cetcd_kv *out);
 
-/* Range: returns count of results. Caller frees out[] via cetcd_kv_free_contents. */
+/* Range: returns count of results. Caller frees out[] via cetcd_kv_free_contents.
+ * range_end of a single '\0' byte means all keys >= key_start (etcd FromKey). */
 int cetcd_mvcc_range(cetcd_mvcc_store *s, int64_t rev,
                       const uint8_t *key_start, size_t start_len,
                       const uint8_t *key_end, size_t end_len,

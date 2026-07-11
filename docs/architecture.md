@@ -190,6 +190,8 @@ trims history at or below `compact_rev`. Deletes hard-remove the live treap node
 retains the event); deleting a missing key is a no-op and does not bump revision.
 Historical `range` walks history newest→oldest and uses a hashmap of first-seen keys
 (expected O(n) over matching events) instead of an O(n²) linear dedup scan.
+`range_end` of a single `\0` byte means all keys ≥ `key` (etcd FromKey), so
+DeleteRange/Txn share one open-ended upper-bound expansion with Range.
 
 When a backend is attached (`cetcd_mvcc_set_backend` / `cetcd_mvcc_load`), each successful
 put/delete also updates LMDB so a process restart restores the latest key set and revision.

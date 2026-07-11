@@ -99,6 +99,27 @@ CETCD_TEST_CASE(lease_attach_detach_key) {
     cetcd_lease_mgr_free(mgr);
 }
 
+CETCD_TEST_CASE(lease_attach_idempotent) {
+    cetcd_lease_mgr *mgr = cetcd_lease_mgr_new(test_expire_cb, NULL);
+    cetcd_lease_id l1 = cetcd_lease_grant(mgr, 30);
+    const uint8_t k[] = "same";
+
+    CETCD_ASSERT_EQ_INT(cetcd_lease_attach_key(mgr, l1, k, 4), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_lease_attach_key(mgr, l1, k, 4), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_lease_attach_key(mgr, l1, k, 4), CETCD_OK);
+
+    const uint8_t *const *keys = NULL;
+    const size_t *lens = NULL;
+    size_t n = cetcd_lease_keys(mgr, l1, &keys, &lens);
+    CETCD_ASSERT_EQ_INT((int)n, 1);
+
+    CETCD_ASSERT_EQ_INT(cetcd_lease_detach_key(mgr, l1, k, 4), CETCD_OK);
+    n = cetcd_lease_keys(mgr, l1, &keys, &lens);
+    CETCD_ASSERT_EQ_INT((int)n, 0);
+
+    cetcd_lease_mgr_free(mgr);
+}
+
 CETCD_TEST_CASE(lease_revoke_nonexistent) {
     cetcd_lease_mgr *mgr = cetcd_lease_mgr_new(test_expire_cb, NULL);
     CETCD_ASSERT_NE_INT(cetcd_lease_revoke(mgr, 9999), CETCD_OK);
@@ -170,6 +191,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(lease_expire),
     CETCD_TEST_ENTRY(lease_keep_alive),
     CETCD_TEST_ENTRY(lease_attach_detach_key),
+    CETCD_TEST_ENTRY(lease_attach_idempotent),
     CETCD_TEST_ENTRY(lease_revoke_nonexistent),
     CETCD_TEST_ENTRY(lease_granted_ttl),
     CETCD_TEST_ENTRY(lease_mgr_leases),

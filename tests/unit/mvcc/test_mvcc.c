@@ -113,6 +113,40 @@ CETCD_TEST_CASE(mvcc_range) {
     cetcd_mvcc_store_free(s);
 }
 
+CETCD_TEST_CASE(mvcc_range_from_key_null_end) {
+    cetcd_mvcc_store *s = cetcd_mvcc_store_new();
+    const uint8_t pa[] = "p/a";
+    const uint8_t pb[] = "p/b";
+    const uint8_t qc[] = "q/c";
+    const uint8_t aa[] = "a/z";
+    const uint8_t v[] = "x";
+    const uint8_t pref[] = "p/";
+    const uint8_t nul[] = {0};
+
+    cetcd_mvcc_put(s, aa, 3, v, 1, 0);
+    cetcd_mvcc_put(s, pa, 3, v, 1, 0);
+    cetcd_mvcc_put(s, pb, 3, v, 1, 0);
+    cetcd_mvcc_put(s, qc, 3, v, 1, 0);
+
+    /* range_end='\0' => all keys >= "p/" (etcd FromKey), not prefix-only. */
+    cetcd_kv *results = NULL;
+    size_t count = 0;
+    int rc = cetcd_mvcc_range(s, 0, pref, 2, nul, 1, &results, &count);
+    CETCD_ASSERT_EQ_INT(rc, CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)count, 3);
+    cetcd_kv_free_contents(results, count);
+
+    /* Historical: at rev 2 only a/z and p/a exist; FromKey "p/" → p/a only. */
+    results = NULL; count = 0;
+    rc = cetcd_mvcc_range(s, 2, pref, 2, nul, 1, &results, &count);
+    CETCD_ASSERT_EQ_INT(rc, CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)count, 1);
+    CETCD_ASSERT_TRUE(results[0].key.len == 3 && results[0].key.data[0] == 'p');
+    cetcd_kv_free_contents(results, count);
+
+    cetcd_mvcc_store_free(s);
+}
+
 static void watch_cb(const cetcd_watch_event *ev, void *ud) {
     int *counter = (int*)ud;
     (*counter)++;
@@ -393,6 +427,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(mvcc_multiple_puts_same_key),
     CETCD_TEST_ENTRY(mvcc_delete),
     CETCD_TEST_ENTRY(mvcc_range),
+    CETCD_TEST_ENTRY(mvcc_range_from_key_null_end),
     CETCD_TEST_ENTRY(mvcc_watch_single_key),
     CETCD_TEST_ENTRY(mvcc_watch_prefix),
     CETCD_TEST_ENTRY(mvcc_compact),
