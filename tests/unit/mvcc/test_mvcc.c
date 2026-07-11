@@ -481,6 +481,48 @@ CETCD_TEST_CASE(mvcc_watch_from_key_null_end) {
     cetcd_mvcc_store_free(s);
 }
 
+CETCD_TEST_CASE(mvcc_compact_persist_roundtrip) {
+    char path_template[] = "/tmp/cetcd-test-mvcc-compact-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(path_template));
+
+    cetcd_backend_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.path = path_template;
+    cfg.map_size = 16 * 1024 * 1024;
+    cfg.max_dbs = 8;
+    cetcd_backend *be = cetcd_backend_open(&cfg);
+    CETCD_ASSERT_NOT_NULL(be);
+
+    cetcd_mvcc_store *s = cetcd_mvcc_store_new();
+    cetcd_mvcc_set_backend(s, be);
+    const uint8_t k1[] = "a", k2[] = "b", v[] = "v";
+    cetcd_mvcc_put(s, k1, 1, v, 1, 0);
+    cetcd_mvcc_put(s, k2, 1, v, 1, 0);
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_compact(s, 2), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)cetcd_mvcc_compacted_revision(s), 2);
+
+    cetcd_kv out = {0};
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 1, k1, 1, &out), CETCD_ERR_RANGE);
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 2, k2, 1, &out), CETCD_OK);
+    free((void *)out.key.data);
+    free((void *)out.value.data);
+
+    cetcd_mvcc_store_free(s);
+    cetcd_backend_close(be);
+
+    be = cetcd_backend_open(&cfg);
+    s = cetcd_mvcc_store_new();
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_load(s, be), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)cetcd_mvcc_compacted_revision(s), 2);
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 1, k1, 1, &out), CETCD_ERR_RANGE);
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 2, k2, 1, &out), CETCD_OK);
+    free((void *)out.key.data);
+    free((void *)out.value.data);
+
+    cetcd_mvcc_store_free(s);
+    cetcd_backend_close(be);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(mvcc_put_get_basic),
     CETCD_TEST_ENTRY(mvcc_multiple_puts_same_key),
@@ -491,6 +533,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(mvcc_watch_prefix),
     CETCD_TEST_ENTRY(mvcc_watch_from_key_null_end),
     CETCD_TEST_ENTRY(mvcc_compact),
+    CETCD_TEST_ENTRY(mvcc_compact_persist_roundtrip),
     CETCD_TEST_ENTRY(mvcc_range_at_revision),
     CETCD_TEST_ENTRY(mvcc_persist_roundtrip),
     CETCD_TEST_ENTRY(mvcc_delete_keys_batch_persist),

@@ -10,6 +10,7 @@
 #define MVCC_BUCKET_KEY  "key"
 #define MVCC_BUCKET_META "meta"
 static const uint8_t MVCC_META_REV[] = "revision";
+static const uint8_t MVCC_META_COMPACTED[] = "compacted";
 
 
 typedef struct {
@@ -955,6 +956,21 @@ int cetcd_mvcc_compact(cetcd_mvcc_store *s, int64_t compact_rev) {
     if (compact_rev > s->main_rev) return CETCD_ERR_INVAL;
     if (compact_rev <= s->compacted_rev) return CETCD_OK;
 
+    /* Fail-closed: persist compact boundary before trimming history. */
+    if (s->backend) {
+        uint8_t buf[8];
+        write_le64_(buf, (uint64_t)compact_rev);
+        int rc = cetcd_backend_put(s->backend, MVCC_BUCKET_META,
+                                   MVCC_META_COMPACTED,
+                                   sizeof(MVCC_META_COMPACTED) - 1,
+                                   buf, sizeof(buf));
+        if (rc != CETCD_OK) {
+            CETCD_WARN("mvcc persist compacted_rev failed rc=%d rev=%lld",
+                       rc, (long long)compact_rev);
+            return CETCD_ERR_IO;
+        }
+    }
+
     size_t keep = 0;
     for (size_t i = 0; i < s->history_count; i++) {
         if (s->history[i].rev.main >= compact_rev) {
@@ -1030,6 +1046,16 @@ int cetcd_mvcc_load(cetcd_mvcc_store *s, cetcd_backend *be) {
         s->main_rev = (int64_t)read_le64_(rev_buf);
     }
     free(rev_buf);
+
+    uint8_t *cbuf = NULL;
+    size_t clen = 0;
+    if (cetcd_backend_get(be, MVCC_BUCKET_META,
+                          MVCC_META_COMPACTED, sizeof(MVCC_META_COMPACTED) - 1,
+                          &cbuf, &clen) == CETCD_OK &&
+        cbuf && clen >= 8) {
+        s->compacted_rev = (int64_t)read_le64_(cbuf);
+    }
+    free(cbuf);
 
     load_ctx_ ctx = { .store = s, .err = CETCD_OK };
     int rc = cetcd_backend_foreach(be, MVCC_BUCKET_KEY, load_kv_cb_, &ctx);

@@ -487,9 +487,8 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
                 rpos += kpos;
             }
             kv_count = n;
-            /* Set more flag if limit truncated results */
+            /* Set more flag if limit truncated results; count stays total matches. */
             if (limit > 0 && n > (size_t)limit) {
-                kv_count = (size_t)limit;
                 if (rpos + 10 > resp_cap) {
                     resp_cap = rpos + 16;
                     uint8_t *tmp = (uint8_t *)realloc(resp, resp_cap);

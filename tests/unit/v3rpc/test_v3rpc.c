@@ -3118,10 +3118,12 @@ CETCD_TEST_CASE(v3rpc_range_more_correct_tag) {
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 2);
 
-    /* Parse response: skip header (0x0a), find more (0x18) */
+    /* Parse response: skip header (0x0a), find more (0x18) and count (0x20) */
     size_t p = 0;
     bool found_more = false;
     bool more_val = false;
+    bool found_count = false;
+    uint64_t count_val = 0;
     while (p < resp.len) {
         uint8_t tag = resp.data[p++];
         if (tag == 0x0a || tag == 0x12) {
@@ -3136,14 +3138,18 @@ CETCD_TEST_CASE(v3rpc_range_more_correct_tag) {
             while (p < resp.len) { uint8_t b = resp.data[p++]; v |= (uint64_t)(b & 0x7F) << shift; if (!(b & 0x80)) break; shift += 7; }
             more_val = (v != 0);
         } else if (tag == 0x20) {
-            /* count (varint) */
-            while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
+            /* count (varint) — total matches, not limit */
+            found_count = true;
+            count_val = 0; int shift = 0;
+            while (p < resp.len) { uint8_t b = resp.data[p++]; count_val |= (uint64_t)(b & 0x7F) << shift; if (!(b & 0x80)) break; shift += 7; }
         } else {
             while (p < resp.len) { uint8_t b = resp.data[p++]; if (!(b & 0x80)) break; }
         }
     }
     CETCD_ASSERT_TRUE(found_more);
     CETCD_ASSERT_TRUE(more_val); /* more should be true since 3 keys > limit 2 */
+    CETCD_ASSERT_TRUE(found_count);
+    CETCD_ASSERT_TRUE(count_val == 3);
 
     cetcd_rpc_bytes_free(&resp);
     cetcd_v3rpc_free(rpc);

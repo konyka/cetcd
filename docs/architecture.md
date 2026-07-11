@@ -187,7 +187,9 @@ one `cetcd_backend_del_n` txn.
 The live index is an in-memory **treap** (`key → key_generation`). A linear `history[]`
 array records put/delete events for historical `get`/`range` at `rev > 0`. Compaction
 trims history strictly below `compact_rev` (the compact revision itself stays readable);
-`get`/`range` with `rev < compacted_rev` return `CETCD_ERR_RANGE`. Deletes hard-remove
+`get`/`range` with `rev < compacted_rev` return `CETCD_ERR_RANGE`. When a backend is
+attached, `compacted_rev` is persisted under meta key `compacted` (fail-closed) and
+restored by `cetcd_mvcc_load`. Deletes hard-remove
 the live treap node (history retains the event); deleting a missing key is a no-op and
 does not bump revision.
 Historical `range` walks history newest→oldest and uses a hashmap of first-seen keys
