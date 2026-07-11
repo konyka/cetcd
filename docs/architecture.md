@@ -208,7 +208,8 @@ generation works after restart; intermediate revisions from before the crash are
 `LeaseRevoke` and lease expiry both delete attached keys from MVCC before dropping the lease.
 `DeleteRange` / Txn range delete batch through `cetcd_mvcc_delete_keys`; lease detach/attach
 on Put and Delete run only after a successful MVCC mutation so fail-closed persist errors
-do not desync the lease index from MVCC. Put with `lease=0` also detaches keys from the
+do not desync the lease index from MVCC. Put with a non-existent `lease_id` is rejected
+(no MVCC write). Put with `lease=0` also detaches keys from the
 lease index so `LeaseTimeToLive(keys=true)` stays consistent.
 
 Watchers are scanned on each mutation (callback + streaming notification channels).

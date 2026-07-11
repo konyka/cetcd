@@ -70,8 +70,12 @@ static cetcd_revision delete_kvs_and_detach_(const cetcd_kv *kvs, size_t n) {
     return r;
 }
 
-/* Forward declare to be linked with v3rpc.c */
-cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+/* True if lease_id is 0 or refers to a live lease. */
+static int lease_ok_for_put_(int64_t lease_id) {
+    if (lease_id <= 0) return 1;
+    return g_rpc_lease_mgr &&
+           cetcd_lease_exists(g_rpc_lease_mgr, (cetcd_lease_id)lease_id);
+}
 cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 
@@ -182,7 +186,7 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
     int64_t rev = 0;
     if (key && g_rpc_store) {
         /* Allow put even without value if ignore_value is set */
-        if (val || ignore_value) {
+        if ((val || ignore_value) && lease_ok_for_put_(lease_id)) {
             cetcd_revision r = cetcd_mvcc_put(g_rpc_store, key, key_len,
                                                val ? val : (const uint8_t*)"", val ? val_len : 0,
                                                lease_id);
@@ -1016,7 +1020,7 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                     free((void*)old_kv.value.data);
                 }
             }
-            if (pk && (pv || ignore_value) && g_rpc_store) {
+            if (pk && (pv || ignore_value) && g_rpc_store && lease_ok_for_put_(lease_id)) {
                 int64_t old_lease = 0;
                 if (g_rpc_lease_mgr) {
                     cetcd_kv old_kv;

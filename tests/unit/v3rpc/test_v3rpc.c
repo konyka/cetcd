@@ -2171,21 +2171,54 @@ CETCD_TEST_CASE(v3rpc_put_clear_lease_and_delete_detaches) {
 CETCD_TEST_CASE(v3rpc_put_ignore_lease) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
-    /* Put key="ilkey" value="v1" with lease_id=12345 */
+    /* Grant a real lease first */
+    uint8_t grant_buf[4]; size_t gpos = 0;
+    grant_buf[gpos++] = 0x08; grant_buf[gpos++] = 0x3c;
+    grant_buf[gpos++] = 0x10; grant_buf[gpos++] = 0x00;
+    cetcd_rpc_bytes gr = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Lease/LeaseGrant", grant_buf, gpos);
+    CETCD_ASSERT_NOT_NULL(gr.data);
+    int64_t lease_id = 0;
+    size_t rpos = 0;
+    while (rpos < gr.len) {
+        uint8_t tag = gr.data[rpos++];
+        if (tag == 0x0a) {
+            uint64_t l = 0; int shift = 0;
+            while (rpos < gr.len) {
+                uint8_t b = gr.data[rpos++];
+                l |= (uint64_t)(b & 0x7F) << shift;
+                if (!(b & 0x80)) break;
+                shift += 7;
+            }
+            rpos += (size_t)l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < gr.len) {
+                uint8_t b = gr.data[rpos++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if (!(b & 0x80)) break;
+                shift += 7;
+            }
+            if (tag == 0x10) { lease_id = (int64_t)v; break; }
+        }
+    }
+    cetcd_rpc_bytes_free(&gr);
+    CETCD_ASSERT_TRUE(lease_id > 0);
+
+    /* Put key="ilkey" value="v1" with granted lease */
     {
         uint8_t req[64]; size_t pos = 0;
         req[pos++] = 0x0a; req[pos++] = 5;
         memcpy(req + pos, "ilkey", 5); pos += 5;
         req[pos++] = 0x12; req[pos++] = 2;
         memcpy(req + pos, "v1", 2); pos += 2;
-        req[pos++] = 0x18; /* lease = 12345 */
-        req[pos++] = 0xb9;
-        req[pos++] = 0x60;
+        req[pos++] = 0x18;
+        uint64_t lid = (uint64_t)lease_id;
+        do { uint8_t b = lid & 0x7F; lid >>= 7; if (lid) b |= 0x80; req[pos++] = b; } while (lid);
         cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
         cetcd_rpc_bytes_free(&r);
     }
 
-    /* Put key="ilkey" value="v2" with ignore_lease=true (tag 0x30) and lease=99999 */
+    /* Put key="ilkey" value="v2" with ignore_lease=true and lease=99999 */
     {
         uint8_t req[64]; size_t pos = 0;
         req[pos++] = 0x0a; req[pos++] = 5;
@@ -2202,7 +2235,7 @@ CETCD_TEST_CASE(v3rpc_put_ignore_lease) {
         cetcd_rpc_bytes_free(&r);
     }
 
-    /* Range key="ilkey" — value should be "v2" (updated), lease should still be 12345 */
+    /* Range key="ilkey" — value should be "v2" (updated), lease should still be granted id */
     {
         uint8_t req[32]; size_t pos = 0;
         req[pos++] = 0x0a; req[pos++] = 5;
@@ -3158,19 +3191,46 @@ CETCD_TEST_CASE(v3rpc_range_more_correct_tag) {
 CETCD_TEST_CASE(v3rpc_range_encodes_lease) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
-    /* Put key="lk" value="v" lease=12345 */
+    /* Grant lease */
+    uint8_t grant_buf[4]; size_t gpos = 0;
+    grant_buf[gpos++] = 0x08; grant_buf[gpos++] = 0x3c;
+    grant_buf[gpos++] = 0x10; grant_buf[gpos++] = 0x00;
+    cetcd_rpc_bytes gr = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Lease/LeaseGrant", grant_buf, gpos);
+    CETCD_ASSERT_NOT_NULL(gr.data);
+    int64_t lease_id = 0;
+    size_t rpos = 0;
+    while (rpos < gr.len) {
+        uint8_t tag = gr.data[rpos++];
+        if (tag == 0x0a) {
+            uint64_t l = 0; int shift = 0;
+            while (rpos < gr.len) {
+                uint8_t b = gr.data[rpos++];
+                l |= (uint64_t)(b & 0x7F) << shift;
+                if (!(b & 0x80)) break;
+                shift += 7;
+            }
+            rpos += (size_t)l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < gr.len) {
+                uint8_t b = gr.data[rpos++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if (!(b & 0x80)) break;
+                shift += 7;
+            }
+            if (tag == 0x10) { lease_id = (int64_t)v; break; }
+        }
+    }
+    cetcd_rpc_bytes_free(&gr);
+    CETCD_ASSERT_TRUE(lease_id > 0);
+
+    /* Put key="lk" value="v" with granted lease */
     uint8_t put[32]; size_t pos = 0;
     put[pos++] = 0x0a; put[pos++] = 2; put[pos++] = 'l'; put[pos++] = 'k';
     put[pos++] = 0x12; put[pos++] = 1; put[pos++] = 'v';
-    put[pos++] = 0x18; /* lease */
-    uint64_t lease = 12345;
-    while (1) {
-        uint8_t b = (uint8_t)(lease & 0x7F);
-        lease >>= 7;
-        if (lease) b |= 0x80;
-        put[pos++] = b;
-        if (!lease) break;
-    }
+    put[pos++] = 0x18;
+    uint64_t lid = (uint64_t)lease_id;
+    do { uint8_t b = lid & 0x7F; lid >>= 7; if (lid) b |= 0x80; put[pos++] = b; } while (lid);
     cetcd_rpc_bytes pr = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put, pos);
     cetcd_rpc_bytes_free(&pr);
 
@@ -3179,7 +3239,7 @@ CETCD_TEST_CASE(v3rpc_range_encodes_lease) {
     cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range, rp);
     CETCD_ASSERT_NOT_NULL(resp.data);
 
-    /* Find KeyValue (field 2, 0x12) then lease tag 0x30 == 12345 */
+    /* Find KeyValue (field 2, 0x12) then lease tag 0x30 == granted id */
     size_t p = 0;
     bool found_lease = false;
     uint64_t got = 0;
@@ -3238,8 +3298,41 @@ CETCD_TEST_CASE(v3rpc_range_encodes_lease) {
         }
     }
     CETCD_ASSERT_TRUE(found_lease);
-    CETCD_ASSERT_TRUE(got == 12345);
+    CETCD_ASSERT_TRUE(got == (uint64_t)lease_id);
 
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_put_rejects_unknown_lease) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Baseline put without lease */
+    uint8_t put0[16]; size_t pos = 0;
+    put0[pos++] = 0x0a; put0[pos++] = 5; memcpy(put0 + pos, "probe", 5); pos += 5;
+    put0[pos++] = 0x12; put0[pos++] = 1; put0[pos++] = '1';
+    cetcd_rpc_bytes r0 = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put0, pos);
+    cetcd_rpc_bytes_free(&r0);
+
+    /* Put with unknown lease must not create the key */
+    uint8_t put[32]; pos = 0;
+    put[pos++] = 0x0a; put[pos++] = 5; memcpy(put + pos, "badlx", 5); pos += 5;
+    put[pos++] = 0x12; put[pos++] = 2; memcpy(put + pos, "v1", 2); pos += 2;
+    put[pos++] = 0x18;
+    uint64_t bad = 424242;
+    do { uint8_t b = bad & 0x7F; bad >>= 7; if (bad) b |= 0x80; put[pos++] = b; } while (bad);
+    cetcd_rpc_bytes pr = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put, pos);
+    cetcd_rpc_bytes_free(&pr);
+
+    uint8_t range[16]; size_t rp = 0;
+    range[rp++] = 0x0a; range[rp++] = 5; memcpy(range + rp, "badlx", 5); rp += 5;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range, rp);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found = 0;
+    for (size_t i = 0; i + 5 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "badlx", 5) == 0) { found = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(!found);
     cetcd_rpc_bytes_free(&resp);
     cetcd_v3rpc_free(rpc);
 }
@@ -4277,6 +4370,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_watch_cancel_has_header),
     CETCD_TEST_ENTRY(v3rpc_range_more_correct_tag),
     CETCD_TEST_ENTRY(v3rpc_range_encodes_lease),
+    CETCD_TEST_ENTRY(v3rpc_put_rejects_unknown_lease),
     CETCD_TEST_ENTRY(v3rpc_watch_prev_kv_flag),
     CETCD_TEST_ENTRY(v3rpc_txn_compare_range_end),
     CETCD_TEST_ENTRY(v3rpc_txn_put_prev_kv),
