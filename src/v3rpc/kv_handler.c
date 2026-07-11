@@ -176,20 +176,21 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
     if (key && g_rpc_store) {
         /* Allow put even without value if ignore_value is set */
         if (val || ignore_value) {
-            /* Lease rebinding: detach old when lease changes or is cleared (0). */
-            if (g_rpc_lease_mgr && has_old && old_kv.lease_id > 0 &&
-                old_kv.lease_id != lease_id) {
-                cetcd_lease_detach_key(g_rpc_lease_mgr, (cetcd_lease_id)old_kv.lease_id,
-                                        key, key_len);
-            }
             cetcd_revision r = cetcd_mvcc_put(g_rpc_store, key, key_len,
                                                val ? val : (const uint8_t*)"", val ? val_len : 0,
                                                lease_id);
             rev = r.main;
-            /* Attach key to lease only if the put actually committed. */
-            if (r.main > 0 && g_rpc_lease_mgr && lease_id > 0) {
-                cetcd_lease_attach_key(g_rpc_lease_mgr, (cetcd_lease_id)lease_id,
-                                        key, key_len);
+            /* Lease index updates only after a successful (fail-closed) put. */
+            if (r.main > 0 && g_rpc_lease_mgr) {
+                if (has_old && old_kv.lease_id > 0 && old_kv.lease_id != lease_id) {
+                    cetcd_lease_detach_key(g_rpc_lease_mgr,
+                                            (cetcd_lease_id)old_kv.lease_id,
+                                            key, key_len);
+                }
+                if (lease_id > 0) {
+                    cetcd_lease_attach_key(g_rpc_lease_mgr, (cetcd_lease_id)lease_id,
+                                            key, key_len);
+                }
             }
         }
     }
@@ -1004,25 +1005,28 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                 }
             }
             if (pk && (pv || ignore_value) && g_rpc_store) {
-                /* Detach old lease when clearing or changing lease. */
+                int64_t old_lease = 0;
                 if (g_rpc_lease_mgr) {
                     cetcd_kv old_kv;
                     memset(&old_kv, 0, sizeof(old_kv));
                     if (cetcd_mvcc_get(g_rpc_store, 0, pk, pk_len, &old_kv) == 0) {
-                        if (old_kv.lease_id > 0 && old_kv.lease_id != lease_id) {
-                            cetcd_lease_detach_key(g_rpc_lease_mgr,
-                                                    (cetcd_lease_id)old_kv.lease_id,
-                                                    pk, pk_len);
-                        }
+                        old_lease = old_kv.lease_id;
                         free((void *)old_kv.key.data);
                         free((void *)old_kv.value.data);
                     }
                 }
                 cetcd_revision r = cetcd_mvcc_put(g_rpc_store, pk, pk_len, pv, pv_len, lease_id);
                 if (r.main > final_rev) final_rev = r.main;
-                if (r.main > 0 && g_rpc_lease_mgr && lease_id > 0) {
-                    cetcd_lease_attach_key(g_rpc_lease_mgr, (cetcd_lease_id)lease_id,
-                                            pk, pk_len);
+                if (r.main > 0 && g_rpc_lease_mgr) {
+                    if (old_lease > 0 && old_lease != lease_id) {
+                        cetcd_lease_detach_key(g_rpc_lease_mgr,
+                                                (cetcd_lease_id)old_lease,
+                                                pk, pk_len);
+                    }
+                    if (lease_id > 0) {
+                        cetcd_lease_attach_key(g_rpc_lease_mgr, (cetcd_lease_id)lease_id,
+                                                pk, pk_len);
+                    }
                 }
             }
             if (pk) free(pk);

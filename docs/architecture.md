@@ -186,8 +186,10 @@ one `cetcd_backend_del_n` txn.
 
 The live index is an in-memory **treap** (`key → key_generation`). A linear `history[]`
 array records put/delete events for historical `get`/`range` at `rev > 0`. Compaction
-trims history at or below `compact_rev`. Deletes hard-remove the live treap node (history
-retains the event); deleting a missing key is a no-op and does not bump revision.
+trims history strictly below `compact_rev` (the compact revision itself stays readable);
+`get`/`range` with `rev < compacted_rev` return `CETCD_ERR_RANGE`. Deletes hard-remove
+the live treap node (history retains the event); deleting a missing key is a no-op and
+does not bump revision.
 Historical `range` walks history newest→oldest and uses a hashmap of first-seen keys
 (expected O(n) over matching events) instead of an O(n²) linear dedup scan.
 `range_end` of a single `\0` byte means all keys ≥ `key` (etcd FromKey), so
@@ -202,10 +204,10 @@ generation works after restart; intermediate revisions from before the crash are
 (WAL replay of applied entries is the next step).
 
 `LeaseRevoke` and lease expiry both delete attached keys from MVCC before dropping the lease.
-`DeleteRange` / Txn range delete batch through `cetcd_mvcc_delete_keys`; lease detach runs
-only after a successful delete so fail-closed persist errors do not orphan lease index
-entries. Put with `lease=0` also detaches keys from the lease index so
-`LeaseTimeToLive(keys=true)` stays consistent.
+`DeleteRange` / Txn range delete batch through `cetcd_mvcc_delete_keys`; lease detach/attach
+on Put and Delete run only after a successful MVCC mutation so fail-closed persist errors
+do not desync the lease index from MVCC. Put with `lease=0` also detaches keys from the
+lease index so `LeaseTimeToLive(keys=true)` stays consistent.
 
 Watchers are scanned on each mutation (callback + streaming notification channels).
 Per-key lock-free fan-out remains a design goal.

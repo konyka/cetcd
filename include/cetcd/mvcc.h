@@ -181,7 +181,9 @@ CETCD_API int cetcd_mvcc_watch_recv(cetcd_mvcc_watch_notify *notify,
 
 /* --- Compaction --- */
 
-/* Compact the store by removing all history entries with revision <= compact_rev.
+/* Compact the store by removing history entries with revision < compact_rev.
+   Revision == compact_rev remains readable. Requests with rev < compacted_rev
+   return CETCD_ERR_RANGE from get/range.
    Returns 0 on success, CETCD_ERR_INVAL if compact_rev > current revision. */
 int cetcd_mvcc_compact(cetcd_mvcc_store *s, int64_t compact_rev);
 

@@ -617,6 +617,8 @@ int cetcd_mvcc_get(cetcd_mvcc_store *s, int64_t rev,
                     const uint8_t *key, size_t key_len,
                     cetcd_kv *out) {
     if (!s || !key || !out) return CETCD_ERR_INVAL;
+    if (rev > 0 && s->compacted_rev > 0 && rev < s->compacted_rev)
+        return CETCD_ERR_RANGE;
     cetcd_slice kslice = cetcd_slice_make(key, key_len);
 
     if (rev == 0) {
@@ -674,6 +676,8 @@ int cetcd_mvcc_range(cetcd_mvcc_store *s, int64_t rev,
                       const uint8_t *key_end, size_t end_len,
                       cetcd_kv **out, size_t *out_count) {
     if (!s || !out || !out_count) return CETCD_ERR_INVAL;
+    if (rev > 0 && s->compacted_rev > 0 && rev < s->compacted_rev)
+        return CETCD_ERR_RANGE;
 
     /* etcd: range_end of a single '\0' means all keys >= key_start (FromKey).
      * Approximate open upper bound with 8×0xFF like the former Range RPC path. */
@@ -954,7 +958,7 @@ int cetcd_mvcc_compact(cetcd_mvcc_store *s, int64_t compact_rev) {
 
     size_t keep = 0;
     for (size_t i = 0; i < s->history_count; i++) {
-        if (s->history[i].rev.main > compact_rev) {
+        if (s->history[i].rev.main >= compact_rev) {
             s->history[keep++] = s->history[i];
         } else {
             free((void*)s->history[i].key.data);

@@ -209,12 +209,16 @@ CETCD_TEST_CASE(mvcc_compact) {
     CETCD_ASSERT_EQ_INT((int)cetcd_mvcc_revision(s), 2);
     CETCD_ASSERT_EQ_INT((int)cetcd_mvcc_compacted_revision(s), 0);
 
-    /* Compact to rev 1 — should remove rev 1 history, keep rev 2 */
+    /* Compact to rev 1 — drop history < 1, keep rev 1 and 2 */
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_compact(s, 1), CETCD_OK);
     CETCD_ASSERT_EQ_INT((int)cetcd_mvcc_compacted_revision(s), 1);
 
-    /* Current data still readable */
+    /* Compact revision itself remains readable */
     cetcd_kv out;
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 1, k1, 1, &out), CETCD_OK);
+    free((void*)out.key.data); free((void*)out.value.data);
+
+    /* Current data still readable */
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 0, k2, 1, &out), 0);
     free((void*)out.key.data); free((void*)out.value.data);
 
@@ -222,6 +226,9 @@ CETCD_TEST_CASE(mvcc_compact) {
     cetcd_mvcc_put(s, k1, 1, v3, 1, 0);  /* rev 3 */
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_compact(s, 2), CETCD_OK);
     CETCD_ASSERT_EQ_INT((int)cetcd_mvcc_compacted_revision(s), 2);
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 1, k1, 1, &out), CETCD_ERR_RANGE);
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 2, k2, 1, &out), CETCD_OK);
+    free((void*)out.key.data); free((void*)out.value.data);
 
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_compact(s, 99), CETCD_ERR_INVAL);
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_compact(s, 0), CETCD_ERR_INVAL);
