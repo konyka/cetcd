@@ -559,7 +559,8 @@ Successful compaction also cancels already-active streaming watches whose
 WatchCreate with `start_revision > 0` replays matching `history[]` events
 (`cetcd_mvcc_watch_replay`); streaming mode defers the notify wake until after the
 create-ack is queued (`cetcd_v3rpc_watch_flush_replay`) so clients see created
-before historical events.
+before historical events. When `prev_kv=true`, replay also fills `prev_kv` from the
+nearest older PUT for the same key (stopping at DELETE), matching live notify.
 
 The cetcdctl response parsing for `del`, `txn cas`, and `watch` now correctly skips the
 `ResponseHeader` (tag 0x0a) before parsing response-specific fields, ensuring compatibility

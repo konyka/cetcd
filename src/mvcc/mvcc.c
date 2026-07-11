@@ -923,6 +923,28 @@ int cetcd_mvcc_watch_replay(cetcd_mvcc_store *store, cetcd_stream_watcher *sw) {
         ev.kv.lease_id = e->lease_id;
         ev.rev = e->rev;
         ev.has_prev_kv = 0;
+
+        if (sw->want_prev_kv) {
+            /* Walk older history for the same key; stop at DELETE (key recreated). */
+            for (size_t j = i; j > 0; j--) {
+                revision_entry *prev = &store->history[j - 1];
+                if (prev->key.len != e->key.len ||
+                    memcmp(prev->key.data, e->key.data, e->key.len) != 0)
+                    continue;
+                if (prev->type == CETCD_EVENT_DELETE)
+                    break;
+                if (prev->type == CETCD_EVENT_PUT) {
+                    ev.prev_kv.key = prev->key;
+                    ev.prev_kv.value = prev->value;
+                    ev.prev_kv.create_rev = prev->create_rev;
+                    ev.prev_kv.mod_rev = prev->rev;
+                    ev.prev_kv.version = prev->version;
+                    ev.prev_kv.lease_id = prev->lease_id;
+                    ev.has_prev_kv = 1;
+                    break;
+                }
+            }
+        }
         notify_push(sw->notify, &ev, 0); /* quiet: wake after create-ack */
     }
     return CETCD_OK;

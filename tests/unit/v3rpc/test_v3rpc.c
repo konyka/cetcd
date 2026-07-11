@@ -1776,6 +1776,57 @@ CETCD_TEST_CASE(v3rpc_watch_replay_legacy) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_watch_replay_prev_kv) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put wpkv=old, then wpkv=new */
+    uint8_t put1[24]; size_t p = 0;
+    put1[p++] = 0x0a; put1[p++] = 0x04;
+    memcpy(put1 + p, "wpkv", 4); p += 4;
+    put1[p++] = 0x12; put1[p++] = 0x03;
+    memcpy(put1 + p, "old", 3); p += 3;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put1, p);
+    cetcd_rpc_bytes_free(&r);
+
+    uint8_t put2[24]; p = 0;
+    put2[p++] = 0x0a; put2[p++] = 0x04;
+    memcpy(put2 + p, "wpkv", 4); p += 4;
+    put2[p++] = 0x12; put2[p++] = 0x03;
+    memcpy(put2 + p, "new", 3); p += 3;
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put2, p);
+    cetcd_rpc_bytes_free(&r);
+
+    /* WatchCreate: key=wpkv, start_revision=1, prev_kv=true (field 6, tag 0x30) */
+    uint8_t create_inner[24]; size_t cpos = 0;
+    create_inner[cpos++] = 0x0a; create_inner[cpos++] = 0x04;
+    memcpy(create_inner + cpos, "wpkv", 4); cpos += 4;
+    create_inner[cpos++] = 0x18; create_inner[cpos++] = 0x01;
+    create_inner[cpos++] = 0x30; create_inner[cpos++] = 0x01;
+
+    uint8_t watch_buf[40]; size_t wpos = 0;
+    watch_buf[wpos++] = 0x0a;
+    watch_buf[wpos++] = (uint8_t)cpos;
+    memcpy(watch_buf + wpos, create_inner, cpos); wpos += cpos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Watch/Watch", watch_buf, wpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+
+    /* Event (0x5a) should embed prev_kv (0x1a) containing "old". */
+    int found_prev = 0;
+    for (size_t i = 0; i + 3 <= resp.len; i++) {
+        if (resp.data[i] == 0x1a) {
+            for (size_t j = i; j + 3 <= resp.len && j < i + 64; j++) {
+                if (memcmp(resp.data + j, "old", 3) == 0) { found_prev = 1; break; }
+            }
+            if (found_prev) break;
+        }
+    }
+    CETCD_ASSERT_TRUE(found_prev);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_put_prev_kv) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -4692,6 +4743,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_watch_response_correct_tags),
     CETCD_TEST_ENTRY(v3rpc_watch_start_rev_compacted),
     CETCD_TEST_ENTRY(v3rpc_watch_replay_legacy),
+    CETCD_TEST_ENTRY(v3rpc_watch_replay_prev_kv),
     CETCD_TEST_ENTRY(v3rpc_put_prev_kv),
     CETCD_TEST_ENTRY(v3rpc_delete_prev_kv),
     CETCD_TEST_ENTRY(v3rpc_delete_range_multiple),

@@ -553,6 +553,46 @@ CETCD_TEST_CASE(mvcc_watch_replay_start_rev) {
     cetcd_mvcc_store_free(s);
 }
 
+CETCD_TEST_CASE(mvcc_watch_replay_prev_kv) {
+    cetcd_mvcc_store *s = cetcd_mvcc_store_new();
+    const uint8_t k[] = "pk", v1[] = "v1", v2[] = "v2";
+    cetcd_mvcc_put(s, k, 2, v1, 2, 0);
+    cetcd_mvcc_put(s, k, 2, v2, 2, 0);
+    cetcd_mvcc_delete(s, k, 2);
+
+    cetcd_mvcc_watch_notify notify;
+    cetcd_mvcc_watch_notify_init(&notify, stream_wake_noop_, NULL);
+    cetcd_stream_watcher *sw = cetcd_mvcc_watch_subscribe(
+        s, 1, k, 2, NULL, 0, 1, 1, &notify);
+    CETCD_ASSERT_NOT_NULL(sw);
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_watch_replay(s, sw), CETCD_OK);
+
+    cetcd_watch_event *evs = NULL;
+    size_t n = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_watch_recv(&notify, &evs, &n), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)n, 3);
+    CETCD_ASSERT_FALSE(evs[0].has_prev_kv);
+    CETCD_ASSERT_TRUE(evs[1].has_prev_kv);
+    CETCD_ASSERT_EQ_INT((int)evs[1].prev_kv.value.len, 2);
+    CETCD_ASSERT_TRUE(memcmp(evs[1].prev_kv.value.data, "v1", 2) == 0);
+    CETCD_ASSERT_TRUE(evs[2].type == CETCD_EVENT_DELETE);
+    CETCD_ASSERT_TRUE(evs[2].has_prev_kv);
+    CETCD_ASSERT_TRUE(memcmp(evs[2].prev_kv.value.data, "v2", 2) == 0);
+    for (size_t i = 0; i < n; i++) {
+        free((void *)evs[i].kv.key.data);
+        free((void *)evs[i].kv.value.data);
+        if (evs[i].has_prev_kv) {
+            free((void *)evs[i].prev_kv.key.data);
+            free((void *)evs[i].prev_kv.value.data);
+        }
+    }
+    free(evs);
+
+    cetcd_mvcc_watch_unsubscribe(s, sw);
+    cetcd_mvcc_watch_notify_destroy(&notify);
+    cetcd_mvcc_store_free(s);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(mvcc_put_get_basic),
     CETCD_TEST_ENTRY(mvcc_multiple_puts_same_key),
@@ -563,6 +603,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(mvcc_watch_prefix),
     CETCD_TEST_ENTRY(mvcc_watch_from_key_null_end),
     CETCD_TEST_ENTRY(mvcc_watch_replay_start_rev),
+    CETCD_TEST_ENTRY(mvcc_watch_replay_prev_kv),
     CETCD_TEST_ENTRY(mvcc_compact),
     CETCD_TEST_ENTRY(mvcc_compact_persist_roundtrip),
     CETCD_TEST_ENTRY(mvcc_range_at_revision),
