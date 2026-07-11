@@ -532,7 +532,9 @@ include a `ResponseHeader` prefix.
 The Watch handler now includes a `ResponseHeader` (field 1, tag 0x0a) in all WatchResponse
 messages — create, cancel, and fallback paths. The Event `KeyValue` encoding uses correct
 etcd v3.5 protobuf field numbers: key (field 1, 0x0a), create_revision (field 2, 0x10),
-mod_revision (field 3, 0x18), version (field 4, 0x20), and value (field 5, 0x2a). The
+mod_revision (field 3, 0x18), version (field 4, 0x20), value (field 5, 0x2a), and lease
+(field 6, 0x30 when non-zero). Range/Put/Delete/Txn KeyValue responses encode lease the
+same way. The
 `WatchCreateRequest` parser also supports `prev_kv` (field 6) and client-specified `watch_id`
 (field 7). The cetcdctl `watch` command supports `--prev-kv` and `--start-rev` flags.
 The Watch handler encodes `prev_kv` (field 3, tag 0x1a) in Event messages when the watcher

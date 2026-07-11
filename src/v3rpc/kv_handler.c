@@ -117,6 +117,13 @@ static int write_varint_local(uint8_t *buf, size_t cap, size_t *pos, uint64_t va
     return -1;
 }
 
+/* KeyValue field 6 (lease), tag 0x30 — omit when lease_id == 0 (proto3). */
+static void append_kv_lease_(uint8_t *buf, size_t cap, size_t *pos, int64_t lease_id) {
+    if (!buf || !pos || lease_id <= 0 || *pos + 12 > cap) return;
+    buf[(*pos)++] = 0x30;
+    write_varint_local(buf, cap, pos, (uint64_t)lease_id);
+}
+
 cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
     uint8_t *key = NULL; size_t key_len = 0;
@@ -230,6 +237,7 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                 memcpy(pkv_buf + kp, old_kv.value.data, old_kv.value.len);
                 kp += old_kv.value.len;
             }
+            append_kv_lease_(pkv_buf, cap, &kp, old_kv.lease_id);
             pkv_len = kp;
         }
         free((void*)old_kv.key.data);
@@ -396,6 +404,7 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
                         memcpy(kv_buf + kpos, out_kv.value.data, out_kv.value.len);
                         kpos += out_kv.value.len;
                     }
+                    append_kv_lease_(kv_buf, sizeof(kv_buf), &kpos, out_kv.lease_id);
                     /* Write as field 2 (kvs) */
                     if (rpos + 1 + 5 + kpos > resp_cap) {
                         resp_cap = rpos + kpos + 64;
@@ -475,6 +484,7 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
                     memcpy(kv_buf + kpos, kvs[i].value.data, kvs[i].value.len);
                     kpos += kvs[i].value.len;
                 }
+                append_kv_lease_(kv_buf, sizeof(kv_buf), &kpos, kvs[i].lease_id);
                 if (rpos + 1 + 5 + kpos > resp_cap) {
                     resp_cap = resp_cap * 2 + kpos + 64;
                     uint8_t *tmp = (uint8_t *)realloc(resp, resp_cap);
@@ -591,6 +601,7 @@ cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, siz
                         write_varint_local(kv_enc, sizeof(kv_enc), &ke, old_kv.value.len);
                         memcpy(kv_enc + ke, old_kv.value.data, old_kv.value.len); ke += old_kv.value.len;
                     }
+                    append_kv_lease_(kv_enc, sizeof(kv_enc), &ke, old_kv.lease_id);
                     size_t need = ke + 10;
                     prev_kvs_buf = (uint8_t *)malloc(need);
                     if (prev_kvs_buf) {
@@ -635,6 +646,7 @@ cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, siz
                             memcpy(kv_enc + kp, kvs[i].value.data, kvs[i].value.len);
                             kp += kvs[i].value.len;
                         }
+                        append_kv_lease_(kv_enc, sizeof(kv_enc), &kp, kvs[i].lease_id);
                         /* Append to prev_kvs_buf as field 3 (tag 0x1a) */
                         size_t needed = prev_kvs_len + 1 + 5 + kp;
                         if (needed > prev_kvs_cap) {
@@ -997,6 +1009,7 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                             write_varint_local(prev_kv_buf, cap, &kp, old_kv.value.len);
                             memcpy(prev_kv_buf + kp, old_kv.value.data, old_kv.value.len); kp += old_kv.value.len;
                         }
+                        append_kv_lease_(prev_kv_buf, cap, &kp, old_kv.lease_id);
                         prev_kv_len = kp;
                     }
                     free((void*)old_kv.key.data);
@@ -1107,6 +1120,7 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                                     write_varint_local(kv_enc, sizeof(kv_enc), &kp, kvs[j].value.len);
                                     memcpy(kv_enc + kp, kvs[j].value.data, kvs[j].value.len); kp += kvs[j].value.len;
                                 }
+                                append_kv_lease_(kv_enc, sizeof(kv_enc), &kp, kvs[j].lease_id);
                                 size_t needed = prev_kvs_len + 1 + 5 + kp;
                                 if (needed > prev_kvs_cap) {
                                     prev_kvs_cap = needed * 2;
@@ -1151,6 +1165,7 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                                 write_varint_local(kv_enc, sizeof(kv_enc), &kp, old_kv.value.len);
                                 memcpy(kv_enc + kp, old_kv.value.data, old_kv.value.len); kp += old_kv.value.len;
                             }
+                            append_kv_lease_(kv_enc, sizeof(kv_enc), &kp, old_kv.lease_id);
                             prev_kvs_cap = kp + 10;
                             prev_kvs_buf = (uint8_t *)malloc(prev_kvs_cap);
                             if (prev_kvs_buf) {
@@ -1285,6 +1300,7 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                                 write_varint_local(kv_enc, sizeof(kv_enc), &kp, out_kv.value.len);
                                 memcpy(kv_enc + kp, out_kv.value.data, out_kv.value.len); kp += out_kv.value.len;
                             }
+                            append_kv_lease_(kv_enc, sizeof(kv_enc), &kp, out_kv.lease_id);
                             kvs_cap = kp + 10;
                             kvs_buf = (uint8_t *)malloc(kvs_cap);
                             if (kvs_buf) {
@@ -1362,6 +1378,7 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                                     write_varint_local(kv_enc, sizeof(kv_enc), &kp, kvs[i].value.len);
                                     memcpy(kv_enc + kp, kvs[i].value.data, kvs[i].value.len); kp += kvs[i].value.len;
                                 }
+                                append_kv_lease_(kv_enc, sizeof(kv_enc), &kp, kvs[i].lease_id);
                                 size_t needed = kvs_len + 1 + 5 + kp;
                                 if (needed > kvs_cap) {
                                     kvs_cap = needed * 2;

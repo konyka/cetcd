@@ -85,6 +85,7 @@ static size_t encode_event(uint8_t *buf, size_t cap, size_t pos,
      *   field 3 (mod_revision)    = int64, tag = 0x18
      *   field 4 (version)         = int64, tag = 0x20
      *   field 5 (value)           = bytes, tag = 0x2a
+     *   field 6 (lease)           = int64, tag = 0x30
      */
     uint8_t kv_buf[4096];
     size_t kpos = 0;
@@ -105,6 +106,10 @@ static size_t encode_event(uint8_t *buf, size_t cap, size_t pos,
         kpos = write_varint_w(kv_buf, sizeof(kv_buf), kpos, (uint64_t)ev->kv.value.len);
         memcpy(kv_buf + kpos, ev->kv.value.data, ev->kv.value.len);
         kpos += ev->kv.value.len;
+    }
+    if (ev->kv.lease_id > 0 && kpos + 12 < sizeof(kv_buf)) {
+        kv_buf[kpos++] = 0x30;
+        kpos = write_varint_w(kv_buf, sizeof(kv_buf), kpos, (uint64_t)ev->kv.lease_id);
     }
 
     /* Build Event (field 11, tag = 0x5a):
@@ -150,6 +155,11 @@ static size_t encode_event(uint8_t *buf, size_t cap, size_t pos,
                                     (uint64_t)ev->prev_kv.value.len);
             memcpy(pkv_buf + pkpos, ev->prev_kv.value.data, ev->prev_kv.value.len);
             pkpos += ev->prev_kv.value.len;
+        }
+        if (ev->prev_kv.lease_id > 0 && pkpos + 12 < sizeof(pkv_buf)) {
+            pkv_buf[pkpos++] = 0x30;
+            pkpos = write_varint_w(pkv_buf, sizeof(pkv_buf), pkpos,
+                                    (uint64_t)ev->prev_kv.lease_id);
         }
         ev_buf[epos++] = 0x1a;
         uint64_t pklen = pkpos;
