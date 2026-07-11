@@ -57,6 +57,9 @@ CETCD_API void cetcd_v3rpc_watch_tick(void);
  * is strictly below compact_rev (etcd ErrCompacted on active watchers). */
 CETCD_API void cetcd_v3rpc_watch_cancel_compacted(int64_t compact_rev);
 
+/* Flush deferred Watch history replay (wake notify after create-ack). */
+CETCD_API void cetcd_v3rpc_watch_flush_replay(void);
+
 /* Accessors for server wiring (persistence, lease tick). */
 CETCD_API struct cetcd_mvcc_store *cetcd_v3rpc_store(cetcd_v3rpc *rpc);
 CETCD_API struct cetcd_lease_mgr  *cetcd_v3rpc_leases(cetcd_v3rpc *rpc);

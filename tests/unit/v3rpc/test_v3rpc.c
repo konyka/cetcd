@@ -1744,6 +1744,38 @@ CETCD_TEST_CASE(v3rpc_watch_start_rev_compacted) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_watch_replay_legacy) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    uint8_t put_buf[16]; size_t p = 0;
+    put_buf[p++] = 0x0a; put_buf[p++] = 0x03;
+    memcpy(put_buf + p, "wrk", 3); p += 3;
+    put_buf[p++] = 0x12; put_buf[p++] = 0x01; put_buf[p++] = 'v';
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, p);
+    cetcd_rpc_bytes_free(&r);
+
+    uint8_t create_inner[16]; size_t cpos = 0;
+    create_inner[cpos++] = 0x0a; create_inner[cpos++] = 0x03;
+    memcpy(create_inner + cpos, "wrk", 3); cpos += 3;
+    create_inner[cpos++] = 0x18; create_inner[cpos++] = 0x01;
+
+    uint8_t watch_buf[32]; size_t wpos = 0;
+    watch_buf[wpos++] = 0x0a;
+    watch_buf[wpos++] = (uint8_t)cpos;
+    memcpy(watch_buf + wpos, create_inner, cpos); wpos += cpos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Watch/Watch", watch_buf, wpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found_event = 0;
+    for (size_t i = 0; i < resp.len; i++) {
+        if (resp.data[i] == 0x5a) { found_event = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(found_event);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_put_prev_kv) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -4291,6 +4323,50 @@ CETCD_TEST_CASE(v3rpc_watch_canceled_on_compact) {
     cetcd_loop_free(loop);
 }
 
+CETCD_TEST_CASE(v3rpc_watch_replay_streaming) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    cetcd_loop *loop = cetcd_loop_new();
+    cetcd_v3rpc_set_loop(rpc, loop);
+
+    uint8_t put_buf[16]; size_t p = 0;
+    put_buf[p++] = 0x0a; put_buf[p++] = 0x03;
+    memcpy(put_buf + p, "srk", 3); p += 3;
+    put_buf[p++] = 0x12; put_buf[p++] = 0x01; put_buf[p++] = 'z';
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, p);
+    cetcd_rpc_bytes_free(&r);
+
+    g_stream_cap_n = 0;
+    g_stream_cap_len = 0;
+    cetcd_v3rpc_set_stream_writer(rpc, mock_stream_capture_fn, NULL);
+
+    uint8_t create_inner[16]; size_t cpos = 0;
+    create_inner[cpos++] = 0x0a; create_inner[cpos++] = 0x03;
+    memcpy(create_inner + cpos, "srk", 3); cpos += 3;
+    create_inner[cpos++] = 0x18; create_inner[cpos++] = 0x01;
+    uint8_t watch_buf[32]; size_t wpos = 0;
+    watch_buf[wpos++] = 0x0a;
+    watch_buf[wpos++] = (uint8_t)cpos;
+    memcpy(watch_buf + wpos, create_inner, cpos); wpos += cpos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Watch/Watch", watch_buf, wpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+    CETCD_ASSERT_EQ_INT(g_stream_cap_n, 0); /* deferred until flush */
+
+    cetcd_v3rpc_watch_flush_replay();
+    CETCD_ASSERT_TRUE(g_stream_cap_n >= 1);
+    int found_event = 0;
+    for (size_t i = 0; i < g_stream_cap_len; i++) {
+        if (g_stream_cap[i] == 0x5a) { found_event = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(found_event);
+
+    reset_streaming_globals();
+    cetcd_v3rpc_free(rpc);
+    cetcd_loop_free(loop);
+}
+
 CETCD_TEST_CASE(test_watch_per_connection_writer) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
     CETCD_ASSERT_NOT_NULL(rpc);
@@ -4615,6 +4691,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_lease_revoke_deletes_keys),
     CETCD_TEST_ENTRY(v3rpc_watch_response_correct_tags),
     CETCD_TEST_ENTRY(v3rpc_watch_start_rev_compacted),
+    CETCD_TEST_ENTRY(v3rpc_watch_replay_legacy),
     CETCD_TEST_ENTRY(v3rpc_put_prev_kv),
     CETCD_TEST_ENTRY(v3rpc_delete_prev_kv),
     CETCD_TEST_ENTRY(v3rpc_delete_range_multiple),
@@ -4658,6 +4735,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_txn_range_revision_filter),
     CETCD_TEST_ENTRY(test_watch_create_streaming),
     CETCD_TEST_ENTRY(v3rpc_watch_canceled_on_compact),
+    CETCD_TEST_ENTRY(v3rpc_watch_replay_streaming),
     CETCD_TEST_ENTRY(test_watch_per_connection_writer),
     CETCD_TEST_ENTRY(test_watch_progress_notify),
     CETCD_TEST_ENTRY(test_watch_cancel),

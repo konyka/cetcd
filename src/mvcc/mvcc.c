@@ -269,8 +269,9 @@ static bool stream_watch_match(const cetcd_stream_watcher *w,
     return key_len == w->pattern_len && memcmp(key, w->pattern, key_len) == 0;
 }
 
-/* Push a copy of an event into a notification channel and wake the consumer. */
-static void notify_push(cetcd_mvcc_watch_notify *n, const cetcd_watch_event *ev) {
+/* Push a copy of an event into a notification channel; optionally wake. */
+static void notify_push(cetcd_mvcc_watch_notify *n, const cetcd_watch_event *ev,
+                         int wake) {
     if (!n || !ev) return;
     cetcd_mvcc_watch_event_node *node =
         (cetcd_mvcc_watch_event_node *)calloc(1, sizeof(*node));
@@ -288,8 +289,7 @@ static void notify_push(cetcd_mvcc_watch_notify *n, const cetcd_watch_event *ev)
     else        n->head = node;
     n->tail = node;
     n->count++;
-    /* Wake the consumer (typically uv_async_send). */
-    if (n->wake_cb) n->wake_cb(n->wake_cb_udata);
+    if (wake && n->wake_cb) n->wake_cb(n->wake_cb_udata);
 }
 
 static void mvcc_notify_watchers(cetcd_mvcc_store *s, const cetcd_kv *kv,
@@ -325,7 +325,7 @@ static void mvcc_notify_watchers(cetcd_mvcc_store *s, const cetcd_kv *kv,
                 ev_copy.has_prev_kv = 0;
                 memset(&ev_copy.prev_kv, 0, sizeof(ev_copy.prev_kv));
             }
-            notify_push(sw->notify, &ev_copy);
+            notify_push(sw->notify, &ev_copy, 1);
         }
     }
 }
@@ -902,6 +902,35 @@ cetcd_stream_watcher *cetcd_mvcc_watch_subscribe(
     }
     store->stream_watchers[store->stream_watcher_count++] = sw;
     return sw;
+}
+
+int cetcd_mvcc_watch_replay(cetcd_mvcc_store *store, cetcd_stream_watcher *sw) {
+    if (!store || !sw || !sw->notify || sw->start_rev <= 0) return CETCD_OK;
+
+    for (size_t i = 0; i < store->history_count; i++) {
+        revision_entry *e = &store->history[i];
+        if (e->rev.main < sw->start_rev) continue;
+        if (!stream_watch_match(sw, e->key.data, e->key.len)) continue;
+
+        cetcd_watch_event ev;
+        memset(&ev, 0, sizeof(ev));
+        ev.type = e->type;
+        ev.kv.key = e->key;
+        if (e->type == CETCD_EVENT_PUT) ev.kv.value = e->value;
+        ev.kv.create_rev = e->create_rev;
+        ev.kv.mod_rev = e->rev;
+        ev.kv.version = e->version;
+        ev.kv.lease_id = e->lease_id;
+        ev.rev = e->rev;
+        ev.has_prev_kv = 0;
+        notify_push(sw->notify, &ev, 0); /* quiet: wake after create-ack */
+    }
+    return CETCD_OK;
+}
+
+void cetcd_mvcc_watch_notify_wake(cetcd_mvcc_watch_notify *notify) {
+    if (!notify || notify->count == 0) return;
+    if (notify->wake_cb) notify->wake_cb(notify->wake_cb_udata);
 }
 
 void cetcd_mvcc_watch_unsubscribe(cetcd_mvcc_store *store,

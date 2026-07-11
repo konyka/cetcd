@@ -556,6 +556,10 @@ WatchCreate returns `created=true`, `canceled=true`, and `compact_revision` (fie
 Successful compaction also cancels already-active streaming watches whose
 `start_revision` is strictly below the new compact revision (via
 `cetcd_v3rpc_watch_cancel_compacted`), so clients are not left on a silent dead watch.
+WatchCreate with `start_revision > 0` replays matching `history[]` events
+(`cetcd_mvcc_watch_replay`); streaming mode defers the notify wake until after the
+create-ack is queued (`cetcd_v3rpc_watch_flush_replay`) so clients see created
+before historical events.
 
 The cetcdctl response parsing for `del`, `txn cas`, and `watch` now correctly skips the
 `ResponseHeader` (tag 0x0a) before parsing response-specific fields, ensuring compatibility

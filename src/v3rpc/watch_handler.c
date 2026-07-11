@@ -302,6 +302,7 @@ typedef struct cetcd_stream_watcher_ctx {
     int                     filter_nodelete;
     int                     want_progress_notify;
     int                     ticks_since_progress; /* 100ms ticks since last progress */
+    int                     replay_pending; /* history queued; wake after create-ack */
     volatile int            canceled;
     /* Per-connection writer captured at WatchCreate (not the global). */
     cetcd_stream_write_fn   write_fn;
@@ -513,9 +514,38 @@ static cetcd_rpc_bytes handle_legacy_watch(const watch_request_parsed *p) {
                                          current_rev, 0, compact_rev);
         }
         watch_event_collector collector = {NULL, 0, 0, p->want_prev_kv, p->filter_noput, p->filter_nodelete};
-        cetcd_watcher *w = cetcd_mvcc_watch(g_rpc_store, p->key, p->key_len,
-                                             p->start_rev,
-                                             watch_event_cb, &collector);
+
+        /* Replay history for start_rev > 0 via a temporary streaming watcher. */
+        if (p->start_rev > 0) {
+            cetcd_mvcc_watch_notify notify;
+            cetcd_mvcc_watch_notify_init(&notify, NULL, NULL);
+            cetcd_stream_watcher *sw = cetcd_mvcc_watch_subscribe(
+                g_rpc_store, watch_id,
+                p->key, p->key_len,
+                p->range_end, p->range_end_len,
+                p->start_rev, p->want_prev_kv,
+                &notify);
+            if (sw) {
+                cetcd_mvcc_watch_replay(g_rpc_store, sw);
+                cetcd_watch_event *events = NULL;
+                size_t n = 0;
+                if (cetcd_mvcc_watch_recv(&notify, &events, &n) == CETCD_OK && events) {
+                    for (size_t i = 0; i < n; i++) {
+                        watch_event_cb(&events[i], &collector);
+                        free((void *)events[i].kv.key.data);
+                        free((void *)events[i].kv.value.data);
+                        if (events[i].has_prev_kv) {
+                            free((void *)events[i].prev_kv.key.data);
+                            free((void *)events[i].prev_kv.value.data);
+                        }
+                    }
+                    free(events);
+                }
+                cetcd_mvcc_watch_unsubscribe(g_rpc_store, sw);
+            }
+            cetcd_mvcc_watch_notify_destroy(&notify);
+        }
+
         out = encode_watch_response(watch_id, 1, 0,
                                     NULL, 0,
                                     cetcd_mvcc_revision(g_rpc_store),
@@ -532,7 +562,6 @@ static cetcd_rpc_bytes handle_legacy_watch(const watch_request_parsed *p) {
             }
         }
         if (collector.buf) free(collector.buf);
-        if (w) cetcd_mvcc_watch_cancel(g_rpc_store, w);
         return out;
     }
 
@@ -609,6 +638,7 @@ static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p) {
         wctx->filter_nodelete = p->filter_nodelete;
         wctx->want_progress_notify = p->want_progress_notify;
         wctx->ticks_since_progress = 0;
+        wctx->replay_pending = 0;
         wctx->canceled = 0;
         /* Bind to the connection that issued this WatchCreate. */
         wctx->write_fn = g_rpc_stream_write_fn;
@@ -629,6 +659,12 @@ static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p) {
             free(wctx);
             out = encode_watch_response(watch_id, 1, 0, NULL, 0, current_rev, 0, 0);
             return out;
+        }
+
+        if (p->start_rev > 0) {
+            cetcd_mvcc_watch_replay(g_rpc_store, wctx->sw);
+            if (wctx->notify.count > 0)
+                wctx->replay_pending = 1;
         }
 
         /* Link into the active watcher list. */
@@ -731,6 +767,18 @@ void cetcd_v3rpc_watch_cancel_compacted(int64_t compact_rev) {
             cur->canceled = 1;
             remove_stream_watcher(cur);
             free_stream_watcher_ctx(cur);
+        }
+        cur = next;
+    }
+}
+
+void cetcd_v3rpc_watch_flush_replay(void) {
+    cetcd_stream_watcher_ctx *cur = g_stream_watchers;
+    while (cur) {
+        cetcd_stream_watcher_ctx *next = cur->next;
+        if (!cur->canceled && cur->replay_pending) {
+            cur->replay_pending = 0;
+            cetcd_mvcc_watch_notify_wake(&cur->notify);
         }
         cur = next;
     }

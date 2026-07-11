@@ -169,6 +169,15 @@ CETCD_API cetcd_stream_watcher *cetcd_mvcc_watch_subscribe(
 CETCD_API void cetcd_mvcc_watch_unsubscribe(cetcd_mvcc_store *store,
                                              cetcd_stream_watcher *w);
 
+/* Replay history events with rev.main >= start_rev into the watcher's notify
+ * channel without waking (caller wakes once after create-ack is sent).
+ * No-op when start_rev <= 0. */
+CETCD_API int cetcd_mvcc_watch_replay(cetcd_mvcc_store *store,
+                                       cetcd_stream_watcher *sw);
+
+/* Invoke wake_cb once if the notify channel has pending events. */
+CETCD_API void cetcd_mvcc_watch_notify_wake(cetcd_mvcc_watch_notify *notify);
+
 /*
  * Dequeue all pending events from a notification channel.
  * Caller must free each event's kv.key.data, kv.value.data, prev_kv data

@@ -481,6 +481,10 @@ static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *
         }
         cetcd_server_rpc_result_free(&resp);
 
+        /* After create-ack is queued, flush deferred Watch history replay. */
+        if (strcmp(path, "/etcdserverpb.Watch/Watch") == 0)
+            cetcd_v3rpc_watch_flush_replay();
+
         size_t remaining = ctx->buf_pos - frame_len;
         if (remaining > 0) memmove(ctx->buf, ctx->buf + frame_len, remaining);
         ctx->buf_pos = remaining;

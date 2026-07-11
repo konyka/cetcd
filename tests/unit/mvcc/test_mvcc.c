@@ -523,6 +523,36 @@ CETCD_TEST_CASE(mvcc_compact_persist_roundtrip) {
     cetcd_backend_close(be);
 }
 
+CETCD_TEST_CASE(mvcc_watch_replay_start_rev) {
+    cetcd_mvcc_store *s = cetcd_mvcc_store_new();
+    const uint8_t k[] = "rk", v1[] = "a", v2[] = "b";
+    cetcd_mvcc_put(s, k, 2, v1, 1, 0);
+    cetcd_mvcc_put(s, k, 2, v2, 1, 0);
+
+    cetcd_mvcc_watch_notify notify;
+    cetcd_mvcc_watch_notify_init(&notify, stream_wake_noop_, NULL);
+    cetcd_stream_watcher *sw = cetcd_mvcc_watch_subscribe(
+        s, 1, k, 2, NULL, 0, 1, 0, &notify);
+    CETCD_ASSERT_NOT_NULL(sw);
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_watch_replay(s, sw), CETCD_OK);
+
+    cetcd_watch_event *evs = NULL;
+    size_t n = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_watch_recv(&notify, &evs, &n), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)n, 2);
+    CETCD_ASSERT_EQ_INT((int)evs[0].kv.value.data[0], (int)'a');
+    CETCD_ASSERT_EQ_INT((int)evs[1].kv.value.data[0], (int)'b');
+    for (size_t i = 0; i < n; i++) {
+        free((void *)evs[i].kv.key.data);
+        free((void *)evs[i].kv.value.data);
+    }
+    free(evs);
+
+    cetcd_mvcc_watch_unsubscribe(s, sw);
+    cetcd_mvcc_watch_notify_destroy(&notify);
+    cetcd_mvcc_store_free(s);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(mvcc_put_get_basic),
     CETCD_TEST_ENTRY(mvcc_multiple_puts_same_key),
@@ -532,6 +562,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(mvcc_watch_single_key),
     CETCD_TEST_ENTRY(mvcc_watch_prefix),
     CETCD_TEST_ENTRY(mvcc_watch_from_key_null_end),
+    CETCD_TEST_ENTRY(mvcc_watch_replay_start_rev),
     CETCD_TEST_ENTRY(mvcc_compact),
     CETCD_TEST_ENTRY(mvcc_compact_persist_roundtrip),
     CETCD_TEST_ENTRY(mvcc_range_at_revision),
