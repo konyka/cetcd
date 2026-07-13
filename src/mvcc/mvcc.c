@@ -667,6 +667,17 @@ static int key_in_range_(const uint8_t *key, size_t key_len,
     return 1;
 }
 
+static int range_kv_key_cmp_(const void *a, const void *b) {
+    const cetcd_kv *ka = (const cetcd_kv *)a;
+    const cetcd_kv *kb = (const cetcd_kv *)b;
+    size_t n = ka->key.len < kb->key.len ? ka->key.len : kb->key.len;
+    int c = memcmp(ka->key.data, kb->key.data, n);
+    if (c != 0) return c;
+    if (ka->key.len < kb->key.len) return -1;
+    if (ka->key.len > kb->key.len) return 1;
+    return 0;
+}
+
 int cetcd_mvcc_range(cetcd_mvcc_store *s, int64_t rev,
                       const uint8_t *key_start, size_t start_len,
                       const uint8_t *key_end, size_t end_len,
@@ -738,6 +749,9 @@ int cetcd_mvcc_range(cetcd_mvcc_store *s, int64_t rev,
         kv->lease_id = e->lease_id;
     }
     cetcd_hashmap_free(seen);
+    /* etcd default Range order is ascending key bytes (rev=0 uses treap order). */
+    if (ctx.nr > 1)
+        qsort(ctx.rows, ctx.nr, sizeof(ctx.rows[0]), range_kv_key_cmp_);
     *out = ctx.rows;
     *out_count = ctx.nr;
     return CETCD_OK;

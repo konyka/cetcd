@@ -195,7 +195,8 @@ restored by `cetcd_mvcc_load`. Deletes hard-remove
 the live treap node (history retains the event); deleting a missing key is a no-op and
 does not bump revision.
 Historical `range` walks history newest→oldest and uses a hashmap of first-seen keys
-(expected O(n) over matching events) instead of an O(n²) linear dedup scan.
+(expected O(n) over matching events) instead of an O(n²) linear dedup scan; results are
+then sorted by key bytes so order matches live (treap) Range and etcd's default.
 `range_end` of a single `\0` byte means all keys ≥ `key` (etcd FromKey), so
 DeleteRange/Txn and streaming Watch share one open-ended upper-bound expansion with Range.
 

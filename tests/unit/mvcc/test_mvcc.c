@@ -278,6 +278,24 @@ CETCD_TEST_CASE(mvcc_range_at_revision) {
     cetcd_mvcc_store_free(s);
 }
 
+CETCD_TEST_CASE(mvcc_historical_range_key_order) {
+    cetcd_mvcc_store *s = cetcd_mvcc_store_new();
+    const uint8_t ka[] = "a", kb[] = "b", v[] = "x";
+    cetcd_mvcc_put(s, kb, 1, v, 1, 0); /* rev 1: b first chronologically */
+    cetcd_mvcc_put(s, ka, 1, v, 1, 0); /* rev 2: a */
+
+    cetcd_kv *results = NULL;
+    size_t count = 0;
+    CETCD_ASSERT_EQ_INT(
+        cetcd_mvcc_range(s, 2, ka, 1, (const uint8_t *)"\xff", 1, &results, &count),
+        CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)count, 2);
+    CETCD_ASSERT_EQ_INT((int)results[0].key.data[0], (int)'a');
+    CETCD_ASSERT_EQ_INT((int)results[1].key.data[0], (int)'b');
+    cetcd_kv_free_contents(results, count);
+    cetcd_mvcc_store_free(s);
+}
+
 CETCD_TEST_CASE(mvcc_persist_roundtrip) {
     char path_template[] = "/tmp/cetcd-test-mvcc-XXXXXX";
     CETCD_ASSERT_NOT_NULL(mkdtemp(path_template));
@@ -659,6 +677,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(mvcc_compact),
     CETCD_TEST_ENTRY(mvcc_compact_persist_roundtrip),
     CETCD_TEST_ENTRY(mvcc_range_at_revision),
+    CETCD_TEST_ENTRY(mvcc_historical_range_key_order),
     CETCD_TEST_ENTRY(mvcc_persist_roundtrip),
     CETCD_TEST_ENTRY(mvcc_delete_keys_batch_persist),
     CETCD_TEST_ENTRY(mvcc_persist_fail_closed),
