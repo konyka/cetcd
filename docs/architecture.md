@@ -197,8 +197,9 @@ does not bump revision.
 Historical `range` walks history newest→oldest and uses a hashmap of first-seen keys
 (expected O(n) over matching events) instead of an O(n²) linear dedup scan; results are
 then sorted by key bytes so order matches live (treap) Range and etcd's default.
-`range_end` of a single `\0` byte means all keys ≥ `key` (etcd FromKey), so
-DeleteRange/Txn and streaming Watch share one open-ended upper-bound expansion with Range.
+`range_end` of a single `\0` byte means all keys ≥ `key` (etcd FromKey) with an
+open upper bound (no 8×0xFF sentinel), so DeleteRange/Txn and streaming Watch share
+one FromKey expansion with Range.
 
 When a backend is attached (`cetcd_mvcc_set_backend` / `cetcd_mvcc_load`), each successful
 put/delete also updates LMDB so a process restart restores the latest key set and revision.

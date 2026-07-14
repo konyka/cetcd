@@ -686,16 +686,12 @@ int cetcd_mvcc_range(cetcd_mvcc_store *s, int64_t rev,
     if (rev > 0 && s->compacted_rev > 0 && rev < s->compacted_rev)
         return CETCD_ERR_RANGE;
 
-    /* etcd: range_end of a single '\0' means all keys >= key_start (FromKey).
-     * Approximate open upper bound with 8×0xFF like the former Range RPC path. */
-    static const uint8_t max_key[] = {
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
-    };
+    /* etcd: range_end of a single '\0' means all keys >= key_start (FromKey). */
     const uint8_t *hi = key_end;
     size_t hi_len = end_len;
     if (key_end && end_len == 1 && key_end[0] == 0) {
-        hi = max_key;
-        hi_len = sizeof(max_key);
+        hi = NULL;
+        hi_len = 0;
     }
 
     if (rev == 0) {
@@ -874,15 +870,11 @@ cetcd_stream_watcher *cetcd_mvcc_watch_subscribe(
     /* Determine watch type (align range_end='\0' with Range FromKey). */
     if (range_end && range_end_len > 0) {
         if (range_end_len == 1 && range_end[0] == '\0') {
-            static const uint8_t max_key[] = {
-                0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
-            };
+            /* FromKey: [key, +∞) — no upper bound. */
             sw->is_prefix = false;
             sw->is_range = true;
-            sw->range_end = (uint8_t *)malloc(sizeof(max_key));
-            if (!sw->range_end) { free(sw->pattern); free(sw); return NULL; }
-            memcpy(sw->range_end, max_key, sizeof(max_key));
-            sw->range_end_len = sizeof(max_key);
+            sw->range_end = NULL;
+            sw->range_end_len = 0;
         } else {
             /* Range watch [key, range_end) */
             sw->is_prefix = false;

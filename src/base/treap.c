@@ -145,11 +145,15 @@ static void treap_free_subtree_(cetcd_treap_node *n) {
     free(n);
 }
 
-/* Helper for range query: in-order traversal with range filtering. */
+/* Helper for range query: in-order traversal with range filtering.
+ * [lo, hi); hi.len == 0 means no upper bound (MVCC FromKey). */
 static bool treap_inorder_range_(cetcd_treap_node *n, cetcd_slice lo, cetcd_slice hi, cetcd_treap_iter_fn fn, void *udata) {
     if (n == NULL) return true;
     if (!treap_inorder_range_(n->left, lo, hi, fn, udata)) return false;
-    if (cetcd_slice_compare(n->key, lo) >= 0 && cetcd_slice_compare(n->key, hi) < 0) {
+    int ok = (cetcd_slice_compare(n->key, lo) >= 0);
+    if (ok && hi.len > 0)
+        ok = (cetcd_slice_compare(n->key, hi) < 0);
+    if (ok) {
         if (!fn(n->key, n->value, udata)) return false;
     }
     if (!treap_inorder_range_(n->right, lo, hi, fn, udata)) return false;

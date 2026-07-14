@@ -42,7 +42,8 @@ bool cetcd_treap_del(cetcd_treap *t, cetcd_slice key, void **val_out);
 typedef bool (*cetcd_treap_iter_fn)(cetcd_slice key, void *value, void *udata);
 void cetcd_treap_iter(const cetcd_treap *t, cetcd_treap_iter_fn fn, void *udata);
 
-/* Range iteration: [lo, hi) — keys >= lo and < hi. */
+/* Range iteration: [lo, hi) — keys >= lo and < hi.
+ * hi.len == 0 means open upper bound (all keys >= lo). */
 void cetcd_treap_range(const cetcd_treap *t,
                         cetcd_slice lo, cetcd_slice hi,
                         cetcd_treap_iter_fn fn, void *udata);

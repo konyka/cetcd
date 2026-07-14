@@ -147,6 +147,44 @@ CETCD_TEST_CASE(mvcc_range_from_key_null_end) {
     cetcd_mvcc_store_free(s);
 }
 
+CETCD_TEST_CASE(mvcc_range_from_key_open_upper_bound) {
+    cetcd_mvcc_store *s = cetcd_mvcc_store_new();
+    const uint8_t nul[] = {0};
+    const uint8_t v[] = "x";
+    const uint8_t huge[] = {
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
+    };
+    const uint8_t anchor[] = "a";
+
+    cetcd_mvcc_put(s, huge, 9, v, 1, 0);
+    cetcd_mvcc_put(s, anchor, 1, v, 1, 0);
+
+    cetcd_kv *r0 = NULL;
+    size_t n0 = 0;
+    CETCD_ASSERT_EQ_INT(
+        cetcd_mvcc_range(s, 0, (const uint8_t *)"", 0, nul, 1, &r0, &n0),
+        CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)n0, 2);
+    cetcd_kv_free_contents(r0, n0);
+
+    cetcd_kv *r1 = NULL;
+    size_t n1 = 0;
+    CETCD_ASSERT_EQ_INT(
+        cetcd_mvcc_range(s, 0, anchor, 1, nul, 1, &r1, &n1), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)n1, 2);
+    cetcd_kv_free_contents(r1, n1);
+
+    cetcd_kv *r2 = NULL;
+    size_t n2 = 0;
+    CETCD_ASSERT_EQ_INT(
+        cetcd_mvcc_range(s, 2, (const uint8_t *)"", 0, nul, 1, &r2, &n2),
+        CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)n2, 2);
+    cetcd_kv_free_contents(r2, n2);
+
+    cetcd_mvcc_store_free(s);
+}
+
 static void watch_cb(const cetcd_watch_event *ev, void *ud) {
     int *counter = (int*)ud;
     (*counter)++;
@@ -668,6 +706,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(mvcc_delete),
     CETCD_TEST_ENTRY(mvcc_range),
     CETCD_TEST_ENTRY(mvcc_range_from_key_null_end),
+    CETCD_TEST_ENTRY(mvcc_range_from_key_open_upper_bound),
     CETCD_TEST_ENTRY(mvcc_watch_single_key),
     CETCD_TEST_ENTRY(mvcc_watch_prefix),
     CETCD_TEST_ENTRY(mvcc_watch_from_key_null_end),
