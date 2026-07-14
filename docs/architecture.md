@@ -182,7 +182,8 @@ attaches the backend so subsequent put/delete are mirrored.
 Each mutation writes the key blob and store revision in a **single LMDB transaction**
 (`cetcd_backend_put2`) to avoid double begin/commit on the hot path. Multi-key deletes
 (lease expire/revoke, `DeleteRange` / Txn range delete) use `cetcd_mvcc_delete_keys` →
-one `cetcd_backend_del_n` txn.
+one `cetcd_backend_del_n` txn and a **single** store revision bump (events share
+`rev.main`, ordered by `rev.sub`), matching etcd DeleteRange.
 
 ### MVCC
 
@@ -730,7 +731,8 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `get --count-only -w fields` (fields output now includes ResponseHeader fields and `"count" : N` line, matching etcdctl fields format),
 `snapshot restore` etcd-compatible flags (now accepts `--skip-hash-check`, `--initial-cluster`, `--initial-advertise-peer-urls`, `--name`, `--initial-cluster-token`, `--initial-cluster-state` as no-op flags for etcdctl compatibility),
 `get --count-only -w json` format fix (now outputs `{"header":{...},"count":N}` without `kvs` or `more` fields, matching etcdctl output format),
-`cetcdctl --prefix PrefixEnd` (keys ending in `0xFF` now carry correctly via `cetcd_key_prefix_end`; all-`0xFF` / empty prefixes use `\0` FromKey instead of wrapping the last byte)
+`cetcdctl --prefix PrefixEnd` (keys ending in `0xFF` now carry correctly via `cetcd_key_prefix_end`; all-`0xFF` / empty prefixes use `\0` FromKey instead of wrapping the last byte),
+`DeleteRange single revision` (`cetcd_mvcc_delete_keys` bumps `main_rev` once for N keys; delete events share `rev.main` with distinct `rev.sub`, matching etcd)
 
 ---
 

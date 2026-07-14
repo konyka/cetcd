@@ -403,8 +403,10 @@ CETCD_TEST_CASE(mvcc_delete_keys_batch_persist) {
     const uint8_t *keys[] = {k1, k2, k3};
     size_t lens[] = {3, 3, 3};
     cetcd_revision r = cetcd_mvcc_delete_keys(s, keys, lens, 3);
-    CETCD_ASSERT_TRUE(r.main == 6);
-    CETCD_ASSERT_TRUE(cetcd_mvcc_revision(s) == 6);
+    /* One DeleteRange → one main revision bump; keys share main, sub 0..2. */
+    CETCD_ASSERT_TRUE(r.main == 4);
+    CETCD_ASSERT_TRUE(r.sub == 2);
+    CETCD_ASSERT_TRUE(cetcd_mvcc_revision(s) == 4);
 
     cetcd_kv out = {0};
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 0, k1, 3, &out), CETCD_ERR_NOTFOUND);
@@ -414,7 +416,7 @@ CETCD_TEST_CASE(mvcc_delete_keys_batch_persist) {
     be = cetcd_backend_open(&cfg);
     s = cetcd_mvcc_store_new();
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_load(s, be), CETCD_OK);
-    CETCD_ASSERT_TRUE(cetcd_mvcc_revision(s) == 6);
+    CETCD_ASSERT_TRUE(cetcd_mvcc_revision(s) == 4);
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 0, k2, 3, &out), CETCD_ERR_NOTFOUND);
     cetcd_mvcc_store_free(s);
     cetcd_backend_close(be);
