@@ -94,6 +94,42 @@ CETCD_TEST_CASE(slice_copy_full_when_dst_large) {
     CETCD_ASSERT_EQ_MEM(dst, "abc", 3);
 }
 
+CETCD_TEST_CASE(key_prefix_end_simple_increment) {
+    uint8_t out[8];
+    size_t n = cetcd_key_prefix_end(out, sizeof(out), cetcd_slice_from_cstr("foo"));
+    CETCD_ASSERT_EQ_UINT(n, 3u);
+    CETCD_ASSERT_EQ_MEM(out, "fop", 3);
+}
+
+CETCD_TEST_CASE(key_prefix_end_ff_carry) {
+    uint8_t key[] = {'a', 0xff};
+    uint8_t out[8];
+    size_t n = cetcd_key_prefix_end(out, sizeof(out), cetcd_slice_make(key, 2));
+    CETCD_ASSERT_EQ_UINT(n, 1u);
+    CETCD_ASSERT_EQ_UINT(out[0], (uint8_t)'b');
+}
+
+CETCD_TEST_CASE(key_prefix_end_all_ff_is_from_key) {
+    uint8_t key[] = {0xff, 0xff};
+    uint8_t out[8];
+    size_t n = cetcd_key_prefix_end(out, sizeof(out), cetcd_slice_make(key, 2));
+    CETCD_ASSERT_EQ_UINT(n, 1u);
+    CETCD_ASSERT_EQ_UINT(out[0], 0u);
+}
+
+CETCD_TEST_CASE(key_prefix_end_empty_is_from_key) {
+    uint8_t out[8];
+    size_t n = cetcd_key_prefix_end(out, sizeof(out), cetcd_slice_make(NULL, 0));
+    CETCD_ASSERT_EQ_UINT(n, 1u);
+    CETCD_ASSERT_EQ_UINT(out[0], 0u);
+}
+
+CETCD_TEST_CASE(key_prefix_end_rejects_tiny_buffer) {
+    uint8_t out[1];
+    size_t n = cetcd_key_prefix_end(out, sizeof(out), cetcd_slice_from_cstr("ab"));
+    CETCD_ASSERT_EQ_UINT(n, 0u);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(slice_make_holds_pointer_and_length),
     CETCD_TEST_ENTRY(slice_from_cstr_uses_strlen),
@@ -108,5 +144,10 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(slice_has_suffix),
     CETCD_TEST_ENTRY(slice_copy_truncates_when_dst_smaller),
     CETCD_TEST_ENTRY(slice_copy_full_when_dst_large),
+    CETCD_TEST_ENTRY(key_prefix_end_simple_increment),
+    CETCD_TEST_ENTRY(key_prefix_end_ff_carry),
+    CETCD_TEST_ENTRY(key_prefix_end_all_ff_is_from_key),
+    CETCD_TEST_ENTRY(key_prefix_end_empty_is_from_key),
+    CETCD_TEST_ENTRY(key_prefix_end_rejects_tiny_buffer),
 CETCD_TEST_LIST_END
 CETCD_TEST_MAIN()

@@ -199,7 +199,9 @@ Historical `range` walks history newest→oldest and uses a hashmap of first-see
 then sorted by key bytes so order matches live (treap) Range and etcd's default.
 `range_end` of a single `\0` byte means all keys ≥ `key` (etcd FromKey) with an
 open upper bound (no 8×0xFF sentinel), so DeleteRange/Txn and streaming Watch share
-one FromKey expansion with Range.
+one FromKey expansion with Range. Prefix scans use `cetcd_key_prefix_end` (etcd
+`PrefixEnd`): increment the first non-`0xFF` trailing byte and truncate; empty or
+all-`0xFF` prefixes become `\0` (FromKey).
 
 When a backend is attached (`cetcd_mvcc_set_backend` / `cetcd_mvcc_load`), each successful
 put/delete also updates LMDB so a process restart restores the latest key set and revision.
@@ -727,7 +729,8 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `cetcdctl global flags` (now accepts `--max-call-send-msg-size`, `--max-call-recv-msg-size`, `--insecure-skip-tls-verify`, `--insecure-transport`, `--password`, `--discovery-srv` as no-op compatibility flags; `--password` can be used with `--user USER` to provide the password separately),
 `get --count-only -w fields` (fields output now includes ResponseHeader fields and `"count" : N` line, matching etcdctl fields format),
 `snapshot restore` etcd-compatible flags (now accepts `--skip-hash-check`, `--initial-cluster`, `--initial-advertise-peer-urls`, `--name`, `--initial-cluster-token`, `--initial-cluster-state` as no-op flags for etcdctl compatibility),
-`get --count-only -w json` format fix (now outputs `{"header":{...},"count":N}` without `kvs` or `more` fields, matching etcdctl output format)
+`get --count-only -w json` format fix (now outputs `{"header":{...},"count":N}` without `kvs` or `more` fields, matching etcdctl output format),
+`cetcdctl --prefix PrefixEnd` (keys ending in `0xFF` now carry correctly via `cetcd_key_prefix_end`; all-`0xFF` / empty prefixes use `\0` FromKey instead of wrapping the last byte)
 
 ---
 

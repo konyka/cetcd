@@ -35,6 +35,11 @@ bool   cetcd_slice_has_prefix(cetcd_slice s, cetcd_slice prefix);
 bool   cetcd_slice_has_suffix(cetcd_slice s, cetcd_slice suffix);
 size_t cetcd_slice_copy(void *dst, size_t dst_cap, cetcd_slice src);
 
+/* etcd PrefixEnd: first key strictly after all keys with the given prefix.
+ * Empty or all-0xFF keys yield a single 0x00 (FromKey / open upper bound).
+ * Returns bytes written, or 0 if out_cap is too small. */
+size_t cetcd_key_prefix_end(uint8_t *out, size_t out_cap, cetcd_slice key);
+
 #ifdef __cplusplus
 }
 #endif

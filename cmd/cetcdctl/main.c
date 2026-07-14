@@ -1121,19 +1121,11 @@ static int cmd_get(int argc, char **argv) {
     pos = encode_bytes_field(req, sizeof(req), pos, 0x0a,
                              (const uint8_t *)key, key_len);
     if (prefix) {
-        /* range_end = key with last byte incremented (standard etcd prefix semantics) */
-        if (key_len == 0) {
-            /* Empty key with --prefix means all keys */
-            uint8_t zero = 0;
-            pos = encode_bytes_field(req, sizeof(req), pos, 0x12, &zero, 1);
-        } else {
-            char prefix_end[256];
-            if (key_len >= sizeof(prefix_end)) { fprintf(stderr, "key too long\n"); return 1; }
-            memcpy(prefix_end, key, key_len);
-            prefix_end[key_len - 1]++;
-            pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
-                                     (const uint8_t *)prefix_end, key_len);
-        }
+        uint8_t prefix_end[256];
+        size_t pe_len = cetcd_key_prefix_end(prefix_end, sizeof(prefix_end),
+                                             cetcd_slice_make(key, key_len));
+        if (pe_len == 0) { fprintf(stderr, "key too long\n"); return 1; }
+        pos = encode_bytes_field(req, sizeof(req), pos, 0x12, prefix_end, pe_len);
     } else if (from_key) {
         /* range_end = \0 means all keys >= key */
         uint8_t zero = 0;
@@ -1246,18 +1238,11 @@ static int cmd_del(int argc, char **argv) {
     pos = encode_bytes_field(req, sizeof(req), pos, 0x0a,
                              (const uint8_t *)key, key_len);
     if (prefix) {
-        if (key_len == 0) {
-            /* Empty key with --prefix means all keys */
-            uint8_t zero = 0;
-            pos = encode_bytes_field(req, sizeof(req), pos, 0x12, &zero, 1);
-        } else {
-            char prefix_end[256];
-            if (key_len >= sizeof(prefix_end)) { fprintf(stderr, "key too long\n"); return 1; }
-            memcpy(prefix_end, key, key_len);
-            prefix_end[key_len - 1]++;
-            pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
-                                     (const uint8_t *)prefix_end, key_len);
-        }
+        uint8_t prefix_end[256];
+        size_t pe_len = cetcd_key_prefix_end(prefix_end, sizeof(prefix_end),
+                                             cetcd_slice_make(key, key_len));
+        if (pe_len == 0) { fprintf(stderr, "key too long\n"); return 1; }
+        pos = encode_bytes_field(req, sizeof(req), pos, 0x12, prefix_end, pe_len);
     } else if (from_key) {
         /* range_end = \0 means all keys >= key */
         uint8_t zero = 0;
@@ -2087,18 +2072,12 @@ static int cmd_txn(int argc, char **argv) {
         dpos = encode_bytes_field(del_inner, sizeof(del_inner), dpos, 0x0a,
                                    (const uint8_t *)key, key_len);
         if (prefix) {
-            if (key_len == 0) {
-                /* Empty key with --prefix means all keys */
-                uint8_t zero = 0;
-                dpos = encode_bytes_field(del_inner, sizeof(del_inner), dpos, 0x12, &zero, 1);
-            } else {
-                char prefix_end[256];
-                if (key_len >= sizeof(prefix_end)) { fprintf(stderr, "key too long\n"); return 1; }
-                memcpy(prefix_end, key, key_len);
-                prefix_end[key_len - 1]++;
-                dpos = encode_bytes_field(del_inner, sizeof(del_inner), dpos, 0x12,
-                                           (const uint8_t *)prefix_end, key_len);
-            }
+            uint8_t prefix_end[256];
+            size_t pe_len = cetcd_key_prefix_end(prefix_end, sizeof(prefix_end),
+                                                 cetcd_slice_make(key, key_len));
+            if (pe_len == 0) { fprintf(stderr, "key too long\n"); return 1; }
+            dpos = encode_bytes_field(del_inner, sizeof(del_inner), dpos, 0x12,
+                                      prefix_end, pe_len);
         } else if (from_key) {
             /* range_end = \0 means all keys >= key */
             uint8_t zero = 0;
@@ -4552,22 +4531,15 @@ static int cmd_role(int argc, char **argv) {
         memcpy(perm + ppos, key_str, klen); ppos += klen;
         /* field 3 = range_end (optional, for --prefix or --range-end) */
         if (prefix) {
-            if (klen == 0) {
-                uint8_t zero = 0;
-                perm[ppos++] = 0x12;
-                perm[ppos++] = 0x01;
-                perm[ppos++] = zero;
-            } else {
-                char prefix_end[256];
-                if (klen >= sizeof(prefix_end)) { fprintf(stderr, "key too long\n"); return 1; }
-                memcpy(prefix_end, key_str, klen);
-                prefix_end[klen - 1]++;
-                perm[ppos++] = 0x12;
-                l = klen;
-                while (l >= 0x80) { perm[ppos++] = (uint8_t)(l | 0x80); l >>= 7; }
-                perm[ppos++] = (uint8_t)l;
-                memcpy(perm + ppos, prefix_end, klen); ppos += klen;
-            }
+            uint8_t prefix_end[256];
+            size_t pe_len = cetcd_key_prefix_end(prefix_end, sizeof(prefix_end),
+                                                 cetcd_slice_make(key_str, klen));
+            if (pe_len == 0) { fprintf(stderr, "key too long\n"); return 1; }
+            perm[ppos++] = 0x12;
+            l = pe_len;
+            while (l >= 0x80) { perm[ppos++] = (uint8_t)(l | 0x80); l >>= 7; }
+            perm[ppos++] = (uint8_t)l;
+            memcpy(perm + ppos, prefix_end, pe_len); ppos += pe_len;
         } else if (range_end_arg) {
             size_t re_len = strlen(range_end_arg);
             perm[ppos++] = 0x12;
@@ -4623,17 +4595,11 @@ static int cmd_role(int argc, char **argv) {
                                      (const uint8_t *)key_str, klen);
             /* field 3 (range_end, tag 0x1a) — optional */
             if (prefix) {
-                if (klen == 0) {
-                    uint8_t zero = 0;
-                    pos = encode_bytes_field(req, sizeof(req), pos, 0x1a, &zero, 1);
-                } else {
-                    char prefix_end[256];
-                    if (klen >= sizeof(prefix_end)) { fprintf(stderr, "key too long\n"); return 1; }
-                    memcpy(prefix_end, key_str, klen);
-                    prefix_end[klen - 1]++;
-                    pos = encode_bytes_field(req, sizeof(req), pos, 0x1a,
-                                             (const uint8_t *)prefix_end, klen);
-                }
+                uint8_t prefix_end[256];
+                size_t pe_len = cetcd_key_prefix_end(prefix_end, sizeof(prefix_end),
+                                                     cetcd_slice_make(key_str, klen));
+                if (pe_len == 0) { fprintf(stderr, "key too long\n"); return 1; }
+                pos = encode_bytes_field(req, sizeof(req), pos, 0x1a, prefix_end, pe_len);
             } else if (range_end_arg) {
                 pos = encode_bytes_field(req, sizeof(req), pos, 0x1a,
                                          (const uint8_t *)range_end_arg, strlen(range_end_arg));
@@ -4673,17 +4639,12 @@ static size_t build_watch_create(uint8_t *buf, size_t cap,
     cpos = encode_bytes_field(create_inner, sizeof(create_inner), cpos, 0x0a,
                               (const uint8_t *)key, key_len);
     if (prefix) {
-        if (key_len == 0) {
-            uint8_t zero = 0;
-            cpos = encode_bytes_field(create_inner, sizeof(create_inner), cpos, 0x12, &zero, 1);
-        } else {
-            char range_end[256];
-            if (key_len >= sizeof(range_end)) return 0;
-            memcpy(range_end, key, key_len);
-            range_end[key_len - 1]++;
-            cpos = encode_bytes_field(create_inner, sizeof(create_inner), cpos, 0x12,
-                                      (const uint8_t *)range_end, key_len);
-        }
+        uint8_t range_end[256];
+        size_t pe_len = cetcd_key_prefix_end(range_end, sizeof(range_end),
+                                             cetcd_slice_make(key, key_len));
+        if (pe_len == 0) return 0;
+        cpos = encode_bytes_field(create_inner, sizeof(create_inner), cpos, 0x12,
+                                  range_end, pe_len);
     } else if (range_end_arg) {
         cpos = encode_bytes_field(create_inner, sizeof(create_inner), cpos, 0x12,
                                   (const uint8_t *)range_end_arg, strlen(range_end_arg));
