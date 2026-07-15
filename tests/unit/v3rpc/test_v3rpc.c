@@ -2309,6 +2309,39 @@ CETCD_TEST_CASE(v3rpc_put_ignore_value) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_put_ignore_value_missing_key) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put ignore_value on a missing key must not create it (etcd ErrKeyNotFound). */
+    {
+        uint8_t req[64]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 7;
+        memcpy(req + pos, "missing", 7); pos += 7;
+        req[pos++] = 0x12; req[pos++] = 1;
+        req[pos++] = 'x';
+        req[pos++] = 0x28; /* ignore_value = true */
+        req[pos++] = 0x01;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    {
+        uint8_t req[32]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 7;
+        memcpy(req + pos, "missing", 7); pos += 7;
+        cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", req, pos);
+        CETCD_ASSERT_NOT_NULL(resp.data);
+        int found = 0;
+        for (size_t i = 0; i + 7 <= resp.len; i++) {
+            if (memcmp(resp.data + i, "missing", 7) == 0) { found = 1; break; }
+        }
+        CETCD_ASSERT_TRUE(!found);
+        cetcd_rpc_bytes_free(&resp);
+    }
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_put_clear_lease_and_delete_detaches) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -2497,6 +2530,39 @@ CETCD_TEST_CASE(v3rpc_put_ignore_lease) {
             if (memcmp(resp.data + i, "v2", 2) == 0) { found_v2 = 1; break; }
         }
         CETCD_ASSERT_TRUE(found_v2);
+        cetcd_rpc_bytes_free(&resp);
+    }
+
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_put_ignore_lease_missing_key) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* ignore_lease on a missing key must not create it. */
+    {
+        uint8_t req[64]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 8;
+        memcpy(req + pos, "nolsekey", 8); pos += 8;
+        req[pos++] = 0x12; req[pos++] = 1;
+        req[pos++] = 'v';
+        req[pos++] = 0x30; /* ignore_lease = true */
+        req[pos++] = 0x01;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    {
+        uint8_t req[32]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 8;
+        memcpy(req + pos, "nolsekey", 8); pos += 8;
+        cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", req, pos);
+        CETCD_ASSERT_NOT_NULL(resp.data);
+        int found = 0;
+        for (size_t i = 0; i + 8 <= resp.len; i++) {
+            if (memcmp(resp.data + i, "nolsekey", 8) == 0) { found = 1; break; }
+        }
+        CETCD_ASSERT_TRUE(!found);
         cetcd_rpc_bytes_free(&resp);
     }
 
@@ -4755,8 +4821,10 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_auth_responses_have_header),
     CETCD_TEST_ENTRY(v3rpc_authenticate_has_token_field2),
     CETCD_TEST_ENTRY(v3rpc_put_ignore_value),
+    CETCD_TEST_ENTRY(v3rpc_put_ignore_value_missing_key),
     CETCD_TEST_ENTRY(v3rpc_put_clear_lease_and_delete_detaches),
     CETCD_TEST_ENTRY(v3rpc_put_ignore_lease),
+    CETCD_TEST_ENTRY(v3rpc_put_ignore_lease_missing_key),
     CETCD_TEST_ENTRY(v3rpc_auth_status_has_header),
     CETCD_TEST_ENTRY(v3rpc_lease_grant_has_header),
     CETCD_TEST_ENTRY(v3rpc_lease_keepalive_has_header),

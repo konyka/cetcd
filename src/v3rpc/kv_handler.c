@@ -185,8 +185,9 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
 
     int64_t rev = 0;
     if (key && g_rpc_store) {
-        /* Allow put even without value if ignore_value is set */
-        if ((val || ignore_value) && lease_ok_for_put_(lease_id)) {
+        /* etcd: ignore_value / ignore_lease require an existing key (ErrKeyNotFound). */
+        int ignore_missing = (ignore_value || ignore_lease) && !has_old;
+        if (!ignore_missing && (val || ignore_value) && lease_ok_for_put_(lease_id)) {
             cetcd_revision r = cetcd_mvcc_put(g_rpc_store, key, key_len,
                                                val ? val : (const uint8_t*)"", val ? val_len : 0,
                                                lease_id);
@@ -981,10 +982,12 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
             }
             /* Capture old KV if prev_kv/ignore_value/ignore_lease requested */
             uint8_t *prev_kv_buf = NULL; size_t prev_kv_len = 0;
+            int has_old_key = 0;
             if ((want_prev_kv || ignore_value || ignore_lease) && pk && g_rpc_store) {
                 cetcd_kv old_kv;
                 memset(&old_kv, 0, sizeof(old_kv));
                 if (cetcd_mvcc_get(g_rpc_store, 0, pk, pk_len, &old_kv) == 0) {
+                    has_old_key = 1;
                     /* Apply ignore_value: use existing value */
                     if (ignore_value) {
                         if (pv) free(pv);
@@ -1020,7 +1023,9 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                     free((void*)old_kv.value.data);
                 }
             }
-            if (pk && (pv || ignore_value) && g_rpc_store && lease_ok_for_put_(lease_id)) {
+            /* etcd: ignore_value / ignore_lease require an existing key. */
+            int ignore_missing = (ignore_value || ignore_lease) && !has_old_key;
+            if (!ignore_missing && pk && (pv || ignore_value) && g_rpc_store && lease_ok_for_put_(lease_id)) {
                 int64_t old_lease = 0;
                 if (g_rpc_lease_mgr) {
                     cetcd_kv old_kv;

@@ -499,7 +499,8 @@ actual `KeyValue` protobuf messages (supporting both point-get and range queries
 (returning the previous key-value when `prev_kv=true` is set in the request, encoded as field 2
 tag 0x12 per etcd v3.5 proto), `ignore_value`
 (keeping the existing value when `ignore_value=true`), and `ignore_lease` (keeping the existing
-lease when `ignore_lease=true`), `DeleteRange`
+lease when `ignore_lease=true`; both ignore flags require the key to already exist and do not
+create a missing key), `DeleteRange`
 supports `range_end` for range deletes and `prev_kv` for returning deleted key-values.
 The `Range` handler also supports `limit` (truncating results and setting the `more` flag as
 field 3 tag 0x18), `count_only` (returning only the count without kvs), `keys_only` (omitting values), and
@@ -732,7 +733,8 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `snapshot restore` etcd-compatible flags (now accepts `--skip-hash-check`, `--initial-cluster`, `--initial-advertise-peer-urls`, `--name`, `--initial-cluster-token`, `--initial-cluster-state` as no-op flags for etcdctl compatibility),
 `get --count-only -w json` format fix (now outputs `{"header":{...},"count":N}` without `kvs` or `more` fields, matching etcdctl output format),
 `cetcdctl --prefix PrefixEnd` (keys ending in `0xFF` now carry correctly via `cetcd_key_prefix_end`; all-`0xFF` / empty prefixes use `\0` FromKey instead of wrapping the last byte),
-`DeleteRange single revision` (`cetcd_mvcc_delete_keys` bumps `main_rev` once for N keys; delete events share `rev.main` with distinct `rev.sub`, matching etcd)
+`DeleteRange single revision` (`cetcd_mvcc_delete_keys` bumps `main_rev` once for N keys; delete events share `rev.main` with distinct `rev.sub`, matching etcd),
+`Put ignore_* missing key` (`ignore_value` / `ignore_lease` no longer create a key when it does not exist; Put and Txn RequestPut skip the mutation, matching etcd ErrKeyNotFound)
 
 ---
 
