@@ -903,16 +903,26 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                         case 3: cmp_ok = (cmp != 0); break; /* NOT_EQUAL */
                     }
                 } else {
-                    /* Integer comparison */
+                    /* Integer comparison: missing key → actual 0 (etcd). */
                     int64_t actual = 0;
                     int64_t target_val = 0;
-                    if (found == 0) {
-                        switch (c->target) {
-                            case 0: actual = kv.version;        target_val = c->version;          break;
-                            case 1: actual = kv.create_rev.main; target_val = c->create_revision; break;
-                            case 2: actual = kv.mod_rev.main;    target_val = c->mod_revision;    break;
-                            case 4: actual = kv.lease_id;        target_val = c->lease;           break;
-                        }
+                    switch (c->target) {
+                        case 0:
+                            if (found == 0) actual = kv.version;
+                            target_val = c->version;
+                            break;
+                        case 1:
+                            if (found == 0) actual = kv.create_rev.main;
+                            target_val = c->create_revision;
+                            break;
+                        case 2:
+                            if (found == 0) actual = kv.mod_rev.main;
+                            target_val = c->mod_revision;
+                            break;
+                        case 4:
+                            if (found == 0) actual = kv.lease_id;
+                            target_val = c->lease;
+                            break;
                     }
                     switch (c->result) {
                         case 0: cmp_ok = (actual == target_val); break; /* EQUAL */

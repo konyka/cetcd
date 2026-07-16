@@ -516,7 +516,9 @@ and the `more` flag correctly uses field 3 (tag 0x18).
 The `Txn` handler now evaluates `Compare` clauses against the MVCC store — supporting
 `EQUAL`/`GREATER`/`LESS`/`NOT_EQUAL` operators on `VERSION`, `CREATE`, `MOD`, `VALUE`, and
 `LEASE` targets — and executes success or failure ops accordingly, returning a complete
-`TxnResponse` with `ResponseHeader`, `succeeded` flag, and `ResponseOp` entries. The
+`TxnResponse` with `ResponseHeader`, `succeeded` flag, and `ResponseOp` entries.
+Missing keys use actual `0` for integer targets while still loading the compare operand
+(so `VERSION == 1` fails, while `CREATE == 0` still succeeds for create-if-absent). The
 `RequestRange` op within transactions now queries the MVCC store and returns actual key-value
 data instead of an empty count. It also supports `limit` (field 3, tag 0x18) for result
 truncation with the `more` flag, `keys_only` (field 8, tag 0x40) to omit values, and
@@ -738,7 +740,8 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `DeleteRange single revision` (`cetcd_mvcc_delete_keys` bumps `main_rev` once for N keys; delete events share `rev.main` with distinct `rev.sub`, matching etcd),
 `Put ignore_* missing key` (`ignore_value` / `ignore_lease` no longer create a key when it does not exist; Put and Txn RequestPut skip the mutation, matching etcd ErrKeyNotFound),
 `DELETE event version 0` (delete history/watch `kv.version` is 0; `prev_kv` keeps the prior version),
-`LeaseTimeToLive missing TTL=-1` (non-existent lease returns `TTL=-1` instead of omitting TTL / defaulting to 0)
+`LeaseTimeToLive missing TTL=-1` (non-existent lease returns `TTL=-1` instead of omitting TTL / defaulting to 0),
+`Txn Compare missing-key VERSION` (absent keys keep target_val from the compare clause so `VERSION == 1` fails)
 
 ---
 

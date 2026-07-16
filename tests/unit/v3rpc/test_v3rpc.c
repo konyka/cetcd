@@ -3805,6 +3805,66 @@ CETCD_TEST_CASE(v3rpc_txn_compare_range_end) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_txn_compare_missing_key_version) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Compare VERSION==1 on a missing key must fail (actual 0 != 1).
+     * Pre-fix bug: target stayed 0 so EQUAL always succeeded. */
+    uint8_t cmp_buf[32]; size_t cpos = 0;
+    cmp_buf[cpos++] = 0x08; cmp_buf[cpos++] = 0x00; /* result=EQUAL */
+    cmp_buf[cpos++] = 0x10; cmp_buf[cpos++] = 0x00; /* target=VERSION */
+    cmp_buf[cpos++] = 0x1a; cmp_buf[cpos++] = 0x06; /* key */
+    memcpy(cmp_buf + cpos, "nosuch", 6); cpos += 6;
+    cmp_buf[cpos++] = 0x20; cmp_buf[cpos++] = 0x01; /* version=1 */
+
+    uint8_t put_inner[24]; size_t ppos = 0;
+    put_inner[ppos++] = 0x0a; put_inner[ppos++] = 0x06;
+    memcpy(put_inner + ppos, "nosuch", 6); ppos += 6;
+    put_inner[ppos++] = 0x12; put_inner[ppos++] = 0x01;
+    put_inner[ppos++] = 'x';
+    uint8_t op_buf[32]; size_t opos = 0;
+    op_buf[opos++] = 0x12;
+    op_buf[opos++] = (uint8_t)ppos;
+    memcpy(op_buf + opos, put_inner, ppos); opos += ppos;
+
+    uint8_t txn_buf[80]; size_t tpos = 0;
+    txn_buf[tpos++] = 0x0a; txn_buf[tpos++] = (uint8_t)cpos;
+    memcpy(txn_buf + tpos, cmp_buf, cpos); tpos += cpos;
+    txn_buf[tpos++] = 0x12; txn_buf[tpos++] = (uint8_t)opos;
+    memcpy(txn_buf + tpos, op_buf, opos); tpos += opos;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", txn_buf, tpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+
+    bool found_succeeded = false;
+    bool succeeded_val = true;
+    for (size_t i = 0; i + 1 < resp.len; i++) {
+        if (resp.data[i] == 0x10) {
+            found_succeeded = true;
+            succeeded_val = (resp.data[i + 1] != 0);
+            break;
+        }
+    }
+    CETCD_ASSERT_TRUE(found_succeeded);
+    CETCD_ASSERT_TRUE(!succeeded_val);
+
+    /* Key must not have been created */
+    uint8_t range_buf[16]; size_t rpos = 0;
+    range_buf[rpos++] = 0x0a; range_buf[rpos++] = 0x06;
+    memcpy(range_buf + rpos, "nosuch", 6); rpos += 6;
+    cetcd_rpc_bytes_free(&resp);
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_buf, rpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found_key = 0;
+    for (size_t i = 0; i + 6 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "nosuch", 6) == 0) { found_key = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(!found_key);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_txn_put_prev_kv) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -4892,6 +4952,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_put_rejects_unknown_lease),
     CETCD_TEST_ENTRY(v3rpc_watch_prev_kv_flag),
     CETCD_TEST_ENTRY(v3rpc_txn_compare_range_end),
+    CETCD_TEST_ENTRY(v3rpc_txn_compare_missing_key_version),
     CETCD_TEST_ENTRY(v3rpc_txn_put_prev_kv),
     CETCD_TEST_ENTRY(v3rpc_txn_delete_range_prev_kv),
     CETCD_TEST_ENTRY(v3rpc_range_min_max_revision),
