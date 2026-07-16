@@ -513,6 +513,9 @@ which allow filtering results by revision range before sorting and applying limi
 The `RangeResponse` kvs field correctly uses
 protobuf field 2 (tag 0x12) to avoid collision with the `ResponseHeader` (field 1, tag 0x0a),
 and the `more` flag correctly uses field 3 (tag 0x18).
+`Range` / Txn `RequestRange` with `revision < compacted_rev` propagate MVCC
+`CETCD_ERR_RANGE` as an RPC failure (empty response) instead of a successful empty
+result — matching etcd ErrCompacted; `revision == compacted_rev` remains readable.
 The `Txn` handler now evaluates `Compare` clauses against the MVCC store — supporting
 `EQUAL`/`GREATER`/`LESS`/`NOT_EQUAL` operators on `VERSION`, `CREATE`, `MOD`, `VALUE`, and
 `LEASE` targets — and executes success or failure ops accordingly, returning a complete
@@ -741,7 +744,8 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `Put ignore_* missing key` (`ignore_value` / `ignore_lease` no longer create a key when it does not exist; Put and Txn RequestPut skip the mutation, matching etcd ErrKeyNotFound),
 `DELETE event version 0` (delete history/watch `kv.version` is 0; `prev_kv` keeps the prior version),
 `LeaseTimeToLive missing TTL=-1` (non-existent lease returns `TTL=-1` instead of omitting TTL / defaulting to 0),
-`Txn Compare missing-key VERSION` (absent keys keep target_val from the compare clause so `VERSION == 1` fails)
+`Txn Compare missing-key VERSION` (absent keys keep target_val from the compare clause so `VERSION == 1` fails),
+`Range compacted revision` (`revision < compacted_rev` fails at the RPC layer; was previously a silent empty success)
 
 ---
 

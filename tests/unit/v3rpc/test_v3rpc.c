@@ -739,6 +739,48 @@ CETCD_TEST_CASE(v3rpc_kv_compact) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_range_revision_compacted) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put k1 (rev=1), Put k2 (rev=2), Compact(2) */
+    uint8_t put1[16]; size_t p = 0;
+    put1[p++] = 0x0a; put1[p++] = 0x02; memcpy(put1 + p, "k1", 2); p += 2;
+    put1[p++] = 0x12; put1[p++] = 0x02; memcpy(put1 + p, "v1", 2); p += 2;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put1, p);
+    cetcd_rpc_bytes_free(&r);
+
+    uint8_t put2[16]; p = 0;
+    put2[p++] = 0x0a; put2[p++] = 0x02; memcpy(put2 + p, "k2", 2); p += 2;
+    put2[p++] = 0x12; put2[p++] = 0x02; memcpy(put2 + p, "v2", 2); p += 2;
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put2, p);
+    cetcd_rpc_bytes_free(&r);
+
+    uint8_t compact_buf[4]; p = 0;
+    compact_buf[p++] = 0x08; compact_buf[p++] = 0x02;
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Compact", compact_buf, p);
+    cetcd_rpc_bytes_free(&r);
+
+    /* Range at rev=1 (< compacted_rev) must fail, not return empty success */
+    uint8_t range_buf[16]; p = 0;
+    range_buf[p++] = 0x0a; range_buf[p++] = 0x02;
+    memcpy(range_buf + p, "k1", 2); p += 2;
+    range_buf[p++] = 0x20; range_buf[p++] = 0x01; /* revision=1 */
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_buf, p);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* rev == compacted_rev remains readable */
+    p = 0;
+    range_buf[p++] = 0x0a; range_buf[p++] = 0x02;
+    memcpy(range_buf + p, "k2", 2); p += 2;
+    range_buf[p++] = 0x20; range_buf[p++] = 0x02; /* revision=2 */
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_buf, p);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_cluster_member_list) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
     uint8_t dummy[] = {0x00};
@@ -4886,6 +4928,7 @@ CETCD_TEST_LIST_BEGIN
         CETCD_TEST_ENTRY(v3rpc_alarm_activate_disarm),
     CETCD_TEST_ENTRY(v3rpc_maintenance_move_leader),
     CETCD_TEST_ENTRY(v3rpc_kv_compact),
+    CETCD_TEST_ENTRY(v3rpc_range_revision_compacted),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_list),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_add),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_remove),

@@ -383,7 +383,17 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
             /* Point get */
             cetcd_kv out_kv;
             memset(&out_kv, 0, sizeof(out_kv));
-            if (cetcd_mvcc_get(g_rpc_store, rev, key, key_len, &out_kv) == 0) {
+            int get_rc = cetcd_mvcc_get(g_rpc_store, rev, key, key_len, &out_kv);
+            if (get_rc == CETCD_ERR_RANGE) {
+                /* rev < compacted_rev — surface as RPC error (etcd ErrCompacted). */
+                free((void*)out_kv.key.data);
+                free((void*)out_kv.value.data);
+                free(resp);
+                if (key) free(key);
+                if (range_end) free(range_end);
+                return (cetcd_rpc_bytes){NULL, 0};
+            }
+            if (get_rc == 0) {
                 if (!count_only) {
                     /* Encode KeyValue */
                     uint8_t kv_buf[1024];
@@ -429,10 +439,16 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
         } else {
             /* Range query (range_end='\0' FromKey handled in MVCC). */
             cetcd_kv *kvs = NULL; size_t n = 0;
-            cetcd_mvcc_range(g_rpc_store, rev,
+            int range_rc = cetcd_mvcc_range(g_rpc_store, rev,
                              key, key_len,
                              range_end, range_end_len,
                              &kvs, &n);
+            if (range_rc == CETCD_ERR_RANGE) {
+                free(resp);
+                if (key) free(key);
+                if (range_end) free(range_end);
+                return (cetcd_rpc_bytes){NULL, 0};
+            }
             /* Apply min/max revision filters (fields 10-13) */
             if (n > 0 && (min_mod_rev > 0 || max_mod_rev > 0 || min_create_rev > 0 || max_create_rev > 0)) {
                 size_t w = 0;
@@ -1301,7 +1317,16 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                     /* Point get */
                     cetcd_kv out_kv;
                     memset(&out_kv, 0, sizeof(out_kv));
-                    if (cetcd_mvcc_get(g_rpc_store, rrev, rkey, rkey_len, &out_kv) == 0) {
+                    int get_rc = cetcd_mvcc_get(g_rpc_store, rrev, rkey, rkey_len, &out_kv);
+                    if (get_rc == CETCD_ERR_RANGE) {
+                        free((void*)out_kv.key.data);
+                        free((void*)out_kv.value.data);
+                        if (rkey) free(rkey);
+                        if (rrange_end) free(rrange_end);
+                        free(resp);
+                        goto txn_cleanup;
+                    }
+                    if (get_rc == 0) {
                         rng_count = 1;
                         if (!rcount_only) {
                             uint8_t kv_enc[1024]; size_t kp = 0;
@@ -1334,8 +1359,14 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                 } else {
                     /* Range query */
                     cetcd_kv *kvs = NULL; size_t n = 0;
-                    cetcd_mvcc_range(g_rpc_store, rrev, rkey, rkey_len,
+                    int range_rc = cetcd_mvcc_range(g_rpc_store, rrev, rkey, rkey_len,
                                      rrange_end, rrange_end_len, &kvs, &n);
+                    if (range_rc == CETCD_ERR_RANGE) {
+                        if (rkey) free(rkey);
+                        if (rrange_end) free(rrange_end);
+                        free(resp);
+                        goto txn_cleanup;
+                    }
                     /* Apply min/max revision filters (fields 10-13) */
                     if (n > 0 && (rmin_mod_rev > 0 || rmax_mod_rev > 0 || rmin_create_rev > 0 || rmax_create_rev > 0)) {
                         size_t w = 0;
