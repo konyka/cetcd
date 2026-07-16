@@ -312,7 +312,8 @@ All Lease RPC responses (`LeaseGrant`, `LeaseKeepAlive`, `LeaseTimeToLive`,
 `LeaseLeases`, `LeaseRevoke`) include a `ResponseHeader` as field 1, matching the
 etcd v3.5 proto wire format. The `LeaseTimeToLive` handler also parses the `keys`
 boolean field from the request and returns attached keys (field 5) when requested,
-using the new `cetcd_lease_keys()` API. The `LeaseGrant` response also attaches keys
+using the new `cetcd_lease_keys()` API; a missing lease returns `TTL=-1` (etcd)
+instead of omitting the field (proto3 default 0). The `LeaseGrant` response also attaches keys
 to leases via `cetcd_lease_attach_key()` when a `Put` request specifies a lease ID.
 `LeaseGrant` honors a non-zero request `ID` via `cetcd_lease_grant_id()` (duplicate
 IDs fail closed with response ID `0`); auto-grant still uses `cetcd_lease_grant()`,
@@ -736,7 +737,8 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `cetcdctl --prefix PrefixEnd` (keys ending in `0xFF` now carry correctly via `cetcd_key_prefix_end`; all-`0xFF` / empty prefixes use `\0` FromKey instead of wrapping the last byte),
 `DeleteRange single revision` (`cetcd_mvcc_delete_keys` bumps `main_rev` once for N keys; delete events share `rev.main` with distinct `rev.sub`, matching etcd),
 `Put ignore_* missing key` (`ignore_value` / `ignore_lease` no longer create a key when it does not exist; Put and Txn RequestPut skip the mutation, matching etcd ErrKeyNotFound),
-`DELETE event version 0` (delete history/watch `kv.version` is 0; `prev_kv` keeps the prior version)
+`DELETE event version 0` (delete history/watch `kv.version` is 0; `prev_kv` keeps the prior version),
+`LeaseTimeToLive missing TTL=-1` (non-existent lease returns `TTL=-1` instead of omitting TTL / defaulting to 0)
 
 ---
 

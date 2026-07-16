@@ -200,7 +200,9 @@ cetcd_rpc_bytes lease_handle_time_to_live(cetcd_v3rpc *rpc, const uint8_t *req, 
     }
     int64_t ttl = 0;
     int64_t granted_ttl = 0;
-    if (id > 0 && cetcd_lease_exists(g_rpc_lease_mgr, (cetcd_lease_id)id)) {
+    int exists = (id > 0 && g_rpc_lease_mgr &&
+                  cetcd_lease_exists(g_rpc_lease_mgr, (cetcd_lease_id)id));
+    if (exists) {
         ttl = cetcd_lease_ttl_remaining(g_rpc_lease_mgr, (cetcd_lease_id)id);
         granted_ttl = cetcd_lease_granted_ttl(g_rpc_lease_mgr, (cetcd_lease_id)id);
     }
@@ -221,7 +223,7 @@ cetcd_rpc_bytes lease_handle_time_to_live(cetcd_v3rpc *rpc, const uint8_t *req, 
     const uint8_t *const *lease_keys = NULL;
     const size_t *lease_key_lens = NULL;
     size_t key_count = 0;
-    if (want_keys && id > 0) {
+    if (want_keys && exists) {
         key_count = cetcd_lease_keys(g_rpc_lease_mgr, (cetcd_lease_id)id,
                                       &lease_keys, &lease_key_lens);
     }
@@ -242,12 +244,13 @@ cetcd_rpc_bytes lease_handle_time_to_live(cetcd_v3rpc *rpc, const uint8_t *req, 
     /* field 2 = ID */
     buf[bpos++] = 0x10;
     write_varint(buf, 128 + keys_size, &bpos, (uint64_t)id);
-    if (ttl > 0) {
-        /* field 3 = TTL */
-        buf[bpos++] = 0x18;
-        write_varint(buf, 128 + keys_size, &bpos, (uint64_t)ttl);
-    }
-    if (granted_ttl > 0) {
+    /* field 3 = TTL: missing lease → -1 (etcd); else remaining seconds */
+    buf[bpos++] = 0x18;
+    if (!exists)
+        write_varint(buf, 128 + keys_size, &bpos, (uint64_t)(int64_t)-1);
+    else
+        write_varint(buf, 128 + keys_size, &bpos, (uint64_t)(ttl > 0 ? ttl : 0));
+    if (exists && granted_ttl > 0) {
         /* field 4 = grantedTTL */
         buf[bpos++] = 0x20;
         write_varint(buf, 128 + keys_size, &bpos, (uint64_t)granted_ttl);

@@ -486,6 +486,53 @@ CETCD_TEST_CASE(v3rpc_lease_time_to_live) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_lease_time_to_live_missing) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* TimeToLive for a non-existent ID must report TTL=-1 (etcd). */
+    uint8_t ttl_buf[4];
+    size_t pos = 0;
+    ttl_buf[pos++] = 0x08; /* ID */
+    ttl_buf[pos++] = 0x7f; /* ID = 127 */
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseTimeToLive", ttl_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+
+    int64_t ttl_field = 0;
+    int found_ttl = 0;
+    size_t rpos = 0;
+    while (rpos < resp.len) {
+        uint8_t tag = resp.data[rpos++];
+        if (tag == 0x0a || tag == 0x2a) {
+            uint64_t l = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                l |= (uint64_t)(b & 0x7F) << shift;
+                if (!(b & 0x80)) break;
+                shift += 7;
+            }
+            rpos += (size_t)l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if (!(b & 0x80)) break;
+                shift += 7;
+            }
+            if (tag == 0x18) {
+                ttl_field = (int64_t)v;
+                found_ttl = 1;
+            }
+        }
+    }
+    CETCD_ASSERT_TRUE(found_ttl);
+    CETCD_ASSERT_TRUE(ttl_field == -1);
+
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_lease_leases) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -4767,6 +4814,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_lease_revoke),
     CETCD_TEST_ENTRY(v3rpc_lease_keep_alive),
     CETCD_TEST_ENTRY(v3rpc_lease_time_to_live),
+    CETCD_TEST_ENTRY(v3rpc_lease_time_to_live_missing),
     CETCD_TEST_ENTRY(v3rpc_lease_leases),
     CETCD_TEST_ENTRY(v3rpc_txn),
     CETCD_TEST_ENTRY(v3rpc_watch),
