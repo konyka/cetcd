@@ -634,8 +634,10 @@ CETCD_TEST_CASE(mvcc_watch_replay_prev_kv) {
     CETCD_ASSERT_EQ_INT((int)evs[1].prev_kv.value.len, 2);
     CETCD_ASSERT_TRUE(memcmp(evs[1].prev_kv.value.data, "v1", 2) == 0);
     CETCD_ASSERT_TRUE(evs[2].type == CETCD_EVENT_DELETE);
+    CETCD_ASSERT_EQ_INT((int)evs[2].kv.version, 0);
     CETCD_ASSERT_TRUE(evs[2].has_prev_kv);
     CETCD_ASSERT_TRUE(memcmp(evs[2].prev_kv.value.data, "v2", 2) == 0);
+    CETCD_ASSERT_EQ_INT((int)evs[2].prev_kv.version, 2);
     for (size_t i = 0; i < n; i++) {
         free((void *)evs[i].kv.key.data);
         free((void *)evs[i].kv.value.data);

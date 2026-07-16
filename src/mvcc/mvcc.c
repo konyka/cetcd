@@ -520,7 +520,7 @@ static cetcd_revision delete_one_(cetcd_mvcc_store *s,
     e.value = (cetcd_slice){NULL, 0};
     e.rev = new_rev;
     e.type = CETCD_EVENT_DELETE;
-    e.version = kg->version;
+    e.version = 0; /* etcd: delete event KeyValue.version is 0 */
     e.create_rev = kg->create_rev;
     e.lease_id = kg->lease_id;
     push_history(s, e);
@@ -530,7 +530,7 @@ static cetcd_revision delete_one_(cetcd_mvcc_store *s,
     evkv.value = (cetcd_slice){NULL, 0};
     evkv.create_rev = kg->create_rev;
     evkv.mod_rev = new_rev;
-    evkv.version = kg->version;
+    evkv.version = 0;
     evkv.lease_id = kg->lease_id;
     mvcc_notify_watchers(s, &evkv, &new_rev, CETCD_EVENT_DELETE, &prev_evkv);
 

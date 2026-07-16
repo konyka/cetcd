@@ -194,7 +194,8 @@ trims history strictly below `compact_rev` (the compact revision itself stays re
 attached, `compacted_rev` is persisted under meta key `compacted` (fail-closed) and
 restored by `cetcd_mvcc_load`. Deletes hard-remove
 the live treap node (history retains the event); deleting a missing key is a no-op and
-does not bump revision.
+does not bump revision. DELETE Watch events set `kv.version` to 0 (etcd semantics);
+`prev_kv` retains the pre-delete version.
 Historical `range` walks history newest→oldest and uses a hashmap of first-seen keys
 (expected O(n) over matching events) instead of an O(n²) linear dedup scan; results are
 then sorted by key bytes so order matches live (treap) Range and etcd's default.
@@ -734,7 +735,8 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `get --count-only -w json` format fix (now outputs `{"header":{...},"count":N}` without `kvs` or `more` fields, matching etcdctl output format),
 `cetcdctl --prefix PrefixEnd` (keys ending in `0xFF` now carry correctly via `cetcd_key_prefix_end`; all-`0xFF` / empty prefixes use `\0` FromKey instead of wrapping the last byte),
 `DeleteRange single revision` (`cetcd_mvcc_delete_keys` bumps `main_rev` once for N keys; delete events share `rev.main` with distinct `rev.sub`, matching etcd),
-`Put ignore_* missing key` (`ignore_value` / `ignore_lease` no longer create a key when it does not exist; Put and Txn RequestPut skip the mutation, matching etcd ErrKeyNotFound)
+`Put ignore_* missing key` (`ignore_value` / `ignore_lease` no longer create a key when it does not exist; Put and Txn RequestPut skip the mutation, matching etcd ErrKeyNotFound),
+`DELETE event version 0` (delete history/watch `kv.version` is 0; `prev_kv` keeps the prior version)
 
 ---
 
