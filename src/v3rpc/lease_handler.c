@@ -86,6 +86,8 @@ cetcd_rpc_bytes lease_handle_grant(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
         }
     }
     if (ttl <= 0) ttl = 60; /* default TTL */
+    if (ttl > CETCD_MAX_LEASE_TTL)
+        return (cetcd_rpc_bytes){NULL, 0}; /* etcd ErrLeaseTTLTooLarge */
     if (!g_rpc_lease_mgr)
         return (cetcd_rpc_bytes){NULL, 0};
     cetcd_lease_id lid = 0;

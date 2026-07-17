@@ -288,6 +288,34 @@ CETCD_TEST_CASE(v3rpc_lease_grant_custom_id) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_lease_grant_ttl_too_large) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* TTL = MaxLeaseTTL+1 (9000000001) → RPC failure (etcd ErrLeaseTTLTooLarge) */
+    uint8_t grant_buf[16];
+    size_t pos = 0;
+    grant_buf[pos++] = 0x08; /* field 1 = TTL */
+    static const uint8_t ttl_enc[] = {0x81, 0xb4, 0xc4, 0xc3, 0x21};
+    memcpy(grant_buf + pos, ttl_enc, sizeof(ttl_enc));
+    pos += sizeof(ttl_enc);
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseGrant", grant_buf, pos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* Boundary MaxLeaseTTL (9000000000) still succeeds */
+    pos = 0;
+    grant_buf[pos++] = 0x08;
+    static const uint8_t ttl_max[] = {0x80, 0xb4, 0xc4, 0xc3, 0x21};
+    memcpy(grant_buf + pos, ttl_max, sizeof(ttl_max));
+    pos += sizeof(ttl_max);
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Lease/LeaseGrant", grant_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_delete_range) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -4926,6 +4954,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_unknown_path),
     CETCD_TEST_ENTRY(v3rpc_lease_grant_revoke),
     CETCD_TEST_ENTRY(v3rpc_lease_grant_custom_id),
+    CETCD_TEST_ENTRY(v3rpc_lease_grant_ttl_too_large),
     CETCD_TEST_ENTRY(v3rpc_delete_range),
     CETCD_TEST_ENTRY(v3rpc_auth_enable_disable),
     CETCD_TEST_ENTRY(v3rpc_auth_user_add_authenticate),

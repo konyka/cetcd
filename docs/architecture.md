@@ -316,8 +316,10 @@ using the new `cetcd_lease_keys()` API; a missing lease returns `TTL=-1` (etcd)
 instead of omitting the field (proto3 default 0). The `LeaseGrant` response also attaches keys
 to leases via `cetcd_lease_attach_key()` when a `Put` request specifies a lease ID.
 `LeaseGrant` honors a non-zero request `ID` via `cetcd_lease_grant_id()` (duplicate
-IDs fail at the RPC layer — matching etcd `lease already exists`); auto-grant still
-uses `cetcd_lease_grant()`, and `next_id` advances past any custom ID to avoid collisions.
+IDs fail at the RPC layer — matching etcd `lease already exists`); TTL above
+`CETCD_MAX_LEASE_TTL` (9000000000, etcd `MaxLeaseTTL`) fails at the RPC layer
+(matching `ErrLeaseTTLTooLarge`). Auto-grant still uses `cetcd_lease_grant()`,
+and `next_id` advances past any custom ID to avoid collisions.
 
 All Maintenance RPC responses (`Status`, `Hash`, `HashKV`, `Defragment`, `Alarm`,
 `MoveLeader`, `Snapshot`, `Downgrade`) include a `ResponseHeader` as field 1, matching the
@@ -756,7 +758,8 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `Range compacted revision` (`revision < compacted_rev` fails at the RPC layer; was previously a silent empty success),
 `LeaseRevoke missing lease` (non-existent / invalid ID returns RPC failure instead of a success response),
 `Compact future revision` (`revision > current` fails at the RPC layer instead of a silent success),
-`LeaseGrant duplicate ID` (re-granting an existing custom ID fails at the RPC layer instead of returning success with `ID=0`)
+`LeaseGrant duplicate ID` (re-granting an existing custom ID fails at the RPC layer instead of returning success with `ID=0`),
+`LeaseGrant MaxLeaseTTL` (`TTL > 9000000000` fails at the RPC layer; boundary value still succeeds)
 
 ---
 

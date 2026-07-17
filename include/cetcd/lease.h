@@ -11,6 +11,9 @@ extern "C" {
 
 typedef uint64_t cetcd_lease_id;
 
+/* etcd MaxLeaseTTL — LeaseGrant with larger TTL is rejected (OutOfRange). */
+#define CETCD_MAX_LEASE_TTL 9000000000LL
+
 typedef struct cetcd_lease cetcd_lease;
 typedef struct cetcd_lease_mgr cetcd_lease_mgr;
 typedef struct cetcd_mvcc_store cetcd_mvcc_store;

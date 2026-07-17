@@ -94,7 +94,8 @@ void cetcd_lease_mgr_set_expire(cetcd_lease_mgr *mgr,
 }
 
 cetcd_lease_id cetcd_lease_grant(cetcd_lease_mgr *mgr, int64_t ttl_seconds) {
-    if (!mgr || ttl_seconds <= 0) return 0; /* 0 indicates invalid id */
+    if (!mgr || ttl_seconds <= 0 || ttl_seconds > CETCD_MAX_LEASE_TTL)
+        return 0; /* 0 indicates invalid id */
     if (ensure_cap_(mgr) != 0) return 0;
 
     cetcd_lease l;
@@ -112,7 +113,8 @@ cetcd_lease_id cetcd_lease_grant(cetcd_lease_mgr *mgr, int64_t ttl_seconds) {
 
 cetcd_lease_id cetcd_lease_grant_id(cetcd_lease_mgr *mgr, cetcd_lease_id id,
                                     int64_t ttl_seconds) {
-    if (!mgr || id == 0 || ttl_seconds <= 0) return 0;
+    if (!mgr || id == 0 || ttl_seconds <= 0 || ttl_seconds > CETCD_MAX_LEASE_TTL)
+        return 0;
     if (cetcd_lease_exists(mgr, id)) return 0;
     if (ensure_cap_(mgr) != 0) return 0;
 
