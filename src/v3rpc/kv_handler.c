@@ -156,11 +156,18 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
         }
     }
 
+    /* etcd ErrEmptyKey: key must be provided (len > 0). */
+    if (!key || key_len == 0) {
+        if (key) free(key);
+        if (val) free(val);
+        return (cetcd_rpc_bytes){NULL, 0};
+    }
+
     /* Fetch existing KV when needed for prev_kv / ignore_* / lease rebinding. */
     cetcd_kv old_kv;
     memset(&old_kv, 0, sizeof(old_kv));
     int has_old = 0;
-    if (key && g_rpc_store &&
+    if (g_rpc_store &&
         (prev_kv_flag || ignore_value || ignore_lease || g_rpc_lease_mgr)) {
         if (cetcd_mvcc_get(g_rpc_store, 0, key, key_len, &old_kv) == 0) {
             has_old = 1;
@@ -364,6 +371,13 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
         } else {
             uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
         }
+    }
+
+    /* etcd ErrEmptyKey: key must be provided (len > 0; "\0" alone is valid). */
+    if (!key || key_len == 0) {
+        if (key) free(key);
+        if (range_end) free(range_end);
+        return (cetcd_rpc_bytes){NULL, 0};
     }
 
     /* Build RangeResponse:
@@ -597,6 +611,13 @@ cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, siz
         } else {
             uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
         }
+    }
+
+    /* etcd ErrEmptyKey: key must be provided (len > 0). */
+    if (!key || key_len == 0) {
+        if (key) free(key);
+        if (range_end) free(range_end);
+        return (cetcd_rpc_bytes){NULL, 0};
     }
 
     /* DeleteRangeResponse:
@@ -865,12 +886,16 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
     }
 
     /* --- Phase 2: Evaluate compares against the MVCC store --- */
+    for (size_t i = 0; i < n_compares; i++) {
+        if (!compares[i].key || compares[i].key_len == 0)
+            goto txn_cleanup; /* etcd ErrEmptyKey */
+    }
     bool succeeded = true;
     for (size_t i = 0; i < n_compares; i++) {
         txn_compare_t *c = &compares[i];
         bool cmp_ok = false;
 
-        if (c->key && g_rpc_store) {
+        if (g_rpc_store) {
             if (c->range_end && c->range_end_len > 0) {
                 /* Range compare: check all keys in [key, range_end) */
                 cetcd_kv *rkv = NULL; size_t rn = 0;
@@ -965,7 +990,7 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                 free((void*)kv.value.data);
             }
         } else {
-            cmp_ok = true; /* No key or no store: treat as pass */
+            cmp_ok = true; /* No store: treat as pass */
         }
 
         if (!cmp_ok) { succeeded = false; break; }
@@ -1020,10 +1045,16 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                     uint64_t skip = 0; read_varint(od, put_end, &op_pos, &skip);
                 }
             }
+            if (!pk || pk_len == 0) {
+                if (pk) free(pk);
+                if (pv) free(pv);
+                free(resp);
+                goto txn_cleanup; /* etcd ErrEmptyKey */
+            }
             /* Capture old KV if prev_kv/ignore_value/ignore_lease requested */
             uint8_t *prev_kv_buf = NULL; size_t prev_kv_len = 0;
             int has_old_key = 0;
-            if ((want_prev_kv || ignore_value || ignore_lease) && pk && g_rpc_store) {
+            if ((want_prev_kv || ignore_value || ignore_lease) && g_rpc_store) {
                 cetcd_kv old_kv;
                 memset(&old_kv, 0, sizeof(old_kv));
                 if (cetcd_mvcc_get(g_rpc_store, 0, pk, pk_len, &old_kv) == 0) {
@@ -1155,10 +1186,16 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                     uint64_t skip = 0; read_varint(od, del_end, &op_pos, &skip);
                 }
             }
+            if (!dk || dk_len == 0) {
+                if (dk) free(dk);
+                if (drange_end) free(drange_end);
+                free(resp);
+                goto txn_cleanup; /* etcd ErrEmptyKey */
+            }
             int64_t del_rev = 0;
             int64_t deleted_count = 0;
             uint8_t *prev_kvs_buf = NULL; size_t prev_kvs_len = 0; size_t prev_kvs_cap = 0;
-            if (dk && g_rpc_store) {
+            if (g_rpc_store) {
                 if (drange_end && drange_end_len > 0) {
                     /* Range delete: one batch LMDB txn */
                     cetcd_kv *kvs = NULL; size_t n = 0;
@@ -1334,13 +1371,19 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                     uint64_t skip = 0; read_varint(rd, rl, &rp_pos, &skip);
                 }
             }
+            if (!rkey || rkey_len == 0) {
+                if (rkey) free(rkey);
+                if (rrange_end) free(rrange_end);
+                free(resp);
+                goto txn_cleanup; /* etcd ErrEmptyKey */
+            }
 
             /* Query MVCC store */
             size_t rng_count = 0;
             bool rng_more = false;
             uint8_t *kvs_buf = NULL; size_t kvs_len = 0; size_t kvs_cap = 0;
 
-            if (rkey && g_rpc_store) {
+            if (g_rpc_store) {
                 if (!rrange_end || rrange_end_len == 0) {
                     /* Point get */
                     cetcd_kv out_kv;

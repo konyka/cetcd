@@ -497,7 +497,10 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `hash -w table` and `hashkv -w table` (table output for standalone hash/hashkv commands),
 `snapshot status -w table` (explicit table format parsing for snapshot status, matching etcdctl behavior)
 
-The KV RPC handlers have been fully implemented: `Range` queries the MVCC store and returns
+The KV RPC handlers have been fully implemented: empty keys (`key` missing or `len == 0`)
+are rejected at the RPC layer for `Put` / `Range` / `DeleteRange` and Txn nested ops /
+compares — matching etcd `ErrEmptyKey` (`key is not provided`). A single-byte `"\0"` key
+remains valid (FromKey / all-keys scans). `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
 `range_end`), `Put` returns a proper `PutResponse` with header revision and supports `prev_kv`
 (returning the previous key-value when `prev_kv=true` is set in the request, encoded as field 2
@@ -759,7 +762,8 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `LeaseRevoke missing lease` (non-existent / invalid ID returns RPC failure instead of a success response),
 `Compact future revision` (`revision > current` fails at the RPC layer instead of a silent success),
 `LeaseGrant duplicate ID` (re-granting an existing custom ID fails at the RPC layer instead of returning success with `ID=0`),
-`LeaseGrant MaxLeaseTTL` (`TTL > 9000000000` fails at the RPC layer; boundary value still succeeds)
+`LeaseGrant MaxLeaseTTL` (`TTL > 9000000000` fails at the RPC layer; boundary value still succeeds),
+`ErrEmptyKey` (Put/Range/DeleteRange and Txn reject missing or zero-length keys; `"\0"` len=1 still allowed)
 
 ---
 

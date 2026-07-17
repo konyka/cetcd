@@ -288,6 +288,50 @@ CETCD_TEST_CASE(v3rpc_lease_grant_custom_id) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_empty_key_rejected) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put with empty key (len=0) → RPC failure (etcd ErrEmptyKey) */
+    {
+        uint8_t req[16]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 0x00; /* key="" */
+        req[pos++] = 0x12; req[pos++] = 0x01; req[pos++] = 'x';
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        CETCD_ASSERT_TRUE(r.data == NULL || r.len == 0);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Range with empty key → RPC failure */
+    {
+        uint8_t req[8]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 0x00;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", req, pos);
+        CETCD_ASSERT_TRUE(r.data == NULL || r.len == 0);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* DeleteRange with empty key → RPC failure */
+    {
+        uint8_t req[8]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 0x00;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/DeleteRange", req, pos);
+        CETCD_ASSERT_TRUE(r.data == NULL || r.len == 0);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* key="\0" (len=1) remains valid for FromKey-style Range */
+    {
+        uint8_t req[16]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 0x01; req[pos++] = 0x00;
+        req[pos++] = 0x12; req[pos++] = 0x01; req[pos++] = 0x00;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", req, pos);
+        CETCD_ASSERT_NOT_NULL(r.data);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_lease_grant_ttl_too_large) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -4955,6 +4999,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_lease_grant_revoke),
     CETCD_TEST_ENTRY(v3rpc_lease_grant_custom_id),
     CETCD_TEST_ENTRY(v3rpc_lease_grant_ttl_too_large),
+    CETCD_TEST_ENTRY(v3rpc_empty_key_rejected),
     CETCD_TEST_ENTRY(v3rpc_delete_range),
     CETCD_TEST_ENTRY(v3rpc_auth_enable_disable),
     CETCD_TEST_ENTRY(v3rpc_auth_user_add_authenticate),
