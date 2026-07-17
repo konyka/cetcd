@@ -215,7 +215,8 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
     }
 
     int64_t rev = 0;
-    if (key && g_rpc_store && (val || ignore_value)) {
+    /* etcd proto3: omitted value is empty bytes — still put. */
+    if (key && g_rpc_store) {
         cetcd_revision r = cetcd_mvcc_put(g_rpc_store, key, key_len,
                                            val ? val : (const uint8_t*)"", val ? val_len : 0,
                                            lease_id);
@@ -1154,7 +1155,8 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                 free(resp);
                 goto txn_cleanup;
             }
-            if (pk && (pv || ignore_value) && g_rpc_store) {
+            /* etcd proto3: omitted value is empty bytes — still put. */
+            if (pk && g_rpc_store) {
                 int64_t old_lease = 0;
                 if (g_rpc_lease_mgr) {
                     cetcd_kv old_kv;
@@ -1165,7 +1167,8 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                         free((void *)old_kv.value.data);
                     }
                 }
-                cetcd_revision r = cetcd_mvcc_put(g_rpc_store, pk, pk_len, pv, pv_len, lease_id);
+                cetcd_revision r = cetcd_mvcc_put(g_rpc_store, pk, pk_len,
+                    pv ? pv : (const uint8_t *)"", pv ? pv_len : 0, lease_id);
                 if (r.main > final_rev) final_rev = r.main;
                 if (r.main > 0 && g_rpc_lease_mgr) {
                     if (old_lease > 0 && old_lease != lease_id) {

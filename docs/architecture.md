@@ -505,7 +505,9 @@ are rejected at the RPC layer for `Put` / `Range` / `DeleteRange` and Txn nested
 compares — matching etcd `ErrEmptyKey` (`key is not provided`). A single-byte `"\0"` key
 remains valid (FromKey / all-keys scans). `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
-`range_end`), `Put` returns a proper `PutResponse` with header revision and supports `prev_kv`
+`range_end`), `Put` returns a proper `PutResponse` with header revision; an omitted protobuf
+`value` field is treated as empty bytes (matching etcd proto3) and still writes
+the key. It supports `prev_kv`
 (returning the previous key-value when `prev_kv=true` is set in the request, encoded as field 2
 tag 0x12 per etcd v3.5 proto), `ignore_value`
 (keeping the existing value when `ignore_value=true`), and `ignore_lease` (keeping the existing
@@ -775,7 +777,8 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `ErrValueProvided` / `ErrLeaseProvided` (`ignore_value`+value / `ignore_lease`+lease fail at the RPC layer),
 `ErrInvalidSortOption` (Range/Txn reject illegal sort_order/sort_target; NONE+non-KEY defaults to ASCEND),
 `ErrTooManyOps` (Txn rejects more than 128 compares/success/failure ops instead of truncating),
-`RPC error TCP frame` (handler `{NULL,0}` errors now send `payload_len=0` frames; cetcdctl fails fast instead of hanging)
+`RPC error TCP frame` (handler `{NULL,0}` errors now send `payload_len=0` frames; cetcdctl fails fast instead of hanging),
+`Put omitted value` (missing value field writes empty bytes instead of a no-op success)
 
 ---
 

@@ -2476,6 +2476,32 @@ CETCD_TEST_CASE(v3rpc_authenticate_has_token_field2) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_put_omitted_value) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Put with key only (no value field) — etcd writes empty bytes */
+    uint8_t put_buf[16]; size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 4;
+    memcpy(put_buf + pos, "oval", 4); pos += 4;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    CETCD_ASSERT_NOT_NULL(r.data);
+    cetcd_rpc_bytes_free(&r);
+
+    uint8_t range_buf[16]; pos = 0;
+    range_buf[pos++] = 0x0a; range_buf[pos++] = 4;
+    memcpy(range_buf + pos, "oval", 4); pos += 4;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found_key = 0;
+    for (size_t i = 0; i + 4 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "oval", 4) == 0) { found_key = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(found_key);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_put_ignore_value) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -5164,6 +5190,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_range_keys_only),
     CETCD_TEST_ENTRY(v3rpc_auth_responses_have_header),
     CETCD_TEST_ENTRY(v3rpc_authenticate_has_token_field2),
+    CETCD_TEST_ENTRY(v3rpc_put_omitted_value),
     CETCD_TEST_ENTRY(v3rpc_put_ignore_value),
     CETCD_TEST_ENTRY(v3rpc_put_ignore_value_missing_key),
     CETCD_TEST_ENTRY(v3rpc_put_clear_lease_and_delete_detaches),
