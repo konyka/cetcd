@@ -2444,7 +2444,7 @@ CETCD_TEST_CASE(v3rpc_put_ignore_value) {
         cetcd_rpc_bytes_free(&r);
     }
 
-    /* Put key="ivkey" with ignore_value=true (tag 0x28) and value="ignored" */
+    /* ignore_value + non-empty value → RPC failure (etcd ErrValueProvided) */
     {
         uint8_t req[64]; size_t pos = 0;
         req[pos++] = 0x0a; req[pos++] = 5;
@@ -2454,10 +2454,23 @@ CETCD_TEST_CASE(v3rpc_put_ignore_value) {
         req[pos++] = 0x28; /* ignore_value = true */
         req[pos++] = 0x01;
         cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        CETCD_ASSERT_TRUE(r.data == NULL || r.len == 0);
         cetcd_rpc_bytes_free(&r);
     }
 
-    /* Range key="ivkey" — should return "original", not "ignored" */
+    /* ignore_value without value field keeps existing value */
+    {
+        uint8_t req[32]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 5;
+        memcpy(req + pos, "ivkey", 5); pos += 5;
+        req[pos++] = 0x28; /* ignore_value = true */
+        req[pos++] = 0x01;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        CETCD_ASSERT_NOT_NULL(r.data);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Range key="ivkey" — should still be "original" */
     {
         uint8_t req[32]; size_t pos = 0;
         req[pos++] = 0x0a; req[pos++] = 5;
@@ -2465,18 +2478,11 @@ CETCD_TEST_CASE(v3rpc_put_ignore_value) {
         cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", req, pos);
         CETCD_ASSERT_NOT_NULL(resp.data);
         CETCD_ASSERT_TRUE(resp.len > 0);
-        /* Search for "original" in response */
         int found_original = 0;
         for (size_t i = 0; i + 8 <= resp.len; i++) {
             if (memcmp(resp.data + i, "original", 8) == 0) { found_original = 1; break; }
         }
         CETCD_ASSERT_TRUE(found_original);
-        /* Search for "ignored" — should NOT be found */
-        int found_ignored = 0;
-        for (size_t i = 0; i + 7 <= resp.len; i++) {
-            if (memcmp(resp.data + i, "ignored", 7) == 0) { found_ignored = 1; break; }
-        }
-        CETCD_ASSERT_TRUE(!found_ignored);
         cetcd_rpc_bytes_free(&resp);
     }
 
@@ -2486,13 +2492,12 @@ CETCD_TEST_CASE(v3rpc_put_ignore_value) {
 CETCD_TEST_CASE(v3rpc_put_ignore_value_missing_key) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
-    /* Put ignore_value on a missing key must fail RPC (etcd ErrKeyNotFound). */
+    /* Put ignore_value on a missing key must fail RPC (etcd ErrKeyNotFound).
+     * Omit value so we hit KeyNotFound, not ErrValueProvided. */
     {
         uint8_t req[64]; size_t pos = 0;
         req[pos++] = 0x0a; req[pos++] = 7;
         memcpy(req + pos, "missing", 7); pos += 7;
-        req[pos++] = 0x12; req[pos++] = 1;
-        req[pos++] = 'x';
         req[pos++] = 0x28; /* ignore_value = true */
         req[pos++] = 0x01;
         cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
@@ -2674,24 +2679,39 @@ CETCD_TEST_CASE(v3rpc_put_ignore_lease) {
         cetcd_rpc_bytes_free(&r);
     }
 
-    /* Put key="ilkey" value="v2" with ignore_lease=true and lease=99999 */
+    /* ignore_lease + non-zero lease → RPC failure (etcd ErrLeaseProvided) */
     {
         uint8_t req[64]; size_t pos = 0;
         req[pos++] = 0x0a; req[pos++] = 5;
         memcpy(req + pos, "ilkey", 5); pos += 5;
         req[pos++] = 0x12; req[pos++] = 2;
         memcpy(req + pos, "v2", 2); pos += 2;
-        req[pos++] = 0x18; /* lease = 99999 (should be ignored) */
+        req[pos++] = 0x18; /* lease = 99999 */
         req[pos++] = 0x9f;
         req[pos++] = 0x8d;
         req[pos++] = 0x06;
         req[pos++] = 0x30; /* ignore_lease = true */
         req[pos++] = 0x01;
         cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        CETCD_ASSERT_TRUE(r.data == NULL || r.len == 0);
         cetcd_rpc_bytes_free(&r);
     }
 
-    /* Range key="ilkey" — value should be "v2" (updated), lease should still be granted id */
+    /* ignore_lease without lease field updates value, keeps existing lease */
+    {
+        uint8_t req[64]; size_t pos = 0;
+        req[pos++] = 0x0a; req[pos++] = 5;
+        memcpy(req + pos, "ilkey", 5); pos += 5;
+        req[pos++] = 0x12; req[pos++] = 2;
+        memcpy(req + pos, "v2", 2); pos += 2;
+        req[pos++] = 0x30; /* ignore_lease = true */
+        req[pos++] = 0x01;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        CETCD_ASSERT_NOT_NULL(r.data);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* Range key="ilkey" — value should be "v2", lease still attached */
     {
         uint8_t req[32]; size_t pos = 0;
         req[pos++] = 0x0a; req[pos++] = 5;
@@ -2699,7 +2719,6 @@ CETCD_TEST_CASE(v3rpc_put_ignore_lease) {
         cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", req, pos);
         CETCD_ASSERT_NOT_NULL(resp.data);
         CETCD_ASSERT_TRUE(resp.len > 0);
-        /* Verify value is "v2" */
         int found_v2 = 0;
         for (size_t i = 0; i + 2 <= resp.len; i++) {
             if (memcmp(resp.data + i, "v2", 2) == 0) { found_v2 = 1; break; }

@@ -507,9 +507,10 @@ actual `KeyValue` protobuf messages (supporting both point-get and range queries
 tag 0x12 per etcd v3.5 proto), `ignore_value`
 (keeping the existing value when `ignore_value=true`), and `ignore_lease` (keeping the existing
 lease when `ignore_lease=true`; both ignore flags require the key to already exist and fail
-the RPC when it is missing — matching etcd `ErrKeyNotFound`). A Put (or Txn `RequestPut`)
-with a non-existent positive `lease` fails at the RPC layer instead of returning a
-successful no-op write. `DeleteRange`
+the RPC when it is missing — matching etcd `ErrKeyNotFound`). `ignore_value` with a
+non-empty `value` fails (`ErrValueProvided`); `ignore_lease` with a non-zero `lease`
+fails (`ErrLeaseProvided`). A Put (or Txn `RequestPut`) with a non-existent positive
+`lease` fails at the RPC layer instead of returning a successful no-op write. `DeleteRange`
 supports `range_end` for range deletes and `prev_kv` for returning deleted key-values.
 The `Range` handler also supports `limit` (truncating results and setting the `more` flag as
 field 3 tag 0x18), `count_only` (returning only the count without kvs), `keys_only` (omitting values), and
@@ -763,7 +764,8 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `Compact future revision` (`revision > current` fails at the RPC layer instead of a silent success),
 `LeaseGrant duplicate ID` (re-granting an existing custom ID fails at the RPC layer instead of returning success with `ID=0`),
 `LeaseGrant MaxLeaseTTL` (`TTL > 9000000000` fails at the RPC layer; boundary value still succeeds),
-`ErrEmptyKey` (Put/Range/DeleteRange and Txn reject missing or zero-length keys; `"\0"` len=1 still allowed)
+`ErrEmptyKey` (Put/Range/DeleteRange and Txn reject missing or zero-length keys; `"\0"` len=1 still allowed),
+`ErrValueProvided` / `ErrLeaseProvided` (`ignore_value`+value / `ignore_lease`+lease fail at the RPC layer)
 
 ---
 

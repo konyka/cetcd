@@ -162,6 +162,12 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
         if (val) free(val);
         return (cetcd_rpc_bytes){NULL, 0};
     }
+    /* etcd ErrValueProvided / ErrLeaseProvided */
+    if ((ignore_value && val_len > 0) || (ignore_lease && lease_id != 0)) {
+        if (key) free(key);
+        if (val) free(val);
+        return (cetcd_rpc_bytes){NULL, 0};
+    }
 
     /* Fetch existing KV when needed for prev_kv / ignore_* / lease rebinding. */
     cetcd_kv old_kv;
@@ -1050,6 +1056,13 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                 if (pv) free(pv);
                 free(resp);
                 goto txn_cleanup; /* etcd ErrEmptyKey */
+            }
+            /* etcd ErrValueProvided / ErrLeaseProvided */
+            if ((ignore_value && pv_len > 0) || (ignore_lease && lease_id != 0)) {
+                if (pk) free(pk);
+                if (pv) free(pv);
+                free(resp);
+                goto txn_cleanup;
             }
             /* Capture old KV if prev_kv/ignore_value/ignore_lease requested */
             uint8_t *prev_kv_buf = NULL; size_t prev_kv_len = 0;
