@@ -2417,7 +2417,7 @@ CETCD_TEST_CASE(v3rpc_put_ignore_value) {
 CETCD_TEST_CASE(v3rpc_put_ignore_value_missing_key) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
-    /* Put ignore_value on a missing key must not create it (etcd ErrKeyNotFound). */
+    /* Put ignore_value on a missing key must fail RPC (etcd ErrKeyNotFound). */
     {
         uint8_t req[64]; size_t pos = 0;
         req[pos++] = 0x0a; req[pos++] = 7;
@@ -2427,6 +2427,7 @@ CETCD_TEST_CASE(v3rpc_put_ignore_value_missing_key) {
         req[pos++] = 0x28; /* ignore_value = true */
         req[pos++] = 0x01;
         cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        CETCD_ASSERT_TRUE(r.data == NULL || r.len == 0);
         cetcd_rpc_bytes_free(&r);
     }
 
@@ -2644,7 +2645,7 @@ CETCD_TEST_CASE(v3rpc_put_ignore_lease) {
 CETCD_TEST_CASE(v3rpc_put_ignore_lease_missing_key) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
-    /* ignore_lease on a missing key must not create it. */
+    /* ignore_lease on a missing key must fail RPC (etcd ErrKeyNotFound). */
     {
         uint8_t req[64]; size_t pos = 0;
         req[pos++] = 0x0a; req[pos++] = 8;
@@ -2654,6 +2655,7 @@ CETCD_TEST_CASE(v3rpc_put_ignore_lease_missing_key) {
         req[pos++] = 0x30; /* ignore_lease = true */
         req[pos++] = 0x01;
         cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", req, pos);
+        CETCD_ASSERT_TRUE(r.data == NULL || r.len == 0);
         cetcd_rpc_bytes_free(&r);
     }
 
