@@ -450,33 +450,33 @@ static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *
         cetcd_server_rpc_result resp = cetcd_server_handle_rpc(ctx->srv,
             path, grpc_hdr + 5, payload_len);
 
-        if (resp.data && resp.len > 0) {
-            /* Own a single heap frame for the async write (header + payload).
-             * Stack buffers and resp.data must not outlive uv_write. */
-            size_t hdr_len = 2 + path_len + 5;
-            size_t total = hdr_len + resp.len;
-            uint8_t *frame = (uint8_t *)malloc(total);
-            if (frame) {
-                size_t pos = 0;
-                frame[pos++] = (uint8_t)(path_len >> 8);
-                frame[pos++] = (uint8_t)(path_len & 0xFF);
-                memcpy(frame + pos, path, path_len);
-                pos += path_len;
-                frame[pos++] = 0;
-                frame[pos++] = (uint8_t)((resp.len >> 24) & 0xFF);
-                frame[pos++] = (uint8_t)((resp.len >> 16) & 0xFF);
-                frame[pos++] = (uint8_t)((resp.len >> 8) & 0xFF);
-                frame[pos++] = (uint8_t)(resp.len & 0xFF);
-                memcpy(frame + pos, resp.data, resp.len);
+        /* Always reply: payload_len=0 signals a domain/RPC error (handlers
+         * return {NULL,0}). Omitting the frame left clients blocked on recv. */
+        size_t out_len = (resp.data && resp.len > 0) ? resp.len : 0;
+        size_t hdr_len = 2 + path_len + 5;
+        size_t total = hdr_len + out_len;
+        uint8_t *frame = (uint8_t *)malloc(total);
+        if (frame) {
+            size_t pos = 0;
+            frame[pos++] = (uint8_t)(path_len >> 8);
+            frame[pos++] = (uint8_t)(path_len & 0xFF);
+            memcpy(frame + pos, path, path_len);
+            pos += path_len;
+            frame[pos++] = 0;
+            frame[pos++] = (uint8_t)((out_len >> 24) & 0xFF);
+            frame[pos++] = (uint8_t)((out_len >> 16) & 0xFF);
+            frame[pos++] = (uint8_t)((out_len >> 8) & 0xFF);
+            frame[pos++] = (uint8_t)(out_len & 0xFF);
+            if (out_len > 0)
+                memcpy(frame + pos, resp.data, out_len);
 
-                uv_write_t *wr = (uv_write_t *)calloc(1, sizeof(uv_write_t));
-                if (wr) {
-                    wr->data = frame;
-                    uv_buf_t wbuf = uv_buf_init((char *)frame, (unsigned int)total);
-                    uv_write(wr, stream, &wbuf, 1, stream_write_cleanup_);
-                } else {
-                    free(frame);
-                }
+            uv_write_t *wr = (uv_write_t *)calloc(1, sizeof(uv_write_t));
+            if (wr) {
+                wr->data = frame;
+                uv_buf_t wbuf = uv_buf_init((char *)frame, (unsigned int)total);
+                uv_write(wr, stream, &wbuf, 1, stream_write_cleanup_);
+            } else {
+                free(frame);
             }
         }
         cetcd_server_rpc_result_free(&resp);

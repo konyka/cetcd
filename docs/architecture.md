@@ -282,8 +282,11 @@ The live server accepts a **custom framed TCP protocol** (used by `cetcdctl`):
 ```
 
 RPC path strings match etcd (`/etcdserverpb.KV/Put`, …). Request/response bodies are
-etcd v3.5 protobuf messages. This is **not** HTTP/2 gRPC; official `etcdctl` cannot
-connect until the nghttp2 server path is wired into `cetcd_server_serve`.
+etcd v3.5 protobuf messages. Domain/RPC errors from handlers (`{NULL,0}`) are
+returned as a frame with `payload_len=0` so clients do not block on `recv`;
+`cetcdctl` treats zero-length unary responses as failure. This is **not** HTTP/2
+gRPC; official `etcdctl` cannot connect until the nghttp2 server path is wired
+into `cetcd_server_serve`.
 
 ### HTTP/2 / gRPC (library ready, server not yet)
 
@@ -771,7 +774,8 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `ErrEmptyKey` (Put/Range/DeleteRange and Txn reject missing or zero-length keys; `"\0"` len=1 still allowed),
 `ErrValueProvided` / `ErrLeaseProvided` (`ignore_value`+value / `ignore_lease`+lease fail at the RPC layer),
 `ErrInvalidSortOption` (Range/Txn reject illegal sort_order/sort_target; NONE+non-KEY defaults to ASCEND),
-`ErrTooManyOps` (Txn rejects more than 128 compares/success/failure ops instead of truncating)
+`ErrTooManyOps` (Txn rejects more than 128 compares/success/failure ops instead of truncating),
+`RPC error TCP frame` (handler `{NULL,0}` errors now send `payload_len=0` frames; cetcdctl fails fast instead of hanging)
 
 ---
 

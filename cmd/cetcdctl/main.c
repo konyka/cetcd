@@ -242,6 +242,8 @@ static int do_rpc(const char *path, const uint8_t *req, size_t req_len,
     if (g_debug) {
         fprintf(stderr, "[debug] RPC %s resp_len=%d\n", path, rlen);
     }
+    /* Zero-length payload is the server's domain-error signal (e.g. ErrEmptyKey). */
+    if (rlen <= 0) return -1;
     return rlen;
 }
 

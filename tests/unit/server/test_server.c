@@ -110,6 +110,30 @@ CETCD_TEST_CASE(server_compact) {
     cetcd_server_free(srv);
 }
 
+CETCD_TEST_CASE(server_handle_rpc_empty_key_fails) {
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+
+    /* Put with empty key → domain error {NULL,0} (server must still TCP-reply) */
+    uint8_t put_buf[16];
+    size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x00;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x01; put_buf[pos++] = 'x';
+    cetcd_server_rpc_result resp =
+        cetcd_server_handle_rpc(srv, "/etcdserverpb.KV/Put", put_buf, pos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_server_rpc_result_free(&resp);
+
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_CASE(server_snapshot) {
     cetcd_server_config cfg;
     memset(&cfg, 0, sizeof(cfg));
@@ -140,6 +164,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_create_destroy),
     CETCD_TEST_ENTRY(server_handle_rpc_put_range),
     CETCD_TEST_ENTRY(server_handle_rpc_auth),
+    CETCD_TEST_ENTRY(server_handle_rpc_empty_key_fails),
     CETCD_TEST_ENTRY(server_compact),
     CETCD_TEST_ENTRY(server_snapshot),
 CETCD_TEST_LIST_END
