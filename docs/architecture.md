@@ -530,6 +530,8 @@ The `Txn` handler now evaluates `Compare` clauses against the MVCC store — sup
 `EQUAL`/`GREATER`/`LESS`/`NOT_EQUAL` operators on `VERSION`, `CREATE`, `MOD`, `VALUE`, and
 `LEASE` targets — and executes success or failure ops accordingly, returning a complete
 `TxnResponse` with `ResponseHeader`, `succeeded` flag, and `ResponseOp` entries.
+`max(len(compare), len(success), len(failure)) > 128` fails at the RPC layer
+(`ErrTooManyOps`, etcd default `MaxTxnOps`) instead of silently truncating ops.
 Missing keys use actual `0` for integer targets while still loading the compare operand
 (so `VERSION == 1` fails, while `CREATE == 0` still succeeds for create-if-absent). The
 `RequestRange` op within transactions now queries the MVCC store and returns actual key-value
@@ -768,7 +770,8 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `LeaseGrant MaxLeaseTTL` (`TTL > 9000000000` fails at the RPC layer; boundary value still succeeds),
 `ErrEmptyKey` (Put/Range/DeleteRange and Txn reject missing or zero-length keys; `"\0"` len=1 still allowed),
 `ErrValueProvided` / `ErrLeaseProvided` (`ignore_value`+value / `ignore_lease`+lease fail at the RPC layer),
-`ErrInvalidSortOption` (Range/Txn reject illegal sort_order/sort_target; NONE+non-KEY defaults to ASCEND)
+`ErrInvalidSortOption` (Range/Txn reject illegal sort_order/sort_target; NONE+non-KEY defaults to ASCEND),
+`ErrTooManyOps` (Txn rejects more than 128 compares/success/failure ops instead of truncating)
 
 ---
 

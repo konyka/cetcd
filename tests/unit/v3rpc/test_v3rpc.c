@@ -645,6 +645,52 @@ CETCD_TEST_CASE(v3rpc_txn) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_txn_too_many_ops) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* 129 success RequestPuts exceed MaxTxnOps (128) → ErrTooManyOps */
+    uint8_t txn_buf[4096];
+    size_t tpos = 0;
+    for (int i = 0; i < 129; i++) {
+        uint8_t put_inner[8]; size_t p = 0;
+        put_inner[p++] = 0x0a; put_inner[p++] = 1; put_inner[p++] = 'k';
+        put_inner[p++] = 0x12; put_inner[p++] = 1; put_inner[p++] = 'v';
+        uint8_t op[16]; size_t o = 0;
+        op[o++] = 0x12; /* RequestPut */
+        op[o++] = (uint8_t)p;
+        memcpy(op + o, put_inner, p); o += p;
+        CETCD_ASSERT_TRUE(tpos + 2 + o < sizeof(txn_buf));
+        txn_buf[tpos++] = 0x12; /* field 2 = success */
+        txn_buf[tpos++] = (uint8_t)o;
+        memcpy(txn_buf + tpos, op, o); tpos += o;
+    }
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", txn_buf, tpos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* No partial apply */
+    uint8_t range_buf[8]; size_t rpos = 0;
+    range_buf[rpos++] = 0x0a; range_buf[rpos++] = 1; range_buf[rpos++] = 'k';
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_buf, rpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found = 0;
+    for (size_t i = 0; i + 1 <= resp.len; i++) {
+        if (resp.data[i] == 'k') { found = 1; break; }
+    }
+    /* Header may contain other bytes; ensure no kv payload with our key+value pair */
+    found = 0;
+    for (size_t i = 0; i + 3 <= resp.len; i++) {
+        if (resp.data[i] == 0x0a && resp.data[i + 1] == 1 && resp.data[i + 2] == 'k') {
+            found = 1; break;
+        }
+    }
+    CETCD_ASSERT_TRUE(!found);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_watch) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -5064,6 +5110,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_lease_time_to_live_missing),
     CETCD_TEST_ENTRY(v3rpc_lease_leases),
     CETCD_TEST_ENTRY(v3rpc_txn),
+    CETCD_TEST_ENTRY(v3rpc_txn_too_many_ops),
     CETCD_TEST_ENTRY(v3rpc_watch),
     CETCD_TEST_ENTRY(v3rpc_maintenance_status),
     CETCD_TEST_ENTRY(v3rpc_maintenance_hash),

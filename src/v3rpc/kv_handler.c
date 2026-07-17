@@ -814,8 +814,8 @@ cetcd_rpc_bytes kv_handle_compact(cetcd_v3rpc *rpc, const uint8_t *req, size_t r
  *   field 3 (responses) = repeated ResponseOp, tag = 0x1a
  */
 
-#define TXN_MAX_COMPARES 16
-#define TXN_MAX_OPS 32
+/* etcd default MaxTxnOps — max(len(compare), len(success), len(failure)). */
+#define TXN_MAX_OPS 128
 
 typedef struct {
     uint8_t *key;     size_t key_len;
@@ -836,12 +836,13 @@ typedef struct {
 
 cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
-    txn_compare_t compares[TXN_MAX_COMPARES];
+    txn_compare_t compares[TXN_MAX_OPS];
     size_t n_compares = 0;
     txn_op_t success_ops[TXN_MAX_OPS];
     size_t n_success = 0;
     txn_op_t failure_ops[TXN_MAX_OPS];
     size_t n_failure = 0;
+    size_t n_compares_raw = 0, n_success_raw = 0, n_failure_raw = 0;
     memset(compares, 0, sizeof(compares));
 
     /* --- Phase 1: Parse the request into compares, success ops, failure ops --- */
@@ -854,7 +855,8 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
             if (read_varint(req, req_len, &pos, &clen) != 0) break;
             size_t cend = pos + (size_t)clen;
             if (cend > req_len) cend = req_len;
-            if (n_compares < TXN_MAX_COMPARES) {
+            n_compares_raw++;
+            if (n_compares < TXN_MAX_OPS) {
                 txn_compare_t *c = &compares[n_compares];
                 while (pos < cend) {
                     uint8_t ctag = req[pos++];
@@ -888,6 +890,7 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
             uint64_t olen = 0;
             if (read_varint(req, req_len, &pos, &olen) != 0) break;
             if (pos + olen > req_len) break;
+            n_success_raw++;
             if (n_success < TXN_MAX_OPS) {
                 success_ops[n_success].data = req + pos;
                 success_ops[n_success].len  = (size_t)olen;
@@ -899,6 +902,7 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
             uint64_t flen = 0;
             if (read_varint(req, req_len, &pos, &flen) != 0) break;
             if (pos + flen > req_len) break;
+            n_failure_raw++;
             if (n_failure < TXN_MAX_OPS) {
                 failure_ops[n_failure].data = req + pos;
                 failure_ops[n_failure].len  = (size_t)flen;
@@ -908,6 +912,14 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
         } else {
             uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
         }
+    }
+
+    /* etcd ErrTooManyOps: max(compare, success, failure) > MaxTxnOps */
+    {
+        size_t opc = n_compares_raw;
+        if (opc < n_success_raw) opc = n_success_raw;
+        if (opc < n_failure_raw) opc = n_failure_raw;
+        if (opc > TXN_MAX_OPS) goto txn_cleanup;
     }
 
     /* --- Phase 2: Evaluate compares against the MVCC store --- */
