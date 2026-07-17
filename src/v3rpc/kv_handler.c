@@ -1598,8 +1598,10 @@ cetcd_rpc_bytes kv_handle_compact(cetcd_v3rpc *rpc, const uint8_t *req, size_t r
         }
     }
     if (compact_rev > 0 && g_rpc_store) {
-        if (cetcd_mvcc_compact(g_rpc_store, compact_rev) == CETCD_OK)
-            cetcd_v3rpc_watch_cancel_compacted(compact_rev);
+        int rc = cetcd_mvcc_compact(g_rpc_store, compact_rev);
+        if (rc != CETCD_OK)
+            return (cetcd_rpc_bytes){NULL, 0}; /* etcd ErrFutureRev / invalid */
+        cetcd_v3rpc_watch_cancel_compacted(compact_rev);
     }
     /* CompactResponse: header with revision */
     int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;

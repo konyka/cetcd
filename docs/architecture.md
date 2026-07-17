@@ -545,10 +545,12 @@ proper `ResponseHeader` (field 1), `deleted` count (field 2, tag 0x10), and `pre
 (field 3, tag 0x1a). The `Compare` clause also supports `range_end` (field 9, tag 0x4a) for
 range-based comparisons where all keys in [key, range_end) must satisfy the condition.
 The `Compact` and `LeaseRevoke` responses include proper
-`ResponseHeader` with the current revision. `LeaseRevoke` of a missing or
-invalid lease ID fails at the RPC layer (empty response) instead of returning
-a successful header-only response — matching etcd NotFound. The `Snapshot`
-response includes a `ResponseHeader`.
+`ResponseHeader` with the current revision. `Compact` with a revision ahead of
+the store (`revision > current`) fails at the RPC layer — matching etcd
+ErrFutureRev — instead of returning a successful no-op. `LeaseRevoke` of a
+missing or invalid lease ID fails at the RPC layer (empty response) instead of
+returning a successful header-only response — matching etcd NotFound. The
+`Snapshot` response includes a `ResponseHeader`.
 
 All Auth RPC responses now include a proper `ResponseHeader` with the current revision.
 The `Authenticate` response correctly returns the token in field 2 (tag 0x12) alongside the
@@ -752,7 +754,8 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `LeaseTimeToLive missing TTL=-1` (non-existent lease returns `TTL=-1` instead of omitting TTL / defaulting to 0),
 `Txn Compare missing-key VERSION` (absent keys keep target_val from the compare clause so `VERSION == 1` fails),
 `Range compacted revision` (`revision < compacted_rev` fails at the RPC layer; was previously a silent empty success),
-`LeaseRevoke missing lease` (non-existent / invalid ID returns RPC failure instead of a success response)
+`LeaseRevoke missing lease` (non-existent / invalid ID returns RPC failure instead of a success response),
+`Compact future revision` (`revision > current` fails at the RPC layer instead of a silent success)
 
 ---
 
