@@ -502,7 +502,8 @@ actual `KeyValue` protobuf messages (supporting both point-get and range queries
 tag 0x12 per etcd v3.5 proto), `ignore_value`
 (keeping the existing value when `ignore_value=true`), and `ignore_lease` (keeping the existing
 lease when `ignore_lease=true`; both ignore flags require the key to already exist and do not
-create a missing key), `DeleteRange`
+create a missing key). A Put (or Txn `RequestPut`) with a non-existent positive `lease`
+fails at the RPC layer instead of returning a successful no-op write. `DeleteRange`
 supports `range_end` for range deletes and `prev_kv` for returning deleted key-values.
 The `Range` handler also supports `limit` (truncating results and setting the `more` flag as
 field 3 tag 0x18), `count_only` (returning only the count without kvs), `keys_only` (omitting values), and
@@ -745,6 +746,7 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `cetcdctl --prefix PrefixEnd` (keys ending in `0xFF` now carry correctly via `cetcd_key_prefix_end`; all-`0xFF` / empty prefixes use `\0` FromKey instead of wrapping the last byte),
 `DeleteRange single revision` (`cetcd_mvcc_delete_keys` bumps `main_rev` once for N keys; delete events share `rev.main` with distinct `rev.sub`, matching etcd),
 `Put ignore_* missing key` (`ignore_value` / `ignore_lease` no longer create a key when it does not exist; Put and Txn RequestPut skip the mutation, matching etcd ErrKeyNotFound),
+`Put unknown lease` (non-existent `lease_id` fails Put / Txn RequestPut at the RPC layer instead of returning a successful empty write),
 `DELETE event version 0` (delete history/watch `kv.version` is 0; `prev_kv` keeps the prior version),
 `LeaseTimeToLive missing TTL=-1` (non-existent lease returns `TTL=-1` instead of omitting TTL / defaulting to 0),
 `Txn Compare missing-key VERSION` (absent keys keep target_val from the compare clause so `VERSION == 1` fails),

@@ -183,11 +183,22 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
         lease_id = old_kv.lease_id;
     }
 
+    /* etcd ErrLeaseNotFound: unknown lease must fail the RPC, not silent no-op. */
+    if (lease_id > 0 && !lease_ok_for_put_(lease_id)) {
+        if (has_old) {
+            free((void*)old_kv.key.data);
+            free((void*)old_kv.value.data);
+        }
+        if (key) free(key);
+        if (val) free(val);
+        return (cetcd_rpc_bytes){NULL, 0};
+    }
+
     int64_t rev = 0;
     if (key && g_rpc_store) {
         /* etcd: ignore_value / ignore_lease require an existing key (ErrKeyNotFound). */
         int ignore_missing = (ignore_value || ignore_lease) && !has_old;
-        if (!ignore_missing && (val || ignore_value) && lease_ok_for_put_(lease_id)) {
+        if (!ignore_missing && (val || ignore_value)) {
             cetcd_revision r = cetcd_mvcc_put(g_rpc_store, key, key_len,
                                                val ? val : (const uint8_t*)"", val ? val_len : 0,
                                                lease_id);
@@ -1049,9 +1060,17 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                     free((void*)old_kv.value.data);
                 }
             }
+            /* etcd ErrLeaseNotFound: unknown lease fails the whole Txn. */
+            if (lease_id > 0 && !lease_ok_for_put_(lease_id)) {
+                if (pk) free(pk);
+                if (pv) free(pv);
+                if (prev_kv_buf) free(prev_kv_buf);
+                free(resp);
+                goto txn_cleanup;
+            }
             /* etcd: ignore_value / ignore_lease require an existing key. */
             int ignore_missing = (ignore_value || ignore_lease) && !has_old_key;
-            if (!ignore_missing && pk && (pv || ignore_value) && g_rpc_store && lease_ok_for_put_(lease_id)) {
+            if (!ignore_missing && pk && (pv || ignore_value) && g_rpc_store) {
                 int64_t old_lease = 0;
                 if (g_rpc_lease_mgr) {
                     cetcd_kv old_kv;

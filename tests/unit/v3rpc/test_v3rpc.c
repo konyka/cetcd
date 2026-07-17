@@ -3733,7 +3733,7 @@ CETCD_TEST_CASE(v3rpc_put_rejects_unknown_lease) {
     cetcd_rpc_bytes r0 = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put0, pos);
     cetcd_rpc_bytes_free(&r0);
 
-    /* Put with unknown lease must not create the key */
+    /* Put with unknown lease must fail RPC and not create the key */
     uint8_t put[32]; pos = 0;
     put[pos++] = 0x0a; put[pos++] = 5; memcpy(put + pos, "badlx", 5); pos += 5;
     put[pos++] = 0x12; put[pos++] = 2; memcpy(put + pos, "v1", 2); pos += 2;
@@ -3741,6 +3741,7 @@ CETCD_TEST_CASE(v3rpc_put_rejects_unknown_lease) {
     uint64_t bad = 424242;
     do { uint8_t b = bad & 0x7F; bad >>= 7; if (bad) b |= 0x80; put[pos++] = b; } while (bad);
     cetcd_rpc_bytes pr = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put, pos);
+    CETCD_ASSERT_TRUE(pr.data == NULL || pr.len == 0);
     cetcd_rpc_bytes_free(&pr);
 
     uint8_t range[16]; size_t rp = 0;
