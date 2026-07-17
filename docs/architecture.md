@@ -515,7 +515,9 @@ supports `range_end` for range deletes and `prev_kv` for returning deleted key-v
 The `Range` handler also supports `limit` (truncating results and setting the `more` flag as
 field 3 tag 0x18), `count_only` (returning only the count without kvs), `keys_only` (omitting values), and
 `sort_order`/`sort_target` (sorting results by KEY, VERSION, CREATE, MOD, or VALUE in ASCEND
-or DESCEND order before applying the limit). The `Range` handler also supports `min_mod_revision`,
+or DESCEND order before applying the limit; out-of-range enums fail with etcd
+`ErrInvalidSortOption`, and `sort_target != KEY` with `sort_order=NONE` defaults to ASCEND).
+The `Range` handler also supports `min_mod_revision`,
 `max_mod_revision`, `min_create_revision`, and `max_create_revision` filters (fields 10–13),
 which allow filtering results by revision range before sorting and applying limits.
 The `RangeResponse` kvs field correctly uses
@@ -765,7 +767,8 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `LeaseGrant duplicate ID` (re-granting an existing custom ID fails at the RPC layer instead of returning success with `ID=0`),
 `LeaseGrant MaxLeaseTTL` (`TTL > 9000000000` fails at the RPC layer; boundary value still succeeds),
 `ErrEmptyKey` (Put/Range/DeleteRange and Txn reject missing or zero-length keys; `"\0"` len=1 still allowed),
-`ErrValueProvided` / `ErrLeaseProvided` (`ignore_value`+value / `ignore_lease`+lease fail at the RPC layer)
+`ErrValueProvided` / `ErrLeaseProvided` (`ignore_value`+value / `ignore_lease`+lease fail at the RPC layer),
+`ErrInvalidSortOption` (Range/Txn reject illegal sort_order/sort_target; NONE+non-KEY defaults to ASCEND)
 
 ---
 

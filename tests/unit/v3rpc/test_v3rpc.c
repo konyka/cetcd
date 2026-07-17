@@ -3466,6 +3466,41 @@ CETCD_TEST_CASE(v3rpc_range_kvs_correct_tag) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_range_invalid_sort_option) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    uint8_t put_buf[16]; size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 2;
+    memcpy(put_buf + pos, "a1", 2); pos += 2;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 1; put_buf[pos++] = 'x';
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&r);
+
+    /* sort_order=ASCEND, sort_target=99 → ErrInvalidSortOption */
+    uint8_t range_buf[32]; pos = 0;
+    range_buf[pos++] = 0x0a; range_buf[pos++] = 2;
+    memcpy(range_buf + pos, "a1", 2); pos += 2;
+    range_buf[pos++] = 0x12; range_buf[pos++] = 2;
+    memcpy(range_buf + pos, "a2", 2); pos += 2;
+    range_buf[pos++] = 0x28; range_buf[pos++] = 0x01; /* ASCEND */
+    range_buf[pos++] = 0x30; range_buf[pos++] = 0x63; /* target=99 */
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_buf, pos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* sort_order=3 (invalid) → fail */
+    pos = 0;
+    range_buf[pos++] = 0x0a; range_buf[pos++] = 2;
+    memcpy(range_buf + pos, "a1", 2); pos += 2;
+    range_buf[pos++] = 0x28; range_buf[pos++] = 0x03;
+    range_buf[pos++] = 0x30; range_buf[pos++] = 0x04; /* VALUE */
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_buf, pos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_range_sort_order) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -5099,6 +5134,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_watch_has_header),
     CETCD_TEST_ENTRY(v3rpc_watch_event_kv_correct_fields),
     CETCD_TEST_ENTRY(v3rpc_range_kvs_correct_tag),
+    CETCD_TEST_ENTRY(v3rpc_range_invalid_sort_option),
     CETCD_TEST_ENTRY(v3rpc_range_sort_order),
     CETCD_TEST_ENTRY(v3rpc_watch_cancel_has_header),
     CETCD_TEST_ENTRY(v3rpc_range_more_correct_tag),

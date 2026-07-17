@@ -333,6 +333,19 @@ static int range_sort_cmp(const void *a, const void *b, void *ctx) {
     return cmp;
 }
 
+/* etcd ErrInvalidSortOption: sort_order ∈ [0,2], sort_target ∈ [0,4]. */
+static int range_sort_options_valid_(int sort_order, int sort_target) {
+    if ((unsigned)sort_order > 2u) return 0;
+    if ((unsigned)sort_target > 4u) return 0;
+    return 1;
+}
+
+/* etcd apply: sort_target != KEY with sort_order=NONE defaults to ASCEND. */
+static void range_sort_apply_defaults_(int *sort_order, int sort_target) {
+    if (sort_order && *sort_order == 0 && sort_target != 0)
+        *sort_order = 1;
+}
+
 cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
     size_t pos = 0;
@@ -385,6 +398,12 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
         if (range_end) free(range_end);
         return (cetcd_rpc_bytes){NULL, 0};
     }
+    if (!range_sort_options_valid_(sort_order, sort_target)) {
+        if (key) free(key);
+        if (range_end) free(range_end);
+        return (cetcd_rpc_bytes){NULL, 0};
+    }
+    range_sort_apply_defaults_(&sort_order, sort_target);
 
     /* Build RangeResponse:
      *   field 1 (header) = ResponseHeader (with revision)
@@ -1390,6 +1409,13 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                 free(resp);
                 goto txn_cleanup; /* etcd ErrEmptyKey */
             }
+            if (!range_sort_options_valid_(rsort_order, rsort_target)) {
+                if (rkey) free(rkey);
+                if (rrange_end) free(rrange_end);
+                free(resp);
+                goto txn_cleanup; /* etcd ErrInvalidSortOption */
+            }
+            range_sort_apply_defaults_(&rsort_order, rsort_target);
 
             /* Query MVCC store */
             size_t rng_count = 0;
