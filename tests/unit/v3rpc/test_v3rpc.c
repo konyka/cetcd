@@ -279,36 +279,11 @@ CETCD_TEST_CASE(v3rpc_lease_grant_custom_id) {
     cetcd_rpc_bytes_free(&resp);
     CETCD_ASSERT_EQ_INT((int)lease_id, 0xDEAD);
 
-    /* Duplicate custom ID fails closed (response ID 0). */
+    /* Duplicate custom ID → RPC failure (etcd lease already exists). */
     resp = cetcd_v3rpc_dispatch(rpc,
         "/etcdserverpb.Lease/LeaseGrant", grant_buf, pos);
-    CETCD_ASSERT_NOT_NULL(resp.data);
-    lease_id = -1;
-    rpos = 0;
-    while (rpos < resp.len) {
-        uint8_t tag = resp.data[rpos++];
-        if (tag == 0x0a) {
-            uint64_t l = 0; int shift = 0;
-            while (rpos < resp.len) {
-                uint8_t b = resp.data[rpos++];
-                l |= (uint64_t)(b & 0x7F) << shift;
-                if ((b & 0x80) == 0) break;
-                shift += 7;
-            }
-            rpos += (size_t)l;
-        } else {
-            uint64_t v = 0; int shift = 0;
-            while (rpos < resp.len) {
-                uint8_t b = resp.data[rpos++];
-                v |= (uint64_t)(b & 0x7F) << shift;
-                if ((b & 0x80) == 0) break;
-                shift += 7;
-            }
-            if (tag == 0x10) { lease_id = (int64_t)v; break; }
-        }
-    }
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
     cetcd_rpc_bytes_free(&resp);
-    CETCD_ASSERT_EQ_INT((int)lease_id, 0);
 
     cetcd_v3rpc_free(rpc);
 }
