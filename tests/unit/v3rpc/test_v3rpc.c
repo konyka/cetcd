@@ -432,6 +432,22 @@ CETCD_TEST_CASE(v3rpc_lease_revoke) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_lease_revoke_nonexistent) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Revoke never-granted lease → RPC failure (etcd NotFound) */
+    uint8_t revoke_buf[8];
+    size_t pos = 0;
+    revoke_buf[pos++] = 0x08; /* field 1 = ID */
+    revoke_buf[pos++] = 0x63; /* ID = 99 */
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseRevoke", revoke_buf, pos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_lease_keep_alive) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -4914,6 +4930,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_auth_enable_disable),
     CETCD_TEST_ENTRY(v3rpc_auth_user_add_authenticate),
     CETCD_TEST_ENTRY(v3rpc_lease_revoke),
+    CETCD_TEST_ENTRY(v3rpc_lease_revoke_nonexistent),
     CETCD_TEST_ENTRY(v3rpc_lease_keep_alive),
     CETCD_TEST_ENTRY(v3rpc_lease_time_to_live),
     CETCD_TEST_ENTRY(v3rpc_lease_time_to_live_missing),

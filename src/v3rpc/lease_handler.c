@@ -105,17 +105,20 @@ cetcd_rpc_bytes lease_handle_revoke(cetcd_v3rpc *rpc, const uint8_t *req, size_t
             if (pos < req_len) pos++;
         }
     }
-    if (id > 0 && g_rpc_lease_mgr) {
-        /* Match etcd: revoke deletes all keys attached to the lease. */
-        const uint8_t *const *keys = NULL;
-        const size_t *key_lens = NULL;
-        size_t n = cetcd_lease_keys(g_rpc_lease_mgr, (cetcd_lease_id)id,
-                                    &keys, &key_lens);
-        if (g_rpc_store && keys && key_lens) {
-            cetcd_mvcc_delete_keys(g_rpc_store, keys, key_lens, n);
-        }
-        cetcd_lease_revoke(g_rpc_lease_mgr, (cetcd_lease_id)id);
+    if (id <= 0 || !g_rpc_lease_mgr)
+        return (cetcd_rpc_bytes){NULL, 0};
+
+    /* Match etcd: revoke deletes all keys attached to the lease. */
+    const uint8_t *const *keys = NULL;
+    const size_t *key_lens = NULL;
+    size_t n = cetcd_lease_keys(g_rpc_lease_mgr, (cetcd_lease_id)id,
+                                &keys, &key_lens);
+    if (g_rpc_store && keys && key_lens) {
+        cetcd_mvcc_delete_keys(g_rpc_store, keys, key_lens, n);
     }
+    if (cetcd_lease_revoke(g_rpc_lease_mgr, (cetcd_lease_id)id) != CETCD_OK)
+        return (cetcd_rpc_bytes){NULL, 0}; /* etcd NotFound for missing lease */
+
     /* LeaseRevokeResponse: header with revision */
     int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
     uint8_t hdr_buf[32];
