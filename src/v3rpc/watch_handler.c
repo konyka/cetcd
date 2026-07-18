@@ -691,6 +691,12 @@ cetcd_rpc_bytes watch_handle_watch(cetcd_v3rpc *rpc,
     watch_request_parsed p;
     parse_watch_request(req, req_len, &p);
 
+    /* etcd ErrEmptyKey: WatchCreate requires key len > 0 ("\0" len=1 is valid). */
+    if (p.is_create && (!p.key || p.key_len == 0)) {
+        free_watch_request_parsed(&p);
+        return (cetcd_rpc_bytes){NULL, 0};
+    }
+
     cetcd_rpc_bytes out;
     if (g_rpc_stream_write_fn) {
         out = handle_streaming_watch(&p);

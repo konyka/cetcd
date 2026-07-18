@@ -329,6 +329,42 @@ CETCD_TEST_CASE(v3rpc_empty_key_rejected) {
         cetcd_rpc_bytes_free(&r);
     }
 
+    /* WatchCreate with empty key → RPC failure (etcd ErrEmptyKey) */
+    {
+        uint8_t create_inner[8]; size_t cpos = 0;
+        create_inner[cpos++] = 0x0a; create_inner[cpos++] = 0x00; /* key="" */
+        uint8_t watch_buf[16]; size_t wpos = 0;
+        watch_buf[wpos++] = 0x0a;
+        watch_buf[wpos++] = (uint8_t)cpos;
+        memcpy(watch_buf + wpos, create_inner, cpos); wpos += cpos;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Watch/Watch", watch_buf, wpos);
+        CETCD_ASSERT_TRUE(r.data == NULL || r.len == 0);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* WatchCreate missing key field → RPC failure */
+    {
+        uint8_t watch_buf[8]; size_t wpos = 0;
+        watch_buf[wpos++] = 0x0a; /* create request */
+        watch_buf[wpos++] = 0x00; /* empty WatchCreateRequest */
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Watch/Watch", watch_buf, wpos);
+        CETCD_ASSERT_TRUE(r.data == NULL || r.len == 0);
+        cetcd_rpc_bytes_free(&r);
+    }
+
+    /* WatchCreate key="\0" (len=1) remains valid */
+    {
+        uint8_t create_inner[8]; size_t cpos = 0;
+        create_inner[cpos++] = 0x0a; create_inner[cpos++] = 0x01; create_inner[cpos++] = 0x00;
+        uint8_t watch_buf[16]; size_t wpos = 0;
+        watch_buf[wpos++] = 0x0a;
+        watch_buf[wpos++] = (uint8_t)cpos;
+        memcpy(watch_buf + wpos, create_inner, cpos); wpos += cpos;
+        cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Watch/Watch", watch_buf, wpos);
+        CETCD_ASSERT_NOT_NULL(r.data);
+        cetcd_rpc_bytes_free(&r);
+    }
+
     cetcd_v3rpc_free(rpc);
 }
 

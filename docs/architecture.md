@@ -501,9 +501,9 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `snapshot status -w table` (explicit table format parsing for snapshot status, matching etcdctl behavior)
 
 The KV RPC handlers have been fully implemented: empty keys (`key` missing or `len == 0`)
-are rejected at the RPC layer for `Put` / `Range` / `DeleteRange` and Txn nested ops /
-compares — matching etcd `ErrEmptyKey` (`key is not provided`). A single-byte `"\0"` key
-remains valid (FromKey / all-keys scans). `Range` queries the MVCC store and returns
+are rejected at the RPC layer for `Put` / `Range` / `DeleteRange`, Txn nested ops /
+compares, and `WatchCreate` — matching etcd `ErrEmptyKey` (`key is not provided`).
+A single-byte `"\0"` key remains valid (FromKey / all-keys scans / Watch). `Range` queries the MVCC store and returns
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
 `range_end`), `Put` returns a proper `PutResponse` with header revision; an omitted protobuf
 `value` field is treated as empty bytes (matching etcd proto3) and still writes
@@ -773,7 +773,7 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `Compact future revision` (`revision > current` fails at the RPC layer instead of a silent success),
 `LeaseGrant duplicate ID` (re-granting an existing custom ID fails at the RPC layer instead of returning success with `ID=0`),
 `LeaseGrant MaxLeaseTTL` (`TTL > 9000000000` fails at the RPC layer; boundary value still succeeds),
-`ErrEmptyKey` (Put/Range/DeleteRange and Txn reject missing or zero-length keys; `"\0"` len=1 still allowed),
+`ErrEmptyKey` (Put/Range/DeleteRange/Txn/WatchCreate reject missing or zero-length keys; `"\0"` len=1 still allowed),
 `ErrValueProvided` / `ErrLeaseProvided` (`ignore_value`+value / `ignore_lease`+lease fail at the RPC layer),
 `ErrInvalidSortOption` (Range/Txn reject illegal sort_order/sort_target; NONE+non-KEY defaults to ASCEND),
 `ErrTooManyOps` (Txn rejects more than 128 compares/success/failure ops instead of truncating),
