@@ -562,7 +562,10 @@ range-based comparisons where all keys in [key, range_end) must satisfy the cond
 The `Compact` and `LeaseRevoke` responses include proper
 `ResponseHeader` with the current revision. `Compact` with a revision ahead of
 the store (`revision > current`) fails at the RPC layer — matching etcd
-ErrFutureRev — instead of returning a successful no-op. `LeaseRevoke` of a
+ErrFutureRev — instead of returning a successful no-op. `Compact` with a
+revision at or below the current compact boundary
+(`revision <= compacted_rev`) likewise fails — matching etcd ErrCompacted —
+instead of returning a successful no-op. `LeaseRevoke` of a
 missing or invalid lease ID fails at the RPC layer (empty response) instead of
 returning a successful header-only response — matching etcd NotFound. The
 `Snapshot` response includes a `ResponseHeader`.
@@ -771,6 +774,7 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `Range compacted revision` (`revision < compacted_rev` fails at the RPC layer; was previously a silent empty success),
 `LeaseRevoke missing lease` (non-existent / invalid ID returns RPC failure instead of a success response),
 `Compact future revision` (`revision > current` fails at the RPC layer instead of a silent success),
+`Compact already compacted` (`revision <= compacted_rev` fails at the RPC layer instead of a silent success),
 `LeaseGrant duplicate ID` (re-granting an existing custom ID fails at the RPC layer instead of returning success with `ID=0`),
 `LeaseGrant MaxLeaseTTL` (`TTL > 9000000000` fails at the RPC layer; boundary value still succeeds),
 `ErrEmptyKey` (Put/Range/DeleteRange/Txn/WatchCreate reject missing or zero-length keys; `"\0"` len=1 still allowed),

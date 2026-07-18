@@ -270,6 +270,9 @@ CETCD_TEST_CASE(mvcc_compact) {
 
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_compact(s, 99), CETCD_ERR_INVAL);
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_compact(s, 0), CETCD_ERR_INVAL);
+    /* Compact again at/below compacted_rev → ErrCompacted */
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_compact(s, 2), CETCD_ERR_RANGE);
+    CETCD_ASSERT_EQ_INT(cetcd_mvcc_compact(s, 1), CETCD_ERR_RANGE);
 
     cetcd_mvcc_store_free(s);
 }

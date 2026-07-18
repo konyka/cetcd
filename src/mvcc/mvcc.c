@@ -1028,7 +1028,9 @@ int cetcd_mvcc_watch_recv(cetcd_mvcc_watch_notify *notify,
 int cetcd_mvcc_compact(cetcd_mvcc_store *s, int64_t compact_rev) {
     if (!s || compact_rev <= 0) return CETCD_ERR_INVAL;
     if (compact_rev > s->main_rev) return CETCD_ERR_INVAL;
-    if (compact_rev <= s->compacted_rev) return CETCD_OK;
+    /* Already at or past this boundary — etcd ErrCompacted (not a no-op success). */
+    if (s->compacted_rev > 0 && compact_rev <= s->compacted_rev)
+        return CETCD_ERR_RANGE;
 
     /* Fail-closed: persist compact boundary before trimming history. */
     if (s->backend) {
