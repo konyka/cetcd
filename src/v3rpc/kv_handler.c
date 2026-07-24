@@ -1694,7 +1694,10 @@ cetcd_rpc_bytes kv_handle_compact(cetcd_v3rpc *rpc, const uint8_t *req, size_t r
             read_varint(req, req_len, &pos, &skip);
         }
     }
-    if (compact_rev > 0 && g_rpc_store) {
+    /* revision<=0 (omitted / zero): etcd treats as ErrCompacted (rev<=compactMainRev). */
+    if (!g_rpc_store)
+        return (cetcd_rpc_bytes){NULL, 0};
+    {
         int rc = cetcd_mvcc_compact(g_rpc_store, compact_rev);
         if (rc != CETCD_OK)
             return (cetcd_rpc_bytes){NULL, 0}; /* ErrFutureRev / ErrCompacted / invalid */

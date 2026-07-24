@@ -933,6 +933,25 @@ CETCD_TEST_CASE(v3rpc_compact_already_compacted) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_compact_zero_revision) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* Empty CompactRequest (revision=0) must fail — etcd ErrCompacted. */
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Compact", NULL, 0);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* Explicit revision=0 likewise fails (was a silent success). */
+    uint8_t compact_buf[4]; size_t pos = 0;
+    compact_buf[pos++] = 0x08;
+    compact_buf[pos++] = 0x00;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Compact", compact_buf, pos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_range_revision_compacted) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -5211,6 +5230,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_kv_compact),
     CETCD_TEST_ENTRY(v3rpc_compact_future_revision),
     CETCD_TEST_ENTRY(v3rpc_compact_already_compacted),
+    CETCD_TEST_ENTRY(v3rpc_compact_zero_revision),
     CETCD_TEST_ENTRY(v3rpc_range_revision_compacted),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_list),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_add),
