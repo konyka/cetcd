@@ -727,6 +727,28 @@ CETCD_TEST_CASE(v3rpc_txn_too_many_ops) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_txn_nested_request_txn_rejected) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* success op = RequestTxn (empty nested) — must fail, not silent-skip. */
+    uint8_t nested[] = { /* empty TxnRequest */ };
+    uint8_t op[8]; size_t o = 0;
+    op[o++] = 0x22; /* RequestOp field 4 = RequestTxn */
+    op[o++] = (uint8_t)sizeof(nested);
+    memcpy(op + o, nested, sizeof(nested)); o += sizeof(nested);
+
+    uint8_t txn_buf[16]; size_t tpos = 0;
+    txn_buf[tpos++] = 0x12; /* field 2 = success */
+    txn_buf[tpos++] = (uint8_t)o;
+    memcpy(txn_buf + tpos, op, o); tpos += o;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", txn_buf, tpos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_watch) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -5280,6 +5302,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_lease_leases),
     CETCD_TEST_ENTRY(v3rpc_txn),
     CETCD_TEST_ENTRY(v3rpc_txn_too_many_ops),
+    CETCD_TEST_ENTRY(v3rpc_txn_nested_request_txn_rejected),
     CETCD_TEST_ENTRY(v3rpc_watch),
     CETCD_TEST_ENTRY(v3rpc_maintenance_status),
     CETCD_TEST_ENTRY(v3rpc_maintenance_hash),

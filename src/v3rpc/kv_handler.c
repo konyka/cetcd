@@ -1627,6 +1627,14 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                 memcpy(resp + rpos, rng_inner, rp); rpos += rp;
                 free(rng_inner);
             }
+        } else if (op_tag == 0x22) {
+            /* RequestTxn (nested): unsupported — fail closed, do not silent-skip. */
+            free(resp);
+            goto txn_cleanup;
+        } else {
+            /* Unrecognized RequestOp — fail closed. */
+            free(resp);
+            goto txn_cleanup;
         }
     }
 
