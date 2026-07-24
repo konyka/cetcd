@@ -326,7 +326,10 @@ and `next_id` advances past any custom ID to avoid collisions.
 
 All Maintenance RPC responses (`Status`, `Hash`, `HashKV`, `Defragment`, `Alarm`,
 `MoveLeader`, `Snapshot`, `Downgrade`) include a `ResponseHeader` as field 1, matching the
-etcd v3.5 proto wire format. The `DowngradeResponse` now correctly returns only a header
+etcd v3.5 proto wire format. `HashKV` honors request `revision` (field 1): `0` means
+current head; `revision < compacted_rev` or `revision > current` fails at the RPC layer
+(matching etcd `HashByRev` ErrCompacted / ErrFutureRev) instead of ignoring the field.
+The `DowngradeResponse` now correctly returns only a header
 (field 1) instead of a version string. The `Alarm` handler processes three actions: GET (list current alarms), ACTIVATE (add an
 alarm), and DEACTIVATE (remove an alarm). It supports both NOSPACE and CORRUPT alarm types
 simultaneously, with an in-memory alarm table (up to 8 entries) that allows independent
@@ -777,6 +780,7 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `Compact future revision` (`revision > current` fails at the RPC layer instead of a silent success),
 `Compact already compacted` (`revision <= compacted_rev` fails at the RPC layer instead of a silent success),
 `Compact zero revision` (omitted / `revision=0` fails at the RPC layer instead of a silent success),
+`HashKV bad revision` (`revision < compacted_rev` / `revision > current` fails at the RPC layer; was previously ignored),
 `LeaseGrant duplicate ID` (re-granting an existing custom ID fails at the RPC layer instead of returning success with `ID=0`),
 `LeaseGrant MaxLeaseTTL` (`TTL > 9000000000` fails at the RPC layer; boundary value still succeeds),
 `ErrEmptyKey` (Put/Range/DeleteRange/Txn/WatchCreate reject missing or zero-length keys; `"\0"` len=1 still allowed),

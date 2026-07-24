@@ -183,16 +183,39 @@ cetcd_rpc_bytes maint_handle_hash(cetcd_v3rpc *rpc, const uint8_t *req, size_t r
 
 /*
  * HashKV RPC.
+ * HashKVRequest:
+ *   field 1 (revision) = int64, tag = 0x08  (0 = current)
  * HashKVResponse:
  *   field 1 (header)   = ResponseHeader
  *   field 2 (hash)     = uint32, tag = 0x10
  *   field 3 (compact_revision) = int64, tag = 0x18
  */
 cetcd_rpc_bytes maint_handle_hash_kv(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
-    (void)rpc; (void)req; (void)req_len;
+    (void)rpc;
+    int64_t req_rev = 0;
+    size_t p = 0;
+    while (p < req_len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x08) {
+            uint64_t v = 0;
+            if (read_varint_m(req, req_len, &p, &v) != 0) break;
+            req_rev = (int64_t)v;
+        } else {
+            uint64_t skip = 0;
+            if (read_varint_m(req, req_len, &p, &skip) != 0) break;
+        }
+    }
 
-    int64_t rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+    int64_t current = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
     int64_t compact_rev = g_rpc_store ? cetcd_mvcc_compacted_revision(g_rpc_store) : 0;
+    /* etcd HashByRev: revision 0 → current; else ErrCompacted / ErrFutureRev. */
+    if (req_rev > 0) {
+        if (compact_rev > 0 && req_rev < compact_rev)
+            return (cetcd_rpc_bytes){NULL, 0}; /* ErrCompacted */
+        if (req_rev > current)
+            return (cetcd_rpc_bytes){NULL, 0}; /* ErrFutureRev */
+    }
+    int64_t rev = (req_rev > 0) ? req_rev : current;
     uint32_t hash = (uint32_t)(rev * 2654435761u);
 
     uint8_t buf[32];
