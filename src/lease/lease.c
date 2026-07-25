@@ -196,15 +196,28 @@ int cetcd_lease_attach_key(cetcd_lease_mgr *mgr, cetcd_lease_id id,
             return CETCD_OK;
         }
     }
-    /* ensure capacity */
+    /* ensure capacity.
+     *
+     * Grow transactionally: allocate fresh parallel arrays, copy the live
+     * entries, then free+swap. If either allocation fails the originals are
+     * left untouched. The previous paired-realloc() pattern freed the
+     * successful replacement on partial failure, leaving the corresponding
+     * field pointing at already-released storage (realloc invalidates the
+     * old pointer even when a new one is returned), so any later detach /
+     * revoke / free touched dangling memory. */
     if (l->key_count == l->key_cap) {
         size_t new_cap = (l->key_cap == 0) ? 4 : l->key_cap * 2;
-        uint8_t **new_keys = (uint8_t **)realloc(l->keys, new_cap * sizeof(uint8_t *));
-        size_t *new_lens = (size_t *)realloc(l->key_lens, new_cap * sizeof(size_t));
-        if (new_keys == NULL || new_lens == NULL) {
-            free(new_keys); free(new_lens); /* best effort */
-            return CETCD_ERR_NOMEM;
+        if (new_cap > SIZE_MAX / sizeof(uint8_t *)) return CETCD_ERR_NOMEM;
+        uint8_t **new_keys = (uint8_t **)malloc(new_cap * sizeof(uint8_t *));
+        if (!new_keys) return CETCD_ERR_NOMEM;
+        size_t *new_lens = (size_t *)malloc(new_cap * sizeof(size_t));
+        if (!new_lens) { free(new_keys); return CETCD_ERR_NOMEM; }
+        if (l->key_count) {
+            memcpy(new_keys, l->keys, l->key_count * sizeof(uint8_t *));
+            memcpy(new_lens, l->key_lens, l->key_count * sizeof(size_t));
         }
+        free(l->keys);
+        free(l->key_lens);
         l->keys = new_keys;
         l->key_lens = new_lens;
         l->key_cap = new_cap;

@@ -121,6 +121,44 @@ CETCD_TEST_CASE(lease_attach_idempotent) {
     cetcd_lease_mgr_free(mgr);
 }
 
+CETCD_TEST_CASE(lease_attach_many_growth) {
+    /* Attaching more keys than the initial capacity forces the parallel
+     * keys/key_lens arrays through several resizes. Under ASan/LSan this
+     * catches any dangling-pointer or double-free introduced by a broken
+     * resize path; detached/reused entries are then exercised to validate
+     * the shift logic after growth. */
+    cetcd_lease_mgr *mgr = cetcd_lease_mgr_new(test_expire_cb, NULL);
+    cetcd_lease_id l1 = cetcd_lease_grant(mgr, 60);
+    CETCD_ASSERT_TRUE(l1 > 0);
+
+    char keybuf[16];
+    for (int i = 0; i < 20; ++i) {
+        size_t klen = (size_t)snprintf(keybuf, sizeof(keybuf), "k-%02d", i);
+        CETCD_ASSERT_EQ_INT(cetcd_lease_attach_key(mgr, l1,
+                                    (const uint8_t *)keybuf, klen), CETCD_OK);
+    }
+    const uint8_t *const *keys = NULL;
+    const size_t *lens = NULL;
+    CETCD_ASSERT_EQ_INT((int)cetcd_lease_keys(mgr, l1, &keys, &lens), 20);
+
+    /* Detach a few from the middle/edges to exercise the post-growth shift. */
+    size_t klen = (size_t)snprintf(keybuf, sizeof(keybuf), "k-%02d", 0);
+    CETCD_ASSERT_EQ_INT(cetcd_lease_detach_key(mgr, l1,
+                                (const uint8_t *)keybuf, klen), CETCD_OK);
+    klen = (size_t)snprintf(keybuf, sizeof(keybuf), "k-%02d", 10);
+    CETCD_ASSERT_EQ_INT(cetcd_lease_detach_key(mgr, l1,
+                                (const uint8_t *)keybuf, klen), CETCD_OK);
+    klen = (size_t)snprintf(keybuf, sizeof(keybuf), "k-%02d", 19);
+    CETCD_ASSERT_EQ_INT(cetcd_lease_detach_key(mgr, l1,
+                                (const uint8_t *)keybuf, klen), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)cetcd_lease_keys(mgr, l1, &keys, &lens), 17);
+
+    CETCD_ASSERT_EQ_INT(cetcd_lease_revoke(mgr, l1), CETCD_OK);
+    CETCD_ASSERT_FALSE(cetcd_lease_exists(mgr, l1));
+
+    cetcd_lease_mgr_free(mgr);
+}
+
 CETCD_TEST_CASE(lease_revoke_nonexistent) {
     cetcd_lease_mgr *mgr = cetcd_lease_mgr_new(test_expire_cb, NULL);
     CETCD_ASSERT_NE_INT(cetcd_lease_revoke(mgr, 9999), CETCD_OK);
@@ -255,6 +293,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(lease_keep_alive),
     CETCD_TEST_ENTRY(lease_attach_detach_key),
     CETCD_TEST_ENTRY(lease_attach_idempotent),
+    CETCD_TEST_ENTRY(lease_attach_many_growth),
     CETCD_TEST_ENTRY(lease_revoke_nonexistent),
     CETCD_TEST_ENTRY(lease_granted_ttl),
     CETCD_TEST_ENTRY(lease_mgr_leases),
