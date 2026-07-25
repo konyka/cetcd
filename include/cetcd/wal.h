@@ -43,6 +43,10 @@ int cetcd_wal_encode_metadata(cetcd_wal_encoder *enc, const uint8_t *data, size_
 int cetcd_wal_encode_entry(cetcd_wal_encoder *enc, const cetcd_entry *entry);
 int cetcd_wal_encode_hard_state(cetcd_wal_encoder *enc, const cetcd_hard_state *hs);
 int cetcd_wal_encoder_flush(cetcd_wal_encoder *enc);
+/* fsync the WAL file so acknowledged records survive a crash. Returns 0 on
+ * success. This is the durability barrier callers must cross before sending
+ * Raft messages or applying entries that depend on the persisted records. */
+int cetcd_wal_encoder_sync(cetcd_wal_encoder *enc);
 
 /* ── WAL decoder ─────────────────────────────────────────────────── */
 

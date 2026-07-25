@@ -1,9 +1,15 @@
+#define _POSIX_C_SOURCE 200809L
 #include "cetcd/wal.h"
 #include "cetcd/raft.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#if defined(_WIN32)
+#  include <io.h>
+#else
+#  include <unistd.h>
+#endif
 
 struct cetcd_wal_encoder {
     FILE    *fp;
@@ -189,6 +195,16 @@ int cetcd_wal_encode_hard_state(cetcd_wal_encoder *enc, const cetcd_hard_state *
 int cetcd_wal_encoder_flush(cetcd_wal_encoder *enc) {
     if (!enc || !enc->fp) return -1;
     return fflush(enc->fp);
+}
+
+int cetcd_wal_encoder_sync(cetcd_wal_encoder *enc) {
+    if (!enc || !enc->fp) return -1;
+    if (fflush(enc->fp) != 0) return -1;
+#if defined(_WIN32)
+    return _commit(fileno(enc->fp));
+#else
+    return fsync(fileno(enc->fp));
+#endif
 }
 
 /* Record helpers */

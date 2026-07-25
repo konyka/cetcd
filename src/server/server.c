@@ -295,7 +295,9 @@ static void client_stream_write_(const uint8_t *data, size_t len, void *ctx) {
     uv_write_t *wr = (uv_write_t *)calloc(1, sizeof(uv_write_t));
     if (wr) {
         wr->data = frame;
-        uv_write(wr, stream, &wbuf, 1, stream_write_cleanup_);
+        if (uv_write(wr, stream, &wbuf, 1, stream_write_cleanup_) != 0) {
+            free(frame); free(wr);
+        }
     } else {
         free(frame);
     }
@@ -624,14 +626,16 @@ static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *
             if (out_len > 0)
                 memcpy(frame + pos, resp.data, out_len);
 
-            uv_write_t *wr = (uv_write_t *)calloc(1, sizeof(uv_write_t));
-            if (wr) {
-                wr->data = frame;
-                uv_buf_t wbuf = uv_buf_init((char *)frame, (unsigned int)total);
-                uv_write(wr, stream, &wbuf, 1, stream_write_cleanup_);
-            } else {
-                free(frame);
-            }
+    uv_write_t *wr = (uv_write_t *)calloc(1, sizeof(uv_write_t));
+    if (wr) {
+        wr->data = frame;
+        uv_buf_t wbuf = uv_buf_init((char *)frame, (unsigned int)total);
+        if (uv_write(wr, stream, &wbuf, 1, stream_write_cleanup_) != 0) {
+            free(frame); free(wr);
+        }
+    } else {
+        free(frame);
+    }
         }
         cetcd_server_rpc_result_free(&resp);
 
@@ -1172,22 +1176,27 @@ static void raft_tick_cb_(void *arg) {
 static void process_ready_(cetcd_server *srv) {
     cetcd_ready rd = cetcd_raft_ready(srv->raft);
 
-    /* Persist new entries to WAL */
+    /* Persist new entries and HardState BEFORE sending any messages or
+     * applying entries. If persistence fails we must not advertise the
+     * Ready (Raft safety: messages reference durably-stored log indices). */
+    bool persisted = true;
     if (rd.entries && rd.n_entries > 0 && srv->wal_enc) {
         for (uint32_t i = 0; i < rd.n_entries; i++) {
-            cetcd_wal_encode_entry(srv->wal_enc, &rd.entries[i]);
+            if (cetcd_wal_encode_entry(srv->wal_enc, &rd.entries[i]) != 0) {
+                persisted = false;
+                break;
+            }
         }
-        cetcd_wal_encoder_flush(srv->wal_enc);
+    }
+    if (persisted && rd.hard_state && srv->wal_enc) {
+        if (cetcd_wal_encode_hard_state(srv->wal_enc, rd.hard_state) != 0) persisted = false;
+    }
+    if (srv->wal_enc && persisted) {
+        if (cetcd_wal_encoder_sync(srv->wal_enc) != 0) persisted = false;
     }
 
-    /* Persist HardState if changed */
-    if (rd.hard_state && srv->wal_enc) {
-        cetcd_wal_encode_hard_state(srv->wal_enc, rd.hard_state);
-        cetcd_wal_encoder_flush(srv->wal_enc);
-    }
-
-    /* Send outgoing messages to peers */
-    if (rd.messages && rd.n_messages > 0) {
+    /* Send outgoing messages to peers (only after a durable WAL). */
+    if (persisted && rd.messages && rd.n_messages > 0) {
         for (uint32_t i = 0; i < rd.n_messages; i++) {
             uint8_t *wire = NULL;
             size_t wire_len = cetcd_msg_encode_wire(&rd.messages[i], &wire);
