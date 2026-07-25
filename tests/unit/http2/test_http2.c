@@ -77,6 +77,16 @@ CETCD_TEST_CASE(grpc_encode_empty_message) {
 /*  Session create/destroy (always run)                                       */
 /* ========================================================================== */
 
+CETCD_TEST_CASE(grpc_encode_rejects_huge_message) {
+    /* A message length above the uint32 gRPC Length prefix must be rejected,
+     * not silently truncated when packed into the 4-byte big-endian field. */
+    uint8_t *frame = NULL;
+    size_t frame_len = 0;
+    int rc = cetcd_grpc_encode((const uint8_t *)"x", (size_t)1 << 32, false, &frame, &frame_len);
+    CETCD_ASSERT_TRUE(rc != CETCD_OK);
+    CETCD_ASSERT_TRUE(frame == NULL);
+}
+
 CETCD_TEST_CASE(h2_session_create_destroy) {
     cetcd_h2_callbacks cbs = {0};
     cetcd_h2_session *s = cetcd_h2_session_new(&cbs);
@@ -518,6 +528,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(grpc_encode_compressed_flag),
     CETCD_TEST_ENTRY(grpc_decode_too_short),
     CETCD_TEST_ENTRY(grpc_encode_empty_message),
+    CETCD_TEST_ENTRY(grpc_encode_rejects_huge_message),
     CETCD_TEST_ENTRY(h2_session_create_destroy),
     CETCD_TEST_ENTRY(h2_session_null_safety),
     CETCD_TEST_ENTRY(h2_client_preface_and_request),

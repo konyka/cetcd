@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 #include "cetcd/tls.h"
 #include "cetcd/base.h"
@@ -89,19 +90,25 @@ int cetcd_tls_set_alpn(cetcd_tls_ctx *ctx, const char **protocols, size_t count)
         return CETCD_OK;
     }
 
-    /* Compute total length: 1-byte length per protocol + protocol bytes */
+    /* Each ALPN protocol id is a 1-byte length + bytes; the length byte is
+     * itself a uint8, so reject anything over 255 up front. The previous code
+     * computed `total` from the untruncated strlen but only wrote a truncated
+     * copy, leaving the buffer tail uninitialized and handing it to OpenSSL. */
     size_t total = 0;
     for (size_t i = 0; i < count; ++i) {
         const char *p = protocols[i];
         if (p == NULL) return CETCD_ERR_INVAL;
-        total += 1 + strlen(p);
+        size_t plen = strlen(p);
+        if (plen > 255) return CETCD_ERR_OVERFLOW;
+        if (plen > SIZE_MAX - 1 || total > SIZE_MAX - (1 + plen)) return CETCD_ERR_OVERFLOW;
+        total += 1 + plen;
     }
+    if (total > UINT_MAX) return CETCD_ERR_OVERFLOW;
     unsigned char *buf = (unsigned char *)malloc(total);
     if (buf == NULL) return CETCD_ERR_NOMEM;
     unsigned char *p = buf;
     for (size_t i = 0; i < count; ++i) {
         size_t len = strlen(protocols[i]);
-        if (len > 255) len = 255; /* ALPN protocol length is 255 max per spec */
         *p++ = (unsigned char)len;
         memcpy(p, protocols[i], len);
         p += len;

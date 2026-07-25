@@ -25,9 +25,25 @@ CETCD_TEST_CASE(tls_ctx_set_nonexistent_cert) {
     cetcd_tls_ctx_free(ctx);
 }
 
+CETCD_TEST_CASE(tls_ctx_set_alpn_rejects_overlong) {
+    /* ALPN protocol ids are length-prefixed by a single byte; an id over 255
+     * must be rejected rather than silently truncated into an undersized
+     * buffer that then leaks uninitialized memory to OpenSSL. */
+    cetcd_tls_ctx *ctx = cetcd_tls_ctx_new();
+    CETCD_ASSERT_NOT_NULL(ctx);
+    char big[300];
+    memset(big, 'a', sizeof(big) - 1);
+    big[sizeof(big) - 1] = '\0';
+    const char *protos[] = { big };
+    int rc = cetcd_tls_set_alpn(ctx, protos, 1);
+    CETCD_ASSERT_NE_INT(rc, CETCD_OK);
+    cetcd_tls_ctx_free(ctx);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(tls_ctx_create_destroy),
     CETCD_TEST_ENTRY(tls_ctx_set_alpn),
+    CETCD_TEST_ENTRY(tls_ctx_set_alpn_rejects_overlong),
     CETCD_TEST_ENTRY(tls_ctx_set_nonexistent_cert),
 CETCD_TEST_LIST_END
 

@@ -43,7 +43,10 @@ static int read_bytes_field(const uint8_t *buf, size_t len, size_t *pos,
                             uint8_t **out, size_t *out_len) {
     uint64_t l = 0;
     if (read_varint(buf, len, pos, &l) != 0) return -1;
-    if (*pos + l > len) return -1;
+    /* Bounds-check with subtraction so a huge attacker-controlled `l`
+     * cannot wrap `*pos + l` past SIZE_MAX and slip the check. */
+    if (l > len - *pos) return -1;
+    if (l > SIZE_MAX - 1) return -1;
     uint8_t *p = (uint8_t *)malloc((size_t)l + 1);
     if (!p) return -1;
     memcpy(p, buf + *pos, (size_t)l);

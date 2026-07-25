@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 /* ============================================================================ */
 /*  gRPC framing helpers (always available)                                     */
@@ -10,11 +11,14 @@
 int cetcd_grpc_encode(const uint8_t *msg, size_t msg_len,
                      bool compressed, uint8_t **out, size_t *out_len) {
     if (out == NULL || out_len == NULL) return CETCD_ERR_INVAL;
+    /* The gRPC Length prefix is an unsigned 32-bit value; reject anything
+     * larger so we never silently truncate msg_len when packing it. */
+    if (msg_len > UINT32_MAX) return CETCD_ERR_OVERFLOW;
+    if (msg_len > SIZE_MAX - 5) return CETCD_ERR_OVERFLOW;
     size_t total = 1 + 4 + msg_len;
     uint8_t *buf = (uint8_t *)malloc(total);
     if (buf == NULL) return CETCD_ERR_NOMEM;
     buf[0] = compressed ? 1 : 0;
-    /* big-endian length */
     uint32_t be_len = (uint32_t)msg_len;
     buf[1] = (be_len >> 24) & 0xff;
     buf[2] = (be_len >> 16) & 0xff;
