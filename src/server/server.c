@@ -56,15 +56,12 @@ struct cetcd_server {
     int                  peer_fd;
     bool                 started;
     bool                 metrics_listener_init;
-    /* Cached outbound peer sockets (id → fd), reused across messages. */
-    struct {
-        uint64_t id;
-        int      fd;
-    } peer_conns[CETCD_MAX_INITIAL_PEERS];
-    uint32_t             n_peer_conns;
+    /* Nonblocking per-peer outbound transport (loop-thread only). */
+    struct peer_tx_     *peer_txs;
+    uint32_t             n_peer_txs;
+    uint64_t             peer_drops;
 };
 
-static int  ensure_dir(const char *path);
 static void raft_tick_cb_(void *arg);
 static void process_ready_(cetcd_server *srv);
 static void peer_send_cb_(uint64_t to_id, const uint8_t *data, size_t len, void *udata);
@@ -75,19 +72,176 @@ static void lease_expire_cb_(cetcd_lease_id id,
                               const size_t *key_lens,
                               size_t count,
                               void *udata);
-static void close_peer_conns_(cetcd_server *srv);
 
 /* --- Streaming watch support --- */
 
-static void close_peer_conns_(cetcd_server *srv) {
-    if (!srv) return;
-    for (uint32_t i = 0; i < srv->n_peer_conns; i++) {
-        if (srv->peer_conns[i].fd >= 0)
-            cetcd_close_socket(srv->peer_conns[i].fd);
-        srv->peer_conns[i].fd = -1;
-        srv->peer_conns[i].id = 0;
+/* --- Nonblocking per-peer outbound transport ----------------------------
+ *
+ * Runs entirely on the libuv loop thread (peer_send_cb_ is invoked from
+ * process_ready_, which runs in the loop), so the state below needs no
+ * locking. Each peer owns a uv_tcp_t connection that is lazily established
+ * on the first outbound frame and reconnected after failures. Frames are
+ * heap-owned until their uv_write callback fires.
+ *
+ * Backpressure: the outbound queue is capped at CETCD_PEER_SENDQ_MAX. On
+ * overflow the new frame is dropped and counted (peer_drops). This is safe
+ * for Raft: unacked log entries are retransmitted by the next MsgApp, and a
+ * peer stuck at the cap is a snapshot candidate anyway. Framing is never
+ * corrupted (each frame is whole and length-prefixed). */
+
+#define CETCD_PEER_SENDQ_MAX 256
+
+typedef enum {
+    PEER_TX_IDLE = 0,
+    PEER_TX_CONNECTING,
+    PEER_TX_CONNECTED,
+    PEER_TX_CLOSING,
+} peer_tx_state_;
+
+typedef struct peer_out_frame_ {
+    struct peer_out_frame_ *next;
+    uint8_t                *data;
+    size_t                  len;
+} peer_out_frame_;
+
+typedef struct peer_tx_ {
+    cetcd_server     *srv;
+    uint64_t          id;
+    uv_tcp_t          tcp;
+    uv_connect_t      connect_req;
+    uv_write_t        write_req;
+    peer_out_frame_  *head;
+    peer_out_frame_  *tail;
+    peer_out_frame_  *writing;
+    uint32_t          depth;
+    peer_tx_state_    state;
+    bool              tcp_init;
+    bool              write_inflight;
+    bool              shutting_down;
+} peer_tx_;
+
+static void on_peer_tx_connect_(uv_connect_t *req, int status);
+static void on_peer_tx_write_(uv_write_t *req, int status);
+static void on_peer_tx_close_(uv_handle_t *handle);
+static void peer_tx_drain_(peer_tx_ *tx);
+static void peer_tx_close_(peer_tx_ *tx);
+
+static peer_tx_ *peer_tx_get_(cetcd_server *srv, uint64_t id) {
+    for (uint32_t i = 0; i < srv->n_peer_txs; i++) {
+        if (srv->peer_txs[i].id == id) return &srv->peer_txs[i];
     }
-    srv->n_peer_conns = 0;
+    if (srv->n_peer_txs >= CETCD_MAX_INITIAL_PEERS) return NULL;
+    const cetcd_peer_info *pi = cetcd_cluster_get_peer(srv->cluster, id);
+    if (!pi) return NULL;
+    peer_tx_ *tx = &srv->peer_txs[srv->n_peer_txs];
+    memset(tx, 0, sizeof(*tx));
+    tx->srv = srv;
+    tx->id = id;
+    tx->state = PEER_TX_IDLE;
+    srv->n_peer_txs++;
+    return tx;
+}
+
+static void peer_tx_connect_(peer_tx_ *tx) {
+    if (tx->state != PEER_TX_IDLE || tx->shutting_down) return;
+    if (!tx->tcp_init) {
+        if (uv_tcp_init(cetcd_loop_uv(tx->srv->loop), &tx->tcp) != 0) return;
+        tx->tcp.data = tx;
+        tx->tcp_init = true;
+    }
+    const cetcd_peer_info *pi = cetcd_cluster_get_peer(tx->srv->cluster, tx->id);
+    if (!pi) return;
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(pi->port);
+    if (inet_pton(AF_INET, pi->addr, &sa.sin_addr) != 1) return;
+    tx->connect_req.data = tx;
+    if (uv_tcp_connect(&tx->connect_req, &tx->tcp, (const struct sockaddr *)&sa,
+                       on_peer_tx_connect_) == 0) {
+        tx->state = PEER_TX_CONNECTING;
+    }
+}
+
+static void peer_tx_drain_(peer_tx_ *tx) {
+    if (tx->write_inflight || tx->state != PEER_TX_CONNECTED || !tx->head) return;
+    peer_out_frame_ *f = tx->head;
+    tx->head = f->next;
+    if (!tx->head) tx->tail = NULL;
+    tx->writing = f;
+    tx->write_inflight = true;
+    uv_buf_t wb = uv_buf_init((char *)f->data, (unsigned int)f->len);
+    tx->write_req.data = tx;
+    if (uv_write(&tx->write_req, (uv_stream_t *)&tx->tcp, &wb, 1, on_peer_tx_write_) != 0) {
+        tx->write_inflight = false;
+        free(f->data); free(f); tx->writing = NULL;
+        peer_tx_close_(tx);
+    }
+}
+
+static void peer_tx_close_(peer_tx_ *tx) {
+    if (tx->state == PEER_TX_CLOSING || !tx->tcp_init) {
+        tx->state = PEER_TX_IDLE;
+        return;
+    }
+    tx->state = PEER_TX_CLOSING;
+    uv_close((uv_handle_t *)&tx->tcp, on_peer_tx_close_);
+}
+
+static void on_peer_tx_connect_(uv_connect_t *req, int status) {
+    peer_tx_ *tx = (peer_tx_ *)req->data;
+    if (!tx) return;
+    if (tx->shutting_down) { peer_tx_close_(tx); return; }
+    if (status != 0) { peer_tx_close_(tx); return; }
+    tx->state = PEER_TX_CONNECTED;
+    peer_tx_drain_(tx);
+}
+
+static void on_peer_tx_write_(uv_write_t *req, int status) {
+    peer_tx_ *tx = (peer_tx_ *)req->data;
+    if (!tx) return;
+    if (tx->writing) { free(tx->writing->data); free(tx->writing); tx->writing = NULL; }
+    tx->write_inflight = false;
+    if (status < 0 || tx->shutting_down) {
+        peer_tx_close_(tx);
+        return;
+    }
+    peer_tx_drain_(tx);
+}
+
+static void on_peer_tx_close_(uv_handle_t *handle) {
+    peer_tx_ *tx = (peer_tx_ *)handle->data;
+    if (!tx) return;
+    tx->state = PEER_TX_IDLE;
+    tx->tcp_init = false;
+    if (!tx->shutting_down && tx->head) peer_tx_connect_(tx);
+}
+
+static void peer_tx_shutdown_all_(cetcd_server *srv) {
+    if (!srv || !srv->peer_txs) return;
+    for (uint32_t i = 0; i < srv->n_peer_txs; i++) {
+        peer_tx_ *tx = &srv->peer_txs[i];
+        tx->shutting_down = true;
+        peer_out_frame_ *f = tx->head;
+        while (f) {
+            peer_out_frame_ *n = f->next;
+            free(f->data); free(f);
+            f = n;
+        }
+        tx->head = tx->tail = NULL;
+        tx->depth = 0;
+        if (tx->tcp_init && tx->state != PEER_TX_CLOSING) {
+            tx->state = PEER_TX_CLOSING;
+            uv_close((uv_handle_t *)&tx->tcp, on_peer_tx_close_);
+        }
+    }
+}
+
+static void peer_tx_free_all_(cetcd_server *srv) {
+    if (!srv) return;
+    free(srv->peer_txs);
+    srv->peer_txs = NULL;
+    srv->n_peer_txs = 0;
 }
 
 static void lease_expire_cb_(cetcd_lease_id id,
@@ -524,59 +678,32 @@ static void on_client_conn_(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
 static void peer_send_cb_(uint64_t to_id, const uint8_t *data, size_t len, void *udata) {
     cetcd_server *srv = (cetcd_server *)udata;
     if (!srv || !srv->cluster || len == 0) return;
-    const cetcd_peer_info *pi = cetcd_cluster_get_peer(srv->cluster, to_id);
-    if (!pi) return;
+    peer_tx_ *tx = peer_tx_get_(srv, to_id);
+    if (!tx) return;
+    if (tx->depth >= CETCD_PEER_SENDQ_MAX) {
+        /* Bounded backpressure: drop and count. Raft retransmits unacked
+         * entries, so this never loses committed data. */
+        srv->peer_drops++;
+        if (srv->metrics) cetcd_metrics_counter(srv->metrics, "raft_peer_send_dropped_total", 1);
+        return;
+    }
+    peer_out_frame_ *f = (peer_out_frame_ *)malloc(sizeof(*f));
+    if (!f) return;
+    f->next = NULL;
+    f->len = 4 + len;
+    f->data = (uint8_t *)malloc(f->len);
+    if (!f->data) { free(f); return; }
+    f->data[0] = (uint8_t)((len >> 24) & 0xFF);
+    f->data[1] = (uint8_t)((len >> 16) & 0xFF);
+    f->data[2] = (uint8_t)((len >> 8) & 0xFF);
+    f->data[3] = (uint8_t)(len & 0xFF);
+    memcpy(f->data + 4, data, len);
+    if (tx->tail) tx->tail->next = f; else tx->head = f;
+    tx->tail = f;
+    tx->depth++;
 
-    /* Reuse a cached TCP connection when possible. */
-    int fd = -1;
-    uint32_t slot = UINT32_MAX;
-    for (uint32_t i = 0; i < srv->n_peer_conns; i++) {
-        if (srv->peer_conns[i].id == to_id) {
-            fd = srv->peer_conns[i].fd;
-            slot = i;
-            break;
-        }
-    }
-    if (fd < 0) {
-        fd = socket(AF_INET, SOCK_STREAM, 0);
-        if (fd < 0) return;
-#if !defined(_WIN32)
-        int one = 1;
-        setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
-#endif
-        struct sockaddr_in sa;
-        memset(&sa, 0, sizeof(sa));
-        sa.sin_family = AF_INET;
-        sa.sin_port = htons(pi->port);
-        inet_pton(AF_INET, pi->addr, &sa.sin_addr);
-        if (connect(fd, (struct sockaddr *)&sa, sizeof(sa)) != 0) {
-            cetcd_close_socket(fd);
-            return;
-        }
-        if (srv->n_peer_conns < CETCD_MAX_INITIAL_PEERS) {
-            slot = srv->n_peer_conns++;
-            srv->peer_conns[slot].id = to_id;
-            srv->peer_conns[slot].fd = fd;
-        }
-    }
-
-    uint8_t hdr[4];
-    hdr[0] = (uint8_t)((len >> 24) & 0xFF);
-    hdr[1] = (uint8_t)((len >> 16) & 0xFF);
-    hdr[2] = (uint8_t)((len >> 8) & 0xFF);
-    hdr[3] = (uint8_t)(len & 0xFF);
-    ssize_t n1 = send(fd, hdr, 4, CETCD_MSG_NOSIGNAL);
-    ssize_t n2 = (n1 == 4) ? send(fd, data, len, CETCD_MSG_NOSIGNAL) : -1;
-    if (n1 != 4 || n2 != (ssize_t)len) {
-        /* Drop broken connection so the next send reconnects. */
-        cetcd_close_socket(fd);
-        if (slot < srv->n_peer_conns) {
-            srv->peer_conns[slot] = srv->peer_conns[--srv->n_peer_conns];
-        }
-    } else if (slot == UINT32_MAX) {
-        /* Cache full: close ephemeral connection after one-shot send. */
-        cetcd_close_socket(fd);
-    }
+    if (tx->state == PEER_TX_IDLE) peer_tx_connect_(tx);
+    else if (tx->state == PEER_TX_CONNECTED) peer_tx_drain_(tx);
 }
 
 static void on_peer_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf);
@@ -717,6 +844,9 @@ cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
     srv->rpc = cetcd_v3rpc_new();
     if (!srv->rpc) { free(srv); return NULL; }
 
+    srv->peer_txs = (struct peer_tx_ *)calloc(CETCD_MAX_INITIAL_PEERS, sizeof(peer_tx_));
+    if (!srv->peer_txs) { cetcd_v3rpc_free(srv->rpc); free(srv); return NULL; }
+
     cetcd_raft_config raft_cfg = {
         .id = cfg->node_id,
         .election_tick = cfg->election_tick ? cfg->election_tick : 10,
@@ -756,7 +886,7 @@ cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
 
 void cetcd_server_free(cetcd_server *srv) {
     if (!srv) return;
-    close_peer_conns_(srv);
+    peer_tx_shutdown_all_(srv);
     if (srv->tick_timer) { cetcd_timer_stop(srv->tick_timer); cetcd_timer_free(srv->tick_timer); }
     if (srv->peer_listener) { cetcd_tcp_free(srv->peer_listener); srv->peer_listener = NULL; }
     if (srv->listener) { cetcd_tcp_free(srv->listener); srv->listener = NULL; }
@@ -765,6 +895,7 @@ void cetcd_server_free(cetcd_server *srv) {
         srv->metrics_listener_init = false;
     }
     if (srv->loop) { cetcd_loop_free(srv->loop); srv->loop = NULL; }
+    peer_tx_free_all_(srv);
     if (srv->wal_enc) { cetcd_wal_encoder_flush(srv->wal_enc); cetcd_wal_encoder_free(srv->wal_enc); }
     if (srv->backend) cetcd_backend_close(srv->backend);
     if (srv->cluster) cetcd_cluster_free(srv->cluster);
