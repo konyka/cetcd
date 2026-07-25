@@ -1223,7 +1223,7 @@ static void process_ready_(cetcd_server *srv) {
          * This is a simplified apply — in production, entries would go through Raft consensus
          * and be applied in order. */
         extern cetcd_mvcc_store *g_rpc_store;
-        if (g_rpc_store && rd.entries) {
+        if (persisted && g_rpc_store && rd.entries) {
             for (uint32_t i = 0; i < rd.n_entries; i++) {
                 if (rd.entries[i].type != CETCD_ENTRY_NORMAL) continue;
                 if (rd.entries[i].index > rd.committed) break;
