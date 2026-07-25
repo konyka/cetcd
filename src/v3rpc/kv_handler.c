@@ -939,29 +939,17 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                 cetcd_kv *rkv = NULL; size_t rn = 0;
                 cetcd_mvcc_range(g_rpc_store, 0, c->key, c->key_len,
                                  c->range_end, c->range_end_len, &rkv, &rn);
-                cmp_ok = true; /* vacuously true if no keys */
-                for (size_t j = 0; j < rn; j++) {
-                    if (c->target == 3) { /* VALUE */
-                        int cmp = 0;
-                        size_t min_len = rkv[j].value.len < c->value_len ? rkv[j].value.len : c->value_len;
-                        if (min_len > 0) cmp = memcmp(rkv[j].value.data, c->value, min_len);
-                        if (cmp == 0) {
-                            if (rkv[j].value.len < c->value_len) cmp = -1;
-                            else if (rkv[j].value.len > c->value_len) cmp = 1;
-                        }
-                        switch (c->result) {
-                            case 0: cmp_ok = (cmp == 0); break;
-                            case 1: cmp_ok = (cmp > 0);  break;
-                            case 2: cmp_ok = (cmp < 0);  break;
-                            case 3: cmp_ok = (cmp != 0); break;
-                        }
+                if (rn == 0) {
+                    /* etcd: empty range — VALUE always fails; else compare empty KV. */
+                    if (c->target == 3) {
+                        cmp_ok = false;
                     } else {
                         int64_t actual = 0, target_val = 0;
                         switch (c->target) {
-                            case 0: actual = rkv[j].version;        target_val = c->version;          break;
-                            case 1: actual = rkv[j].create_rev.main; target_val = c->create_revision; break;
-                            case 2: actual = rkv[j].mod_rev.main;    target_val = c->mod_revision;    break;
-                            case 4: actual = rkv[j].lease_id;        target_val = c->lease;           break;
+                            case 0: target_val = c->version;          break;
+                            case 1: target_val = c->create_revision;  break;
+                            case 2: target_val = c->mod_revision;     break;
+                            case 4: target_val = c->lease;            break;
                         }
                         switch (c->result) {
                             case 0: cmp_ok = (actual == target_val); break;
@@ -970,7 +958,40 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                             case 3: cmp_ok = (actual != target_val); break;
                         }
                     }
-                    if (!cmp_ok) break;
+                } else {
+                    cmp_ok = true;
+                    for (size_t j = 0; j < rn; j++) {
+                        if (c->target == 3) { /* VALUE */
+                            int cmp = 0;
+                            size_t min_len = rkv[j].value.len < c->value_len ? rkv[j].value.len : c->value_len;
+                            if (min_len > 0) cmp = memcmp(rkv[j].value.data, c->value, min_len);
+                            if (cmp == 0) {
+                                if (rkv[j].value.len < c->value_len) cmp = -1;
+                                else if (rkv[j].value.len > c->value_len) cmp = 1;
+                            }
+                            switch (c->result) {
+                                case 0: cmp_ok = (cmp == 0); break;
+                                case 1: cmp_ok = (cmp > 0);  break;
+                                case 2: cmp_ok = (cmp < 0);  break;
+                                case 3: cmp_ok = (cmp != 0); break;
+                            }
+                        } else {
+                            int64_t actual = 0, target_val = 0;
+                            switch (c->target) {
+                                case 0: actual = rkv[j].version;        target_val = c->version;          break;
+                                case 1: actual = rkv[j].create_rev.main; target_val = c->create_revision; break;
+                                case 2: actual = rkv[j].mod_rev.main;    target_val = c->mod_revision;    break;
+                                case 4: actual = rkv[j].lease_id;        target_val = c->lease;           break;
+                            }
+                            switch (c->result) {
+                                case 0: cmp_ok = (actual == target_val); break;
+                                case 1: cmp_ok = (actual >  target_val); break;
+                                case 2: cmp_ok = (actual <  target_val); break;
+                                case 3: cmp_ok = (actual != target_val); break;
+                            }
+                        }
+                        if (!cmp_ok) break;
+                    }
                 }
                 if (rkv) cetcd_kv_free_contents(rkv, rn);
             } else {
@@ -980,20 +1001,25 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                 int found = cetcd_mvcc_get(g_rpc_store, 0, c->key, c->key_len, &kv);
 
                 if (c->target == 3) { /* VALUE: bytes comparison */
-                    const uint8_t *act = (found == 0) ? kv.value.data : NULL;
-                    size_t act_len = (found == 0) ? kv.value.len : 0;
-                    int cmp = 0;
-                    size_t min_len = act_len < c->value_len ? act_len : c->value_len;
-                    if (min_len > 0) cmp = memcmp(act, c->value, min_len);
-                    if (cmp == 0) {
-                        if (act_len < c->value_len) cmp = -1;
-                        else if (act_len > c->value_len) cmp = 1;
-                    }
-                    switch (c->result) {
-                        case 0: cmp_ok = (cmp == 0); break; /* EQUAL */
-                        case 1: cmp_ok = (cmp > 0);  break; /* GREATER */
-                        case 2: cmp_ok = (cmp < 0);  break; /* LESS */
-                        case 3: cmp_ok = (cmp != 0); break; /* NOT_EQUAL */
+                    /* etcd: VALUE compare on a missing key always fails. */
+                    if (found != 0) {
+                        cmp_ok = false;
+                    } else {
+                        const uint8_t *act = kv.value.data;
+                        size_t act_len = kv.value.len;
+                        int cmp = 0;
+                        size_t min_len = act_len < c->value_len ? act_len : c->value_len;
+                        if (min_len > 0) cmp = memcmp(act, c->value, min_len);
+                        if (cmp == 0) {
+                            if (act_len < c->value_len) cmp = -1;
+                            else if (act_len > c->value_len) cmp = 1;
+                        }
+                        switch (c->result) {
+                            case 0: cmp_ok = (cmp == 0); break; /* EQUAL */
+                            case 1: cmp_ok = (cmp > 0);  break; /* GREATER */
+                            case 2: cmp_ok = (cmp < 0);  break; /* LESS */
+                            case 3: cmp_ok = (cmp != 0); break; /* NOT_EQUAL */
+                        }
                     }
                 } else {
                     /* Integer comparison: missing key → actual 0 (etcd). */

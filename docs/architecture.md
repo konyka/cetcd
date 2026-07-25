@@ -544,7 +544,11 @@ Nested `RequestTxn` (RequestOp field 4) and unrecognized RequestOp tags fail at 
 RPC layer instead of being silently skipped while the outer Txn still returns success
 (full nested-Txn execution remains deferred).
 Missing keys use actual `0` for integer targets while still loading the compare operand
-(so `VERSION == 1` fails, while `CREATE == 0` still succeeds for create-if-absent). The
+(so `VERSION == 1` fails, while `CREATE == 0` still succeeds for create-if-absent).
+`VALUE` compares on a missing key (or empty compare range) always evaluate false —
+matching etcd — instead of treating the missing value as empty bytes. An empty
+compare range with a non-`VALUE` target compares against a zero KeyValue (not a
+vacuous success). The
 `RequestRange` op within transactions now queries the MVCC store and returns actual key-value
 data instead of an empty count. It also supports `limit` (field 3, tag 0x18) for result
 truncation with the `more` flag, `keys_only` (field 8, tag 0x40) to omit values, and
@@ -785,6 +789,7 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `Compact zero revision` (omitted / `revision=0` fails at the RPC layer instead of a silent success),
 `HashKV bad revision` (`revision < compacted_rev` / `revision > current` fails at the RPC layer; was previously ignored),
 `Txn nested RequestTxn` (RequestOp field 4 / unknown op tags fail at the RPC layer instead of silent skip),
+`Txn VALUE/empty-range Compare` (missing-key VALUE and empty-range non-vacuous compares match etcd),
 `LeaseGrant duplicate ID` (re-granting an existing custom ID fails at the RPC layer instead of returning success with `ID=0`),
 `LeaseGrant MaxLeaseTTL` (`TTL > 9000000000` fails at the RPC layer; boundary value still succeeds),
 `ErrEmptyKey` (Put/Range/DeleteRange/Txn/WatchCreate reject missing or zero-length keys; `"\0"` len=1 still allowed),

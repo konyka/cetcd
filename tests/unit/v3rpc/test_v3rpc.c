@@ -749,6 +749,106 @@ CETCD_TEST_CASE(v3rpc_txn_nested_request_txn_rejected) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_txn_value_compare_missing_key) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* VALUE EQUAL "" on missing key → succeeded=false (etcd always fails VALUE). */
+    uint8_t cmp_buf[32]; size_t cpos = 0;
+    cmp_buf[cpos++] = 0x08; cmp_buf[cpos++] = 0x00; /* EQUAL */
+    cmp_buf[cpos++] = 0x10; cmp_buf[cpos++] = 0x03; /* VALUE */
+    cmp_buf[cpos++] = 0x1a; cmp_buf[cpos++] = 0x04;
+    memcpy(cmp_buf + cpos, "miss", 4); cpos += 4;
+    cmp_buf[cpos++] = 0x3a; cmp_buf[cpos++] = 0x00; /* value = "" */
+
+    /* success: Put("miss","x"); failure: empty */
+    uint8_t put_inner[16]; size_t p = 0;
+    put_inner[p++] = 0x0a; put_inner[p++] = 4;
+    memcpy(put_inner + p, "miss", 4); p += 4;
+    put_inner[p++] = 0x12; put_inner[p++] = 1; put_inner[p++] = 'x';
+    uint8_t sop[24]; size_t o = 0;
+    sop[o++] = 0x12; sop[o++] = (uint8_t)p;
+    memcpy(sop + o, put_inner, p); o += p;
+
+    uint8_t txn[64]; size_t t = 0;
+    txn[t++] = 0x0a; txn[t++] = (uint8_t)cpos;
+    memcpy(txn + t, cmp_buf, cpos); t += cpos;
+    txn[t++] = 0x12; txn[t++] = (uint8_t)o;
+    memcpy(txn + t, sop, o); t += o;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", txn, t);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found_succ = 0, succ_val = 1;
+    for (size_t i = 0; i + 1 < resp.len; i++) {
+        if (resp.data[i] == 0x10) {
+            found_succ = 1;
+            succ_val = resp.data[i + 1];
+            break;
+        }
+    }
+    CETCD_ASSERT_TRUE(found_succ);
+    CETCD_ASSERT_EQ_INT(succ_val, 0); /* failure branch */
+    cetcd_rpc_bytes_free(&resp);
+
+    /* Key must not have been written by success branch */
+    uint8_t range_buf[8]; size_t rpos = 0;
+    range_buf[rpos++] = 0x0a; range_buf[rpos++] = 4;
+    memcpy(range_buf + rpos, "miss", 4); rpos += 4;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_buf, rpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found_kv = 0;
+    for (size_t i = 0; i + 3 < resp.len; i++) {
+        if (resp.data[i] == 0x0a && resp.data[i + 1] == 4 &&
+            memcmp(resp.data + i + 2, "miss", 4) == 0) {
+            found_kv = 1; break;
+        }
+    }
+    CETCD_ASSERT_TRUE(!found_kv);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_txn_empty_range_compare) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* VERSION EQUAL 1 on empty [a,b) must fail (not vacuous success). */
+    uint8_t cmp_buf[32]; size_t cpos = 0;
+    cmp_buf[cpos++] = 0x08; cmp_buf[cpos++] = 0x00; /* EQUAL */
+    cmp_buf[cpos++] = 0x10; cmp_buf[cpos++] = 0x00; /* VERSION */
+    cmp_buf[cpos++] = 0x1a; cmp_buf[cpos++] = 0x01; cmp_buf[cpos++] = 'a';
+    cmp_buf[cpos++] = 0x4a; cmp_buf[cpos++] = 0x01; cmp_buf[cpos++] = 'b';
+    cmp_buf[cpos++] = 0x20; cmp_buf[cpos++] = 0x01; /* version=1 */
+
+    uint8_t put_inner[12]; size_t p = 0;
+    put_inner[p++] = 0x0a; put_inner[p++] = 1; put_inner[p++] = 'z';
+    put_inner[p++] = 0x12; put_inner[p++] = 1; put_inner[p++] = 'v';
+    uint8_t sop[16]; size_t o = 0;
+    sop[o++] = 0x12; sop[o++] = (uint8_t)p;
+    memcpy(sop + o, put_inner, p); o += p;
+
+    uint8_t txn[64]; size_t t = 0;
+    txn[t++] = 0x0a; txn[t++] = (uint8_t)cpos;
+    memcpy(txn + t, cmp_buf, cpos); t += cpos;
+    txn[t++] = 0x12; txn[t++] = (uint8_t)o;
+    memcpy(txn + t, sop, o); t += o;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", txn, t);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found_succ = 0, succ_val = 1;
+    for (size_t i = 0; i + 1 < resp.len; i++) {
+        if (resp.data[i] == 0x10) {
+            found_succ = 1;
+            succ_val = resp.data[i + 1];
+            break;
+        }
+    }
+    CETCD_ASSERT_TRUE(found_succ);
+    CETCD_ASSERT_EQ_INT(succ_val, 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_watch) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -5303,6 +5403,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_txn),
     CETCD_TEST_ENTRY(v3rpc_txn_too_many_ops),
     CETCD_TEST_ENTRY(v3rpc_txn_nested_request_txn_rejected),
+    CETCD_TEST_ENTRY(v3rpc_txn_value_compare_missing_key),
+    CETCD_TEST_ENTRY(v3rpc_txn_empty_range_compare),
     CETCD_TEST_ENTRY(v3rpc_watch),
     CETCD_TEST_ENTRY(v3rpc_maintenance_status),
     CETCD_TEST_ENTRY(v3rpc_maintenance_hash),
