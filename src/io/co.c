@@ -28,6 +28,8 @@ typedef struct cetcd_co {
     void            *arg;
     cetcd_loop      *loop;
     char            *name;    /* optional human-readable name for profiling */
+    int              refs;            /* owner=1 + 1 per queued resume entry */
+    int              cancel_requested;/* cetcd_co_free asked to release; skip resume */
 } cetcd_co;
 
 /* ── Global tracking of the currently-running coroutine ────────────────── */
@@ -88,6 +90,8 @@ cetcd_co *cetcd_co_create(cetcd_loop *loop, cetcd_co_fn fn, void *arg,
     co->fn   = fn;
     co->arg  = arg;
     co->loop = loop;
+    co->refs = 1;
+    co->cancel_requested = 0;
 
     int id = coroutine_new(S, co_entry_, co);
     if (id < 0) {
@@ -125,6 +129,7 @@ void cetcd_co_yield(void) {
 
 void cetcd_co_resume(cetcd_co *co) {
     if (!co || !co->sched) return;
+    if (co->cancel_requested) return;
     if (coroutine_status(co->sched, co->id) != COROUTINE_DEAD) {
         cetcd_co *prev = g_co_current;
         g_co_current = co;
@@ -152,11 +157,46 @@ void cetcd_co_set_name(cetcd_co *co, const char *name) {
 #endif
 }
 
-void cetcd_co_free(cetcd_co *co) {
+/* Real teardown once all references (owner + queued entries) are gone. */
+static void co_destroy_(cetcd_co *co) {
     if (!co) return;
     co_registry_remove_(co);
     if (co->name) free(co->name);
     free(co);
+}
+
+/* Internal: queue acquires a reference. Caller MUST hold loop->resume_mutex. */
+void cetcd_co_queue_retain_(cetcd_co *co) {
+    if (!co) return;
+    co->refs++;
+}
+
+/* Internal: queue drops a reference; frees when the last one is released. */
+void cetcd_co_queue_release_(cetcd_co *co) {
+    if (!co) return;
+    cetcd_loop *loop = co->loop;
+    int refs;
+    if (loop) {
+        uv_mutex_lock(&loop->resume_mutex);
+        refs = --co->refs;
+        uv_mutex_unlock(&loop->resume_mutex);
+    } else {
+        refs = --co->refs;
+    }
+    if (refs <= 0) co_destroy_(co);
+}
+
+void cetcd_co_free(cetcd_co *co) {
+    if (!co) return;
+    cetcd_loop *loop = co->loop;
+    co->cancel_requested = 1;
+    if (loop) {
+        uv_mutex_lock(&loop->resume_mutex);
+        int refs = --co->refs;
+        uv_mutex_unlock(&loop->resume_mutex);
+        if (refs > 0) return;  /* queued resume entries still reference it */
+    }
+    co_destroy_(co);
 }
 
 void cetcd_co_walk(cetcd_co_walk_fn fn, void *ud) {

@@ -53,6 +53,25 @@ CETCD_TEST_CASE(co_yield_and_resume) {
     cetcd_loop_free(loop);
 }
 
+CETCD_TEST_CASE(co_schedule_resume_then_free_before_drain) {
+    /* Exercises the queue refcount + cancel-on-free ownership: a resume is
+     * queued, then the owner frees the coroutine before the loop drains.
+     * The free must defer (queued entry still references it) and the drain
+     * must release it without double-free or use-after-free. Verified clean
+     * under ASan/LSan. */
+    a_done = 0;
+    cetcd_loop *loop = cetcd_loop_new();
+    cetcd_co *co = cetcd_co_spawn(loop, fn_a, NULL);
+    CETCD_ASSERT(co != NULL);
+    CETCD_ASSERT_EQ_INT(cetcd_co_dead(co), 1);
+
+    cetcd_loop_schedule_resume(loop, co);
+    cetcd_co_free(co);
+
+    cetcd_loop_free(loop);
+    CETCD_ASSERT_EQ_INT(a_done, 1);
+}
+
 CETCD_TEST_CASE(co_current_outside_coroutine) {
     /* Outside any coroutine, cetcd_co_current() should return NULL */
     CETCD_ASSERT_EQ_PTR(cetcd_co_current(), NULL);
@@ -292,6 +311,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(co_yield_and_resume),
     CETCD_TEST_ENTRY(co_nested_spawn),
     CETCD_TEST_ENTRY(co_current_outside_coroutine),
+    CETCD_TEST_ENTRY(co_schedule_resume_then_free_before_drain),
 #if !__has_feature(address_sanitizer) && !defined(__SANITIZE_ADDRESS__)
     CETCD_TEST_ENTRY(co_create_and_resume),
     CETCD_TEST_ENTRY(co_yield_and_resume_cycle),
