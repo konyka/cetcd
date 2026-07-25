@@ -94,8 +94,97 @@ CETCD_TEST_CASE(wal_roundtrip_basic) {
 }
 
 /* Extend to test macro to satisfy harness expectations */
+/* Write a raw WAL frame (8-byte LE header + payload) into fp. */
+static void write_raw_frame(FILE *fp, const uint8_t *payload, size_t plen) {
+    uint64_t hdr = (uint64_t)plen & 0x00FFFFFFFFFFFFFFULL;
+    uint8_t le[8];
+    for (int i = 0; i < 8; ++i) le[i] = (uint8_t)((hdr >> (8 * i)) & 0xFF);
+    fwrite(le, 1, 8, fp);
+    if (plen) fwrite(payload, 1, plen, fp);
+}
+
+CETCD_TEST_CASE(wal_decode_rejects_malformed) {
+    char path_template[] = "/tmp/cetcd-test-wal-XXXXXX";
+    int fd = mkstemp(path_template);
+    CETCD_ASSERT(fd >= 0);
+    close(fd);
+
+    /* Frame: field 1 (type, wire 0) tag 0x08, then an unterminated varint
+     * (all continuation bytes) that runs off the end of the frame. The
+     * decoder must reject this rather than accept it as a zero record. */
+    FILE *fp = fopen(path_template, "wb");
+    CETCD_ASSERT_NOT_NULL(fp);
+    const uint8_t bad[] = { 0x08, 0x80, 0x80, 0x80 };
+    write_raw_frame(fp, bad, sizeof(bad));
+    fclose(fp);
+
+    cetcd_wal_decoder *dec = cetcd_wal_decoder_open(path_template);
+    CETCD_ASSERT_NOT_NULL(dec);
+    cetcd_wal_record rec; cetcd_wal_record_init(&rec);
+    int rc = cetcd_wal_decode(dec, &rec);
+    CETCD_ASSERT_TRUE(rc != 0);
+    cetcd_wal_record_free(&rec);
+    cetcd_wal_decoder_free(dec);
+    remove(path_template);
+}
+
+CETCD_TEST_CASE(wal_decode_rejects_len_overrun) {
+    char path_template[] = "/tmp/cetcd-test-wal-XXXXXX";
+    int fd = mkstemp(path_template);
+    CETCD_ASSERT(fd >= 0);
+    close(fd);
+
+    /* Field 7, wire 2 (length-delimited, unknown) claiming 0x10 bytes but
+     * providing none. The decoder must not advance pos past the frame. */
+    FILE *fp = fopen(path_template, "wb");
+    CETCD_ASSERT_NOT_NULL(fp);
+    const uint8_t bad[] = { 0x3A, 0x10 };
+    write_raw_frame(fp, bad, sizeof(bad));
+    fclose(fp);
+
+    cetcd_wal_decoder *dec = cetcd_wal_decoder_open(path_template);
+    CETCD_ASSERT_NOT_NULL(dec);
+    cetcd_wal_record rec; cetcd_wal_record_init(&rec);
+    int rc = cetcd_wal_decode(dec, &rec);
+    CETCD_ASSERT_TRUE(rc != 0);
+    cetcd_wal_record_free(&rec);
+    cetcd_wal_decoder_free(dec);
+    remove(path_template);
+}
+
+CETCD_TEST_CASE(wal_decode_rejects_bad_crc) {
+    char path_template[] = "/tmp/cetcd-test-wal-XXXXXX";
+    int fd = mkstemp(path_template);
+    CETCD_ASSERT(fd >= 0);
+    close(fd);
+
+    /* Well-formed record with a wrong CRC. fields: type=METADATA(1),
+     * crc=42 (single-byte varint, must terminate), data="abcd".
+     * The computed CRC32C of "abcd" is not 42, so decode returns -2. */
+    FILE *fp = fopen(path_template, "wb");
+    CETCD_ASSERT_NOT_NULL(fp);
+    uint8_t rec[10];
+    rec[0] = 0x08; rec[1] = 0x01;
+    rec[2] = 0x10; rec[3] = 0x2A;
+    rec[4] = 0x1A; rec[5] = 0x04; rec[6] = 'a'; rec[7] = 'b'; rec[8] = 'c'; rec[9] = 'd';
+    write_raw_frame(fp, rec, 10);
+    fclose(fp);
+
+    cetcd_wal_decoder *dec = cetcd_wal_decoder_open(path_template);
+    CETCD_ASSERT_NOT_NULL(dec);
+    cetcd_wal_record rec_out; cetcd_wal_record_init(&rec_out);
+    int rc = cetcd_wal_decode(dec, &rec_out);
+    CETCD_ASSERT_EQ_INT(rc, -2);
+    cetcd_wal_record_free(&rec_out);
+    cetcd_wal_decoder_free(dec);
+    remove(path_template);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(wal_roundtrip_basic),
+    CETCD_TEST_ENTRY(wal_decode_rejects_malformed),
+    CETCD_TEST_ENTRY(wal_decode_rejects_len_overrun),
+    CETCD_TEST_ENTRY(wal_decode_rejects_bad_crc),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

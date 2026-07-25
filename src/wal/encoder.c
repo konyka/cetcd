@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 struct cetcd_wal_encoder {
     FILE    *fp;
@@ -46,8 +47,12 @@ static int wbuf_free(wbuf *w) {
 
 static int wbuf_reserve(wbuf *w, size_t n) {
     if (w->cap >= n) return 0;
+    if (n > SIZE_MAX / 2) return -1;
     size_t newcap = w->cap ? w->cap * 2 : 128;
-    while (newcap < n) newcap *= 2;
+    while (newcap < n) {
+        if (newcap > SIZE_MAX / 2) { newcap = n; break; }
+        newcap *= 2;
+    }
     uint8_t *nd = (uint8_t*)realloc(w->d, newcap);
     if (!nd) return -1;
     w->d = nd;
@@ -122,13 +127,15 @@ int cetcd_wal_encode(cetcd_wal_encoder *enc, cetcd_wal_record *rec) {
     }
 
     wbuf w; wbuf_init(&w);
-    wbuf_append_byte(&w, 0x08);
-    wbuf_write_varint(&w, (uint64_t)rec->type);
-    wbuf_append_byte(&w, 0x10);
-    wbuf_write_varint(&w, (uint64_t)rec->crc);
-    wbuf_append_byte(&w, 0x1a);
-    wbuf_write_varint(&w, (uint64_t)rec->data_len);
-    if (rec->data_len > 0) wbuf_append(&w, rec->data, rec->data_len);
+    int oom = 0;
+    oom |= wbuf_append_byte(&w, 0x08);
+    oom |= wbuf_write_varint(&w, (uint64_t)rec->type);
+    oom |= wbuf_append_byte(&w, 0x10);
+    oom |= wbuf_write_varint(&w, (uint64_t)rec->crc);
+    oom |= wbuf_append_byte(&w, 0x1a);
+    oom |= wbuf_write_varint(&w, (uint64_t)rec->data_len);
+    if (rec->data_len > 0) oom |= wbuf_append(&w, rec->data, rec->data_len);
+    if (oom) { wbuf_free(&w); return -1; }
 
     int pad = (8 - (int)(w.len % 8)) % 8;
     int ret = cetcd_wal_write_frame(enc->fp, w.d, w.len, pad);
@@ -148,39 +155,30 @@ int cetcd_wal_encode_metadata(cetcd_wal_encoder *enc, const uint8_t *data, size_
 
 int cetcd_wal_encode_entry(cetcd_wal_encoder *enc, const cetcd_entry *entry) {
     if (!enc || !entry) return -1;
-    // Serialize a cetcd_entry protobuf-like payload into rec.data
     wbuf w; wbuf_init(&w);
-    // Field 1: term (0x08)
-    wbuf_append_byte(&w, 0x08); wbuf_write_varint(&w, entry->term);
-    // Field 2: index (0x10)
-    wbuf_append_byte(&w, 0x10); wbuf_write_varint(&w, entry->index);
-    // Field 3: type (0x18)
-    wbuf_append_byte(&w, 0x18); wbuf_write_varint(&w, (uint64_t)entry->type);
-    // Field 4: data (0x22) + length + payload
-    wbuf_append_byte(&w, 0x22);
-    wbuf_write_varint(&w, (uint64_t)entry->data.len);
-    if (entry->data.len > 0) wbuf_append(&w, entry->data.data, entry->data.len);
-    // Build record
+    int oom = 0;
+    oom |= wbuf_append_byte(&w, 0x08); oom |= wbuf_write_varint(&w, entry->term);
+    oom |= wbuf_append_byte(&w, 0x10); oom |= wbuf_write_varint(&w, entry->index);
+    oom |= wbuf_append_byte(&w, 0x18); oom |= wbuf_write_varint(&w, (uint64_t)entry->type);
+    oom |= wbuf_append_byte(&w, 0x22); oom |= wbuf_write_varint(&w, (uint64_t)entry->data.len);
+    if (entry->data.len > 0) oom |= wbuf_append(&w, entry->data.data, entry->data.len);
+    if (oom) { wbuf_free(&w); return -1; }
     cetcd_wal_record rec; cetcd_wal_record_init(&rec);
     rec.type = CETCD_WAL_ENTRY; rec.data = w.d; rec.data_len = w.len;
-    // Compute CRC from data payload
     rec.crc = crc32c(0, rec.data, rec.data_len);
     int r = cetcd_wal_encode(enc, &rec);
-    // Free allocated data
     cetcd_wal_record_free(&rec);
-    // w.d was moved into rec.data, so do not free here
     return r;
 }
 
 int cetcd_wal_encode_hard_state(cetcd_wal_encoder *enc, const cetcd_hard_state *hs) {
     if (!enc || !hs) return -1;
     wbuf w; wbuf_init(&w);
-    // Field 1: term (0x08)
-    wbuf_append_byte(&w, 0x08); wbuf_write_varint(&w, hs->term);
-    // Field 2: vote (0x10)
-    wbuf_append_byte(&w, 0x10); wbuf_write_varint(&w, hs->vote);
-    // Field 3: commit (0x18)
-    wbuf_append_byte(&w, 0x18); wbuf_write_varint(&w, hs->commit);
+    int oom = 0;
+    oom |= wbuf_append_byte(&w, 0x08); oom |= wbuf_write_varint(&w, hs->term);
+    oom |= wbuf_append_byte(&w, 0x10); oom |= wbuf_write_varint(&w, hs->vote);
+    oom |= wbuf_append_byte(&w, 0x18); oom |= wbuf_write_varint(&w, hs->commit);
+    if (oom) { wbuf_free(&w); return -1; }
     cetcd_wal_record rec; cetcd_wal_record_init(&rec);
     rec.type = CETCD_WAL_STATE; rec.data = w.d; rec.data_len = w.len; rec.crc = crc32c(0, rec.data, rec.data_len);
     int r = cetcd_wal_encode(enc, &rec);
