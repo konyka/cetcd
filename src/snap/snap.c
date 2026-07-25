@@ -128,9 +128,11 @@ uint8_t *cetcd_snap_encode(const cetcd_snap *s, size_t *out_len) {
 
     size_t total = 4; /* entry count */
     for (size_t i = 0; i < s->count; ++i) {
-        total += 4 + s->entries[i].key_len;   /* key len + key */
-        total += 4 + s->entries[i].value_len; /* value len + value */
-        total += 8;                            /* mod_revision */
+        if (s->entries[i].key_len > SIZE_MAX - total ||
+            s->entries[i].value_len > SIZE_MAX - total) return NULL;
+        total += 4 + s->entries[i].key_len;
+        total += 4 + s->entries[i].value_len;
+        total += 8;
     }
 
     uint8_t *buf = (uint8_t *)malloc(total);
@@ -180,7 +182,7 @@ cetcd_snap *cetcd_snap_decode(const uint8_t *data, size_t len) {
             cetcd_snap_free(s); return NULL;
         }
         uint32_t key_len = be32_read(data + off); off += 4;
-        if (off + key_len > len) { cetcd_snap_free(s); return NULL; }
+        if (key_len > len - off) { cetcd_snap_free(s); return NULL; }
         uint8_t *k = NULL;
         if (key_len > 0) {
             k = (uint8_t *)malloc(key_len);
@@ -191,7 +193,7 @@ cetcd_snap *cetcd_snap_decode(const uint8_t *data, size_t len) {
 
         if (off + 4 > len) { if (k) free(k); cetcd_snap_free(s); return NULL; }
         uint32_t value_len = be32_read(data + off); off += 4;
-        if (off + value_len > len) { if (k) free(k); cetcd_snap_free(s); return NULL; }
+        if (value_len > len - off) { if (k) free(k); cetcd_snap_free(s); return NULL; }
         uint8_t *v = NULL;
         if (value_len > 0) {
             v = (uint8_t *)malloc(value_len);

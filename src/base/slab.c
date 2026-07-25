@@ -96,9 +96,11 @@ void cetcd_slab_free(cetcd_slab *s) {
 }
 
 static int slab_grow_(cetcd_slab *s) {
+    if (s->obj_size > SIZE_MAX / s->objs_per_block) return CETCD_ERR_NOMEM;
+    size_t block_bytes = s->obj_size * s->objs_per_block;
     slab_block *b = (slab_block *)malloc(sizeof(*b));
     if (b == NULL) return CETCD_ERR_NOMEM;
-    b->base = (uint8_t *)malloc(s->obj_size * s->objs_per_block);
+    b->base = (uint8_t *)malloc(block_bytes);
     if (b->base == NULL) { free(b); return CETCD_ERR_NOMEM; }
     b->count = s->objs_per_block;
     b->next  = s->blocks;
