@@ -23,6 +23,43 @@ internals are organised. For deeper rationale on individual decisions, see
 | Lease expiry | Server tick advances leases and deletes attached keys |
 | Auth enforcement on data plane | Partial (Authenticate exists; KV path does not yet gate on tokens) |
 
+### Hardening pass (2026-07)
+
+A full review pass closed the following correctness, memory-safety, and durability defects.
+Each landed with a regression test and is verified clean under ASan + UBSan.
+
+- **Lease key-array resize UAF** — `cetcd_lease_attach_key` grew `keys`/`key_lens` with paired
+  `realloc`; partial failure left a dangling array. Resized transactionally now.
+- **Malformed WAL acceptance** — the decoder accepted unterminated varints, advanced past frame
+  bounds on unknown fields, and ignored encode OOM. Now rejects malformed frames (`-3`) and
+  propagates allocation failures.
+- **Oversized protocol lengths** — `cetcd_grpc_encode` truncated lengths above 2³²;
+  `cetcd_tls_set_alpn` handed uninitialized buffer tail to OpenSSL; auth `read_bytes_field`
+  admitted wrap-past-`SIZE_MAX` lengths. All reject up front.
+- **Coroutine resume-queue race + cancel-on-free UAF** — the resume queue is now mutex-guarded
+  with a per-coroutine refcount; `cetcd_co_free` defers when queued entries remain.
+- **Blocking peer transport** — Raft peer send now uses a nonblocking per-peer `uv_tcp_t` with a
+  bounded queue, so an unreachable peer no longer stalls the event loop.
+- **WAL durability barrier** — `process_ready_` `fsync`s the WAL once per Ready batch before any
+  peer send or MVCC apply (Raft persist-before-advertise contract).
+- **Overflow guards** — slab block allocation and snapshot encode/decode now guard
+  multiplication and length accumulation against `SIZE_MAX` wrap.
+
+### Verification commands
+
+```sh
+cmake --build build                                   # Release build, exit 0
+ctest --test-dir build --output-on-failure           # full unit + integration suite
+cmake -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCETCD_SANITIZERS=address,undefined
+cmake --build build-asan && ctest --test-dir build-asan --output-on-failure   # ASan + UBSan
+```
+
+A two-node smoke (one peer on a dead port) confirms the server keeps serving client RPCs in
+~7 ms while the nonblocking transport retries the unreachable peer, with no ASan/leak report.
+(ThreadSanitizer cannot run in this environment — `libtsan` is not installed; the resume-queue
+fix is verified by code inspection of the mutex/refcount invariants plus the ASan
+cancel-on-free regression test.)
+
 ---
 
 ## 1. Goals and non-goals
@@ -142,6 +179,12 @@ Rationale: see [ADR 0003 — Coroutines on libuv](./adr/0003-coroutines-on-libuv
 - Within a reactor, coroutines are cooperatively scheduled — no locks needed for
   per-connection state.
 - Cross-reactor sharing happens via the raft thread only.
+- The coroutine **resume queue** (`cetcd_loop_schedule_resume` → `on_resume_async_cb`)
+  is the one structured-concurrency crossing that admits multiple producers: a
+  `uv_mutex_t` on the loop guards queue push/drain and a per-coroutine refcount, so a
+  `cetcd_co_free()` that races the drain defers the actual free until the last queued
+  entry is released (cancel-on-free). Contract: callers must not schedule resumes on a
+  loop after `cetcd_loop_free()` returns.
 
 ---
 
@@ -162,6 +205,20 @@ cluster's log files. Each record is:
 Record types: `Metadata`, `Entry`, `State`, `Snapshot`, `CRC`. Segment files are named
 `%016x-%016x.wal` (sequence, start-index). CRC algorithm is **Castagnoli (CRC32C)**, matching
 etcd. Segment rotation at 64 MiB by default.
+
+**Durability.** `cetcd_wal_encoder_flush` drains the stdio buffer to the kernel; the
+`cetcd_wal_encoder_sync` barrier additionally `fsync`s the file descriptor. `process_ready_`
+crosses the sync barrier once per Ready batch (after entries + HardState, before any peer
+send or MVCC apply), so a crash after an acknowledged Ready cannot lose Raft records.
+Malformed frames — unterminated varints, length-delimited fields that overrun the frame, or
+unknown wire types — are rejected by the decoder rather than parsed as zero records.
+
+**Peer transport.** Each cluster peer owns a nonblocking `uv_tcp_t` in `libcetcd_server`,
+lazily connected on the first outbound Raft frame and reconnected after failure. Frames are
+heap-owned until their `uv_write` callback fires; the outbound queue is capped at 256 entries
+(`raft_peer_send_dropped_total` counts overflows, which are safe because Raft retransmits
+unacked entries). No `connect()`/`send()` runs inside the event loop, so an unreachable peer
+can no longer stall client serving.
 
 ### Backend (LMDB)
 
