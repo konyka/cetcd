@@ -15,13 +15,13 @@
 #include "cetcd/base.h"
 #include "io_internal.h"
 
-typedef struct cetcd_tcp {
+struct cetcd_tcp {
     uv_tcp_t handle;
     int is_server;
     cetcd_loop *loop;
     cetcd_tcp_conn_cb conn_cb;
     void *conn_cb_arg;
-} cetcd_tcp;
+};
 
 static void on_new_connection(uv_stream_t *server, int status);
 

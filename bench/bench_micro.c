@@ -30,8 +30,8 @@ static void bench_mvcc_get(void *udata) {
     memcpy(key, &c, 8);
     cetcd_kv out;
     if (cetcd_mvcc_get(ctx->store, 0, key, 8, &out) == 0) {
-        free((void*)out.key.data);
-        free((void*)out.value.data);
+        free((void *)(uintptr_t)out.key.data);
+        free((void *)(uintptr_t)out.value.data);
     }
 }
 

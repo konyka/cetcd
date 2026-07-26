@@ -26,8 +26,6 @@ CETCD_TEST_CASE(tcp_fd_after_bind) {
     cetcd_tcp_bind(tcp, "127.0.0.1", 0);
     cetcd_tcp_listen(tcp, conn_cb, NULL);
 
-    /* After bind+listen, the handle should have a valid fd */
-    int fd = -1;
     /* Use the internal API via a cast — tcp.c exposes cetcd_tcp_fd internally */
     /* We test indirectly: read/write should return -1 on a listening socket
      * with no pending data, not crash */

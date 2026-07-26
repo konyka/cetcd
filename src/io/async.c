@@ -4,11 +4,11 @@
 #include "cetcd/io.h"
 #include "io_internal.h"
 
-typedef struct cetcd_async {
+struct cetcd_async {
     uv_async_t handle;
     cetcd_async_cb cb;
     void *arg;
-} cetcd_async;
+};
 
 static void on_async_cb(uv_async_t* handle) {
     cetcd_async *a = (cetcd_async *)handle->data;

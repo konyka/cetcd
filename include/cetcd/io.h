@@ -5,7 +5,7 @@
 
 /* Forward declarations — opaque types */
 typedef struct cetcd_loop cetcd_loop;
-typedef struct cetcd_co   cetcd_co;
+typedef struct cetcd_co cetcd_co;
 
 /* Loop lifecycle */
 cetcd_loop *cetcd_loop_new(void);

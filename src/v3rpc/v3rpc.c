@@ -106,25 +106,6 @@ void cetcd_v3rpc_free(cetcd_v3rpc *rpc) {
     free(rpc);
 }
 
-static cetcd_rpc_bytes make_response(const uint8_t *data, size_t len) {
-    cetcd_rpc_bytes b;
-    if (!data || len == 0) {
-        b.data = NULL;
-        b.len = 0;
-        return b;
-    }
-    uint8_t *buf = (uint8_t *)malloc(len);
-    if (!buf) {
-        b.data = NULL;
-        b.len = 0;
-        return b;
-    }
-    memcpy(buf, data, len);
-    b.data = buf;
-    b.len = len;
-    return b;
-}
-
 cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
                                  const char *path,
                                  const uint8_t *req_data,

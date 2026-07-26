@@ -18,8 +18,24 @@ typedef struct Etcd__RangeRequest        Etcd__RangeRequest;
 typedef struct Etcd__RangeResponse       Etcd__RangeResponse;
 typedef struct Etcd__PutRequest          Etcd__PutRequest;
 typedef struct Etcd__PutResponse         Etcd__PutResponse;
+typedef struct Etcd__DeleteRangeRequest  Etcd__DeleteRangeRequest;
+typedef struct Etcd__DeleteRangeResponse Etcd__DeleteRangeResponse;
 typedef struct Etcd__RequestOp           Etcd__RequestOp;
 typedef struct Etcd__ResponseOp          Etcd__ResponseOp;
+typedef struct Etcd__TxnRequest          Etcd__TxnRequest;
+typedef struct Etcd__TxnResponse         Etcd__TxnResponse;
+typedef struct Etcd__WatchRequest        Etcd__WatchRequest;
+typedef struct Etcd__WatchResponse       Etcd__WatchResponse;
+typedef struct Etcd__LeaseGrantRequest   Etcd__LeaseGrantRequest;
+typedef struct Etcd__LeaseGrantResponse  Etcd__LeaseGrantResponse;
+typedef struct Etcd__LeaseRevokeRequest  Etcd__LeaseRevokeRequest;
+typedef struct Etcd__LeaseRevokeResponse Etcd__LeaseRevokeResponse;
+typedef struct Etcd__LeaseKeepAliveRequest Etcd__LeaseKeepAliveRequest;
+typedef struct Etcd__LeaseKeepAliveResponse Etcd__LeaseKeepAliveResponse;
+typedef struct Etcd__LeaseTimeToLiveRequest Etcd__LeaseTimeToLiveRequest;
+typedef struct Etcd__LeaseTimeToLiveResponse Etcd__LeaseTimeToLiveResponse;
+#define CETCD_KV_PB_TYPEDEFS 1
+#define CETCD_RPC_PB_TYPEDEFS 1
 
 /* Descriptors – defined in the corresponding .c files. Expose them here so the
  * tests can reference the exact type during pack/unpack. */

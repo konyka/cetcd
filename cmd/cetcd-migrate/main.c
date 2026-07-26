@@ -112,13 +112,6 @@ static uint64_t rd_u64_le(const uint8_t *p) {
     return lo | (hi << 32);
 }
 
-/* Big-endian reader for etcd revision keys */
-static uint64_t rd_u64_be(const uint8_t *p) {
-    uint64_t v = 0;
-    for (int i = 0; i < 8; i++) v = (v << 8) | p[i];
-    return v;
-}
-
 /* ── Utility: recursive mkdir ────────────────────────────────────── */
 
 static int mkdir_p(const char *path) {

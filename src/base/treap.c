@@ -53,24 +53,6 @@ static cetcd_treap_node *treap_rotate_left_(cetcd_treap_node *x) {
     return y;
 }
 
-/* Find a node by key. Returns pointer and sets found flag. */
-static cetcd_treap_node *treap_find_(cetcd_treap_node *root, cetcd_slice key, bool *found_out) {
-    cetcd_treap_node *p = root;
-    while (p != NULL) {
-        int cmp = cetcd_slice_compare(key, p->key);
-        if (cmp == 0) {
-            if (found_out) *found_out = true;
-            return p;
-        } else if (cmp < 0) {
-            p = p->left;
-        } else {
-            p = p->right;
-        }
-    }
-    if (found_out) *found_out = false;
-    return NULL;
-}
-
 /* BST insert of a new node. Caller ensures key does not exist. */
 static cetcd_treap_node *treap_insert_node_(cetcd_treap_node *root, cetcd_treap_node *n) {
     if (root == NULL) return n;
@@ -112,7 +94,7 @@ static cetcd_treap_node *treap_delete_node_(cetcd_treap_node *root,
 
         /* If leaf, free and return NULL */
         if (root->left == NULL && root->right == NULL) {
-            if (root->key.data) free((void*)root->key.data);
+            if (root->key.data) free((void *)(uintptr_t)(uintptr_t)root->key.data);
             free(root);
             return NULL;
         }
@@ -130,7 +112,7 @@ static cetcd_treap_node *treap_delete_node_(cetcd_treap_node *root,
         }
         /* Only one child: replace node with that child. */
         cetcd_treap_node *child = (root->left != NULL) ? root->left : root->right;
-        if (root->key.data) free((void*)root->key.data);
+        if (root->key.data) free((void *)(uintptr_t)(uintptr_t)root->key.data);
         free(root);
         return child;
     }
@@ -141,7 +123,7 @@ static void treap_free_subtree_(cetcd_treap_node *n) {
     if (n == NULL) return;
     treap_free_subtree_(n->left);
     treap_free_subtree_(n->right);
-    if (n->key.data) free((void*)n->key.data);
+    if (n->key.data) free((void *)(uintptr_t)(uintptr_t)n->key.data);
     free(n);
 }
 
@@ -183,10 +165,7 @@ size_t cetcd_treap_size(const cetcd_treap *t) {
 int cetcd_treap_put(cetcd_treap *t, cetcd_slice key, void *value) {
     if (t == NULL) return CETCD_ERR_INVAL;
 
-    /* Check if key exists first. */
-    bool found = false;
     cetcd_treap_node *p = t->root;
-    cetcd_treap_node *parent = NULL;
     while (p != NULL) {
         int cmp = cetcd_slice_compare(key, p->key);
         if (cmp == 0) {
@@ -194,10 +173,8 @@ int cetcd_treap_put(cetcd_treap *t, cetcd_slice key, void *value) {
             p->value = value;
             return CETCD_OK;
         } else if (cmp < 0) {
-            parent = p;
             p = p->left;
         } else {
-            parent = p;
             p = p->right;
         }
     }
@@ -209,7 +186,7 @@ int cetcd_treap_put(cetcd_treap *t, cetcd_slice key, void *value) {
     if (key.len > 0) {
         n->key.data = (const uint8_t *)malloc(key.len);
         if (n->key.data == NULL) { free(n); return CETCD_ERR_NOMEM; }
-        memcpy((void *)n->key.data, key.data, key.len);
+        memcpy((void *)(uintptr_t)n->key.data, key.data, key.len);
         n->key.len = key.len;
     } else {
         n->key.data = NULL;

@@ -21,8 +21,8 @@ static cetcd_revision delete_and_detach_(const uint8_t *key, size_t key_len) {
         memset(&kv, 0, sizeof(kv));
         if (cetcd_mvcc_get(g_rpc_store, 0, key, key_len, &kv) == 0) {
             lease_id = kv.lease_id;
-            free((void *)kv.key.data);
-            free((void *)kv.value.data);
+            free((void *)(uintptr_t)kv.key.data);
+            free((void *)(uintptr_t)kv.value.data);
         }
     }
     cetcd_revision r = cetcd_mvcc_delete(g_rpc_store, key, key_len);
@@ -199,8 +199,8 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
     /* etcd ErrLeaseNotFound: unknown lease must fail the RPC, not silent no-op. */
     if (lease_id > 0 && !lease_ok_for_put_(lease_id)) {
         if (has_old) {
-            free((void*)old_kv.key.data);
-            free((void*)old_kv.value.data);
+            free((void *)(uintptr_t)old_kv.key.data);
+            free((void *)(uintptr_t)old_kv.value.data);
         }
         if (key) free(key);
         if (val) free(val);
@@ -273,12 +273,12 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
             append_kv_lease_(pkv_buf, cap, &kp, old_kv.lease_id);
             pkv_len = kp;
         }
-        free((void*)old_kv.key.data);
-        free((void*)old_kv.value.data);
+        free((void *)(uintptr_t)old_kv.key.data);
+        free((void *)(uintptr_t)old_kv.value.data);
     } else if (has_old) {
         /* old_kv was fetched for ignore_value/ignore_lease but not prev_kv */
-        free((void*)old_kv.key.data);
-        free((void*)old_kv.value.data);
+        free((void *)(uintptr_t)old_kv.key.data);
+        free((void *)(uintptr_t)old_kv.value.data);
     }
 
     /* Assemble response dynamically */
@@ -440,8 +440,8 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
             int get_rc = cetcd_mvcc_get(g_rpc_store, rev, key, key_len, &out_kv);
             if (get_rc == CETCD_ERR_RANGE) {
                 /* rev < compacted_rev — surface as RPC error (etcd ErrCompacted). */
-                free((void*)out_kv.key.data);
-                free((void*)out_kv.value.data);
+                free((void *)(uintptr_t)out_kv.key.data);
+                free((void *)(uintptr_t)out_kv.value.data);
                 free(resp);
                 if (key) free(key);
                 if (range_end) free(range_end);
@@ -488,8 +488,8 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
                 }
                 kv_count = 1;
             }
-            free((void*)out_kv.key.data);
-            free((void*)out_kv.value.data);
+            free((void *)(uintptr_t)out_kv.key.data);
+            free((void *)(uintptr_t)out_kv.value.data);
         } else {
             /* Range query (range_end='\0' FromKey handled in MVCC). */
             cetcd_kv *kvs = NULL; size_t n = 0;
@@ -516,8 +516,8 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
                         if (w != i) kvs[w] = kvs[i];
                         w++;
                     } else {
-                        free((void*)kvs[i].key.data);
-                        free((void*)kvs[i].value.data);
+                        free((void *)(uintptr_t)kvs[i].key.data);
+                        free((void *)(uintptr_t)kvs[i].value.data);
                     }
                 }
                 n = w;
@@ -693,8 +693,8 @@ cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, siz
                         prev_kvs_len += ke;
                         prev_kvs_cap = need;
                     }
-                    free((void*)old_kv.key.data);
-                    free((void*)old_kv.value.data);
+                    free((void *)(uintptr_t)old_kv.key.data);
+                    free((void *)(uintptr_t)old_kv.value.data);
                 }
             }
             cetcd_revision r = delete_and_detach_(key, key_len);
@@ -1050,8 +1050,8 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                         case 3: cmp_ok = (actual != target_val); break; /* NOT_EQUAL */
                     }
                 }
-                free((void*)kv.key.data);
-                free((void*)kv.value.data);
+                free((void *)(uintptr_t)kv.key.data);
+                free((void *)(uintptr_t)kv.value.data);
             }
         } else {
             cmp_ok = true; /* No store: treat as pass */
@@ -1161,8 +1161,8 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                         append_kv_lease_(prev_kv_buf, cap, &kp, old_kv.lease_id);
                         prev_kv_len = kp;
                     }
-                    free((void*)old_kv.key.data);
-                    free((void*)old_kv.value.data);
+                    free((void *)(uintptr_t)old_kv.key.data);
+                    free((void *)(uintptr_t)old_kv.value.data);
                 }
             }
             /* etcd ErrLeaseNotFound: unknown lease fails the whole Txn. */
@@ -1189,8 +1189,8 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                     memset(&old_kv, 0, sizeof(old_kv));
                     if (cetcd_mvcc_get(g_rpc_store, 0, pk, pk_len, &old_kv) == 0) {
                         old_lease = old_kv.lease_id;
-                        free((void *)old_kv.key.data);
-                        free((void *)old_kv.value.data);
+                        free((void *)(uintptr_t)old_kv.key.data);
+                        free((void *)(uintptr_t)old_kv.value.data);
                     }
                 }
                 cetcd_revision r = cetcd_mvcc_put(g_rpc_store, pk, pk_len,
@@ -1346,8 +1346,8 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                                 write_varint_local(prev_kvs_buf, prev_kvs_cap, &prev_kvs_len, (uint64_t)kp);
                                 memcpy(prev_kvs_buf + prev_kvs_len, kv_enc, kp); prev_kvs_len += kp;
                             }
-                            free((void*)old_kv.key.data);
-                            free((void*)old_kv.value.data);
+                            free((void *)(uintptr_t)old_kv.key.data);
+                            free((void *)(uintptr_t)old_kv.value.data);
                         }
                     }
                     cetcd_revision r = delete_and_detach_(dk, dk_len);
@@ -1470,8 +1470,8 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                     memset(&out_kv, 0, sizeof(out_kv));
                     int get_rc = cetcd_mvcc_get(g_rpc_store, rrev, rkey, rkey_len, &out_kv);
                     if (get_rc == CETCD_ERR_RANGE) {
-                        free((void*)out_kv.key.data);
-                        free((void*)out_kv.value.data);
+                        free((void *)(uintptr_t)out_kv.key.data);
+                        free((void *)(uintptr_t)out_kv.value.data);
                         if (rkey) free(rkey);
                         if (rrange_end) free(rrange_end);
                         free(resp);
@@ -1504,8 +1504,8 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                                 memcpy(kvs_buf + kvs_len, kv_enc, kp); kvs_len += kp;
                             }
                         }
-                        free((void*)out_kv.key.data);
-                        free((void*)out_kv.value.data);
+                        free((void *)(uintptr_t)out_kv.key.data);
+                        free((void *)(uintptr_t)out_kv.value.data);
                     }
                 } else {
                     /* Range query */
@@ -1531,8 +1531,8 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                                 if (w != i) kvs[w] = kvs[i];
                                 w++;
                             } else {
-                                free((void*)kvs[i].key.data);
-                                free((void*)kvs[i].value.data);
+                                free((void *)(uintptr_t)kvs[i].key.data);
+                                free((void *)(uintptr_t)kvs[i].value.data);
                             }
                         }
                         n = w;

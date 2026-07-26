@@ -53,15 +53,6 @@ cetcd_hashmap *cetcd_hashmap_new(size_t initial_cap) {
     return m;
 }
 
-static void slot_clear_(slot *s) {
-    if (s->state == SLOT_OCCUPIED) free(s->key);
-    s->key = NULL;
-    s->keylen = 0;
-    s->value = NULL;
-    s->hash = 0;
-    s->state = SLOT_EMPTY;
-}
-
 void cetcd_hashmap_free(cetcd_hashmap *m) {
     if (m == NULL) return;
     for (size_t i = 0; i < m->cap; ++i) {

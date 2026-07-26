@@ -10,7 +10,7 @@
 #define CETCD_LEASE_REBUILD_TTL 300
 
 /* Internal lease structure matching the header contract. */
-typedef struct cetcd_lease {
+struct cetcd_lease {
     cetcd_lease_id id;
     int64_t        ttl_seconds;
     int64_t        deadline_ms; /* absolute expiry time in ms */
@@ -20,10 +20,10 @@ typedef struct cetcd_lease {
     size_t        *key_lens;  /* array of key lengths */
     size_t         key_count;
     size_t         key_cap;
-} cetcd_lease;
+};
 
 /* Lease manager implementation */
-typedef struct cetcd_lease_mgr {
+struct cetcd_lease_mgr {
     cetcd_lease   *leases;      /* dynamic array */
     size_t          count;
     size_t          cap;
@@ -31,7 +31,7 @@ typedef struct cetcd_lease_mgr {
     int64_t         now_ms;      /* accumulated time (ms) */
     cetcd_lease_expire_fn on_expire;
     void           *expire_udata;
-} cetcd_lease_mgr;
+};
 
 /* Helpers */
 static int ensure_cap_(cetcd_lease_mgr *mgr) {
@@ -158,9 +158,11 @@ int cetcd_lease_keep_alive(cetcd_lease_mgr *mgr, cetcd_lease_id id, int64_t ttl_
     return CETCD_OK;
 }
 
+static cetcd_lease *lease_by_id_local_(const cetcd_lease_mgr *mgr, cetcd_lease_id id);
+
 bool cetcd_lease_exists(const cetcd_lease_mgr *mgr, cetcd_lease_id id) {
     if (!mgr) return false;
-    return (lease_by_id_((cetcd_lease_mgr *)mgr, id) != NULL);
+    return (lease_by_id_local_(mgr, id) != NULL);
 }
 
 /* Helpers for non-mutable access */

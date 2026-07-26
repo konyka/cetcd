@@ -595,7 +595,7 @@ int cetcd_raft_step(cetcd_raft *r, cetcd_msg *msg) {
             e.term  = r->term;
             e.index = r->log_last_index;
             e.type  = CETCD_ENTRY_NORMAL;
-            e.data  = (cetcd_slice){.data = (uint8_t *)msg->context,
+            e.data  = (cetcd_slice){.data = msg->context,
                                      .len  = msg->context_len};
             r->log_last_term = r->term;
             log_append_(r, &e);
@@ -694,7 +694,7 @@ int cetcd_raft_propose(cetcd_raft *r, const uint8_t *data, size_t len) {
     cetcd_msg msg;
     memset(&msg, 0, sizeof(msg));
     msg.type        = CETCD_MSG_PROP;
-    msg.context     = (uint8_t *)data;
+    msg.context     = (uint8_t *)(uintptr_t)data;
     msg.context_len = len;
     return cetcd_raft_step(r, &msg);
 }
@@ -714,7 +714,7 @@ int cetcd_raft_propose_conf_change(cetcd_raft *r, const uint8_t *data, size_t le
     e.term  = r->term;
     e.index = r->log_last_index;
     e.type  = CETCD_ENTRY_CONF_CHANGE;
-    e.data.data = (uint8_t *)data;  /* borrowed; not freed by us */
+    e.data.data = (const uint8_t *)data;  /* borrowed; not freed by us */
     e.data.len  = len;
     r->log_last_term = r->term;
     log_append_(r, &e);
@@ -988,7 +988,7 @@ cetcd_msg *cetcd_msg_decode_wire(const uint8_t *data, size_t len) {
                         if (ef == 4 && epos + dlen <= blen) {
                             entries[n_entries].data.data = (uint8_t *)malloc(dlen);
                             if (entries[n_entries].data.data) {
-                                memcpy(entries[n_entries].data.data, edata + epos, dlen);
+                                memcpy((void *)(uintptr_t)entries[n_entries].data.data, edata + epos, dlen);
                                 entries[n_entries].data.len = dlen;
                             }
                         }
@@ -1013,7 +1013,7 @@ void cetcd_msg_free(cetcd_msg *msg) {
     if (!msg) return;
     if (msg->entries) {
         for (uint32_t i = 0; i < msg->n_entries; i++) {
-            free(msg->entries[i].data.data);
+            free((void *)(uintptr_t)(uintptr_t)msg->entries[i].data.data);
         }
         free(msg->entries);
     }

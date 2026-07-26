@@ -22,12 +22,6 @@ struct cetcd_tls_conn {
     int  fd;
 };
 
-/* Helper: map OpenSSL errors to CETCD status */
-static int ssl_err_to_cetcd_(void) {
-    (void)ERR_get_error();
-    return CETCD_ERR_INTERNAL;
-}
-
 /* Context lifecycle */
 cetcd_tls_ctx *cetcd_tls_ctx_new(void) {
     cetcd_tls_ctx *ctx = (cetcd_tls_ctx *)calloc(1, sizeof(*ctx));

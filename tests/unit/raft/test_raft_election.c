@@ -98,7 +98,7 @@ CETCD_TEST_CASE(advance_clears_ready) {
 
     for (int i = 0; i < 10; i++) cetcd_raft_tick(r);
     cetcd_ready rd1 = cetcd_raft_ready(r);
-    CETCD_ASSERT_TRUE(rd1.n_entries >= 0 || rd1.hard_state != NULL);
+    CETCD_ASSERT_TRUE(rd1.n_entries > 0 || rd1.hard_state != NULL);
 
     cetcd_raft_advance(r, &rd1);
     cetcd_ready_free(&rd1);

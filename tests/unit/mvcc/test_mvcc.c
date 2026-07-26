@@ -10,8 +10,8 @@
 #include <unistd.h>
 
 static void free_kv_fields(cetcd_kv *kv) {
-    free((void*)kv->key.data);
-    free((void*)kv->value.data);
+    free((void *)(uintptr_t)kv->key.data);
+    free((void *)(uintptr_t)kv->value.data);
 }
 
 CETCD_TEST_CASE(mvcc_put_get_basic) {
@@ -254,11 +254,11 @@ CETCD_TEST_CASE(mvcc_compact) {
     /* Compact revision itself remains readable */
     cetcd_kv out;
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 1, k1, 1, &out), CETCD_OK);
-    free((void*)out.key.data); free((void*)out.value.data);
+    free((void *)(uintptr_t)out.key.data); free((void *)(uintptr_t)out.value.data);
 
     /* Current data still readable */
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 0, k2, 1, &out), 0);
-    free((void*)out.key.data); free((void*)out.value.data);
+    free((void *)(uintptr_t)out.key.data); free((void *)(uintptr_t)out.value.data);
 
     /* Compact to rev 2 */
     cetcd_mvcc_put(s, k1, 1, v3, 1, 0);  /* rev 3 */
@@ -266,7 +266,7 @@ CETCD_TEST_CASE(mvcc_compact) {
     CETCD_ASSERT_EQ_INT((int)cetcd_mvcc_compacted_revision(s), 2);
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 1, k1, 1, &out), CETCD_ERR_RANGE);
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 2, k2, 1, &out), CETCD_OK);
-    free((void*)out.key.data); free((void*)out.value.data);
+    free((void *)(uintptr_t)out.key.data); free((void *)(uintptr_t)out.value.data);
 
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_compact(s, 99), CETCD_ERR_INVAL);
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_compact(s, 0), CETCD_ERR_INVAL);
@@ -370,15 +370,15 @@ CETCD_TEST_CASE(mvcc_persist_roundtrip) {
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s2, 0, k, sizeof(k) - 1, &out), CETCD_OK);
     CETCD_ASSERT_EQ_INT((int)out.value.len, (int)(sizeof(v) - 1));
     CETCD_ASSERT_TRUE(memcmp(out.value.data, v, sizeof(v) - 1) == 0);
-    free((void *)out.key.data);
-    free((void *)out.value.data);
+    free((void *)(uintptr_t)out.key.data);
+    free((void *)(uintptr_t)out.value.data);
 
     /* Historical get at the loaded revision must also succeed (synthetic history). */
     memset(&out, 0, sizeof(out));
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s2, 1, k, sizeof(k) - 1, &out), CETCD_OK);
     CETCD_ASSERT_TRUE(memcmp(out.value.data, v, sizeof(v) - 1) == 0);
-    free((void *)out.key.data);
-    free((void *)out.value.data);
+    free((void *)(uintptr_t)out.key.data);
+    free((void *)(uintptr_t)out.value.data);
 
     cetcd_mvcc_store_free(s2);
     cetcd_backend_close(be);
@@ -459,8 +459,8 @@ CETCD_TEST_CASE(mvcc_persist_fail_closed) {
                 int oklen = snprintf((char *)okkey, sizeof(okkey), "k%04d", (int)last_ok - 1);
                 cetcd_kv out = {0};
                 CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 0, okkey, (size_t)oklen, &out), CETCD_OK);
-                free((void *)out.key.data);
-                free((void *)out.value.data);
+                free((void *)(uintptr_t)out.key.data);
+                free((void *)(uintptr_t)out.value.data);
             }
             break;
         }
@@ -481,8 +481,8 @@ CETCD_TEST_CASE(mvcc_persist_fail_closed) {
             CETCD_ASSERT_TRUE(cetcd_mvcc_revision(s) == before);
             cetcd_kv out = {0};
             CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 0, okkey, (size_t)oklen, &out), CETCD_OK);
-            free((void *)out.key.data);
-            free((void *)out.value.data);
+            free((void *)(uintptr_t)out.key.data);
+            free((void *)(uintptr_t)out.value.data);
         }
     }
 
@@ -515,8 +515,8 @@ CETCD_TEST_CASE(mvcc_watch_from_key_null_end) {
     CETCD_ASSERT_EQ_INT((int)n, 1);
     CETCD_ASSERT_TRUE(evs[0].kv.key.len == 3 && evs[0].kv.key.data[0] == 'q');
     for (size_t i = 0; i < n; i++) {
-        free((void *)evs[i].kv.key.data);
-        free((void *)evs[i].kv.value.data);
+        free((void *)(uintptr_t)evs[i].kv.key.data);
+        free((void *)(uintptr_t)evs[i].kv.value.data);
     }
     free(evs);
 
@@ -532,8 +532,8 @@ CETCD_TEST_CASE(mvcc_watch_from_key_null_end) {
     CETCD_ASSERT_EQ_INT((int)n, 1);
     CETCD_ASSERT_TRUE(evs[0].kv.key.len == 3 && evs[0].kv.key.data[2] == 'x');
     for (size_t i = 0; i < n; i++) {
-        free((void *)evs[i].kv.key.data);
-        free((void *)evs[i].kv.value.data);
+        free((void *)(uintptr_t)evs[i].kv.key.data);
+        free((void *)(uintptr_t)evs[i].kv.value.data);
     }
     free(evs);
 
@@ -565,8 +565,8 @@ CETCD_TEST_CASE(mvcc_compact_persist_roundtrip) {
     cetcd_kv out = {0};
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 1, k1, 1, &out), CETCD_ERR_RANGE);
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 2, k2, 1, &out), CETCD_OK);
-    free((void *)out.key.data);
-    free((void *)out.value.data);
+    free((void *)(uintptr_t)out.key.data);
+    free((void *)(uintptr_t)out.value.data);
 
     cetcd_mvcc_store_free(s);
     cetcd_backend_close(be);
@@ -577,8 +577,8 @@ CETCD_TEST_CASE(mvcc_compact_persist_roundtrip) {
     CETCD_ASSERT_EQ_INT((int)cetcd_mvcc_compacted_revision(s), 2);
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 1, k1, 1, &out), CETCD_ERR_RANGE);
     CETCD_ASSERT_EQ_INT(cetcd_mvcc_get(s, 2, k2, 1, &out), CETCD_OK);
-    free((void *)out.key.data);
-    free((void *)out.value.data);
+    free((void *)(uintptr_t)out.key.data);
+    free((void *)(uintptr_t)out.value.data);
 
     cetcd_mvcc_store_free(s);
     cetcd_backend_close(be);
@@ -604,8 +604,8 @@ CETCD_TEST_CASE(mvcc_watch_replay_start_rev) {
     CETCD_ASSERT_EQ_INT((int)evs[0].kv.value.data[0], (int)'a');
     CETCD_ASSERT_EQ_INT((int)evs[1].kv.value.data[0], (int)'b');
     for (size_t i = 0; i < n; i++) {
-        free((void *)evs[i].kv.key.data);
-        free((void *)evs[i].kv.value.data);
+        free((void *)(uintptr_t)evs[i].kv.key.data);
+        free((void *)(uintptr_t)evs[i].kv.value.data);
     }
     free(evs);
 
@@ -642,11 +642,11 @@ CETCD_TEST_CASE(mvcc_watch_replay_prev_kv) {
     CETCD_ASSERT_TRUE(memcmp(evs[2].prev_kv.value.data, "v2", 2) == 0);
     CETCD_ASSERT_EQ_INT((int)evs[2].prev_kv.version, 2);
     for (size_t i = 0; i < n; i++) {
-        free((void *)evs[i].kv.key.data);
-        free((void *)evs[i].kv.value.data);
+        free((void *)(uintptr_t)evs[i].kv.key.data);
+        free((void *)(uintptr_t)evs[i].kv.value.data);
         if (evs[i].has_prev_kv) {
-            free((void *)evs[i].prev_kv.key.data);
-            free((void *)evs[i].prev_kv.value.data);
+            free((void *)(uintptr_t)evs[i].prev_kv.key.data);
+            free((void *)(uintptr_t)evs[i].prev_kv.value.data);
         }
     }
     free(evs);
@@ -696,8 +696,8 @@ CETCD_TEST_CASE(mvcc_load_watch_replay_order) {
     CETCD_ASSERT_TRUE(evs[0].kv.key.len == 3 && memcmp(evs[0].kv.key.data, "foo", 3) == 0);
     CETCD_ASSERT_TRUE(evs[1].kv.key.len == 3 && memcmp(evs[1].kv.key.data, "bar", 3) == 0);
     for (size_t i = 0; i < n; i++) {
-        free((void *)evs[i].kv.key.data);
-        free((void *)evs[i].kv.value.data);
+        free((void *)(uintptr_t)evs[i].kv.key.data);
+        free((void *)(uintptr_t)evs[i].kv.value.data);
     }
     free(evs);
 

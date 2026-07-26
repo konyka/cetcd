@@ -352,11 +352,11 @@ static void streaming_watch_notify_cb(void *udata) {
     }
     /* Free event data that was deep-copied into the notification queue. */
     for (size_t i = 0; i < count; i++) {
-        free((void*)events[i].kv.key.data);
-        free((void*)events[i].kv.value.data);
+        free((void *)(uintptr_t)events[i].kv.key.data);
+        free((void *)(uintptr_t)events[i].kv.value.data);
         if (events[i].has_prev_kv) {
-            free((void*)events[i].prev_kv.key.data);
-            free((void*)events[i].prev_kv.value.data);
+            free((void *)(uintptr_t)events[i].prev_kv.key.data);
+            free((void *)(uintptr_t)events[i].prev_kv.value.data);
         }
     }
     free(events);
@@ -532,11 +532,11 @@ static cetcd_rpc_bytes handle_legacy_watch(const watch_request_parsed *p) {
                 if (cetcd_mvcc_watch_recv(&notify, &events, &n) == CETCD_OK && events) {
                     for (size_t i = 0; i < n; i++) {
                         watch_event_cb(&events[i], &collector);
-                        free((void *)events[i].kv.key.data);
-                        free((void *)events[i].kv.value.data);
+                        free((void *)(uintptr_t)events[i].kv.key.data);
+                        free((void *)(uintptr_t)events[i].kv.value.data);
                         if (events[i].has_prev_kv) {
-                            free((void *)events[i].prev_kv.key.data);
-                            free((void *)events[i].prev_kv.value.data);
+                            free((void *)(uintptr_t)events[i].prev_kv.key.data);
+                            free((void *)(uintptr_t)events[i].prev_kv.value.data);
                         }
                     }
                     free(events);

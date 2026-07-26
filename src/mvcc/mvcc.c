@@ -124,7 +124,7 @@ static int decode_kg_(const uint8_t *data, size_t len, key_generation *kg) {
     if (vlen > 0) {
         kg->value.data = (const uint8_t *)malloc(vlen);
         if (!kg->value.data) return CETCD_ERR_NOMEM;
-        memcpy((void *)kg->value.data, data + 48, vlen);
+        memcpy((void *)(uintptr_t)kg->value.data, data + 48, vlen);
         kg->value.len = vlen;
     }
     return CETCD_OK;
@@ -196,13 +196,13 @@ static cetcd_slice dup_slice(cetcd_slice s) {
     out.len = s.len;
     if (s.len == 0) { out.data = NULL; return out; }
     out.data = (const uint8_t*)malloc(s.len);
-    if (out.data) memcpy((void*)out.data, s.data, s.len);
+    if (out.data) memcpy((void *)(uintptr_t)out.data, s.data, s.len);
     return out;
 }
 
 static void free_key_generation(key_generation *g) {
     if (!g) return;
-    if (g->value.data) free((void*)g->value.data);
+    if (g->value.data) free((void *)(uintptr_t)(uintptr_t)g->value.data);
     free(g);
 }
 
@@ -346,8 +346,8 @@ void cetcd_mvcc_store_free(cetcd_mvcc_store *s) {
         cetcd_treap_free(s->index);
     }
     for (size_t i = 0; i < s->history_count; i++) {
-        free((void*)s->history[i].key.data);
-        free((void*)s->history[i].value.data);
+        free((void *)(uintptr_t)(uintptr_t)s->history[i].key.data);
+        free((void *)(uintptr_t)(uintptr_t)s->history[i].value.data);
     }
     free(s->history);
     for (size_t i = 0; i < s->watcher_count; i++) {
@@ -402,7 +402,7 @@ cetcd_revision cetcd_mvcc_put(cetcd_mvcc_store *s,
     } else {
         new_kg = (key_generation *)calloc(1, sizeof(*new_kg));
         if (!new_kg) {
-            free((void *)val_owned.data);
+            free((void *)(uintptr_t)(uintptr_t)val_owned.data);
             return zero;
         }
         new_kg->create_rev = new_rev;
@@ -417,7 +417,7 @@ cetcd_revision cetcd_mvcc_put(cetcd_mvcc_store *s,
     /* Fail-closed: persist first; leave memory unchanged on LMDB error. */
     if (persist_put_(s, key, key_len, &preview, new_main) != CETCD_OK) {
         if (new_kg) free_key_generation(new_kg);
-        else free((void *)val_owned.data);
+        else free((void *)(uintptr_t)(uintptr_t)val_owned.data);
         return zero;
     }
 
@@ -437,7 +437,7 @@ cetcd_revision cetcd_mvcc_put(cetcd_mvcc_store *s,
             prev_evkv.lease_id = kg->lease_id;
             has_prev = 1;
         }
-        if (kg->value.data) free((void *)kg->value.data);
+        if (kg->value.data) free((void *)(uintptr_t)(uintptr_t)kg->value.data);
         kg->value = val_owned;
         kg->version++;
         kg->mod_rev = new_rev;
@@ -467,11 +467,11 @@ cetcd_revision cetcd_mvcc_put(cetcd_mvcc_store *s,
     evkv.lease_id = kg->lease_id;
     mvcc_notify_watchers(s, &evkv, &new_rev, CETCD_EVENT_PUT,
                          has_prev ? &prev_evkv : NULL);
-    free((void *)evkv.key.data);
-    free((void *)evkv.value.data);
+    free((void *)(uintptr_t)(uintptr_t)evkv.key.data);
+    free((void *)(uintptr_t)(uintptr_t)evkv.value.data);
     if (has_prev) {
-        free((void *)prev_evkv.key.data);
-        free((void *)prev_evkv.value.data);
+        free((void *)(uintptr_t)(uintptr_t)prev_evkv.key.data);
+        free((void *)(uintptr_t)(uintptr_t)prev_evkv.value.data);
     }
     return new_rev;
 }
@@ -539,9 +539,9 @@ static cetcd_revision delete_one_(cetcd_mvcc_store *s,
         free_key_generation((key_generation *)removed);
     }
 
-    free((void *)evkv.key.data);
-    free((void *)prev_evkv.key.data);
-    free((void *)prev_evkv.value.data);
+    free((void *)(uintptr_t)(uintptr_t)evkv.key.data);
+    free((void *)(uintptr_t)(uintptr_t)prev_evkv.key.data);
+    free((void *)(uintptr_t)(uintptr_t)prev_evkv.value.data);
     return new_rev;
 }
 
@@ -773,8 +773,8 @@ int cetcd_mvcc_range(cetcd_mvcc_store *s, int64_t rev,
 void cetcd_kv_free_contents(cetcd_kv *kvs, size_t count) {
     if (!kvs) return;
     for (size_t i = 0; i < count; i++) {
-        free((void*)kvs[i].key.data);
-        free((void*)kvs[i].value.data);
+        free((void *)(uintptr_t)(uintptr_t)kvs[i].key.data);
+        free((void *)(uintptr_t)(uintptr_t)kvs[i].value.data);
     }
     free(kvs);
 }
@@ -849,11 +849,11 @@ void cetcd_mvcc_watch_notify_destroy(cetcd_mvcc_watch_notify *n) {
     cetcd_mvcc_watch_event_node *cur = n->head;
     while (cur) {
         cetcd_mvcc_watch_event_node *next = cur->next;
-        free((void*)cur->event.kv.key.data);
-        free((void*)cur->event.kv.value.data);
+        free((void *)(uintptr_t)(uintptr_t)cur->event.kv.key.data);
+        free((void *)(uintptr_t)(uintptr_t)cur->event.kv.value.data);
         if (cur->event.has_prev_kv) {
-            free((void*)cur->event.prev_kv.key.data);
-            free((void*)cur->event.prev_kv.value.data);
+            free((void *)(uintptr_t)(uintptr_t)cur->event.prev_kv.key.data);
+            free((void *)(uintptr_t)(uintptr_t)cur->event.prev_kv.value.data);
         }
         free(cur);
         cur = next;
@@ -1052,8 +1052,8 @@ int cetcd_mvcc_compact(cetcd_mvcc_store *s, int64_t compact_rev) {
         if (s->history[i].rev.main >= compact_rev) {
             s->history[keep++] = s->history[i];
         } else {
-            free((void*)s->history[i].key.data);
-            free((void*)s->history[i].value.data);
+            free((void *)(uintptr_t)(uintptr_t)s->history[i].key.data);
+            free((void *)(uintptr_t)(uintptr_t)s->history[i].value.data);
         }
     }
     s->history_count = keep;

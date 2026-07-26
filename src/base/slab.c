@@ -107,7 +107,8 @@ static int slab_grow_(cetcd_slab *s) {
     s->blocks = b;
     s->block_count += 1;
     for (size_t i = 0; i < b->count; ++i) {
-        slab_free_node *node = (slab_free_node *)(b->base + i * s->obj_size);
+        void *slot = (void *)(b->base + i * s->obj_size);
+        slab_free_node *node = (slab_free_node *)slot;
         node->next = s->free_list;
         s->free_list = node;
     }

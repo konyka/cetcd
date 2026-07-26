@@ -4,11 +4,11 @@
 #include "cetcd/io.h"
 #include "io_internal.h"
 
-typedef struct cetcd_timer {
+struct cetcd_timer {
     uv_timer_t handle;
     cetcd_co_fn cb;
     void *arg;
-} cetcd_timer;
+};
 
 cetcd_timer *cetcd_timer_new(cetcd_loop *loop) {
     if (!loop) return NULL;

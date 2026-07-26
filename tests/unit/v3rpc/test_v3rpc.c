@@ -731,11 +731,11 @@ CETCD_TEST_CASE(v3rpc_txn_nested_request_txn_rejected) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
     /* success op = RequestTxn (empty nested) — must fail, not silent-skip. */
-    uint8_t nested[] = { /* empty TxnRequest */ };
+    const uint8_t *nested = NULL;
     uint8_t op[8]; size_t o = 0;
     op[o++] = 0x22; /* RequestOp field 4 = RequestTxn */
-    op[o++] = (uint8_t)sizeof(nested);
-    memcpy(op + o, nested, sizeof(nested)); o += sizeof(nested);
+    op[o++] = 0;
+    if (nested) memcpy(op + o, nested, 0); o += 0;
 
     uint8_t txn_buf[16]; size_t tpos = 0;
     txn_buf[tpos++] = 0x12; /* field 2 = success */

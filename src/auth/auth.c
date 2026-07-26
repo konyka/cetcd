@@ -27,6 +27,10 @@ struct cetcd_auth_store {
     bool enabled;
 };
 
+static cetcd_slice auth_key_(const char *s) {
+    return cetcd_slice_make(s, strlen(s));
+}
+
 /* Helpers for role/and user management */
 static cetcd_user *cetcd_user_new(const char *name, const char *password_hash_source) {
     cetcd_user *u = (cetcd_user *)calloc(1, sizeof(*u));
@@ -89,7 +93,7 @@ void cetcd_auth_store_free(cetcd_auth_store *s) {
 int cetcd_auth_add_user(cetcd_auth_store *s, const char *name, const char *password) {
     if (s == NULL || name == NULL || password == NULL) return CETCD_ERR_INVAL;
     /* Check existence */
-    cetcd_slice key; key.data = (unsigned char *)name; key.len = strlen(name);
+    cetcd_slice key = auth_key_(name);
     void *tmp = NULL;
     if (cetcd_hashmap_get(s->users, key, &tmp)) {
         return CETCD_ERR_EXISTS;
@@ -107,7 +111,7 @@ int cetcd_auth_add_user(cetcd_auth_store *s, const char *name, const char *passw
 
 int cetcd_auth_remove_user(cetcd_auth_store *s, const char *name) {
     if (s == NULL || name == NULL) return CETCD_ERR_INVAL;
-    cetcd_slice key; key.data = (unsigned char *)name; key.len = strlen(name);
+    cetcd_slice key = auth_key_(name);
     void *val = NULL;
     if (!cetcd_hashmap_get(s->users, key, &val)) {
         return CETCD_ERR_NOTFOUND;
@@ -126,7 +130,7 @@ int cetcd_auth_remove_user(cetcd_auth_store *s, const char *name) {
 
 bool cetcd_auth_has_user(const cetcd_auth_store *s, const char *name) {
     if (s == NULL || name == NULL) return false;
-    cetcd_slice key; key.data = (unsigned char *)name; key.len = strlen(name);
+    cetcd_slice key = auth_key_(name);
     void *v = NULL;
     return cetcd_hashmap_get(s->users, key, &v);
 }
@@ -152,15 +156,15 @@ static cetcd_role *cetcd_role_new(const char *name, int perm_read,
     return r;
 }
 
-static cetcd_user *cetcd_find_user(cetcd_auth_store *s, const char *name) {
-    cetcd_slice key; key.data = (unsigned char *)name; key.len = strlen(name);
+static cetcd_user *cetcd_find_user(const cetcd_auth_store *s, const char *name) {
+    cetcd_slice key = auth_key_(name);
     void *v = NULL;
     if (!cetcd_hashmap_get(s->users, key, &v)) return NULL;
     return (cetcd_user *)v;
 }
 
-static cetcd_role *cetcd_find_role(cetcd_auth_store *s, const char *name) {
-    cetcd_slice key; key.data = (unsigned char *)name; key.len = strlen(name);
+static cetcd_role *cetcd_find_role(const cetcd_auth_store *s, const char *name) {
+    cetcd_slice key = auth_key_(name);
     void *v = NULL;
     if (!cetcd_hashmap_get(s->roles, key, &v)) return NULL;
     return (cetcd_role *)v;
@@ -170,7 +174,7 @@ int cetcd_auth_add_role(cetcd_auth_store *s, const char *name,
                        int perm_read, int perm_write,
                        const char *key_prefix, size_t prefix_len) {
     if (s == NULL || name == NULL) return CETCD_ERR_INVAL;
-    cetcd_slice key; key.data = (unsigned char *)name; key.len = strlen(name);
+    cetcd_slice key = auth_key_(name);
     void *exists = NULL;
     if (cetcd_hashmap_get(s->roles, key, &exists)) {
         return CETCD_ERR_EXISTS;
@@ -187,7 +191,7 @@ int cetcd_auth_add_role(cetcd_auth_store *s, const char *name,
 
 int cetcd_auth_remove_role(cetcd_auth_store *s, const char *name) {
     if (s == NULL || name == NULL) return CETCD_ERR_INVAL;
-    cetcd_slice key; key.data = (unsigned char *)name; key.len = strlen(name);
+    cetcd_slice key = auth_key_(name);
     void *v = NULL;
     if (!cetcd_hashmap_remove(s->roles, key, &v)) {
         return CETCD_ERR_NOTFOUND;
@@ -199,7 +203,7 @@ int cetcd_auth_remove_role(cetcd_auth_store *s, const char *name) {
 bool cetcd_auth_check_password(const cetcd_auth_store *s,
                               const char *name, const char *password) {
     if (s == NULL || name == NULL || password == NULL) return false;
-    cetcd_slice key; key.data = (unsigned char *)name; key.len = strlen(name);
+    cetcd_slice key = auth_key_(name);
     cetcd_user *u = NULL;
     void *v = NULL;
     if (!cetcd_hashmap_get((cetcd_hashmap *)s->users, key, &v)) return false;
@@ -229,43 +233,45 @@ size_t cetcd_auth_role_count(const cetcd_auth_store *s) {
 
 /* --- Iteration helpers --- */
 
-struct auth_iter_ctx {
-    void *fn;     /* function pointer (type varies) */
-    void *udata;  /* user data */
+struct auth_user_iter_ctx {
+    cetcd_auth_user_iter_fn fn;
+    void *udata;
+};
+
+struct auth_role_iter_ctx {
+    cetcd_auth_role_iter_fn fn;
+    void *udata;
 };
 
 static bool auth_iter_name_cb(cetcd_slice key, void *value, void *udata) {
     (void)value;
-    struct auth_iter_ctx *ctx = (struct auth_iter_ctx *)udata;
-    cetcd_auth_user_iter_fn fn = (cetcd_auth_user_iter_fn)ctx->fn;
-    /* key.data is not null-terminated; create a temporary buffer */
+    struct auth_user_iter_ctx *ctx = (struct auth_user_iter_ctx *)udata;
     char name[128];
     size_t len = key.len < sizeof(name) - 1 ? key.len : sizeof(name) - 1;
     memcpy(name, key.data, len);
     name[len] = '\0';
-    return fn(name, ctx->udata);
+    return ctx->fn(name, ctx->udata);
 }
 
 void cetcd_auth_user_iter(const cetcd_auth_store *s, cetcd_auth_user_iter_fn fn, void *udata) {
     if (!s || !s->users || !fn) return;
-    struct auth_iter_ctx ctx = { (void *)fn, udata };
+    struct auth_user_iter_ctx ctx = { fn, udata };
     cetcd_hashmap_iter(s->users, auth_iter_name_cb, &ctx);
 }
 
 static bool auth_iter_role_name_cb(cetcd_slice key, void *value, void *udata) {
     (void)value;
-    struct auth_iter_ctx *ctx = (struct auth_iter_ctx *)udata;
-    cetcd_auth_role_iter_fn fn = (cetcd_auth_role_iter_fn)ctx->fn;
+    struct auth_role_iter_ctx *ctx = (struct auth_role_iter_ctx *)udata;
     char name[128];
     size_t len = key.len < sizeof(name) - 1 ? key.len : sizeof(name) - 1;
     memcpy(name, key.data, len);
     name[len] = '\0';
-    return fn(name, ctx->udata);
+    return ctx->fn(name, ctx->udata);
 }
 
 void cetcd_auth_role_iter(const cetcd_auth_store *s, cetcd_auth_role_iter_fn fn, void *udata) {
     if (!s || !s->roles || !fn) return;
-    struct auth_iter_ctx ctx = { (void *)fn, udata };
+    struct auth_role_iter_ctx ctx = { fn, udata };
     cetcd_hashmap_iter(s->roles, auth_iter_role_name_cb, &ctx);
 }
 
@@ -333,11 +339,11 @@ int cetcd_auth_grant_role(cetcd_auth_store *s, const char *user, const char *rol
     if (s == NULL || user == NULL || role == NULL) return CETCD_ERR_INVAL;
     cetcd_user *u = NULL;
     void *v = NULL;
-    if (!cetcd_hashmap_get(s->users, (cetcd_slice){.data=(unsigned char*)user,.len=strlen(user)}, &v)) {
+    if (!cetcd_hashmap_get(s->users, auth_key_(user), &v)) {
         return CETCD_ERR_NOTFOUND;
     }
     u = (cetcd_user *)v;
-    if (!cetcd_hashmap_get(s->roles, (cetcd_slice){.data=(unsigned char*)role,.len=strlen(role)}, &v)) {
+    if (!cetcd_hashmap_get(s->roles, auth_key_(role), &v)) {
         return CETCD_ERR_NOTFOUND;
     }
     /* Check existing */
@@ -373,7 +379,7 @@ int cetcd_auth_grant_role(cetcd_auth_store *s, const char *user, const char *rol
 int cetcd_auth_revoke_role(cetcd_auth_store *s, const char *user, const char *role) {
     if (s == NULL || user == NULL || role == NULL) return CETCD_ERR_INVAL;
     void *v = NULL;
-    if (!cetcd_hashmap_get(s->users, (cetcd_slice){.data=(unsigned char*)user,.len=strlen(user)}, &v)) {
+    if (!cetcd_hashmap_get(s->users, auth_key_(user), &v)) {
         return CETCD_ERR_NOTFOUND;
     }
     cetcd_user *u = (cetcd_user *)v;
@@ -409,12 +415,12 @@ int cetcd_auth_revoke_role(cetcd_auth_store *s, const char *user, const char *ro
 
 const cetcd_user *cetcd_auth_get_user(const cetcd_auth_store *s, const char *name) {
     if (!s || !name) return NULL;
-    return cetcd_find_user((cetcd_auth_store *)s, name);
+    return cetcd_find_user(s, name);
 }
 
 const cetcd_role *cetcd_auth_get_role(const cetcd_auth_store *s, const char *name) {
     if (!s || !name) return NULL;
-    return cetcd_find_role((cetcd_auth_store *)s, name);
+    return cetcd_find_role(s, name);
 }
 
 /* --- Grant / Revoke permission --- */

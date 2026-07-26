@@ -16,7 +16,10 @@ typedef uint64_t cetcd_lease_id;
 
 typedef struct cetcd_lease cetcd_lease;
 typedef struct cetcd_lease_mgr cetcd_lease_mgr;
+#ifndef CETCD_MVCC_STORE_TYPEDEF
 typedef struct cetcd_mvcc_store cetcd_mvcc_store;
+#define CETCD_MVCC_STORE_TYPEDEF 1
+#endif
 
 /* Callback when a lease expires. Keys attached to the lease are passed. */
 typedef void (*cetcd_lease_expire_fn)(cetcd_lease_id id,

@@ -21,7 +21,7 @@
 #include "io_internal.h"
 
 /* Persistent context stored on the heap so it survives across yield/resume. */
-typedef struct cetcd_co {
+struct cetcd_co {
     struct schedule *sched;
     int              id;
     cetcd_co_fn      fn;
@@ -30,7 +30,7 @@ typedef struct cetcd_co {
     char            *name;    /* optional human-readable name for profiling */
     int              refs;            /* owner=1 + 1 per queued resume entry */
     int              cancel_requested;/* cetcd_co_free asked to release; skip resume */
-} cetcd_co;
+};
 
 /* ── Global tracking of the currently-running coroutine ────────────────── */
 static cetcd_co *g_co_current = NULL;

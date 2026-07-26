@@ -5,11 +5,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "cetcd/backend.h"
 #include "cetcd/base.h"
 #include "cetcd/slice.h"
-
-/* Forward declare backend to avoid a hard include cycle in public headers. */
-typedef struct cetcd_backend cetcd_backend;
 
 #ifdef __cplusplus
 extern "C" {
@@ -58,7 +56,10 @@ typedef struct cetcd_watch_event {
 } cetcd_watch_event;
 
 /* Forward declarations */
+#ifndef CETCD_MVCC_STORE_TYPEDEF
 typedef struct cetcd_mvcc_store cetcd_mvcc_store;
+#define CETCD_MVCC_STORE_TYPEDEF 1
+#endif
 typedef struct cetcd_watcher   cetcd_watcher;
 
 /* --- Store lifecycle --- */

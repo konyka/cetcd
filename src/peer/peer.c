@@ -21,20 +21,13 @@ struct cetcd_cluster {
     void              *send_udata;
 };
 
-/* Helpers */
-static int _peer_equal(const cetcd_peer *a, const cetcd_peer *b) {
-    if (a == NULL || b == NULL) return 0;
-    return a->id == b->id;
-}
-
 /* cetcd_peer API */
 cetcd_peer *cetcd_peer_new(uint64_t id, const char *addr, uint16_t port) {
     cetcd_peer *p = (cetcd_peer *)malloc(sizeof(cetcd_peer));
     if (!p) return NULL;
     p->id = id;
     if (addr) {
-        strncpy(p->addr, addr, sizeof(p->addr));
-        p->addr[sizeof(p->addr) - 1] = '\0';
+        snprintf(p->addr, sizeof(p->addr), "%s", addr);
     } else {
         p->addr[0] = '\0';
     }
@@ -199,8 +192,7 @@ const cetcd_peer_info *cetcd_cluster_get_peer_by_index(const cetcd_cluster *c, s
     if (!c || index >= c->peer_count) return NULL;
     if (!c->peers[index]) return NULL;
     peer_info_buf_.id = c->peers[index]->id;
-    strncpy(peer_info_buf_.addr, c->peers[index]->addr, sizeof(peer_info_buf_.addr) - 1);
-    peer_info_buf_.addr[sizeof(peer_info_buf_.addr) - 1] = '\0';
+    snprintf(peer_info_buf_.addr, sizeof(peer_info_buf_.addr), "%s", c->peers[index]->addr);
     peer_info_buf_.port = c->peers[index]->port;
     return &peer_info_buf_;
 }
@@ -215,8 +207,7 @@ int cetcd_cluster_update_peer(cetcd_cluster *c, uint64_t id, const cetcd_peer_in
     for (size_t i = 0; i < c->peer_count; i++) {
         if (c->peers[i] && c->peers[i]->id == id) {
             c->peers[i]->id = info->id;
-            strncpy(c->peers[i]->addr, info->addr, sizeof(c->peers[i]->addr) - 1);
-            c->peers[i]->addr[sizeof(c->peers[i]->addr) - 1] = '\0';
+            snprintf(c->peers[i]->addr, sizeof(c->peers[i]->addr), "%s", info->addr);
             c->peers[i]->port = info->port;
             return CETCD_OK;
         }

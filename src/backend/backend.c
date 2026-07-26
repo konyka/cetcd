@@ -80,8 +80,8 @@ static int _put_internal(cetcd_txn *txn, const char *bucket,
                          const uint8_t *val, size_t val_len) {
     MDB_dbi dbi;
     if (!_get_dbi(txn->txn, bucket, &dbi)) {
-        MDB_val mkey = {.mv_data = (void*)key, .mv_size = key_len };
-        MDB_val mval = {.mv_data = (void*)val, .mv_size = val_len };
+        MDB_val mkey = {.mv_data = (void *)(uintptr_t)key, .mv_size = key_len };
+        MDB_val mval = {.mv_data = (void *)(uintptr_t)val, .mv_size = val_len };
         int rc = mdb_put(txn->txn, dbi, &mkey, &mval, 0);
         return _lmdb_error(rc);
     }
@@ -93,7 +93,7 @@ static int _get_internal(cetcd_txn *txn, const char *bucket,
                          uint8_t **val, size_t *val_len) {
     MDB_dbi dbi;
     if (!_get_dbi(txn->txn, bucket, &dbi)) {
-        MDB_val mkey = {.mv_data = (void*)key, .mv_size = key_len };
+        MDB_val mkey = {.mv_data = (void *)(uintptr_t)key, .mv_size = key_len };
         MDB_val mval;
         int rc = mdb_get(txn->txn, dbi, &mkey, &mval);
         if (rc != MDB_SUCCESS) { *val = NULL; *val_len = 0; return CETCD_ERR_NOTFOUND; }
@@ -137,7 +137,7 @@ int cetcd_backend_del(cetcd_backend *be, const char *bucket,
     if (!txn) return CETCD_ERR_IO;
     MDB_dbi dbi;
     if (!_get_dbi(txn->txn, bucket, &dbi)) {
-        MDB_val mkey = {.mv_data = (void*)key, .mv_size = key_len };
+        MDB_val mkey = {.mv_data = (void *)(uintptr_t)key, .mv_size = key_len };
         int r = mdb_del(txn->txn, dbi, &mkey, NULL);
         rc = _lmdb_error(r);
         cetcd_txn_commit(txn);
@@ -166,7 +166,7 @@ int cetcd_backend_put2(cetcd_backend *be,
             cetcd_txn_abort(txn);
             return CETCD_ERR_IO;
         }
-        MDB_val mkey = {.mv_data = (void *)key1, .mv_size = key1_len};
+        MDB_val mkey = {.mv_data = (void *)(uintptr_t)key1, .mv_size = key1_len};
         int r = mdb_del(txn->txn, dbi, &mkey, NULL);
         /* Missing key is OK when mirroring an MVCC delete. */
         rc = (r == MDB_SUCCESS || r == MDB_NOTFOUND) ? CETCD_OK : CETCD_ERR_IO;
@@ -197,7 +197,7 @@ int cetcd_backend_del_n(cetcd_backend *be,
             cetcd_txn_abort(txn);
             return CETCD_ERR_IO;
         }
-        MDB_val mkey = {.mv_data = (void *)keys[i], .mv_size = key_lens[i]};
+        MDB_val mkey = {.mv_data = (void *)(uintptr_t)keys[i], .mv_size = key_lens[i]};
         int r = mdb_del(txn->txn, dbi, &mkey, NULL);
         if (r != MDB_SUCCESS && r != MDB_NOTFOUND) {
             cetcd_txn_abort(txn);
@@ -216,8 +216,8 @@ int cetcd_txn_put(cetcd_txn *txn, const char *bucket,
     if (!txn) return CETCD_ERR_INVAL;
     MDB_dbi dbi;
     if (_get_dbi(txn->txn, bucket, &dbi)) return CETCD_ERR_IO;
-    MDB_val mkey = {.mv_data = (void*)key, .mv_size = key_len };
-    MDB_val mval = {.mv_data = (void*)val, .mv_size = val_len };
+    MDB_val mkey = {.mv_data = (void *)(uintptr_t)key, .mv_size = key_len };
+    MDB_val mval = {.mv_data = (void *)(uintptr_t)val, .mv_size = val_len };
     int rc = mdb_put(txn->txn, dbi, &mkey, &mval, 0);
     return _lmdb_error(rc);
 }
@@ -228,7 +228,7 @@ int cetcd_txn_get(cetcd_txn *txn, const char *bucket,
     if (!txn) return CETCD_ERR_INVAL;
     MDB_dbi dbi;
     if (_get_dbi(txn->txn, bucket, &dbi)) return CETCD_ERR_IO;
-    MDB_val mkey = {.mv_data = (void*)key, .mv_size = key_len };
+    MDB_val mkey = {.mv_data = (void *)(uintptr_t)key, .mv_size = key_len };
     MDB_val mval;
     int rc = mdb_get(txn->txn, dbi, &mkey, &mval);
     if (rc != MDB_SUCCESS) return CETCD_ERR_NOTFOUND;
@@ -244,7 +244,7 @@ int cetcd_txn_del(cetcd_txn *txn, const char *bucket,
     if (!txn) return CETCD_ERR_INVAL;
     MDB_dbi dbi;
     if (!_get_dbi(txn->txn, bucket, &dbi)) {
-        MDB_val mkey = {.mv_data = (void*)key, .mv_size = key_len };
+        MDB_val mkey = {.mv_data = (void *)(uintptr_t)key, .mv_size = key_len };
         int rc = mdb_del(txn->txn, dbi, &mkey, NULL);
         return _lmdb_error(rc);
     }

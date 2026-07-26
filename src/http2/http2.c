@@ -290,9 +290,9 @@ cetcd_h2_submit_response(cetcd_h2_session *s, int32_t stream_id,
             const char *name  = headers[i * 2];
             const char *value = headers[i * 2 + 1];
             if (name && value) {
-                nva[i].name     = (uint8_t *)name;
+                nva[i].name     = (uint8_t *)(uintptr_t)name;
                 nva[i].namelen   = strlen(name);
-                nva[i].value    = (uint8_t *)value;
+                nva[i].value    = (uint8_t *)(uintptr_t)value;
                 nva[i].valuelen  = strlen(value);
                 nva[i].flags    = NGHTTP2_NV_FLAG_NONE;
             }
@@ -344,9 +344,9 @@ cetcd_h2_submit_trailers(cetcd_h2_session *s, int32_t stream_id,
             const char *name  = trailers[i * 2];
             const char *value = trailers[i * 2 + 1];
             if (name && value) {
-                nva[i].name     = (uint8_t *)name;
+                nva[i].name     = (uint8_t *)(uintptr_t)name;
                 nva[i].namelen   = strlen(name);
-                nva[i].value    = (uint8_t *)value;
+                nva[i].value    = (uint8_t *)(uintptr_t)value;
                 nva[i].valuelen  = strlen(value);
                 nva[i].flags    = NGHTTP2_NV_FLAG_NONE;
             }
