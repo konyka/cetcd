@@ -9,7 +9,7 @@
 
 ### Prerequisites
 
-- A C compiler with C11 `<stdatomic.h>` support:
+- A C compiler with C11 support (`<stdatomic.h>` and thread-local storage):
   - Linux: gcc ≥ 9 or clang ≥ 11
   - macOS: Apple Clang 13+ (Xcode 13)
   - Windows: MSVC ≥ 19.34 (Visual Studio 2022) or MinGW-w64 gcc ≥ 11
@@ -46,6 +46,7 @@ cmake --build build
 | `CETCD_USE_SYSTEM_LMDB`      | `OFF`   | Use system LMDB instead of vendored                    |
 | `CETCD_ENABLE_LTO`           | `OFF`   | Link-time optimisation (Release builds)                |
 | `CETCD_ENABLE_COVERAGE`      | `OFF`   | gcov-style coverage flags                              |
+| `CETCD_WERROR`                | `OFF`   | Treat project compiler warnings as build errors        |
 
 ### Sanitized debug build (developer default)
 
@@ -55,6 +56,13 @@ cmake -B build -G Ninja \
   -DCETCD_SANITIZERS=address,undefined
 cmake --build build
 ctest --test-dir build --output-on-failure
+```
+
+### Warning-clean review build
+
+```sh
+cmake -B build-werror -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCETCD_WERROR=ON
+cmake --build build-werror
 ```
 
 ---

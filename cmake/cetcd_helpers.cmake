@@ -19,7 +19,7 @@ function(cetcd_add_module name)
         PRIVATE ${M_PRIVATE_DEPS})
 
     set_target_properties(cetcd_${name} PROPERTIES
-        C_STANDARD          99
+        C_STANDARD          11
         C_STANDARD_REQUIRED ON
         C_EXTENSIONS        OFF)
 endfunction()

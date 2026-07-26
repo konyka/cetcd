@@ -25,7 +25,13 @@ int         cetcd_buf_append(cetcd_buf *b, const void *p, size_t n);
 int         cetcd_buf_append_byte(cetcd_buf *b, uint8_t v);
 int         cetcd_buf_append_slice(cetcd_buf *b, cetcd_slice s);
 int         cetcd_buf_append_cstr(cetcd_buf *b, const char *s);
-int         cetcd_buf_printf(cetcd_buf *b, const char *fmt, ...);
+#if defined(__GNUC__) || defined(__clang__)
+#  define CETCD_PRINTF_(fmt_idx, arg_idx) __attribute__((format(printf, fmt_idx, arg_idx)))
+#else
+#  define CETCD_PRINTF_(fmt_idx, arg_idx)
+#endif
+
+int         cetcd_buf_printf(cetcd_buf *b, const char *fmt, ...) CETCD_PRINTF_(2, 3);
 void        cetcd_buf_reset(cetcd_buf *b);
 cetcd_slice cetcd_buf_as_slice(const cetcd_buf *b);
 

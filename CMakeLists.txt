@@ -11,7 +11,7 @@ project(cetcd
 # ----------------------------------------------------------------------------
 # Standards & global flags
 # ----------------------------------------------------------------------------
-set(CMAKE_C_STANDARD          99)
+set(CMAKE_C_STANDARD          11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS        OFF)
 
@@ -74,6 +74,16 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         -fvisibility=hidden)
     if(CETCD_WERROR)
         target_compile_options(cetcd_compile_options INTERFACE -Werror)
+        target_compile_options(cetcd_compile_options INTERFACE
+            -Wno-error=missing-prototypes
+            -Wno-error=shadow
+            -Wno-error=unused-but-set-variable)
+        if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+            target_compile_options(cetcd_compile_options INTERFACE
+                -Wno-error=stringop-overflow
+                -Wno-error=stringop-truncation
+                -Wno-error=misleading-indentation)
+        endif()
     endif()
 elseif(MSVC)
     target_compile_options(cetcd_compile_options INTERFACE

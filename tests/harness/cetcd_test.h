@@ -22,6 +22,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__GNUC__) || defined(__clang__)
+#  define CETCD_TEST_PRINTF_(fmt_idx, arg_idx) __attribute__((format(printf, fmt_idx, arg_idx)))
+#else
+#  define CETCD_TEST_PRINTF_(fmt_idx, arg_idx)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -48,7 +54,7 @@ typedef struct cetcd_test_entry {
  * setjmp/longjmp to abort the current test cleanly without aborting the
  * process so subsequent tests still run.
  */
-void cetcd_test_fail(const char *file, int line, const char *fmt, ...);
+void cetcd_test_fail(const char *file, int line, const char *fmt, ...) CETCD_TEST_PRINTF_(3, 4);
 int  cetcd_test_run_all(const cetcd_test_entry *entries, size_t count);
 
 /* Assertions. All accept an optional trailing message arg list via fprintf. */

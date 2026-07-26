@@ -4,6 +4,12 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+#if defined(__GNUC__) || defined(__clang__)
+#  define CETCD_PRINTF_(fmt_idx, arg_idx) __attribute__((format(printf, fmt_idx, arg_idx)))
+#else
+#  define CETCD_PRINTF_(fmt_idx, arg_idx)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -32,11 +38,11 @@ FILE            *cetcd_log_get_sink(void);
 
 void cetcd_log_emit(cetcd_log_level lvl,
                     const char *file, int line, const char *func,
-                    const char *fmt, ...);
+                    const char *fmt, ...) CETCD_PRINTF_(5, 6);
 
 void cetcd_log_vemit(cetcd_log_level lvl,
                      const char *file, int line, const char *func,
-                     const char *fmt, va_list ap);
+                     const char *fmt, va_list ap) CETCD_PRINTF_(5, 0);
 
 #define CETCD_LOG(lvl, ...) \
     cetcd_log_emit((lvl), __FILE__, __LINE__, __func__, __VA_ARGS__)

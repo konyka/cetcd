@@ -3,7 +3,7 @@
 > **Status**: living document. See `notes.html` for delta history.
 
 cetcd is a from-scratch reimplementation of [etcd](https://github.com/etcd-io/etcd) in pure C
-(C99 floor with required C11 `<stdatomic.h>`). It targets **API semantic compatibility** with
+(C11 dialect with a C99-style public API). It targets **API semantic compatibility** with
 the etcd v3.5 gRPC surface (protobuf message shapes and RPC catalogue) so that `cetcdctl`
 and future HTTP/2 gRPC clients can share the same handlers.
 
@@ -44,12 +44,17 @@ Each landed with a regression test and is verified clean under ASan + UBSan.
   peer send or MVCC apply (Raft persist-before-advertise contract).
 - **Overflow guards** — slab block allocation and snapshot encode/decode now guard
   multiplication and length accumulation against `SIZE_MAX` wrap.
+- **Werror gate restoration** — the 2026-07 review also keeps warning hygiene part of
+  the hardening contract: public vararg APIs carry printf-format attributes, dead helpers are
+  removed, and WAL metadata encoding owns its payload instead of casting away constness.
 
 ### Verification commands
 
 ```sh
 cmake --build build                                   # Release build, exit 0
 ctest --test-dir build --output-on-failure           # full unit + integration suite
+cmake -B build-werror -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCETCD_WERROR=ON
+cmake --build build-werror                            # warning gate, exit 0
 cmake -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCETCD_SANITIZERS=address,undefined
 cmake --build build-asan && ctest --test-dir build-asan --output-on-failure   # ASan + UBSan
 ```

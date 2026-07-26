@@ -51,8 +51,8 @@ static double cetcd_test_now_ms_(void) {
 }
 
 int cetcd_test_run_all(const cetcd_test_entry *entries, size_t count) {
-    size_t passed = 0;
-    size_t failed = 0;
+    volatile size_t passed = 0;
+    volatile size_t failed = 0;
 
     fprintf(stderr, "[cetcd-test] running %zu test(s)\n", count);
 
@@ -60,9 +60,8 @@ int cetcd_test_run_all(const cetcd_test_entry *entries, size_t count) {
         cetcd_test_cur_name_ = entries[i].name;
         cetcd_test_in_test_  = 1;
 
-        double t0 = cetcd_test_now_ms_();
-
         if (setjmp(cetcd_test_jmp_) == 0) {
+            double t0 = cetcd_test_now_ms_();
             entries[i].fn();
             double t1 = cetcd_test_now_ms_();
             fprintf(stderr, "  PASS %-40s (%.2f ms)\n",
