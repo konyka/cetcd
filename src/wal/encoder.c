@@ -153,7 +153,14 @@ int cetcd_wal_encode_metadata(cetcd_wal_encoder *enc, const uint8_t *data, size_
     if (!enc) return -1;
     cetcd_wal_record rec; cetcd_wal_record_init(&rec);
     rec.type = CETCD_WAL_METADATA;
-    rec.data = (uint8_t*)data; rec.data_len = len; rec.crc = 0;
+    if (len > 0) {
+        rec.data = (uint8_t *)malloc(len);
+        if (!rec.data) return -1;
+        memcpy(rec.data, data, len);
+        rec.data_cap = len;
+    }
+    rec.data_len = len;
+    rec.crc = 0;
     int r = cetcd_wal_encode(enc, &rec);
     cetcd_wal_record_free(&rec);
     return r;

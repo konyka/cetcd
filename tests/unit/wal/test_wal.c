@@ -8,11 +8,6 @@
 #include <string.h>
 #include <unistd.h>
 
-/* Helpers to prepare test data */
-static cetcd_slice to_slice(const char *s) {
-    return cetcd_slice_make(s, s ? strlen(s) : 0);
-}
-
 CETCD_TEST_CASE(wal_roundtrip_basic) {
     char path_template[] = "/tmp/cetcd-test-wal-XXXXXX";
     int fd = mkstemp(path_template);
@@ -27,16 +22,8 @@ CETCD_TEST_CASE(wal_roundtrip_basic) {
 
     /* Metadata */
     const uint8_t meta[] = { 'm','e','t','a' };
-    {
-        cetcd_wal_record rec; cetcd_wal_record_init(&rec);
-        rec.type = CETCD_WAL_METADATA;
-        rec.data = (uint8_t*)meta; rec.data_len = sizeof(meta);
-        rec.crc = 0;
-        int r = cetcd_wal_encode(enc, &rec);
-        rec.data = NULL;
-        cetcd_wal_record_free(&rec);
-        CETCD_ASSERT_EQ_INT(r, 0);
-    }
+    int r = cetcd_wal_encode_metadata(enc, meta, sizeof(meta));
+    CETCD_ASSERT_EQ_INT(r, 0);
 
     /* Entry */
     cetcd_entry ent;
