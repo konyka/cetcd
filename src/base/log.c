@@ -38,6 +38,10 @@ const char *cetcd_log_level_name(cetcd_log_level lvl) {
 
 static void emit_text_(FILE *fp, cetcd_log_level lvl,
                         const char *file, int line, const char *func,
+                        const char *fmt, va_list ap) CETCD_PRINTF_(6, 0);
+
+static void emit_text_(FILE *fp, cetcd_log_level lvl,
+                        const char *file, int line, const char *func,
                         const char *fmt, va_list ap) {
     uint64_t now_ns = cetcd_clock_realtime_ns();
     time_t   sec    = (time_t)(now_ns / 1000000000ull);
@@ -79,6 +83,10 @@ static void json_escape_(FILE *fp, const char *s) {
     }
     fputc('"', fp);
 }
+
+static void emit_json_(FILE *fp, cetcd_log_level lvl,
+                        const char *file, int line, const char *func,
+                        const char *fmt, va_list ap) CETCD_PRINTF_(6, 0);
 
 static void emit_json_(FILE *fp, cetcd_log_level lvl,
                         const char *file, int line, const char *func,
