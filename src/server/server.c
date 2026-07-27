@@ -1145,8 +1145,12 @@ int cetcd_server_propose_conf_change(cetcd_server *srv, uint64_t peer_id, int ch
     buf[pos++] = 0x08;
     buf[pos++] = (uint8_t)change_type;
     buf[pos++] = 0x10;
-    do { uint8_t b = peer_id & 0x7F; peer_id >>= 7;
-         if (peer_id) b |= 0x80; buf[pos++] = b; } while (peer_id);
+    do {
+        uint8_t b = peer_id & 0x7F;
+        peer_id >>= 7;
+        if (peer_id) b |= 0x80;
+        buf[pos++] = b;
+    } while (peer_id);
     return cetcd_raft_propose_conf_change(srv->raft, buf, pos);
 }
 

@@ -259,7 +259,7 @@ cetcd_rpc_bytes cluster_handle_member_add(cetcd_v3rpc *rpc,
         } else {
             info.port = 2380;
         }
-        strncpy(info.addr, addr, sizeof(info.addr) - 1);
+        snprintf(info.addr, sizeof(info.addr), "%s", addr);
         cetcd_cluster_add_peer(g_rpc_cluster, &info);
         new_id = info.id;
     }
@@ -380,7 +380,7 @@ cetcd_rpc_bytes cluster_handle_member_update(cetcd_v3rpc *rpc,
             } else {
                 info.port = 2380;
             }
-            strncpy(info.addr, addr, sizeof(info.addr) - 1);
+            snprintf(info.addr, sizeof(info.addr), "%s", addr);
             cetcd_cluster_update_peer(g_rpc_cluster, member_id, &info);
         }
     }

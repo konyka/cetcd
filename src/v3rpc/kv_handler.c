@@ -10,6 +10,11 @@
 extern cetcd_mvcc_store *g_rpc_store;
 extern cetcd_lease_mgr  *g_rpc_lease_mgr;
 
+cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+
 /* Detach key from its lease (if any) then delete from MVCC.
  * Lease detach runs only after a successful delete (fail-closed safe). */
 static cetcd_revision delete_and_detach_(const uint8_t *key, size_t key_len) {
@@ -1521,27 +1526,27 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                     /* Apply min/max revision filters (fields 10-13) */
                     if (n > 0 && (rmin_mod_rev > 0 || rmax_mod_rev > 0 || rmin_create_rev > 0 || rmax_create_rev > 0)) {
                         size_t w = 0;
-                        for (size_t i = 0; i < n; i++) {
+                        for (size_t filter_idx = 0; filter_idx < n; filter_idx++) {
                             int keep = 1;
-                            if (rmin_mod_rev > 0 && kvs[i].mod_rev.main < rmin_mod_rev) keep = 0;
-                            if (keep && rmax_mod_rev > 0 && kvs[i].mod_rev.main > rmax_mod_rev) keep = 0;
-                            if (keep && rmin_create_rev > 0 && kvs[i].create_rev.main < rmin_create_rev) keep = 0;
-                            if (keep && rmax_create_rev > 0 && kvs[i].create_rev.main > rmax_create_rev) keep = 0;
+                            if (rmin_mod_rev > 0 && kvs[filter_idx].mod_rev.main < rmin_mod_rev) keep = 0;
+                            if (keep && rmax_mod_rev > 0 && kvs[filter_idx].mod_rev.main > rmax_mod_rev) keep = 0;
+                            if (keep && rmin_create_rev > 0 && kvs[filter_idx].create_rev.main < rmin_create_rev) keep = 0;
+                            if (keep && rmax_create_rev > 0 && kvs[filter_idx].create_rev.main > rmax_create_rev) keep = 0;
                             if (keep) {
-                                if (w != i) kvs[w] = kvs[i];
+                                if (w != filter_idx) kvs[w] = kvs[filter_idx];
                                 w++;
                             } else {
-                                free((void *)(uintptr_t)kvs[i].key.data);
-                                free((void *)(uintptr_t)kvs[i].value.data);
+                                free((void *)(uintptr_t)kvs[filter_idx].key.data);
+                                free((void *)(uintptr_t)kvs[filter_idx].value.data);
                             }
                         }
                         n = w;
                     }
                     /* Sort results if sort_order is specified (1=ASCEND, 2=DESCEND) */
                     if (rsort_order > 0 && n > 1) {
-                        for (size_t i = 1; i < n; i++) {
-                            cetcd_kv tmp = kvs[i];
-                            size_t j = i;
+                        for (size_t sort_idx = 1; sort_idx < n; sort_idx++) {
+                            cetcd_kv tmp = kvs[sort_idx];
+                            size_t j = sort_idx;
                             while (j > 0) {
                                 int cmp = range_sort_cmp(&kvs[j - 1], &tmp, &rsort_target);
                                 if (rsort_order == 2) cmp = -cmp;
@@ -1563,23 +1568,23 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                         kvs_cap = eff_n * 256 + 64;
                         kvs_buf = (uint8_t *)malloc(kvs_cap);
                         if (kvs_buf) {
-                            for (size_t i = 0; i < eff_n; i++) {
+                            for (size_t emit_idx = 0; emit_idx < eff_n; emit_idx++) {
                                 uint8_t kv_enc[1024]; size_t kp = 0;
                                 kv_enc[kp++] = 0x0a;
-                                write_varint_local(kv_enc, sizeof(kv_enc), &kp, kvs[i].key.len);
-                                memcpy(kv_enc + kp, kvs[i].key.data, kvs[i].key.len); kp += kvs[i].key.len;
+                                write_varint_local(kv_enc, sizeof(kv_enc), &kp, kvs[emit_idx].key.len);
+                                memcpy(kv_enc + kp, kvs[emit_idx].key.data, kvs[emit_idx].key.len); kp += kvs[emit_idx].key.len;
                                 kv_enc[kp++] = 0x10;
-                                write_varint_local(kv_enc, sizeof(kv_enc), &kp, (uint64_t)kvs[i].create_rev.main);
+                                write_varint_local(kv_enc, sizeof(kv_enc), &kp, (uint64_t)kvs[emit_idx].create_rev.main);
                                 kv_enc[kp++] = 0x18;
-                                write_varint_local(kv_enc, sizeof(kv_enc), &kp, (uint64_t)kvs[i].mod_rev.main);
+                                write_varint_local(kv_enc, sizeof(kv_enc), &kp, (uint64_t)kvs[emit_idx].mod_rev.main);
                                 kv_enc[kp++] = 0x20;
-                                write_varint_local(kv_enc, sizeof(kv_enc), &kp, (uint64_t)kvs[i].version);
-                                if (!rkeys_only && kvs[i].value.len > 0) {
+                                write_varint_local(kv_enc, sizeof(kv_enc), &kp, (uint64_t)kvs[emit_idx].version);
+                                if (!rkeys_only && kvs[emit_idx].value.len > 0) {
                                     kv_enc[kp++] = 0x2a;
-                                    write_varint_local(kv_enc, sizeof(kv_enc), &kp, kvs[i].value.len);
-                                    memcpy(kv_enc + kp, kvs[i].value.data, kvs[i].value.len); kp += kvs[i].value.len;
+                                    write_varint_local(kv_enc, sizeof(kv_enc), &kp, kvs[emit_idx].value.len);
+                                    memcpy(kv_enc + kp, kvs[emit_idx].value.data, kvs[emit_idx].value.len); kp += kvs[emit_idx].value.len;
                                 }
-                                append_kv_lease_(kv_enc, sizeof(kv_enc), &kp, kvs[i].lease_id);
+                                append_kv_lease_(kv_enc, sizeof(kv_enc), &kp, kvs[emit_idx].lease_id);
                                 size_t needed = kvs_len + 1 + 5 + kp;
                                 if (needed > kvs_cap) {
                                     kvs_cap = needed * 2;

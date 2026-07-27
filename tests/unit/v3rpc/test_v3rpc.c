@@ -731,11 +731,9 @@ CETCD_TEST_CASE(v3rpc_txn_nested_request_txn_rejected) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
     /* success op = RequestTxn (empty nested) — must fail, not silent-skip. */
-    const uint8_t *nested = NULL;
     uint8_t op[8]; size_t o = 0;
     op[o++] = 0x22; /* RequestOp field 4 = RequestTxn */
     op[o++] = 0;
-    if (nested) memcpy(op + o, nested, 0); o += 0;
 
     uint8_t txn_buf[16]; size_t tpos = 0;
     txn_buf[tpos++] = 0x12; /* field 2 = success */
@@ -2442,6 +2440,7 @@ CETCD_TEST_CASE(v3rpc_delete_range_multiple) {
                 if (!(b & 0x80)) break;
                 shift += 7;
             }
+            (void)v;
         }
     }
     CETCD_ASSERT_TRUE(deleted >= 3);
@@ -2577,6 +2576,7 @@ CETCD_TEST_CASE(v3rpc_range_limit_truncates) {
             /* count */
             uint64_t l = 0; int shift = 0;
             while (pos < resp.len) { uint8_t b = resp.data[pos++]; l |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            (void)l;
         } else {
             uint64_t l = 0; int shift = 0;
             while (pos < resp.len) { uint8_t b = resp.data[pos++]; l |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
@@ -2631,6 +2631,7 @@ CETCD_TEST_CASE(v3rpc_range_count_only) {
         } else {
             uint64_t v = 0; int shift = 0;
             while (rp < resp.len) { uint8_t b = resp.data[rp++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            (void)v;
         }
     }
     CETCD_ASSERT_TRUE(found_count > 0);
@@ -2733,6 +2734,7 @@ CETCD_TEST_CASE(v3rpc_authenticate_has_token_field2) {
         } else {
             uint64_t v = 0; int shift = 0;
             while (pos < resp.len) { uint8_t b = resp.data[pos++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            (void)v;
         }
     }
     CETCD_ASSERT_TRUE(found_token);
@@ -3121,6 +3123,7 @@ CETCD_TEST_CASE(v3rpc_auth_status_has_header) {
         if (tag == 0x10) {
             uint64_t v = 0; int shift = 0;
             while (pos < resp.len) { uint8_t b = resp.data[pos++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            (void)v;
             found_enabled = 1;
         } else if (tag == 0x0a) {
             uint64_t l = 0; int shift = 0;
@@ -3129,6 +3132,7 @@ CETCD_TEST_CASE(v3rpc_auth_status_has_header) {
         } else {
             uint64_t v = 0; int shift = 0;
             while (pos < resp.len) { uint8_t b = resp.data[pos++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            (void)v;
         }
     }
     CETCD_ASSERT_TRUE(found_enabled);
@@ -3163,6 +3167,7 @@ CETCD_TEST_CASE(v3rpc_lease_grant_has_header) {
         } else {
             uint64_t v = 0; int shift = 0;
             while (rpos < resp.len) { uint8_t b = resp.data[rpos++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            (void)v;
             if (tag == 0x10) found_id = 1;
             if (tag == 0x18) found_ttl = 1;
         }
@@ -3232,6 +3237,7 @@ CETCD_TEST_CASE(v3rpc_lease_time_to_live_has_header) {
         } else {
             uint64_t v = 0; int shift = 0;
             while (rpos < resp.len) { uint8_t b = resp.data[rpos++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            (void)v;
             if (tag == 0x20) found_granted_ttl = 1;
         }
     }
@@ -3276,6 +3282,7 @@ CETCD_TEST_CASE(v3rpc_lease_leases_has_header) {
         } else {
             uint64_t v = 0; int shift = 0;
             while (rpos < resp.len) { uint8_t b = resp.data[rpos++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            (void)v;
         }
     }
     CETCD_ASSERT_TRUE(found_lease);
@@ -3355,6 +3362,7 @@ CETCD_TEST_CASE(v3rpc_lease_time_to_live_with_keys) {
         } else {
             uint64_t v = 0; int shift = 0;
             while (rpos < resp.len) { uint8_t b = resp.data[rpos++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            (void)v;
         }
     }
     CETCD_ASSERT_TRUE(found_keys);
@@ -3457,6 +3465,7 @@ CETCD_TEST_CASE(v3rpc_status_has_version_and_leader) {
         } else {
             uint64_t v = 0; int shift = 0;
             while (rpos < resp.len) { uint8_t b = resp.data[rpos++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
+            (void)v;
             if (tag == 0x20) found_leader = 1;
         }
     }
