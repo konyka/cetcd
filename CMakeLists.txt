@@ -74,15 +74,9 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         -fvisibility=hidden)
     if(CETCD_WERROR)
         target_compile_options(cetcd_compile_options INTERFACE -Werror)
-        target_compile_options(cetcd_compile_options INTERFACE
-            -Wno-error=missing-prototypes
-            -Wno-error=shadow
-            -Wno-error=unused-but-set-variable)
         if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
             target_compile_options(cetcd_compile_options INTERFACE
-                -Wno-error=stringop-overflow
-                -Wno-error=stringop-truncation
-                -Wno-error=misleading-indentation)
+                -Wno-error=stringop-overflow)
         endif()
     endif()
 elseif(MSVC)
