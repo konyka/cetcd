@@ -78,6 +78,7 @@
 #include <arpa/inet.h>
 
 #include "cetcd/base.h"
+#include "cetcd/auth.h"
 
 static const char *g_host = "127.0.0.1";
 static uint16_t    g_port = 2379;
@@ -91,7 +92,7 @@ static int         g_write_table = 0; /* flag for -w table */
 static int         g_debug = 0; /* flag for --debug */
 static int         g_insecure = 0; /* flag for --insecure (no-op, plain TCP) */
 static int         g_dial_timeout = 0; /* flag for --dial-timeout (seconds) */
-static char        g_auth_token[256] = ""; /* token from --user */
+static char        g_auth_token[CETCD_AUTH_MAX_TOKEN_LEN + 1] = ""; /* token from --user */
 static char        g_password[256] = ""; /* password from --password flag */
 
 /* --- Lock state for signal handler --- */
@@ -183,7 +184,7 @@ static int connect_server(void) {
 static int send_request(int fd, const char *path,
                          const uint8_t *payload, size_t payload_len) {
     size_t path_len = strlen(path);
-    uint8_t header[512];
+    uint8_t header[CETCD_AUTH_MAX_TOKEN_LEN + 512];
     size_t hpos = 0;
     header[hpos++] = (uint8_t)(path_len >> 8);
     header[hpos++] = (uint8_t)(path_len & 0xFF);
@@ -192,7 +193,7 @@ static int send_request(int fd, const char *path,
     size_t token_len = g_auth_token[0] ? strlen(g_auth_token) : 0;
     if (hpos + token_len + 8 > sizeof(header)) return -1;
     uint8_t flags = 0;
-    if (token_len > 0 && token_len <= 128)
+    if (token_len > 0 && token_len <= CETCD_AUTH_MAX_TOKEN_LEN)
         flags |= 0x02;
     header[hpos++] = flags;
     if (flags & 0x02) {

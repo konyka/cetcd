@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdio.h>
 
 CETCD_TEST_CASE(auth_store_create_destroy) {
     cetcd_auth_store *s = cetcd_auth_store_new();
@@ -154,6 +155,77 @@ CETCD_TEST_CASE(auth_revoke_tokens_on_password_change) {
     cetcd_auth_store_free(s);
 }
 
+static int write_hmac_key_(char *dir, size_t dirsz, char *spec, size_t specsz, const char *ttl) {
+    char tmpl[] = "/tmp/cetcd-jwt-XXXXXX";
+    if (!mkdtemp(tmpl)) return -1;
+    snprintf(dir, dirsz, "%s", tmpl);
+    char path[300];
+    snprintf(path, sizeof(path), "%s/key", tmpl);
+    FILE *f = fopen(path, "wb");
+    if (!f) return -1;
+    const char secret[] = "cetcd-hs256-secret";
+    if (fwrite(secret, 1, sizeof(secret) - 1, f) != sizeof(secret) - 1) {
+        fclose(f); return -1;
+    }
+    fclose(f);
+    if (ttl && ttl[0])
+        snprintf(spec, specsz, "jwt,sign-method=HS256,priv-key=%s,ttl=%s", path, ttl);
+    else
+        snprintf(spec, specsz, "jwt,sign-method=HS256,priv-key=%s", path);
+    return 0;
+}
+
+static void cleanup_hmac_key_(const char *dir) {
+    char path[300];
+    snprintf(path, sizeof(path), "%s/key", dir);
+    unlink(path);
+    rmdir(dir);
+}
+
+CETCD_TEST_CASE(auth_jwt_hs256_roundtrip_and_tamper) {
+    char dir[128], spec[400];
+    CETCD_ASSERT_EQ_INT(write_hmac_key_(dir, sizeof(dir), spec, sizeof(spec), "5m"), 0);
+    cetcd_auth_store *s = cetcd_auth_store_new();
+    CETCD_ASSERT_EQ_INT(cetcd_auth_add_user(s, "alice", "secret"), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_auth_set_token_spec(s, spec), CETCD_OK);
+
+    char *tok = cetcd_auth_issue_token(s, "alice");
+    CETCD_ASSERT_NOT_NULL(tok);
+    CETCD_ASSERT_TRUE(strchr(tok, '.') != NULL);
+    uint64_t now = cetcd_clock_realtime_ns();
+    CETCD_ASSERT_TRUE(strcmp(cetcd_auth_user_for_token(s, tok, now), "alice") == 0);
+
+    size_t n = strlen(tok);
+    tok[n - 1] = (char)(tok[n - 1] == 'A' ? 'B' : 'A');
+    CETCD_ASSERT_NULL(cetcd_auth_user_for_token(s, tok, now));
+    free(tok);
+
+    CETCD_ASSERT_EQ_INT(cetcd_auth_set_token_spec(s, "jwt"), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_auth_set_token_spec(s, "jwt,sign-method=RS256,priv-key=/dev/null"),
+                        CETCD_ERR_UNSUPPORT);
+    cetcd_auth_store_free(s);
+    cleanup_hmac_key_(dir);
+}
+
+CETCD_TEST_CASE(auth_jwt_expiry_and_stateless_password_change) {
+    char dir[128], spec[400];
+    CETCD_ASSERT_EQ_INT(write_hmac_key_(dir, sizeof(dir), spec, sizeof(spec), "1s"), 0);
+    cetcd_auth_store *s = cetcd_auth_store_new();
+    CETCD_ASSERT_EQ_INT(cetcd_auth_add_user(s, "bob", "old"), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_auth_set_token_spec(s, spec), CETCD_OK);
+
+    char *tok = cetcd_auth_issue_token(s, "bob");
+    CETCD_ASSERT_NOT_NULL(tok);
+    uint64_t now = cetcd_clock_realtime_ns();
+    CETCD_ASSERT_NOT_NULL(cetcd_auth_user_for_token(s, tok, now));
+    CETCD_ASSERT_EQ_INT(cetcd_auth_change_password(s, "bob", "new"), CETCD_OK);
+    CETCD_ASSERT_NOT_NULL(cetcd_auth_user_for_token(s, tok, now));
+    CETCD_ASSERT_NULL(cetcd_auth_user_for_token(s, tok, now + 2000000000ULL));
+    free(tok);
+    cetcd_auth_store_free(s);
+    cleanup_hmac_key_(dir);
+}
+
 CETCD_TEST_CASE(auth_admin_and_key_perm) {
     cetcd_auth_store *s = cetcd_auth_store_new();
     cetcd_auth_add_user(s, "root", "r");
@@ -273,6 +345,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auth_issue_unique_tokens),
     CETCD_TEST_ENTRY(auth_token_expiry_fail_closed),
     CETCD_TEST_ENTRY(auth_revoke_tokens_on_password_change),
+    CETCD_TEST_ENTRY(auth_jwt_hs256_roundtrip_and_tamper),
+    CETCD_TEST_ENTRY(auth_jwt_expiry_and_stateless_password_change),
     CETCD_TEST_ENTRY(auth_admin_and_key_perm),
     CETCD_TEST_ENTRY(auth_persist_roundtrip),
     CETCD_TEST_ENTRY(auth_bcrypt_cost_rejects_out_of_range),

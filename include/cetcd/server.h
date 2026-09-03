@@ -43,8 +43,8 @@ typedef struct cetcd_server_config {
     char            peer_key_file[512];
     char            peer_trusted_ca_file[512];
     bool            peer_client_cert_auth;
-    /* "simple" (default) or empty; "jwt" is fail-closed until implemented. */
-    char            auth_token[128];
+    /* "simple" (default) or empty, or jwt,sign-method=HS256,priv-key=... */
+    char            auth_token[512];
     int             bcrypt_cost; /* 0 = SHA-256; 4..31 = bcrypt */
     uint64_t        max_request_bytes;    /* 0 → CETCD_DEFAULT_MAX_REQUEST_BYTES */
     uint64_t        quota_backend_bytes; /* 0 = unlimited */

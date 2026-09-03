@@ -88,8 +88,15 @@ int cetcd_auth_revoke_permission(cetcd_auth_store *s, const char *role);
 /* ── Data-plane tokens (simple opaque tokens, O(1) hashmap lookup) ── */
 
 #define CETCD_AUTH_DEFAULT_TOKEN_TTL_NS (300ULL * 1000000000ULL)
+#define CETCD_AUTH_MAX_TOKEN_LEN 2048
+#define CETCD_AUTH_JWT_DEFAULT_TTL_NS (300ULL * 1000000000ULL) /* etcd 5m */
 
 void        cetcd_auth_set_token_ttl_ns(cetcd_auth_store *s, uint64_t ttl_ns);
+
+/* etcd --auth-token spec: "simple" / empty, or
+ * "jwt,sign-method=HS256,priv-key=PATH[,ttl=5m]". Other JWT methods and
+ * jwt without a signing key fail closed. */
+int         cetcd_auth_set_token_spec(cetcd_auth_store *s, const char *spec);
 
 /* Issue a unique opaque token for `username`. Caller frees the returned
  * heap string. Returns NULL on failure (unknown user / OOM). */

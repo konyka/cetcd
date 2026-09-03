@@ -928,13 +928,13 @@ static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *
 
         uint8_t flags = ctx->buf[after_path];
         size_t cursor = after_path + 1;
-        char token[129];
+        char token[CETCD_AUTH_MAX_TOKEN_LEN + 1];
         token[0] = '\0';
         if (flags & 0x02) {
             if (ctx->buf_pos < cursor + 2) break;
             uint16_t tlen = ((uint16_t)ctx->buf[cursor] << 8) | ctx->buf[cursor + 1];
             cursor += 2;
-            if (tlen > 128) { uv_close((uv_handle_t *)stream, client_close_cb_); return; }
+            if (tlen > CETCD_AUTH_MAX_TOKEN_LEN) { uv_close((uv_handle_t *)stream, client_close_cb_); return; }
             if (ctx->buf_pos < cursor + tlen + 4) break;
             memcpy(token, ctx->buf + cursor, tlen);
             token[tlen] = '\0';
@@ -1378,14 +1378,10 @@ int cetcd_server_start(cetcd_server *srv) {
     if (!srv) return CETCD_ERR_INVAL;
 
     if (srv->cfg.auth_token[0]) {
-        const char *t = srv->cfg.auth_token;
-        if (strncmp(t, "simple", 6) == 0 && (t[6] == '\0' || t[6] == ',')) {
-            /* default opaque tokens */
-        } else if (strncmp(t, "jwt", 3) == 0 && (t[3] == '\0' || t[3] == ',')) {
-            return CETCD_ERR_UNSUPPORT;
-        } else {
-            return CETCD_ERR_INVAL;
-        }
+        extern cetcd_auth_store *g_rpc_auth;
+        if (!g_rpc_auth) return CETCD_ERR_INTERNAL;
+        int trc = cetcd_auth_set_token_spec(g_rpc_auth, srv->cfg.auth_token);
+        if (trc != CETCD_OK) return trc;
     }
     if (srv->cfg.bcrypt_cost) {
         extern cetcd_auth_store *g_rpc_auth;

@@ -65,6 +65,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **Joint 共识**：voter 增删/提升先进入 C_old,new 联合配置，两边多数派都满足才提交；新成员追上 joint-index 后 leader 提出 `LEAVE_JOINT`。重叠的 voter 变更 fail-closed。联合配置持久化以便重启保持双多数。
 - **WAL 截断**：`--snapshot-count` 次 apply（默认 10000）后，将 WAL 段改写为 `SNAPSHOT` + HardState 并压缩内存 log；写失败则保留原段。
 - **请求上限 / 后端配额**：`--max-request-bytes`（默认 1.5 MiB）限制客户端读缓冲，超限关连接；`--quota-backend-bytes` 在 LMDB 体积达到上限时对 Put 返回空帧并激活 NOSPACE，Delete 仍可执行以便回收空间。
+- **JWT**：`--auth-token jwt,sign-method=HS256,priv-key=PATH[,ttl=5m]` 签发带 `username`/`revision`/`exp` 的 HS256 JWT；密码变更不撤销已签发 JWT（与 etcd 一致）。其它 sign-method 启动失败。
 - **Peer 发送**：复用 TCP 连接，避免每条 Raft 消息新建短连接。
 - **历史 Range**：`cetcd_mvcc_range(rev>0)` 按 history 回放；重启后对当前世代有 synthetic history。
 
@@ -657,7 +658,7 @@ int cetcd_auth_grant_permission(cetcd_auth_store *s, const char *role,
 int cetcd_auth_revoke_permission(cetcd_auth_store *s, const char *role);
 ```
 
-> **注意**：默认使用 SHA-256（OpenSSL EVP）哈希密码。`--bcrypt-cost N`（4..31）对新密码使用 libcrypt `$2b$`；校验同时接受旧 SHA-256 记录。`--auth-token jwt` 在实现前会启动失败。OpenSSL 不可用时 SHA-256 回退为非加密占位哈希。
+> **注意**：默认使用 SHA-256（OpenSSL EVP）哈希密码。`--bcrypt-cost N`（4..31）对新密码使用 libcrypt `$2b$`；校验同时接受旧 SHA-256 记录。`--auth-token jwt,sign-method=HS256,priv-key=PATH[,ttl=5m]` 签发 HS256 JWT（username/revision/exp）；RS256/ES256 仍启动失败。OpenSSL 不可用时 SHA-256 回退为非加密占位哈希。
 
 ---
 

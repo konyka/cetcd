@@ -134,7 +134,7 @@ cetcd accepts several etcd server flags for migration compatibility:
 
 # Limit flags: --max-request-bytes is applied; --max-txn-ops is still a no-op
 ./build/bin/cetcd --max-txn-ops 128 --max-request-bytes 1572864 \
-  --auth-token simple --bcrypt-cost 10
+  --auth-token 'jwt,sign-method=HS256,priv-key=./jwt.key,ttl=5m' --bcrypt-cost 10
 
 # gRPC keepalive and logger flags (accepted as no-op)
 ./build/bin/cetcd --grpc-keepalive-time 10s --grpc-keepalive-timeout 5s \
