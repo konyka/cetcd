@@ -737,14 +737,28 @@ int cetcd_grpc_decode(const uint8_t *frame, size_t frame_len, bool *compressed, 
 
 ```c
 cetcd_tls_ctx *cetcd_tls_ctx_new(void);
+cetcd_tls_ctx *cetcd_tls_ctx_new_client(void);
 int cetcd_tls_set_cert(cetcd_tls_ctx *ctx, const char *cert_path, const char *key_path);
 int cetcd_tls_set_ca(cetcd_tls_ctx *ctx, const char *ca_path);
 int cetcd_tls_set_alpn(cetcd_tls_ctx *ctx, const char **protocols, size_t count);
+int cetcd_tls_set_verify_peer(cetcd_tls_ctx *ctx, int require_cert);
 
-cetcd_tls_conn *cetcd_tls_accept(cetcd_tls_ctx *ctx, int fd);
+cetcd_tls_conn *cetcd_tls_accept(cetcd_tls_ctx *ctx, int fd); /* blocking */
+cetcd_tls_conn *cetcd_tls_conn_accept(cetcd_tls_ctx *ctx);   /* mem-BIO, libuv */
+cetcd_tls_conn *cetcd_tls_conn_connect(cetcd_tls_ctx *ctx);
+int cetcd_tls_feed(cetcd_tls_conn *conn, const void *data, size_t len);
+int cetcd_tls_handshake(cetcd_tls_conn *conn); /* 1 done, 0 WANT_IO, -1 fail */
+int cetcd_tls_pending_out(cetcd_tls_conn *conn, uint8_t *buf, size_t cap);
 int  cetcd_tls_read(cetcd_tls_conn *conn, void *buf, size_t len);
 int  cetcd_tls_write(cetcd_tls_conn *conn, const void *buf, size_t len);
 ```
+
+Server `--cert-file`/`--key-file` (and `--peer-cert-file`/`--peer-key-file`) load these
+contexts at start. Plaintext remains the default. Cert without key, missing files, or
+`--client-cert-auth` without `--trusted-ca-file` fail closed. Handshake runs on memory
+BIOs so libuv keeps the socket; blocking `SSL_accept` is not used on the reactor.
+Outbound `peer_tx_` is still plaintext. `cetcdctl` is still a plaintext client.
+`--auto-tls` stays a no-op.
 
 ---
 

@@ -48,15 +48,15 @@ static void print_usage(const char *prog) {
     printf("  --grpc-keepalive-*  Accepted but no-op (plain TCP)\n");
     printf("  --auth-token TYPE   Accepted but no-op\n");
     printf("  --bcrypt-cost N     Accepted but no-op\n");
-    printf("  --cert-file FILE    Accepted but no-op (plain TCP)\n");
-    printf("  --key-file FILE     Accepted but no-op (plain TCP)\n");
-    printf("  --trusted-ca-file FILE  Accepted but no-op (plain TCP)\n");
-    printf("  --client-cert-auth  Accepted but no-op (plain TCP)\n");
+    printf("  --cert-file FILE    Client TLS certificate (requires --key-file)\n");
+    printf("  --key-file FILE     Client TLS private key\n");
+    printf("  --trusted-ca-file FILE  Client TLS CA (required with --client-cert-auth)\n");
+    printf("  --client-cert-auth  Require a client certificate (fail-closed)\n");
     printf("  --auto-tls           Accepted but no-op (plain TCP)\n");
-    printf("  --peer-cert-file FILE    Accepted but no-op (plain TCP)\n");
-    printf("  --peer-key-file FILE     Accepted but no-op (plain TCP)\n");
-    printf("  --peer-trusted-ca-file FILE  Accepted but no-op (plain TCP)\n");
-    printf("  --peer-client-cert-auth  Accepted but no-op (plain TCP)\n");
+    printf("  --peer-cert-file FILE    Peer accept TLS certificate (requires --peer-key-file)\n");
+    printf("  --peer-key-file FILE     Peer accept TLS private key\n");
+    printf("  --peer-trusted-ca-file FILE  Peer TLS CA (required with --peer-client-cert-auth)\n");
+    printf("  --peer-client-cert-auth  Require a peer certificate on accept (fail-closed)\n");
     printf("  --peer-auto-tls      Accepted but no-op (plain TCP)\n");
     printf("  --cipher-suites LIST  Accepted but no-op (plain TCP)\n");
     printf("  --logger TYPE       Accepted but no-op (uses built-in logger)\n");
@@ -204,25 +204,25 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--bcrypt-cost") == 0 && i + 1 < argc) {
             i++; /* no-op */
         } else if (strcmp(argv[i], "--cert-file") == 0 && i + 1 < argc) {
-            i++; /* no-op, plain TCP */
+            strncpy(cfg.cert_file, argv[++i], sizeof(cfg.cert_file) - 1);
         } else if (strcmp(argv[i], "--key-file") == 0 && i + 1 < argc) {
-            i++; /* no-op, plain TCP */
+            strncpy(cfg.key_file, argv[++i], sizeof(cfg.key_file) - 1);
         } else if (strcmp(argv[i], "--trusted-ca-file") == 0 && i + 1 < argc) {
-            i++; /* no-op, plain TCP */
+            strncpy(cfg.trusted_ca_file, argv[++i], sizeof(cfg.trusted_ca_file) - 1);
         } else if (strcmp(argv[i], "--client-cert-auth") == 0) {
-            /* no-op, plain TCP */
+            cfg.client_cert_auth = true;
         } else if (strcmp(argv[i], "--auto-tls") == 0) {
-            /* no-op, plain TCP */
+            /* no-op: cetcd does not mint certificates */
         } else if (strcmp(argv[i], "--peer-cert-file") == 0 && i + 1 < argc) {
-            i++; /* no-op, plain TCP */
+            strncpy(cfg.peer_cert_file, argv[++i], sizeof(cfg.peer_cert_file) - 1);
         } else if (strcmp(argv[i], "--peer-key-file") == 0 && i + 1 < argc) {
-            i++; /* no-op, plain TCP */
+            strncpy(cfg.peer_key_file, argv[++i], sizeof(cfg.peer_key_file) - 1);
         } else if (strcmp(argv[i], "--peer-trusted-ca-file") == 0 && i + 1 < argc) {
-            i++; /* no-op, plain TCP */
+            strncpy(cfg.peer_trusted_ca_file, argv[++i], sizeof(cfg.peer_trusted_ca_file) - 1);
         } else if (strcmp(argv[i], "--peer-client-cert-auth") == 0) {
-            /* no-op, plain TCP */
+            cfg.peer_client_cert_auth = true;
         } else if (strcmp(argv[i], "--peer-auto-tls") == 0) {
-            /* no-op, plain TCP */
+            /* no-op: cetcd does not mint certificates */
         } else if (strcmp(argv[i], "--cipher-suites") == 0 && i + 1 < argc) {
             i++; /* no-op, plain TCP */
         } else if (strcmp(argv[i], "--logger") == 0 && i + 1 < argc) {
@@ -246,6 +246,10 @@ int main(int argc, char **argv) {
     CETCD_INFO("  peer      : %s:%u", cfg.peer_addr, cfg.peer_port);
     CETCD_INFO("  metrics   : %s:%u", cfg.listen_addr, cfg.metrics_port);
     CETCD_INFO("  cluster   : %u peer(s)", cfg.n_initial_peers);
+    if (cfg.cert_file[0])
+        CETCD_INFO("  tls       : cert=%s", cfg.cert_file);
+    if (cfg.peer_cert_file[0])
+        CETCD_INFO("  peer-tls  : cert=%s", cfg.peer_cert_file);
 
     cetcd_server *srv = cetcd_server_new(&cfg);
     if (!srv) {
@@ -260,7 +264,12 @@ int main(int argc, char **argv) {
     sigaction(SIGTERM, &sa, NULL);
     sigaction(SIGINT, &sa, NULL);
 
-    cetcd_server_start(srv);
+    if (cetcd_server_start(srv) != 0) {
+        CETCD_FATAL("failed to start server");
+        cetcd_server_free(srv);
+        g_srv = NULL;
+        return 1;
+    }
 
     CETCD_INFO("server initialized, revision=%lld", (long long)cetcd_server_revision(srv));
     CETCD_INFO("ready to serve on %s:%u", cfg.listen_addr, cfg.listen_port);

@@ -48,6 +48,12 @@ Performance-first, fail-closed design:
 - **Lease expiry / revoke via Raft** — `LeaseRevoke` encodes apply tag 10
   (delete attached keys, then drop the lease). Leader expire proposes compact
   Deletes; followers do not delete locally. Not-leader is fail-closed.
+- **TLS on client/peer accept** — `--cert-file`/`--key-file` (and peer
+  equivalents) load OpenSSL server contexts at start. Traffic stays plaintext
+  when omitted. Cert without key, missing files, or `--client-cert-auth`
+  without a CA fail closed (no silent plaintext). Handshake uses memory BIOs
+  so libuv keeps the fd; `cetcdctl` is still a plaintext client. Outbound
+  `peer_tx_` remains plaintext this pass. ALPN `h2` is not advertised yet.
 
 ## Previously done (auth data plane)
 
@@ -64,10 +70,10 @@ None remaining in this pass.
 
 | Gap | Why it matters | Suggested approach |
 |-----|----------------|--------------------|
-| TLS on client/peer accept | `--cert-file` is no-op; traffic is plaintext | Wire `libcetcd_tls` into `on_client_conn_` / peer TCP; ALPN `h2` later. Keep plaintext as default. |
 | bcrypt / JWT `--auth-token` | SHA-256 is fast but not password-hashing; JWT unused | Keep simple tokens as default (hot-path cheap). Optional bcrypt at Authenticate only. |
 | `--max-request-bytes` / `--quota-backend-bytes` | DoS / disk fill. Client buffer is currently 64 KiB | Growable read buffer capped at `max_request_bytes` (etcd default 1.5 MiB); NOSPACE alarm when LMDB size exceeds quota. |
 | pprof CPU profile quality | `/debug/pprof/profile` is coarse | Keep off the Raft/reactor hot path; sample in a worker. |
+| Peer TLS on outbound `peer_tx_` | Accept path encrypts inbound; Raft send is still plaintext | Client-method memory-BIO handshake on `peer_tx_connect_`, then `SSL_write` before `uv_write`. |
 
 ### Wire compatibility
 

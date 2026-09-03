@@ -120,12 +120,14 @@ cetcd accepts several etcd server flags for migration compatibility:
   --snapshot-count 10000 --quota-backend-bytes 2147483648 \
   --data-dir ./data
 
-# TLS-related flags (accepted as no-op, cetcd uses plain TCP)
+# TLS on client/peer accept (omit for plaintext; cert without key fails start)
 ./build/bin/cetcd --cert-file server.crt --key-file server.key \
-  --trusted-ca-file ca.crt --client-cert-auth --auto-tls \
+  --trusted-ca-file ca.crt --client-cert-auth \
   --peer-cert-file peer.crt --peer-key-file peer.key \
-  --peer-trusted-ca-file peer-ca.crt --peer-client-cert-auth \
-  --peer-auto-tls --cipher-suites TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+  --peer-trusted-ca-file peer-ca.crt --peer-client-cert-auth
+
+# Still no-op: --auto-tls, --peer-auto-tls, --cipher-suites
+./build/bin/cetcd --auto-tls --cipher-suites TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
 
 # Limit and auth flags (accepted as no-op)
 ./build/bin/cetcd --max-txn-ops 128 --max-request-bytes 1572864 \

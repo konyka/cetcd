@@ -33,6 +33,15 @@ typedef struct cetcd_server_config {
     uint64_t        snapshot_count; /* 0 → CETCD_DEFAULT_SNAPSHOT_COUNT */
     cetcd_peer_info initial_peers[CETCD_MAX_INITIAL_PEERS];
     uint32_t        n_initial_peers;
+    /* TLS: both cert and key required; empty = plaintext. Fail-closed. */
+    char            cert_file[512];
+    char            key_file[512];
+    char            trusted_ca_file[512];
+    bool            client_cert_auth;
+    char            peer_cert_file[512];
+    char            peer_key_file[512];
+    char            peer_trusted_ca_file[512];
+    bool            peer_client_cert_auth;
 } cetcd_server_config;
 
 cetcd_server *cetcd_server_new(const cetcd_server_config *cfg);

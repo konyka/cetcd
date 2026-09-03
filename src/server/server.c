@@ -11,6 +11,7 @@
 #include "cetcd/io.h"
 #include "cetcd/metrics.h"
 #include "cetcd/log.h"
+#include "cetcd/tls.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -61,6 +62,8 @@ struct cetcd_server {
     uint32_t             n_peer_txs;
     uint64_t             peer_drops;
     uint64_t             last_snap_index;
+    cetcd_tls_ctx       *tls_client;
+    cetcd_tls_ctx       *tls_peer;
 };
 
 static void raft_tick_cb_(void *arg);
@@ -362,6 +365,30 @@ static void stream_write_cleanup_(uv_write_t *req, int status) {
     free(req);
 }
 
+static int tls_flush_uv_(uv_stream_t *stream, cetcd_tls_conn *tls) {
+    if (!stream || !tls) return -1;
+    for (;;) {
+        uint8_t tmp[16384];
+        int n = cetcd_tls_pending_out(tls, tmp, sizeof(tmp));
+        if (n < 0) return -1;
+        if (n == 0) return 0;
+        uint8_t *copy = (uint8_t *)malloc((size_t)n);
+        if (!copy) return -1;
+        memcpy(copy, tmp, (size_t)n);
+        uv_write_t *wr = (uv_write_t *)calloc(1, sizeof(uv_write_t));
+        if (!wr) { free(copy); return -1; }
+        wr->data = copy;
+        uv_buf_t wbuf = uv_buf_init((char *)copy, (unsigned int)n);
+        if (uv_write(wr, stream, &wbuf, 1, stream_write_cleanup_) != 0) {
+            free(copy);
+            free(wr);
+            return -1;
+        }
+    }
+}
+
+static void client_uv_send_(uv_stream_t *stream, uint8_t *frame, size_t total);
+
 /* Write a WatchResponse frame to a client socket.
  * The frame format matches the gRPC-like framing:
  *   2B path_len (BE) + path + 1B compressed + 4B payload_len (BE) + payload */
@@ -389,16 +416,7 @@ static void client_stream_write_(const uint8_t *data, size_t len, void *ctx) {
     frame[pos++] = (uint8_t)(payload_len & 0xFF);
     memcpy(frame + pos, data, len);
 
-    uv_buf_t wbuf = uv_buf_init((char *)frame, (unsigned int)total);
-    uv_write_t *wr = (uv_write_t *)calloc(1, sizeof(uv_write_t));
-    if (wr) {
-        wr->data = frame;
-        if (uv_write(wr, stream, &wbuf, 1, stream_write_cleanup_) != 0) {
-            free(frame); free(wr);
-        }
-    } else {
-        free(frame);
-    }
+    client_uv_send_(stream, frame, total);
 }
 
 static void on_metrics_connection_(uv_stream_t *server, int status);
@@ -408,17 +426,43 @@ static void on_metrics_write_(uv_write_t *req, int status);
 static void on_metrics_close_(uv_handle_t *handle);
 
 typedef struct client_ctx_ {
-    cetcd_server *srv;
-    cetcd_tcp    *client;
-    uint8_t       buf[65536];
-    size_t        buf_pos;
+    cetcd_server     *srv;
+    cetcd_tcp        *client;
+    cetcd_tls_conn   *tls;
+    int               tls_ready;
+    uint8_t           buf[65536];
+    size_t            buf_pos;
 } client_ctx_;
+
+static void client_uv_send_(uv_stream_t *stream, uint8_t *frame, size_t total) {
+    client_ctx_ *ctx = stream ? (client_ctx_ *)stream->data : NULL;
+    if (ctx && ctx->tls) {
+        int w = cetcd_tls_write(ctx->tls, frame, total);
+        free(frame);
+        if (w < 0 || (size_t)w != total) return;
+        (void)tls_flush_uv_(stream, ctx->tls);
+        return;
+    }
+    uv_write_t *wr = (uv_write_t *)calloc(1, sizeof(uv_write_t));
+    if (wr) {
+        wr->data = frame;
+        uv_buf_t wbuf = uv_buf_init((char *)frame, (unsigned int)total);
+        if (uv_write(wr, stream, &wbuf, 1, stream_write_cleanup_) != 0) {
+            free(frame); free(wr);
+        }
+    } else {
+        free(frame);
+    }
+}
 
 static void client_close_cb_(uv_handle_t *handle) {
     /* Detach any Watch streams bound to this connection before freeing. */
     cetcd_v3rpc_detach_stream_writer(handle);
     client_ctx_ *ctx = (client_ctx_ *)handle->data;
-    if (ctx) free(ctx);
+    if (ctx) {
+        cetcd_tls_conn_free(ctx->tls);
+        free(ctx);
+    }
 }
 
 typedef struct metrics_conn_ctx_ {
@@ -668,14 +712,47 @@ static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *
         if (buf->base) free(buf->base);
         return;
     }
-    if (ctx->buf_pos + (size_t)nread > sizeof(ctx->buf)) {
+    if (ctx->tls) {
+        int rc = cetcd_tls_feed(ctx->tls, buf->base, (size_t)nread);
         if (buf->base) free(buf->base);
-        uv_close((uv_handle_t *)stream, client_close_cb_);
-        return;
+        if (rc != CETCD_OK) {
+            uv_close((uv_handle_t *)stream, client_close_cb_);
+            return;
+        }
+        if (!ctx->tls_ready) {
+            int hs = cetcd_tls_handshake(ctx->tls);
+            if (tls_flush_uv_(stream, ctx->tls) < 0 || hs < 0) {
+                uv_close((uv_handle_t *)stream, client_close_cb_);
+                return;
+            }
+            if (hs == 0) return;
+            ctx->tls_ready = 1;
+        }
+        for (;;) {
+            uint8_t tmp[4096];
+            int n = cetcd_tls_read(ctx->tls, tmp, sizeof(tmp));
+            if (n < 0) {
+                uv_close((uv_handle_t *)stream, client_close_cb_);
+                return;
+            }
+            if (n == 0) break;
+            if (ctx->buf_pos + (size_t)n > sizeof(ctx->buf)) {
+                uv_close((uv_handle_t *)stream, client_close_cb_);
+                return;
+            }
+            memcpy(ctx->buf + ctx->buf_pos, tmp, (size_t)n);
+            ctx->buf_pos += (size_t)n;
+        }
+    } else {
+        if (ctx->buf_pos + (size_t)nread > sizeof(ctx->buf)) {
+            if (buf->base) free(buf->base);
+            uv_close((uv_handle_t *)stream, client_close_cb_);
+            return;
+        }
+        memcpy(ctx->buf + ctx->buf_pos, buf->base, (size_t)nread);
+        ctx->buf_pos += (size_t)nread;
+        if (buf->base) free(buf->base);
     }
-    memcpy(ctx->buf + ctx->buf_pos, buf->base, (size_t)nread);
-    ctx->buf_pos += (size_t)nread;
-    if (buf->base) free(buf->base);
 
     while (ctx->buf_pos >= 2) {
         uint16_t path_len = ((uint16_t)ctx->buf[0] << 8) | ctx->buf[1];
@@ -740,16 +817,7 @@ static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *
             if (out_len > 0)
                 memcpy(frame + pos, resp.data, out_len);
 
-    uv_write_t *wr = (uv_write_t *)calloc(1, sizeof(uv_write_t));
-    if (wr) {
-        wr->data = frame;
-        uv_buf_t wbuf = uv_buf_init((char *)frame, (unsigned int)total);
-        if (uv_write(wr, stream, &wbuf, 1, stream_write_cleanup_) != 0) {
-            free(frame); free(wr);
-        }
-    } else {
-        free(frame);
-    }
+            client_uv_send_(stream, frame, total);
         }
         cetcd_server_rpc_result_free(&resp);
 
@@ -788,6 +856,14 @@ static void on_client_conn_(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
 
     uv_stream_t *stream = cetcd_tcp_stream(client);
     if (stream) {
+        if (srv->tls_client) {
+            ctx->tls = cetcd_tls_conn_accept(srv->tls_client);
+            if (!ctx->tls) {
+                free(ctx);
+                cetcd_tcp_close(client);
+                return;
+            }
+        }
         stream->data = ctx;
         uv_read_start(stream, alloc_cb_, on_client_read_);
     }
@@ -829,16 +905,19 @@ static void on_peer_alloc_(uv_handle_t *handle, size_t suggested_size, uv_buf_t 
 static void on_peer_close_(uv_handle_t *handle);
 
 typedef struct peer_ctx_ {
-    cetcd_server *srv;
-    uv_stream_t  *stream;
-    uint8_t      *buf;
-    size_t        buf_pos;
-    size_t        buf_cap;
+    cetcd_server     *srv;
+    uv_stream_t      *stream;
+    cetcd_tls_conn   *tls;
+    int               tls_ready;
+    uint8_t          *buf;
+    size_t            buf_pos;
+    size_t            buf_cap;
 } peer_ctx_;
 
 static void on_peer_close_(uv_handle_t *handle) {
     peer_ctx_ *ctx = (peer_ctx_ *)handle->data;
     if (ctx) {
+        cetcd_tls_conn_free(ctx->tls);
         if (ctx->buf) free(ctx->buf);
         free(ctx);
     }
@@ -862,18 +941,55 @@ static void on_peer_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *bu
         return;
     }
 
-    /* Append to peer buffer */
-    if (ctx->buf_pos + (size_t)nread > ctx->buf_cap) {
-        size_t nc = ctx->buf_cap ? ctx->buf_cap * 2 : 65536;
-        while (nc < ctx->buf_pos + (size_t)nread) nc *= 2;
-        uint8_t *nb = (uint8_t *)realloc(ctx->buf, nc);
-        if (!nb) { if (buf->base) free(buf->base); return; }
-        ctx->buf = nb;
-        ctx->buf_cap = nc;
+    if (ctx->tls) {
+        int rc = cetcd_tls_feed(ctx->tls, buf->base, (size_t)nread);
+        if (buf->base) free(buf->base);
+        if (rc != CETCD_OK) {
+            uv_close((uv_handle_t *)stream, on_peer_close_);
+            return;
+        }
+        if (!ctx->tls_ready) {
+            int hs = cetcd_tls_handshake(ctx->tls);
+            if (tls_flush_uv_(stream, ctx->tls) < 0 || hs < 0) {
+                uv_close((uv_handle_t *)stream, on_peer_close_);
+                return;
+            }
+            if (hs == 0) return;
+            ctx->tls_ready = 1;
+        }
+        for (;;) {
+            uint8_t tmp[4096];
+            int n = cetcd_tls_read(ctx->tls, tmp, sizeof(tmp));
+            if (n < 0) {
+                uv_close((uv_handle_t *)stream, on_peer_close_);
+                return;
+            }
+            if (n == 0) break;
+            if (ctx->buf_pos + (size_t)n > ctx->buf_cap) {
+                size_t nc = ctx->buf_cap ? ctx->buf_cap * 2 : 65536;
+                while (nc < ctx->buf_pos + (size_t)n) nc *= 2;
+                uint8_t *nb = (uint8_t *)realloc(ctx->buf, nc);
+                if (!nb) return;
+                ctx->buf = nb;
+                ctx->buf_cap = nc;
+            }
+            memcpy(ctx->buf + ctx->buf_pos, tmp, (size_t)n);
+            ctx->buf_pos += (size_t)n;
+        }
+    } else {
+        /* Append to peer buffer */
+        if (ctx->buf_pos + (size_t)nread > ctx->buf_cap) {
+            size_t nc = ctx->buf_cap ? ctx->buf_cap * 2 : 65536;
+            while (nc < ctx->buf_pos + (size_t)nread) nc *= 2;
+            uint8_t *nb = (uint8_t *)realloc(ctx->buf, nc);
+            if (!nb) { if (buf->base) free(buf->base); return; }
+            ctx->buf = nb;
+            ctx->buf_cap = nc;
+        }
+        memcpy(ctx->buf + ctx->buf_pos, buf->base, (size_t)nread);
+        ctx->buf_pos += (size_t)nread;
+        if (buf->base) free(buf->base);
     }
-    memcpy(ctx->buf + ctx->buf_pos, buf->base, (size_t)nread);
-    ctx->buf_pos += (size_t)nread;
-    if (buf->base) free(buf->base);
 
     /* Decode and feed raft messages */
     cetcd_server *srv = ctx->srv;
@@ -933,6 +1049,14 @@ static void on_peer_incoming_(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
 
     uv_stream_t *stream = cetcd_tcp_stream(client);
     if (stream) {
+        if (srv->tls_peer) {
+            ctx->tls = cetcd_tls_conn_accept(srv->tls_peer);
+            if (!ctx->tls) {
+                free(ctx);
+                cetcd_tcp_close(client);
+                return;
+            }
+        }
         stream->data = ctx;
         uv_read_start(stream, on_peer_alloc_, on_peer_read_);
     } else {
@@ -1028,11 +1152,61 @@ void cetcd_server_free(cetcd_server *srv) {
     if (srv->raft) cetcd_raft_free(srv->raft);
     if (srv->rpc) cetcd_v3rpc_free(srv->rpc);
     if (srv->metrics) cetcd_metrics_free(srv->metrics);
+    cetcd_tls_ctx_free(srv->tls_client);
+    cetcd_tls_ctx_free(srv->tls_peer);
     free(srv);
+}
+
+static int load_tls_ctx_(cetcd_tls_ctx **out,
+                         const char *cert, const char *key,
+                         const char *ca, int client_cert_auth) {
+    int have_cert = cert && cert[0];
+    int have_key = key && key[0];
+    if (have_cert != have_key) return CETCD_ERR_INVAL;
+    if (!have_cert) {
+        *out = NULL;
+        return CETCD_OK;
+    }
+    if (client_cert_auth && !(ca && ca[0])) return CETCD_ERR_INVAL;
+    cetcd_tls_ctx *ctx = cetcd_tls_ctx_new();
+    if (!ctx) return CETCD_ERR_UNSUPPORT;
+    if (cetcd_tls_set_cert(ctx, cert, key) != CETCD_OK) {
+        cetcd_tls_ctx_free(ctx);
+        return CETCD_ERR_IO;
+    }
+    if (ca && ca[0]) {
+        if (cetcd_tls_set_ca(ctx, ca) != CETCD_OK) {
+            cetcd_tls_ctx_free(ctx);
+            return CETCD_ERR_IO;
+        }
+    }
+    if (client_cert_auth) {
+        if (cetcd_tls_set_verify_peer(ctx, 1) != CETCD_OK) {
+            cetcd_tls_ctx_free(ctx);
+            return CETCD_ERR_IO;
+        }
+    }
+    *out = ctx;
+    return CETCD_OK;
 }
 
 int cetcd_server_start(cetcd_server *srv) {
     if (!srv) return CETCD_ERR_INVAL;
+
+    if (!srv->tls_client && !srv->tls_peer) {
+        int trc = load_tls_ctx_(&srv->tls_client,
+                                srv->cfg.cert_file, srv->cfg.key_file,
+                                srv->cfg.trusted_ca_file, srv->cfg.client_cert_auth);
+        if (trc != CETCD_OK) return trc;
+        trc = load_tls_ctx_(&srv->tls_peer,
+                            srv->cfg.peer_cert_file, srv->cfg.peer_key_file,
+                            srv->cfg.peer_trusted_ca_file, srv->cfg.peer_client_cert_auth);
+        if (trc != CETCD_OK) {
+            cetcd_tls_ctx_free(srv->tls_client);
+            srv->tls_client = NULL;
+            return trc;
+        }
+    }
 
     if (srv->cfg.data_dir[0]) {
         ensure_dir(srv->cfg.data_dir);

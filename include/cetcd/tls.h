@@ -13,14 +13,28 @@ typedef struct cetcd_tls_ctx cetcd_tls_ctx;
 typedef struct cetcd_tls_conn cetcd_tls_conn;
 
 cetcd_tls_ctx *cetcd_tls_ctx_new(void);
+cetcd_tls_ctx *cetcd_tls_ctx_new_client(void);
 void           cetcd_tls_ctx_free(cetcd_tls_ctx *ctx);
 
 int cetcd_tls_set_cert(cetcd_tls_ctx *ctx, const char *cert_path, const char *key_path);
 int cetcd_tls_set_ca(cetcd_tls_ctx *ctx, const char *ca_path);
 int cetcd_tls_set_alpn(cetcd_tls_ctx *ctx, const char **protocols, size_t count);
+/* require_cert: SSL_VERIFY_PEER | FAIL_IF_NO_PEER_CERT. Needs a CA. */
+int cetcd_tls_set_verify_peer(cetcd_tls_ctx *ctx, int require_cert);
 
+/* Blocking handshake on an fd. The caller still owns the fd. */
 cetcd_tls_conn *cetcd_tls_accept(cetcd_tls_ctx *ctx, int fd);
-void            cetcd_tls_conn_free(cetcd_tls_conn *conn);
+
+/* Non-blocking memory-BIO connections for a libuv-owned fd. */
+cetcd_tls_conn *cetcd_tls_conn_accept(cetcd_tls_ctx *ctx);
+cetcd_tls_conn *cetcd_tls_conn_connect(cetcd_tls_ctx *ctx);
+
+void cetcd_tls_conn_free(cetcd_tls_conn *conn);
+
+/* Feed inbound ciphertext. Handshake: 1 done, 0 WANT_READ/WRITE, -1 fail. */
+int cetcd_tls_feed(cetcd_tls_conn *conn, const void *data, size_t len);
+int cetcd_tls_handshake(cetcd_tls_conn *conn);
+int cetcd_tls_pending_out(cetcd_tls_conn *conn, uint8_t *buf, size_t cap);
 
 int  cetcd_tls_read(cetcd_tls_conn *conn, void *buf, size_t len);
 int  cetcd_tls_write(cetcd_tls_conn *conn, const void *buf, size_t len);

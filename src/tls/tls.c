@@ -10,39 +10,42 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/x509.h>
+#include <openssl/bio.h>
 
-/* Server context */
 struct cetcd_tls_ctx {
     SSL_CTX *ssl_ctx;
 };
 
-/* Per-connection */
 struct cetcd_tls_conn {
     SSL *ssl;
     int  fd;
 };
 
-/* Context lifecycle */
-cetcd_tls_ctx *cetcd_tls_ctx_new(void) {
+static cetcd_tls_ctx *ctx_new_(const SSL_METHOD *method) {
     cetcd_tls_ctx *ctx = (cetcd_tls_ctx *)calloc(1, sizeof(*ctx));
     if (ctx == NULL) return NULL;
 
-    /* Create server method context explicitly */
-    ctx->ssl_ctx = SSL_CTX_new(TLS_server_method());
+    ctx->ssl_ctx = SSL_CTX_new(method);
     if (ctx->ssl_ctx == NULL) {
         free(ctx);
         return NULL;
     }
 
-    /* Set minimum protocol to TLS 1.2 and disable older/less secure protocols */
 #if defined(SSL_CTX_set_min_proto_version)
     SSL_CTX_set_min_proto_version(ctx->ssl_ctx, TLS1_2_VERSION);
 #endif
-    /* Disable legacy protocols for safety */
     SSL_CTX_set_options(ctx->ssl_ctx,
                         SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_TLSv1);
 
     return ctx;
+}
+
+cetcd_tls_ctx *cetcd_tls_ctx_new(void) {
+    return ctx_new_(TLS_server_method());
+}
+
+cetcd_tls_ctx *cetcd_tls_ctx_new_client(void) {
+    return ctx_new_(TLS_client_method());
 }
 
 void cetcd_tls_ctx_free(cetcd_tls_ctx *ctx) {
@@ -51,7 +54,6 @@ void cetcd_tls_ctx_free(cetcd_tls_ctx *ctx) {
     free(ctx);
 }
 
-/* Certificate handling */
 int cetcd_tls_set_cert(cetcd_tls_ctx *ctx, const char *cert_path, const char *key_path) {
     if (ctx == NULL || ctx->ssl_ctx == NULL) return CETCD_ERR_INVAL;
     if (cert_path == NULL || key_path == NULL) return CETCD_ERR_INVAL;
@@ -77,17 +79,20 @@ int cetcd_tls_set_ca(cetcd_tls_ctx *ctx, const char *ca_path) {
     return CETCD_OK;
 }
 
+int cetcd_tls_set_verify_peer(cetcd_tls_ctx *ctx, int require_cert) {
+    if (ctx == NULL || ctx->ssl_ctx == NULL) return CETCD_ERR_INVAL;
+    int mode = SSL_VERIFY_PEER;
+    if (require_cert) mode |= SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
+    SSL_CTX_set_verify(ctx->ssl_ctx, mode, NULL);
+    return CETCD_OK;
+}
+
 int cetcd_tls_set_alpn(cetcd_tls_ctx *ctx, const char **protocols, size_t count) {
     if (ctx == NULL || ctx->ssl_ctx == NULL) return CETCD_ERR_INVAL;
     if (protocols == NULL || count == 0) {
-        /* No ALPNs configured is acceptable; treat as success */
         return CETCD_OK;
     }
 
-    /* Each ALPN protocol id is a 1-byte length + bytes; the length byte is
-     * itself a uint8, so reject anything over 255 up front. The previous code
-     * computed `total` from the untruncated strlen but only wrote a truncated
-     * copy, leaving the buffer tail uninitialized and handing it to OpenSSL. */
     size_t total = 0;
     for (size_t i = 0; i < count; ++i) {
         const char *p = protocols[i];
@@ -110,14 +115,12 @@ int cetcd_tls_set_alpn(cetcd_tls_ctx *ctx, const char **protocols, size_t count)
 
     int r = SSL_CTX_set_alpn_protos(ctx->ssl_ctx, buf, (unsigned int)total);
     free(buf);
-    /* OpenSSL returns 0 on success for ALPN setting */
     if (r == 0) {
         return CETCD_OK;
     }
     return CETCD_ERR_INTERNAL;
 }
 
-/* Per-connection */
 cetcd_tls_conn *cetcd_tls_accept(cetcd_tls_ctx *ctx, int fd) {
     if (ctx == NULL || ctx->ssl_ctx == NULL) return NULL;
     cetcd_tls_conn *cn = (cetcd_tls_conn *)calloc(1, sizeof(*cn));
@@ -141,30 +144,110 @@ cetcd_tls_conn *cetcd_tls_accept(cetcd_tls_ctx *ctx, int fd) {
     return cn;
 }
 
+static cetcd_tls_conn *conn_mem_(cetcd_tls_ctx *ctx, int server) {
+    if (ctx == NULL || ctx->ssl_ctx == NULL) return NULL;
+    cetcd_tls_conn *cn = (cetcd_tls_conn *)calloc(1, sizeof(*cn));
+    if (cn == NULL) return NULL;
+    cn->fd = -1;
+    cn->ssl = SSL_new(ctx->ssl_ctx);
+    if (cn->ssl == NULL) {
+        free(cn);
+        return NULL;
+    }
+    BIO *rbio = BIO_new(BIO_s_mem());
+    BIO *wbio = BIO_new(BIO_s_mem());
+    if (rbio == NULL || wbio == NULL) {
+        BIO_free(rbio);
+        BIO_free(wbio);
+        SSL_free(cn->ssl);
+        free(cn);
+        return NULL;
+    }
+    BIO_set_mem_eof_return(rbio, -1);
+    BIO_set_mem_eof_return(wbio, -1);
+    SSL_set_bio(cn->ssl, rbio, wbio);
+    if (server)
+        SSL_set_accept_state(cn->ssl);
+    else
+        SSL_set_connect_state(cn->ssl);
+    return cn;
+}
+
+cetcd_tls_conn *cetcd_tls_conn_accept(cetcd_tls_ctx *ctx) {
+    return conn_mem_(ctx, 1);
+}
+
+cetcd_tls_conn *cetcd_tls_conn_connect(cetcd_tls_ctx *ctx) {
+    return conn_mem_(ctx, 0);
+}
+
 void cetcd_tls_conn_free(cetcd_tls_conn *conn) {
     if (conn == NULL) return;
     if (conn->ssl) SSL_free(conn->ssl);
     free(conn);
 }
 
+int cetcd_tls_feed(cetcd_tls_conn *conn, const void *data, size_t len) {
+    if (conn == NULL || conn->ssl == NULL) return CETCD_ERR_INVAL;
+    if (len == 0) return CETCD_OK;
+    if (data == NULL) return CETCD_ERR_INVAL;
+    BIO *rbio = SSL_get_rbio(conn->ssl);
+    if (rbio == NULL) return CETCD_ERR_INTERNAL;
+    const uint8_t *p = (const uint8_t *)data;
+    size_t off = 0;
+    while (off < len) {
+        size_t left = len - off;
+        int chunk = left > (size_t)INT_MAX ? INT_MAX : (int)left;
+        int n = BIO_write(rbio, p + off, chunk);
+        if (n <= 0) return CETCD_ERR_IO;
+        off += (size_t)n;
+    }
+    return CETCD_OK;
+}
+
+int cetcd_tls_handshake(cetcd_tls_conn *conn) {
+    if (conn == NULL || conn->ssl == NULL) return -1;
+    if (SSL_is_init_finished(conn->ssl)) return 1;
+    int r = SSL_do_handshake(conn->ssl);
+    if (r == 1) return 1;
+    int err = SSL_get_error(conn->ssl, r);
+    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) return 0;
+    return -1;
+}
+
+int cetcd_tls_pending_out(cetcd_tls_conn *conn, uint8_t *buf, size_t cap) {
+    if (conn == NULL || conn->ssl == NULL || buf == NULL) return CETCD_ERR_INVAL;
+    if (cap == 0) return 0;
+    BIO *wbio = SSL_get_wbio(conn->ssl);
+    if (wbio == NULL) return CETCD_ERR_INTERNAL;
+    int chunk = cap > (size_t)INT_MAX ? INT_MAX : (int)cap;
+    int n = BIO_read(wbio, buf, chunk);
+    if (n > 0) return n;
+    if (n == 0 || BIO_should_retry(wbio)) return 0;
+    return CETCD_ERR_IO;
+}
+
 int cetcd_tls_read(cetcd_tls_conn *conn, void *buf, size_t len) {
     if (conn == NULL || conn->ssl == NULL) return CETCD_ERR_INVAL;
-    int r = SSL_read(conn->ssl, buf, (int)len);
-    if (r <= 0) {
-        int err = SSL_get_error(conn->ssl, r);
-        (void)err;
-        return CETCD_ERR_IO;
-    }
-    return r;
+    if (buf == NULL || len == 0) return CETCD_ERR_INVAL;
+    int chunk = len > (size_t)INT_MAX ? INT_MAX : (int)len;
+    int r = SSL_read(conn->ssl, buf, chunk);
+    if (r > 0) return r;
+    int err = SSL_get_error(conn->ssl, r);
+    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) return 0;
+    return CETCD_ERR_IO;
 }
 
 int cetcd_tls_write(cetcd_tls_conn *conn, const void *buf, size_t len) {
     if (conn == NULL || conn->ssl == NULL) return CETCD_ERR_INVAL;
-    int r = SSL_write(conn->ssl, buf, (int)len);
-    if (r <= 0) {
-        return CETCD_ERR_IO;
-    }
-    return r;
+    if (buf == NULL && len > 0) return CETCD_ERR_INVAL;
+    if (len == 0) return 0;
+    int chunk = len > (size_t)INT_MAX ? INT_MAX : (int)len;
+    int r = SSL_write(conn->ssl, buf, chunk);
+    if (r > 0) return r;
+    int err = SSL_get_error(conn->ssl, r);
+    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) return 0;
+    return CETCD_ERR_IO;
 }
 
 void cetcd_tls_shutdown(cetcd_tls_conn *conn) {
@@ -173,11 +256,13 @@ void cetcd_tls_shutdown(cetcd_tls_conn *conn) {
 }
 
 #else /* CETCD_HAS_OPENSSL */
-/* OpenSSL not available: provide minimal stubs to keep ABI stable. */
 typedef struct cetcd_tls_ctx cetcd_tls_ctx;
 typedef struct cetcd_tls_conn cetcd_tls_conn;
 
 cetcd_tls_ctx *cetcd_tls_ctx_new(void) {
+    return NULL;
+}
+cetcd_tls_ctx *cetcd_tls_ctx_new_client(void) {
     return NULL;
 }
 void cetcd_tls_ctx_free(cetcd_tls_ctx *ctx) {
@@ -193,10 +278,28 @@ int cetcd_tls_set_ca(cetcd_tls_ctx *ctx, const char *ca_path) {
 int cetcd_tls_set_alpn(cetcd_tls_ctx *ctx, const char **protocols, size_t count) {
     (void)ctx; (void)protocols; (void)count; return CETCD_ERR_UNSUPPORT;
 }
+int cetcd_tls_set_verify_peer(cetcd_tls_ctx *ctx, int require_cert) {
+    (void)ctx; (void)require_cert; return CETCD_ERR_UNSUPPORT;
+}
 cetcd_tls_conn *cetcd_tls_accept(cetcd_tls_ctx *ctx, int fd) {
     (void)ctx; (void)fd; return NULL;
 }
+cetcd_tls_conn *cetcd_tls_conn_accept(cetcd_tls_ctx *ctx) {
+    (void)ctx; return NULL;
+}
+cetcd_tls_conn *cetcd_tls_conn_connect(cetcd_tls_ctx *ctx) {
+    (void)ctx; return NULL;
+}
 void cetcd_tls_conn_free(cetcd_tls_conn *conn) { (void)conn; }
+int cetcd_tls_feed(cetcd_tls_conn *conn, const void *data, size_t len) {
+    (void)conn; (void)data; (void)len; return CETCD_ERR_UNSUPPORT;
+}
+int cetcd_tls_handshake(cetcd_tls_conn *conn) {
+    (void)conn; return -1;
+}
+int cetcd_tls_pending_out(cetcd_tls_conn *conn, uint8_t *buf, size_t cap) {
+    (void)conn; (void)buf; (void)cap; return CETCD_ERR_UNSUPPORT;
+}
 int cetcd_tls_read(cetcd_tls_conn *conn, void *buf, size_t len) {
     (void)conn; (void)buf; (void)len; return CETCD_ERR_UNSUPPORT;
 }

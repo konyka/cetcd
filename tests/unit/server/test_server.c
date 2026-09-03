@@ -544,6 +544,55 @@ CETCD_TEST_CASE(server_member_add_survives_restart) {
     cetcd_server_free(srv);
 }
 
+CETCD_TEST_CASE(server_start_rejects_cert_without_key) {
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.cert_file, "/tmp/cetcd-missing.pem", sizeof(cfg.cert_file) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), CETCD_ERR_INVAL);
+    cetcd_server_free(srv);
+}
+
+CETCD_TEST_CASE(server_start_rejects_missing_tls_files) {
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.cert_file, "/nonexistent/cetcd-cert.pem", sizeof(cfg.cert_file) - 1);
+    strncpy(cfg.key_file, "/nonexistent/cetcd-key.pem", sizeof(cfg.key_file) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    int rc = cetcd_server_start(srv);
+    CETCD_ASSERT_TRUE(rc == CETCD_ERR_IO || rc == CETCD_ERR_UNSUPPORT);
+    cetcd_server_free(srv);
+}
+
+CETCD_TEST_CASE(server_start_rejects_client_auth_without_ca) {
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.cert_file, "/nonexistent/cetcd-cert.pem", sizeof(cfg.cert_file) - 1);
+    strncpy(cfg.key_file, "/nonexistent/cetcd-key.pem", sizeof(cfg.key_file) - 1);
+    cfg.client_cert_auth = true;
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), CETCD_ERR_INVAL);
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_create_destroy),
     CETCD_TEST_ENTRY(server_handle_rpc_put_range),
@@ -557,6 +606,9 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_lease_survives_restart),
     CETCD_TEST_ENTRY(server_snapshot_count_truncates_wal),
     CETCD_TEST_ENTRY(server_member_add_survives_restart),
+    CETCD_TEST_ENTRY(server_start_rejects_cert_without_key),
+    CETCD_TEST_ENTRY(server_start_rejects_missing_tls_files),
+    CETCD_TEST_ENTRY(server_start_rejects_client_auth_without_ca),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()
