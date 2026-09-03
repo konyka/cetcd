@@ -205,6 +205,64 @@ CETCD_TEST_CASE(auth_persist_roundtrip) {
     cetcd_backend_close(be);
 }
 
+CETCD_TEST_CASE(auth_bcrypt_cost_rejects_out_of_range) {
+    cetcd_auth_store *s = cetcd_auth_store_new();
+    CETCD_ASSERT_EQ_INT(cetcd_auth_set_bcrypt_cost(s, 3), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_auth_set_bcrypt_cost(s, 32), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_auth_set_bcrypt_cost(s, 0), CETCD_OK);
+    cetcd_auth_store_free(s);
+}
+
+CETCD_TEST_CASE(auth_bcrypt_hash_and_verify) {
+    cetcd_auth_store *s = cetcd_auth_store_new();
+    int rc = cetcd_auth_set_bcrypt_cost(s, 4);
+    CETCD_ASSERT_EQ_INT(rc, CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_auth_add_user(s, "alice", "password123"), CETCD_OK);
+    const cetcd_user *u = cetcd_auth_get_user(s, "alice");
+    CETCD_ASSERT_NOT_NULL(u);
+    CETCD_ASSERT_TRUE(u->hash_len > 32);
+    CETCD_ASSERT_TRUE(cetcd_auth_check_password(s, "alice", "password123"));
+    CETCD_ASSERT_FALSE(cetcd_auth_check_password(s, "alice", "wrongpass"));
+    cetcd_auth_store_free(s);
+}
+
+CETCD_TEST_CASE(auth_bcrypt_verifies_existing_sha256_user) {
+    cetcd_auth_store *s = cetcd_auth_store_new();
+    CETCD_ASSERT_EQ_INT(cetcd_auth_add_user(s, "bob", "oldpass"), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_auth_set_bcrypt_cost(s, 4), CETCD_OK);
+    CETCD_ASSERT_TRUE(cetcd_auth_check_password(s, "bob", "oldpass"));
+    CETCD_ASSERT_EQ_INT(cetcd_auth_add_user(s, "carol", "newpass"), CETCD_OK);
+    CETCD_ASSERT_TRUE(cetcd_auth_check_password(s, "carol", "newpass"));
+    cetcd_auth_store_free(s);
+}
+
+CETCD_TEST_CASE(auth_bcrypt_persist_roundtrip) {
+    char path_template[] = "/tmp/cetcd-test-auth-bcrypt-XXXXXX";
+    char *path = mkdtemp(path_template);
+    CETCD_ASSERT_NOT_NULL(path);
+    cetcd_backend_config cfg = {
+        .path = path, .map_size = 16 * 1024 * 1024, .max_dbs = 8
+    };
+    cetcd_backend *be = cetcd_backend_open(&cfg);
+    CETCD_ASSERT_NOT_NULL(be);
+
+    cetcd_auth_store *s = cetcd_auth_store_new();
+    CETCD_ASSERT_EQ_INT(cetcd_auth_set_bcrypt_cost(s, 4), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_auth_add_user(s, "root", "secret"), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_auth_save(s, be), CETCD_OK);
+    cetcd_auth_store_free(s);
+
+    cetcd_auth_store *loaded = cetcd_auth_store_new();
+    CETCD_ASSERT_EQ_INT(cetcd_auth_load(loaded, be), CETCD_OK);
+    CETCD_ASSERT_TRUE(cetcd_auth_check_password(loaded, "root", "secret"));
+    CETCD_ASSERT_FALSE(cetcd_auth_check_password(loaded, "root", "wrong"));
+    const cetcd_user *u = cetcd_auth_get_user(loaded, "root");
+    CETCD_ASSERT_NOT_NULL(u);
+    CETCD_ASSERT_TRUE(u->hash_len > 32);
+    cetcd_auth_store_free(loaded);
+    cetcd_backend_close(be);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auth_store_create_destroy),
     CETCD_TEST_ENTRY(auth_add_remove_user),
@@ -217,6 +275,10 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auth_revoke_tokens_on_password_change),
     CETCD_TEST_ENTRY(auth_admin_and_key_perm),
     CETCD_TEST_ENTRY(auth_persist_roundtrip),
+    CETCD_TEST_ENTRY(auth_bcrypt_cost_rejects_out_of_range),
+    CETCD_TEST_ENTRY(auth_bcrypt_hash_and_verify),
+    CETCD_TEST_ENTRY(auth_bcrypt_verifies_existing_sha256_user),
+    CETCD_TEST_ENTRY(auth_bcrypt_persist_roundtrip),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

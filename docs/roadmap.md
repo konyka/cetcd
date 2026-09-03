@@ -58,6 +58,10 @@ Performance-first, fail-closed design:
   `SSL_write` before `uv_write`. Missing CA skips verification (self-signed
   clusters); a configured `--peer-trusted-ca-file` verifies the remote.
   ALPN `h2` is not advertised yet.
+- **bcrypt password hashing** — default remains SHA-256 (cheap, existing
+  records). `--bcrypt-cost N` (4..31) hashes new passwords with `$2b$` via
+  libcrypt; verify accepts both encodings. `--auth-token simple` is the
+  default; `--auth-token jwt` fails closed until JWT is implemented.
 
 ## Previously done (auth data plane)
 
@@ -74,7 +78,7 @@ None remaining in this pass.
 
 | Gap | Why it matters | Suggested approach |
 |-----|----------------|--------------------|
-| bcrypt / JWT `--auth-token` | SHA-256 is fast but not password-hashing; JWT unused | Keep simple tokens as default (hot-path cheap). Optional bcrypt at Authenticate only. |
+| JWT `--auth-token jwt` | etcd issues signed JWTs; cetcd simple tokens are opaque | Keep simple tokens. JWT needs a signing key and TTL parser; fail-closed today. |
 | `--max-request-bytes` / `--quota-backend-bytes` | DoS / disk fill. Client buffer is currently 64 KiB | Growable read buffer capped at `max_request_bytes` (etcd default 1.5 MiB); NOSPACE alarm when LMDB size exceeds quota. |
 | pprof CPU profile quality | `/debug/pprof/profile` is coarse | Keep off the Raft/reactor hot path; sample in a worker. |
 

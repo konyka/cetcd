@@ -25,7 +25,7 @@ internals are organised. For deeper rationale on individual decisions, see
 | WAL replay | Restart restuffs the Raft log and applies NORMAL entries past `applied_index` |
 | TLS | Memory-BIO termination on client/peer listen and on outbound `peer_tx_`. Cert without key, missing files, or `--client-cert-auth` without CA fail closed. Plaintext remains the default. |
 
-Remaining work (HTTP/2 gRPC, bcrypt/JWT, `--max-request-bytes`, …)
+Remaining work (HTTP/2 gRPC, JWT tokens, `--max-request-bytes`, …)
 is tracked in [`docs/roadmap.md`](./roadmap.md).
 
 ### Hardening pass (2026-07)
@@ -109,7 +109,7 @@ src/
 ├── backend/     libcetcd_backend    LMDB-backed transactional key-value
 ├── mvcc/        libcetcd_mvcc       Revision index, watcher fan-out, compaction
 ├── lease/       libcetcd_lease      TTL tracking + lease-keys index + lease enumeration
-├── auth/        libcetcd_auth       RBAC, SHA-256 password hashing
+├── auth/        libcetcd_auth       RBAC, SHA-256 (default) or bcrypt password hashing
 ├── peer/        libcetcd_peer       Raft transport, cluster membership mgmt (rafthttp-equivalent)
 ├── snap/        libcetcd_snap       Snapshot file r/w and streaming
 ├── v3rpc/       libcetcd_v3rpc      gRPC handlers for all 41 RPCs (cluster-aware, raft-integrated)
@@ -548,7 +548,7 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `version -w json` enhanced (now includes `server` field with value `cetcd`),
 `snapshot restore -w json` enhanced (now includes `keys` count field in JSON output),
 `print_json_string` helper (unified JSON string escaping for all -w json outputs; now used by get/put/del/watch/member/status/endpoint/auth/role/lease commands for proper handling of special characters like \" \\ \n \r \t and control characters),
-`etcd-compatible server flags` (cetcd now accepts `--listen-client-urls`, `--listen-peer-urls` with URL format parsing, plus `--advertise-client-urls`, `--initial-advertise-peer-urls`, `--initial-cluster-state`, `--initial-cluster-token`, `--quota-backend-bytes`, `--force-new-cluster`, `--max-txn-ops`, `--max-request-bytes`, `--auth-token`, `--bcrypt-cost`, `--auto-tls`, `--peer-auto-tls`, `--cipher-suites`, `--logger`, `--log-outputs`, `--grpc-keepalive-*`, `--experimental-*` as no-op compatibility flags; `--election-tick`, `--heartbeat-tick`, and `--snapshot-count` are actual Raft/WAL parameters; `--cert-file`/`--key-file`/`--trusted-ca-file`/`--client-cert-auth` and the matching `--peer-*` flags terminate TLS on accept and on outbound `peer_tx_`),
+`etcd-compatible server flags` (cetcd now accepts `--listen-client-urls`, `--listen-peer-urls` with URL format parsing, plus `--advertise-client-urls`, `--initial-advertise-peer-urls`, `--initial-cluster-state`, `--initial-cluster-token`, `--quota-backend-bytes`, `--force-new-cluster`, `--max-txn-ops`, `--max-request-bytes`, `--auth-token`, `--auto-tls`, `--peer-auto-tls`, `--cipher-suites`, `--logger`, `--log-outputs`, `--grpc-keepalive-*`, `--experimental-*` as no-op compatibility flags; `--election-tick`, `--heartbeat-tick`, and `--snapshot-count` are actual Raft/WAL parameters; `--bcrypt-cost` hashes new passwords with bcrypt; `--cert-file`/`--key-file`/`--trusted-ca-file`/`--client-cert-auth` and the matching `--peer-*` flags terminate TLS on accept and on outbound `peer_tx_`),
 `get/del --prefix ""` buffer overflow fix (empty key with `--prefix` now correctly uses `\0` as range_end to match all keys, instead of causing a `key_len - 1` underflow),
 `get/del --prefix --from-key` mutual exclusion (returns error when both flags are specified together),
 `alarm TYPE` argument parsing (`alarm activate` and `alarm disarm` now accept an optional TYPE argument: `NOSPACE`, `CORRUPT`, or `NONE`; `alarm list` output now displays `CORRUPT` alarm type correctly),

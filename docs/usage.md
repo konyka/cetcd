@@ -129,9 +129,9 @@ cetcd accepts several etcd server flags for migration compatibility:
 # Still no-op: --auto-tls, --peer-auto-tls, --cipher-suites
 ./build/bin/cetcd --auto-tls --cipher-suites TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
 
-# Limit and auth flags (accepted as no-op)
+# Limit flags (accepted as no-op) and bcrypt password hashing
 ./build/bin/cetcd --max-txn-ops 128 --max-request-bytes 1572864 \
-  --auth-token jwt --bcrypt-cost 11
+  --auth-token simple --bcrypt-cost 10
 
 # gRPC keepalive and logger flags (accepted as no-op)
 ./build/bin/cetcd --grpc-keepalive-time 10s --grpc-keepalive-timeout 5s \

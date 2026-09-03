@@ -11,7 +11,8 @@
 /*
  * Authentication store implementation with RBAC support.
  * Uses cetcd_hashmap for in-process storage.
- * When OpenSSL is available, passwords are hashed with SHA-256 via the EVP API.
+ * When OpenSSL is available, passwords are hashed with SHA-256 via the EVP API
+ * by default. --bcrypt-cost (4..31) switches new hashes to bcrypt via libcrypt.
  * Otherwise, a deterministic non-cryptographic fallback hash is used.
  */
 
@@ -19,9 +20,13 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #endif
+#if CETCD_HAS_CRYPT
+#include <crypt.h>
+#endif
 
 /* Forward declarations of internal helpers */
 static void hash_password(const void *data, size_t len, uint8_t out[32]);
+static int  fill_password_hash_(cetcd_auth_store *s, cetcd_user *u, const char *password);
 static size_t cetcd_user_roles_total_len(const cetcd_user *u);
 
 typedef struct cetcd_auth_token_ent {
@@ -36,6 +41,7 @@ struct cetcd_auth_store {
     bool     enabled;
     uint64_t token_ttl_ns;
     uint64_t token_seq;
+    int      bcrypt_cost; /* 0 = SHA-256 */
 };
 
 static cetcd_slice auth_key_(const char *s) {
@@ -43,17 +49,11 @@ static cetcd_slice auth_key_(const char *s) {
 }
 
 /* Helpers for role/and user management */
-static cetcd_user *cetcd_user_new(const char *name, const char *password_hash_source) {
+static cetcd_user *cetcd_user_new(const char *name) {
     cetcd_user *u = (cetcd_user *)calloc(1, sizeof(*u));
     if (u == NULL) return NULL;
-    /* copy name */
     strncpy(u->name, name, sizeof(u->name) - 1);
     u->name[sizeof(u->name) - 1] = '\0';
-    /* hash password */
-    uint8_t hash32[32];
-    hash_password((const void *)password_hash_source, strlen(password_hash_source), hash32);
-    memcpy(u->password_hash, hash32, 32);
-    u->hash_len = 32;
     u->n_roles = 0;
     u->roles = NULL;
     return u;
@@ -126,8 +126,13 @@ int cetcd_auth_add_user(cetcd_auth_store *s, const char *name, const char *passw
     if (cetcd_hashmap_get(s->users, key, &tmp)) {
         return CETCD_ERR_EXISTS;
     }
-    cetcd_user *u = cetcd_user_new(name, password);
+    cetcd_user *u = cetcd_user_new(name);
     if (u == NULL) return CETCD_ERR_NOMEM;
+    int hrc = fill_password_hash_(s, u, password);
+    if (hrc != CETCD_OK) {
+        free(u);
+        return hrc;
+    }
     int rc = cetcd_hashmap_put(s->users, key, (void *)u);
     if (rc != 0) {
         free(u->roles);
@@ -236,6 +241,32 @@ bool cetcd_auth_check_password(const cetcd_auth_store *s,
     void *v = NULL;
     if (!cetcd_hashmap_get((cetcd_hashmap *)s->users, key, &v)) return false;
     u = (cetcd_user *)v;
+    if (u->hash_len > 32) {
+#if CETCD_HAS_CRYPT
+        char setting[65];
+        if (u->hash_len >= sizeof(setting)) return false;
+        memcpy(setting, u->password_hash, u->hash_len);
+        setting[u->hash_len] = '\0';
+        struct crypt_data *cd = (struct crypt_data *)calloc(1, sizeof(*cd));
+        if (!cd) return false;
+        char *got = crypt_r(password, setting, cd);
+        unsigned diff = 1;
+        if (got && got[0] != '*') {
+            size_t gl = strlen(got);
+            diff = (unsigned)(gl != u->hash_len);
+            size_t n = gl < u->hash_len ? gl : u->hash_len;
+            size_t i;
+            for (i = 0; i < n; i++)
+                diff |= (unsigned)((unsigned char)got[i] ^ u->password_hash[i]);
+            for (; i < u->hash_len; i++)
+                diff |= (unsigned)u->password_hash[i];
+        }
+        free(cd);
+        return diff == 0;
+#else
+        return false;
+#endif
+    }
     uint8_t hash32[32];
     hash_password((const void *)password, strlen(password), hash32);
     /* Constant-time compare: no early exit on first mismatch. */
@@ -315,11 +346,8 @@ int cetcd_auth_change_password(cetcd_auth_store *s, const char *name,
     if (!s || !name || !new_password) return CETCD_ERR_INVAL;
     cetcd_user *u = cetcd_find_user(s, name);
     if (!u) return CETCD_ERR_NOTFOUND;
-    /* Re-hash password */
-    uint8_t hash32[32];
-    hash_password((const void *)new_password, strlen(new_password), hash32);
-    memcpy(u->password_hash, hash32, 32);
-    u->hash_len = 32;
+    int hrc = fill_password_hash_(s, u, new_password);
+    if (hrc != CETCD_OK) return hrc;
     cetcd_auth_revoke_user_tokens(s, name);
     return CETCD_OK;
 }
@@ -355,6 +383,61 @@ static void hash_password(const void *data, size_t len, uint8_t out[32]) {
     }
 }
 #endif
+
+int cetcd_auth_set_bcrypt_cost(cetcd_auth_store *s, int cost) {
+    if (!s) return CETCD_ERR_INVAL;
+    if (cost == 0) {
+        s->bcrypt_cost = 0;
+        return CETCD_OK;
+    }
+    if (cost < CETCD_AUTH_BCRYPT_COST_MIN || cost > CETCD_AUTH_BCRYPT_COST_MAX)
+        return CETCD_ERR_INVAL;
+#if !CETCD_HAS_CRYPT
+    return CETCD_ERR_UNSUPPORT;
+#else
+    s->bcrypt_cost = cost;
+    return CETCD_OK;
+#endif
+}
+
+int cetcd_auth_bcrypt_cost(const cetcd_auth_store *s) {
+    return s ? s->bcrypt_cost : 0;
+}
+
+static int fill_password_hash_(cetcd_auth_store *s, cetcd_user *u, const char *password) {
+    if (!s || !u || !password) return CETCD_ERR_INVAL;
+    if (s->bcrypt_cost == 0) {
+        uint8_t hash32[32];
+        hash_password((const void *)password, strlen(password), hash32);
+        memcpy(u->password_hash, hash32, 32);
+        u->hash_len = 32;
+        return CETCD_OK;
+    }
+#if CETCD_HAS_CRYPT
+    char setting[CRYPT_GENSALT_OUTPUT_SIZE];
+    if (!crypt_gensalt_rn("$2b$", (unsigned long)s->bcrypt_cost, NULL, 0,
+                          setting, (int)sizeof(setting)))
+        return CETCD_ERR_IO;
+    struct crypt_data *cd = (struct crypt_data *)calloc(1, sizeof(*cd));
+    if (!cd) return CETCD_ERR_NOMEM;
+    char *h = crypt_r(password, setting, cd);
+    if (!h || h[0] == '*') {
+        free(cd);
+        return CETCD_ERR_IO;
+    }
+    size_t hl = strlen(h);
+    if (hl == 0 || hl > sizeof(u->password_hash)) {
+        free(cd);
+        return CETCD_ERR_OVERFLOW;
+    }
+    memcpy(u->password_hash, h, hl);
+    u->hash_len = hl;
+    free(cd);
+    return CETCD_OK;
+#else
+    return CETCD_ERR_UNSUPPORT;
+#endif
+}
 
 static size_t cetcd_user_roles_total_len(const cetcd_user *u) {
     if (u == NULL || u->n_roles == 0 || u->roles == NULL) return 0;
@@ -730,8 +813,11 @@ static bool auth_save_user_cb_(cetcd_slice key, void *value, void *udata) {
     if (rlen > 0xFFFF) rlen = 0xFFFF;
     auth_save_u16_(c, (uint16_t)nlen);
     auth_save_bytes_(c, key.data, nlen);
-    auth_save_u8_(c, (uint8_t)(u->hash_len > 32 ? 32 : u->hash_len));
-    auth_save_bytes_(c, u->password_hash, 32);
+    {
+        uint8_t hl = u->hash_len > 64 ? 64 : (uint8_t)u->hash_len;
+        auth_save_u8_(c, hl);
+        auth_save_bytes_(c, u->password_hash, hl);
+    }
     auth_save_u16_(c, (uint16_t)u->n_roles);
     auth_save_u16_(c, (uint16_t)rlen);
     if (rlen && u->roles) auth_save_bytes_(c, u->roles, rlen);
@@ -821,24 +907,24 @@ int cetcd_auth_load(cetcd_auth_store *s, struct cetcd_backend *be) {
         size_t pos = 0;
         while (pos + 2 <= vlen) {
             uint16_t nlen = auth_load_u16_(val + pos); pos += 2;
-            if (pos + nlen + 1 + 32 + 2 + 2 > vlen) break;
+            if (pos + nlen + 1 > vlen) break;
             char name[128];
             size_t copy = nlen < sizeof(name) - 1 ? nlen : sizeof(name) - 1;
             memcpy(name, val + pos, copy);
             name[copy] = '\0';
             pos += nlen;
             uint8_t hlen = val[pos++];
+            if (hlen > 64 || pos + hlen + 2 + 2 > vlen) break;
             const uint8_t *hash = val + pos;
-            pos += 32;
+            pos += hlen;
             uint16_t n_roles = auth_load_u16_(val + pos); pos += 2;
             uint16_t rlen = auth_load_u16_(val + pos); pos += 2;
             if (pos + rlen > vlen) break;
             cetcd_user *u = (cetcd_user *)calloc(1, sizeof(*u));
             if (!u) { free(val); return CETCD_ERR_NOMEM; }
             strncpy(u->name, name, sizeof(u->name) - 1);
-            size_t hl = hlen < 32 ? hlen : 32;
-            memcpy(u->password_hash, hash, 32);
-            u->hash_len = hl;
+            memcpy(u->password_hash, hash, hlen);
+            u->hash_len = hlen;
             u->n_roles = n_roles;
             if (rlen > 0) {
                 u->roles = (char *)malloc(rlen);

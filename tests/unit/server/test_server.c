@@ -639,6 +639,51 @@ CETCD_TEST_CASE(server_start_loads_peer_tls) {
     cleanup_selfsigned_(dir);
 }
 
+CETCD_TEST_CASE(server_start_rejects_jwt_auth_token) {
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.auth_token, "jwt", sizeof(cfg.auth_token) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), CETCD_ERR_UNSUPPORT);
+    cetcd_server_free(srv);
+}
+
+CETCD_TEST_CASE(server_start_rejects_bad_bcrypt_cost) {
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    cfg.bcrypt_cost = 3;
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), CETCD_ERR_INVAL);
+    cetcd_server_free(srv);
+}
+
+CETCD_TEST_CASE(server_start_accepts_simple_auth_token) {
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.auth_token, "simple", sizeof(cfg.auth_token) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_create_destroy),
     CETCD_TEST_ENTRY(server_handle_rpc_put_range),
@@ -656,6 +701,9 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_start_rejects_missing_tls_files),
     CETCD_TEST_ENTRY(server_start_rejects_client_auth_without_ca),
     CETCD_TEST_ENTRY(server_start_loads_peer_tls),
+    CETCD_TEST_ENTRY(server_start_rejects_jwt_auth_token),
+    CETCD_TEST_ENTRY(server_start_rejects_bad_bcrypt_cost),
+    CETCD_TEST_ENTRY(server_start_accepts_simple_auth_token),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

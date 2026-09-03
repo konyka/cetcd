@@ -1332,6 +1332,23 @@ static int load_tls_ctx_(cetcd_tls_ctx **out,
 int cetcd_server_start(cetcd_server *srv) {
     if (!srv) return CETCD_ERR_INVAL;
 
+    if (srv->cfg.auth_token[0]) {
+        const char *t = srv->cfg.auth_token;
+        if (strncmp(t, "simple", 6) == 0 && (t[6] == '\0' || t[6] == ',')) {
+            /* default opaque tokens */
+        } else if (strncmp(t, "jwt", 3) == 0 && (t[3] == '\0' || t[3] == ',')) {
+            return CETCD_ERR_UNSUPPORT;
+        } else {
+            return CETCD_ERR_INVAL;
+        }
+    }
+    if (srv->cfg.bcrypt_cost) {
+        extern cetcd_auth_store *g_rpc_auth;
+        if (!g_rpc_auth) return CETCD_ERR_INTERNAL;
+        int brc = cetcd_auth_set_bcrypt_cost(g_rpc_auth, srv->cfg.bcrypt_cost);
+        if (brc != CETCD_OK) return brc;
+    }
+
     if (!srv->tls_client && !srv->tls_peer && !srv->tls_peer_out) {
         int trc = load_tls_ctx_(&srv->tls_client,
                                 srv->cfg.cert_file, srv->cfg.key_file,

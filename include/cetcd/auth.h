@@ -112,6 +112,17 @@ bool        cetcd_auth_is_admin(const cetcd_auth_store *s, const char *username)
 bool        cetcd_auth_check_perm(const cetcd_auth_store *s, const char *username,
                                   const uint8_t *key, size_t key_len, int want_write);
 
+/* ── Password hashing ──
+ * Default is SHA-256 (hot-path cheap, existing LMDB records).
+ * cetcd_auth_set_bcrypt_cost(4..31) hashes new passwords with bcrypt;
+ * verify accepts both encodings so a restart can mix old SHA-256 users. */
+
+#define CETCD_AUTH_BCRYPT_COST_MIN 4
+#define CETCD_AUTH_BCRYPT_COST_MAX 31
+
+int  cetcd_auth_set_bcrypt_cost(cetcd_auth_store *s, int cost);
+int  cetcd_auth_bcrypt_cost(const cetcd_auth_store *s);
+
 /* Persist / restore RBAC (users, roles, enabled) to LMDB. Fail-closed:
  * save errors are returned to the caller; load of a missing store is OK. */
 struct cetcd_backend;

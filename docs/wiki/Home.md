@@ -114,7 +114,7 @@ src/
 ├── backend/     libcetcd_backend    LMDB 支持的事务性键值存储
 ├── mvcc/        libcetcd_mvcc       修订索引、观察者扇出、压缩
 ├── lease/       libcetcd_lease      TTL 最小堆 + 租约-键索引
-├── auth/        libcetcd_auth       RBAC、SHA-256 密码哈希
+├── auth/        libcetcd_auth       RBAC、SHA-256（默认）或 bcrypt 密码哈希
 ├── peer/        libcetcd_peer       Raft 传输层（rafthttp 等价）
 ├── snap/        libcetcd_snap       快照文件读写和流式传输
 ├── v3rpc/       libcetcd_v3rpc      全部 41 个 RPC 的 gRPC 处理器
@@ -656,7 +656,7 @@ int cetcd_auth_grant_permission(cetcd_auth_store *s, const char *role,
 int cetcd_auth_revoke_permission(cetcd_auth_store *s, const char *role);
 ```
 
-> **注意**：当 OpenSSL 可用时，密码使用 SHA-256（通过 EVP API）进行哈希。当 OpenSSL 不可用时，回退到非加密安全的占位符哈希函数。
+> **注意**：默认使用 SHA-256（OpenSSL EVP）哈希密码。`--bcrypt-cost N`（4..31）对新密码使用 libcrypt `$2b$`；校验同时接受旧 SHA-256 记录。`--auth-token jwt` 在实现前会启动失败。OpenSSL 不可用时 SHA-256 回退为非加密占位哈希。
 
 ---
 

@@ -46,8 +46,8 @@ static void print_usage(const char *prog) {
     printf("  --max-txn-ops N     Accepted but no-op\n");
     printf("  --max-request-bytes N  Accepted but no-op\n");
     printf("  --grpc-keepalive-*  Accepted but no-op (plain TCP)\n");
-    printf("  --auth-token TYPE   Accepted but no-op\n");
-    printf("  --bcrypt-cost N     Accepted but no-op\n");
+    printf("  --auth-token TYPE   simple (default); jwt is rejected until implemented\n");
+    printf("  --bcrypt-cost N     Hash new passwords with bcrypt (4..31; default SHA-256)\n");
     printf("  --cert-file FILE    Client TLS certificate (requires --key-file)\n");
     printf("  --key-file FILE     Client TLS private key\n");
     printf("  --trusted-ca-file FILE  Client TLS CA (required with --client-cert-auth)\n");
@@ -200,9 +200,9 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--max-request-bytes") == 0 && i + 1 < argc) {
             i++; /* no-op */
         } else if (strcmp(argv[i], "--auth-token") == 0 && i + 1 < argc) {
-            i++; /* no-op */
+            strncpy(cfg.auth_token, argv[++i], sizeof(cfg.auth_token) - 1);
         } else if (strcmp(argv[i], "--bcrypt-cost") == 0 && i + 1 < argc) {
-            i++; /* no-op */
+            cfg.bcrypt_cost = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--cert-file") == 0 && i + 1 < argc) {
             strncpy(cfg.cert_file, argv[++i], sizeof(cfg.cert_file) - 1);
         } else if (strcmp(argv[i], "--key-file") == 0 && i + 1 < argc) {
