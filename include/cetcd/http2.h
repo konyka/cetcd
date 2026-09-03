@@ -49,6 +49,10 @@ int cetcd_h2_submit_response(cetcd_h2_session *s, int32_t stream_id,
                                const uint8_t *body, size_t body_len,
                                bool end_stream);
 
+/* Additional DATA on an open stream (Watch events). end_stream closes it. */
+int cetcd_h2_submit_data(cetcd_h2_session *s, int32_t stream_id,
+                         const uint8_t *body, size_t body_len, bool end_stream);
+
 int cetcd_h2_submit_trailers(cetcd_h2_session *s, int32_t stream_id,
                                const char **trailers, size_t count);
 

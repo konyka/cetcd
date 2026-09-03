@@ -355,6 +355,34 @@ cetcd_h2_submit_response(cetcd_h2_session *s, int32_t stream_id,
 }
 
 int
+cetcd_h2_submit_data(cetcd_h2_session *s, int32_t stream_id,
+                     const uint8_t *body, size_t body_len, bool end_stream) {
+    if (!s || !body || body_len == 0) return -1;
+    if (s->resp_body && s->resp_body_pos < s->resp_body_len) {
+        uint8_t *nb = (uint8_t *)realloc(s->resp_body, s->resp_body_len + body_len);
+        if (!nb) return -1;
+        memcpy(nb + s->resp_body_len, body, body_len);
+        s->resp_body = nb;
+        s->resp_body_len += body_len;
+        return 0;
+    }
+    if (s->resp_body) { free(s->resp_body); s->resp_body = NULL; }
+    s->resp_body = (uint8_t *)malloc(body_len);
+    if (!s->resp_body) return -1;
+    memcpy(s->resp_body, body, body_len);
+    s->resp_body_len = body_len;
+    s->resp_body_pos = 0;
+
+    nghttp2_data_provider2 dp;
+    dp.read_callback = h2_data_read_cb_;
+    dp.source.ptr = s;
+    uint8_t data_flags = 0;
+    if (end_stream) data_flags |= NGHTTP2_FLAG_END_STREAM;
+    nghttp2_submit_data2(s->ngh, data_flags, stream_id, &dp);
+    return 0;
+}
+
+int
 cetcd_h2_submit_trailers(cetcd_h2_session *s, int32_t stream_id,
                            const char **trailers, size_t count) {
     if (!s) return -1;
@@ -438,6 +466,13 @@ cetcd_h2_submit_response(cetcd_h2_session *s, int32_t stream_id,
                            bool end_stream) {
     (void)s; (void)stream_id; (void)headers; (void)header_count;
     (void)body; (void)body_len; (void)end_stream;
+    return 0;
+}
+
+int
+cetcd_h2_submit_data(cetcd_h2_session *s, int32_t stream_id,
+                     const uint8_t *body, size_t body_len, bool end_stream) {
+    (void)s; (void)stream_id; (void)body; (void)body_len; (void)end_stream;
     return 0;
 }
 

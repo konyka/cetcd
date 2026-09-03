@@ -801,6 +801,168 @@ CETCD_TEST_CASE(live_server_http2_status) {
     int st;
     waitpid(pid, &st, 0);
 }
+
+typedef struct {
+    const uint8_t *p;
+    size_t         left;
+} live_h2_body_;
+
+static nghttp2_ssize live_h2_body_read_(nghttp2_session *session, int32_t stream_id,
+                                        uint8_t *buf, size_t length,
+                                        uint32_t *data_flags,
+                                        nghttp2_data_source *source, void *user_data) {
+    (void)session; (void)stream_id; (void)user_data;
+    live_h2_body_ *b = (live_h2_body_ *)source->ptr;
+    size_t n = b->left;
+    if (n > length) n = length;
+    if (n > 0) {
+        memcpy(buf, b->p, n);
+        b->p += n;
+        b->left -= n;
+    }
+    if (b->left == 0)
+        *data_flags |= NGHTTP2_DATA_FLAG_EOF | NGHTTP2_DATA_FLAG_NO_END_STREAM;
+    return (nghttp2_ssize)n;
+}
+
+CETCD_TEST_CASE(live_server_http2_watch) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        cetcd_server_config cfg;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.node_id = 1;
+        strncpy(cfg.listen_addr, "127.0.0.1", sizeof(cfg.listen_addr) - 1);
+        cfg.listen_port = 23855;
+        cfg.election_tick = 10;
+        cfg.heartbeat_tick = 1;
+        cetcd_server *srv = cetcd_server_new(&cfg);
+        if (srv) {
+            cetcd_server_start(srv);
+            alarm(3);
+            cetcd_server_serve(srv);
+            cetcd_server_free(srv);
+        }
+        _exit(0);
+    }
+
+    struct timespec ts = {0, 200000000};
+    nanosleep(&ts, NULL);
+
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    CETCD_ASSERT_TRUE(fd >= 0);
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(23855);
+    inet_pton(AF_INET, "127.0.0.1", &sa.sin_addr);
+    CETCD_ASSERT_EQ_INT(connect(fd, (struct sockaddr *)&sa, sizeof(sa)), 0);
+    fcntl(fd, F_SETFL, O_NONBLOCK);
+
+    live_h2_ctx_ cctx;
+    memset(&cctx, 0, sizeof(cctx));
+    cctx.grpc_status = -1;
+
+    nghttp2_session_callbacks *ccb;
+    nghttp2_session_callbacks_new(&ccb);
+    nghttp2_session_callbacks_set_on_header_callback(ccb, live_h2_on_header_);
+    nghttp2_session_callbacks_set_on_data_chunk_recv_callback(ccb, live_h2_on_data_);
+    nghttp2_session *client;
+    nghttp2_session_client_new(&client, ccb, &cctx);
+    nghttp2_session_callbacks_del(ccb);
+
+    nghttp2_nv hdrs[] = {
+        NGHTTP2_NV_MAKE(":method", "POST"),
+        NGHTTP2_NV_MAKE(":path", "/etcdserverpb.Watch/Watch"),
+        NGHTTP2_NV_MAKE(":scheme", "http"),
+        NGHTTP2_NV_MAKE(":authority", "127.0.0.1:23855"),
+        NGHTTP2_NV_MAKE("content-type", "application/grpc"),
+        NGHTTP2_NV_MAKE("te", "trailers"),
+    };
+    uint8_t inner[16]; size_t ip = 0;
+    inner[ip++] = 0x0a;
+    inner[ip++] = 0x04;
+    memcpy(inner + ip, "h2wk", 4); ip += 4;
+    uint8_t pb[32]; size_t pp = 0;
+    pb[pp++] = 0x0a;
+    pb[pp++] = (uint8_t)ip;
+    memcpy(pb + pp, inner, ip); pp += ip;
+    uint8_t *grpc = NULL;
+    size_t glen = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_grpc_encode(pb, pp, false, &grpc, &glen), CETCD_OK);
+
+    live_h2_body_ body = { .p = grpc, .left = glen };
+    nghttp2_data_provider2 dp;
+    dp.read_callback = live_h2_body_read_;
+    dp.source.ptr = &body;
+    int32_t sid = nghttp2_submit_request2(client, NULL, hdrs, 6, &dp, NULL);
+    CETCD_ASSERT_TRUE(sid > 0);
+    nghttp2_submit_settings(client, NGHTTP2_FLAG_NONE, NULL, 0);
+
+    for (int i = 0; i < 200 && cctx.data_len < 6; i++) {
+        for (;;) {
+            const uint8_t *out = NULL;
+            nghttp2_ssize nsend = nghttp2_session_mem_send2(client, &out);
+            if (nsend <= 0) break;
+            ssize_t w = send(fd, out, (size_t)nsend, 0);
+            if (w < 0) break;
+        }
+        struct pollfd pfd;
+        pfd.fd = fd;
+        pfd.events = POLLIN;
+        if (poll(&pfd, 1, 10) > 0) {
+            uint8_t in[4096];
+            ssize_t r = recv(fd, in, sizeof(in), 0);
+            if (r > 0) nghttp2_session_mem_recv2(client, in, (size_t)r);
+        }
+    }
+    CETCD_ASSERT_TRUE(cctx.data_len > 5);
+    CETCD_ASSERT_FALSE(cctx.got_trailer);
+    size_t ack_len = cctx.data_len;
+
+    int put_fd = socket(AF_INET, SOCK_STREAM, 0);
+    CETCD_ASSERT_TRUE(put_fd >= 0);
+    CETCD_ASSERT_EQ_INT(connect(put_fd, (struct sockaddr *)&sa, sizeof(sa)), 0);
+    uint8_t put_req[] = {0x0a, 0x04, 'h','2','w','k', 0x12, 0x02, 'v','1'};
+    uint8_t frame_buf[4096];
+    size_t put_len = build_grpc_request(frame_buf, sizeof(frame_buf),
+                                        "/etcdserverpb.KV/Put", put_req, sizeof(put_req));
+    send(put_fd, frame_buf, put_len, 0);
+    uint8_t put_resp[1024];
+    CETCD_ASSERT_TRUE(recv(put_fd, put_resp, sizeof(put_resp), 0) > 7);
+    close(put_fd);
+
+    for (int i = 0; i < 200 && cctx.data_len == ack_len; i++) {
+        for (;;) {
+            const uint8_t *out = NULL;
+            nghttp2_ssize nsend = nghttp2_session_mem_send2(client, &out);
+            if (nsend <= 0) break;
+            ssize_t w = send(fd, out, (size_t)nsend, 0);
+            if (w < 0) break;
+        }
+        struct pollfd pfd;
+        pfd.fd = fd;
+        pfd.events = POLLIN;
+        if (poll(&pfd, 1, 10) > 0) {
+            uint8_t in[4096];
+            ssize_t r = recv(fd, in, sizeof(in), 0);
+            if (r > 0) nghttp2_session_mem_recv2(client, in, (size_t)r);
+        }
+    }
+    CETCD_ASSERT_TRUE(cctx.data_len > ack_len);
+    CETCD_ASSERT_FALSE(cctx.got_trailer);
+    int found = 0;
+    for (size_t i = 0; i + 4 <= cctx.data_len; i++) {
+        if (memcmp(cctx.data + i, "h2wk", 4) == 0) { found = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(found);
+
+    free(grpc);
+    nghttp2_session_del(client);
+    close(fd);
+    kill(pid, SIGTERM);
+    int st;
+    waitpid(pid, &st, 0);
+}
 #endif
 
 CETCD_TEST_LIST_BEGIN
@@ -819,6 +981,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_grpc_lease_grant),
 #ifdef CETCD_HAS_NGHTTP2
     CETCD_TEST_ENTRY(live_server_http2_status),
+    CETCD_TEST_ENTRY(live_server_http2_watch),
 #endif
 CETCD_TEST_LIST_END
 

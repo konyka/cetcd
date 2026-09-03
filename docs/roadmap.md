@@ -76,11 +76,13 @@ Performance-first, fail-closed design:
 - **HTTP/2 gRPC accept** — client connections that send the `PRI * HTTP/2`
   preface are demuxed from `cetcdctl` frames and fed to nghttp2. Unary
   `:path` + DATA map to `cetcd_v3rpc_dispatch_ex`; `authorization` is the
-  bearer token. Responses use gRPC trailers (`grpc-status`). Watch and
-  other streams stay unary-shaped on this path. Client TLS (`--cert-file`)
-  selects ALPN `h2` when the peer offers it; clients that omit ALPN still
-  handshake (custom-frame TLS). A non-`h2` ALPN offer is fail-closed. Peer
-  TLS does not advertise `h2`.
+  bearer token. Responses use gRPC trailers (`grpc-status`). Watch is a
+  true bidi stream (create DATA without END_STREAM; events as extra DATA;
+  client END_STREAM is a send half-close). LeaseKeepAlive / Snapshot /
+  RangeStream stay unary-shaped. Client TLS (`--cert-file`) selects ALPN
+  `h2` when the peer offers it; clients that omit ALPN still handshake
+  (custom-frame TLS). A non-`h2` ALPN offer is fail-closed. Peer TLS does
+  not advertise `h2`.
 
 ## Previously done (auth data plane)
 

@@ -519,6 +519,72 @@ CETCD_TEST_CASE(h2_submit_response_with_trailers) {
     cetcd_h2_session_free(server);
 }
 
+CETCD_TEST_CASE(h2_submit_data_keeps_stream_open) {
+    h2_test_ctx tc = {0};
+    cetcd_h2_callbacks scbs = {
+        .on_request = test_on_request,
+        .on_data    = test_on_data,
+        .udata      = &tc
+    };
+    cetcd_h2_session *server = cetcd_h2_session_new(&scbs);
+    CETCD_ASSERT_NOT_NULL(server);
+
+    nghttp2_session_callbacks *ccb;
+    nghttp2_session_callbacks_new(&ccb);
+    nghttp2_session_callbacks_set_on_header_callback(ccb, client_on_header_);
+    nghttp2_session_callbacks_set_on_data_chunk_recv_callback(ccb, client_on_data_);
+    nghttp2_session_callbacks_set_on_frame_recv_callback(ccb, client_on_frame_recv_);
+
+    h2_client_ctx_ cctx = {0};
+    nghttp2_session *client;
+    nghttp2_session_client_new(&client, ccb, &cctx);
+    nghttp2_session_callbacks_del(ccb);
+
+    nghttp2_nv hdrs[] = {
+        NGHTTP2_NV_MAKE(":method", "POST"),
+        NGHTTP2_NV_MAKE(":path",   "/etcdserverpb.Watch/Watch"),
+        NGHTTP2_NV_MAKE(":scheme", "http"),
+    };
+    int32_t sid = nghttp2_submit_headers(client,
+        NGHTTP2_FLAG_END_HEADERS | NGHTTP2_FLAG_END_STREAM,
+        -1, NULL, hdrs, 3, NULL);
+    CETCD_ASSERT_TRUE(sid > 0);
+
+    pump_sessions_(server, client);
+    CETCD_ASSERT_TRUE(tc.got_request);
+
+    const char *resp_hdrs[] = {
+        ":status",      "200",
+        "content-type", "application/grpc",
+    };
+    CETCD_ASSERT_EQ_INT(
+        cetcd_h2_submit_response(server, sid, resp_hdrs, 4, NULL, 0, false), 0);
+    pump_sessions_(server, client);
+
+    const uint8_t chunk1[] = {0x00, 0x00, 0x00, 0x00, 0x01, 0xaa};
+    CETCD_ASSERT_EQ_INT(cetcd_h2_submit_data(server, sid, chunk1, sizeof(chunk1), false), 0);
+    pump_sessions_(server, client);
+    CETCD_ASSERT_TRUE(cctx.got_status);
+    CETCD_ASSERT_TRUE(cctx.got_data);
+    CETCD_ASSERT_FALSE(cctx.got_end_stream);
+    CETCD_ASSERT_EQ_INT((int)cctx.data_len, (int)sizeof(chunk1));
+
+    const uint8_t chunk2[] = {0x00, 0x00, 0x00, 0x00, 0x01, 0xbb};
+    CETCD_ASSERT_EQ_INT(cetcd_h2_submit_data(server, sid, chunk2, sizeof(chunk2), false), 0);
+    pump_sessions_(server, client);
+    CETCD_ASSERT_FALSE(cctx.got_end_stream);
+    CETCD_ASSERT_EQ_INT((int)cctx.data_len, (int)(sizeof(chunk1) + sizeof(chunk2)));
+    CETCD_ASSERT_TRUE(memcmp(cctx.data_buf + sizeof(chunk1), chunk2, sizeof(chunk2)) == 0);
+
+    const char *trailers[] = { "grpc-status", "0", "grpc-message", "" };
+    CETCD_ASSERT_EQ_INT(cetcd_h2_submit_trailers(server, sid, trailers, 4), 0);
+    pump_sessions_(server, client);
+    CETCD_ASSERT_TRUE(cctx.got_end_stream);
+
+    nghttp2_session_del(client);
+    cetcd_h2_session_free(server);
+}
+
 CETCD_TEST_CASE(h2_server_terminate) {
     cetcd_h2_session *server = cetcd_h2_session_new(NULL);
     CETCD_ASSERT_NOT_NULL(server);
@@ -549,6 +615,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(h2_server_receives_request),
     CETCD_TEST_ENTRY(h2_full_roundtrip),
     CETCD_TEST_ENTRY(h2_submit_response_with_trailers),
+    CETCD_TEST_ENTRY(h2_submit_data_keeps_stream_open),
     CETCD_TEST_ENTRY(h2_server_terminate),
 #endif
 CETCD_TEST_LIST_END
