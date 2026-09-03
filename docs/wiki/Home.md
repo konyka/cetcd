@@ -53,13 +53,13 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 ### 当前实现要点（v0.3.x）
 
 - **持久化**：配置 `--data-dir` 时，Put/DeleteRange 经 Raft propose，WAL fsync 后再应用到 MVCC（LMDB）。重启加载 live keys，并重放 `applied_index` 之后的 WAL 条目。
-- **租约过期 / Revoke**：server tick 过期与 `LeaseRevoke` 均会删除关联键；Delete/Put(lease=0) 会从 lease 索引解绑。
 - **Delete**：对不存在键为 no-op（不递增 revision）；成功删除从 treap 硬移除。
 - **Watch 多连接**：每个 watcher 绑定创建时的 stream writer；连接关闭时 `detach` 清理；`progress_notify` / `WatchProgressRequest` 已接线。
 - **Auth 数据面**：启用后除 `Authenticate` 外均需有效 token；`root` 为超级用户；RBAC 前缀权限；token 经自定义 TCP `flags&0x02` 传递；用户/角色/`enabled` 持久化到 LMDB。
 - **Txn 写入**：Txn 内的 Put/DeleteRange 同样经 Raft propose（每条 mutation 一条日志，保证交错 Range 语义）；重启可从 WAL 恢复。
 - **嵌套 Txn**：`RequestTxn` 递归执行（每层仍 `MaxTxnOps=128`），深度上限 16 以防栈溢出；未知 RequestOp 仍 fail-closed。
 - **租约持久化**：Grant/KeepAlive/Revoke 写入 LMDB `lease` 桶；重启按墙钟 deadline 恢复剩余 TTL，再从 MVCC 挂回键。
+- **租约过期 / Revoke 经 Raft**：leader 过期提出 compact Delete；`LeaseRevoke` 为 apply tag 10，follower 从日志删除相同键并丢掉租约。非 leader 过期不本地删键。
 - **Learner 提升**：`MemberPromote` 将 learner 转为投票成员；缺失或已是 voter 则 fail-closed。Raft quorum 不计 learner。
 - **成员持久化**：MemberAdd/Remove/Promote/Update 经 Raft apply，写入 LMDB `members` 桶；重启在 campaign 前恢复 peer。
 - **Joint 共识**：voter 增删/提升先进入 C_old,new 联合配置，两边多数派都满足才提交；新成员追上 joint-index 后 leader 提出 `LEAVE_JOINT`。重叠的 voter 变更 fail-closed。联合配置持久化以便重启保持双多数。

@@ -45,6 +45,9 @@ Performance-first, fail-closed design:
 - **Nested Txn** — `RequestTxn` executes recursively (each level still
   `max(compare,success,failure) ≤ 128`). Depth is capped at 16 to bound C
   stack. Unknown RequestOp tags stay fail-closed.
+- **Lease expiry / revoke via Raft** — `LeaseRevoke` encodes apply tag 10
+  (delete attached keys, then drop the lease). Leader expire proposes compact
+  Deletes; followers do not delete locally. Not-leader is fail-closed.
 
 ## Previously done (auth data plane)
 
@@ -55,9 +58,7 @@ Performance-first, fail-closed design:
 
 ### Reliability (cluster correctness)
 
-| Gap | Why it matters | Suggested approach |
-|-----|----------------|--------------------|
-| Lease expiry / revoke still local deletes | Followers do not see expiry deletes via raft | Propose DeleteRange (or per-key Delete) from the expire callback |
+None remaining in this pass.
 
 ### Security / ops
 

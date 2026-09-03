@@ -113,17 +113,17 @@ cetcd_rpc_bytes lease_handle_revoke(cetcd_v3rpc *rpc, const uint8_t *req, size_t
     }
     if (id <= 0 || !g_rpc_lease_mgr)
         return (cetcd_rpc_bytes){NULL, 0};
+    if (!cetcd_lease_exists(g_rpc_lease_mgr, (cetcd_lease_id)id))
+        return (cetcd_rpc_bytes){NULL, 0};
 
-    /* Match etcd: revoke deletes all keys attached to the lease. */
-    const uint8_t *const *keys = NULL;
-    const size_t *key_lens = NULL;
-    size_t n = cetcd_lease_keys(g_rpc_lease_mgr, (cetcd_lease_id)id,
-                                &keys, &key_lens);
-    if (g_rpc_store && keys && key_lens) {
-        cetcd_mvcc_delete_keys(g_rpc_store, keys, key_lens, n);
-    }
-    if (cetcd_lease_revoke(g_rpc_lease_mgr, (cetcd_lease_id)id) != CETCD_OK)
-        return (cetcd_rpc_bytes){NULL, 0}; /* etcd NotFound for missing lease */
+    uint8_t *entry = NULL;
+    size_t elen = 0;
+    if (cetcd_apply_encode_lease_revoke(&entry, &elen, (uint64_t)id) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
+    int rc = cetcd_v3rpc_propose_or_apply(entry, elen);
+    free(entry);
+    if (rc < 0)
+        return (cetcd_rpc_bytes){NULL, 0};
 
     /* LeaseRevokeResponse: header with revision */
     int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;

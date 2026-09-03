@@ -1,5 +1,6 @@
 #include "cetcd/v3rpc.h"
 #include "cetcd/mvcc.h"
+#include "cetcd/lease.h"
 #include "cetcd/peer.h"
 #include "cetcd_test.h"
 
@@ -169,6 +170,34 @@ CETCD_TEST_CASE(apply_leave_joint) {
     CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(&tag, 1), 0);
 }
 
+CETCD_TEST_CASE(apply_lease_revoke_deletes_keys) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    CETCD_ASSERT_NOT_NULL(rpc);
+    cetcd_lease_mgr *mgr = cetcd_v3rpc_leases(rpc);
+    CETCD_ASSERT_NOT_NULL(mgr);
+    cetcd_lease_id id = cetcd_lease_grant(mgr, 60);
+    CETCD_ASSERT_TRUE(id > 0);
+
+    uint8_t *buf = NULL;
+    size_t len = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_put(&buf, &len,
+        (const uint8_t *)"lk", 2, (const uint8_t *)"lv", 2, (int64_t)id), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_lease_revoke(&buf, &len, (uint64_t)id), 0);
+    CETCD_ASSERT_EQ_INT((int)buf[0], CETCD_APPLY_LEASE_REVOKE);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+
+    cetcd_kv kv;
+    memset(&kv, 0, sizeof(kv));
+    CETCD_ASSERT_TRUE(cetcd_mvcc_get(cetcd_v3rpc_store(rpc), 0,
+                                     (const uint8_t *)"lk", 2, &kv) != 0);
+    CETCD_ASSERT_TRUE(!cetcd_lease_exists(mgr, id));
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(apply_put_delete_roundtrip),
     CETCD_TEST_ENTRY(apply_rejects_truncated),
@@ -178,6 +207,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(apply_batch_rejects_nesting),
     CETCD_TEST_ENTRY(apply_member_add_remove),
     CETCD_TEST_ENTRY(apply_leave_joint),
+    CETCD_TEST_ENTRY(apply_lease_revoke_deletes_keys),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

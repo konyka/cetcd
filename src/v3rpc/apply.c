@@ -208,6 +208,18 @@ int cetcd_apply_encode_member_update(uint8_t **out, size_t *out_len,
     return 0;
 }
 
+int cetcd_apply_encode_lease_revoke(uint8_t **out, size_t *out_len, uint64_t lease_id) {
+    if (!out || !out_len || lease_id == 0) return -1;
+    uint8_t *buf = (uint8_t *)malloc(16);
+    if (!buf) return -1;
+    size_t pos = 0;
+    buf[pos++] = CETCD_APPLY_LEASE_REVOKE;
+    if (write_varint_(buf, 16, &pos, lease_id) != 0) { free(buf); return -1; }
+    *out = buf;
+    *out_len = pos;
+    return 0;
+}
+
 static void lease_after_put_(const uint8_t *key, size_t key_len,
                              int64_t old_lease, int64_t new_lease) {
     if (!g_rpc_lease_mgr) return;
@@ -384,6 +396,19 @@ static int apply_member_(uint8_t op, const uint8_t *data, size_t len) {
     return 0;
 }
 
+static int apply_lease_revoke_(uint64_t id) {
+    if (id == 0) return -1;
+    if (g_rpc_lease_mgr) {
+        const uint8_t *const *keys = NULL;
+        const size_t *lens = NULL;
+        size_t n = cetcd_lease_keys(g_rpc_lease_mgr, (cetcd_lease_id)id, &keys, &lens);
+        if (g_rpc_store && keys && lens && n > 0)
+            (void)cetcd_mvcc_delete_keys(g_rpc_store, keys, lens, n);
+        (void)cetcd_lease_revoke(g_rpc_lease_mgr, (cetcd_lease_id)id);
+    }
+    return 0;
+}
+
 int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len) {
     if (!data || len < 1) return -1;
     uint8_t op = data[0];
@@ -393,6 +418,13 @@ int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len) {
         if (g_rpc_raft) (void)cetcd_raft_leave_joint(g_rpc_raft);
         if (g_rpc_cluster) (void)cetcd_cluster_persist_clear_joint(g_rpc_cluster);
         return 0;
+    }
+
+    if (op == CETCD_APPLY_LEASE_REVOKE) {
+        if (len < 2) return -1;
+        uint64_t id = 0;
+        if (read_varint_(data, len, &pos, &id) != 0 || id == 0) return -1;
+        return apply_lease_revoke_(id);
     }
 
     if (op == CETCD_APPLY_MEMBER_ADD || op == CETCD_APPLY_MEMBER_REMOVE
@@ -460,5 +492,39 @@ int cetcd_v3rpc_propose_or_apply(const uint8_t *data, size_t len) {
     if (g_ready_flush_fn) g_ready_flush_fn(g_ready_flush_ctx);
     if (cetcd_raft_applied(g_rpc_raft) < cetcd_raft_last_index(g_rpc_raft))
         return -1;
+    return 0;
+}
+
+int cetcd_v3rpc_propose_deletes(const uint8_t *const *keys,
+                                const size_t *key_lens, size_t n) {
+    if (n == 0) return 0;
+    if (!keys || !key_lens) return -1;
+    size_t off = 0;
+    while (off < n) {
+        size_t chunk = n - off;
+        if (chunk > 128) chunk = 128;
+        const uint8_t *ops[128];
+        size_t op_lens[128];
+        uint8_t *owned[128];
+        size_t i;
+        for (i = 0; i < chunk; i++) {
+            owned[i] = NULL;
+            if (cetcd_apply_encode_delete(&owned[i], &op_lens[i],
+                    keys[off + i], key_lens[off + i]) != 0) {
+                while (i > 0) { i--; free(owned[i]); }
+                return -1;
+            }
+            ops[i] = owned[i];
+        }
+        uint8_t *batch = NULL;
+        size_t blen = 0;
+        int enc = cetcd_apply_encode_batch(&batch, &blen, ops, op_lens, chunk);
+        for (i = 0; i < chunk; i++) free(owned[i]);
+        if (enc != 0) return -1;
+        int rc = cetcd_v3rpc_propose_or_apply(batch, blen);
+        free(batch);
+        if (rc < 0) return -1;
+        off += chunk;
+    }
     return 0;
 }

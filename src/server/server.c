@@ -348,9 +348,11 @@ static void lease_expire_cb_(cetcd_lease_id id,
     (void)id;
     cetcd_server *srv = (cetcd_server *)udata;
     if (!srv || !srv->rpc) return;
-    cetcd_mvcc_store *store = cetcd_v3rpc_store(srv->rpc);
-    if (!store || !keys || !key_lens) return;
-    cetcd_mvcc_delete_keys(store, keys, key_lens, count);
+    /* Only the leader proposes; followers apply the same deletes from Raft. */
+    if (srv->raft && cetcd_raft_state(srv->raft) != CETCD_NODE_LEADER)
+        return;
+    if (!keys || !key_lens || count == 0) return;
+    (void)cetcd_v3rpc_propose_deletes(keys, key_lens, count);
 }
 
 /* Cleanup callback for uv_write in stream_write_ */
