@@ -40,7 +40,7 @@ static void print_usage(const char *prog) {
     printf("  --initial-advertise-peer-urls URL  Accepted but no-op (single-node)\n");
     printf("  --initial-cluster-state STATE  Accepted (always 'new' in cetcd)\n");
     printf("  --initial-cluster-token TOKEN  Accepted but no-op\n");
-    printf("  --snapshot-count N   Accepted but no-op\n");
+    printf("  --snapshot-count N   Rewrite WAL after N applies (default: 10000)\n");
     printf("  --quota-backend-bytes N  Accepted but no-op\n");
     printf("  --force-new-cluster  Accepted but no-op\n");
     printf("  --max-txn-ops N     Accepted but no-op\n");
@@ -190,7 +190,7 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--initial-cluster-token") == 0 && i + 1 < argc) {
             i++; /* no-op, accepted for etcd compatibility */
         } else if (strcmp(argv[i], "--snapshot-count") == 0 && i + 1 < argc) {
-            i++; /* no-op, accepted for etcd compatibility */
+            cfg.snapshot_count = (uint64_t)strtoull(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--quota-backend-bytes") == 0 && i + 1 < argc) {
             i++; /* no-op, accepted for etcd compatibility */
         } else if (strcmp(argv[i], "--force-new-cluster") == 0) {

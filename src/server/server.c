@@ -60,6 +60,7 @@ struct cetcd_server {
     struct peer_tx_     *peer_txs;
     uint32_t             n_peer_txs;
     uint64_t             peer_drops;
+    uint64_t             last_snap_index;
 };
 
 static void raft_tick_cb_(void *arg);
@@ -124,6 +125,13 @@ static void replay_wal_(cetcd_server *srv, const char *wal_path) {
         } else if (rec.type == CETCD_WAL_STATE && rec.data && rec.data_len > 0) {
             if (cetcd_wal_decode_hard_state(rec.data, rec.data_len, &last_hs) == 0)
                 have_hs = 1;
+        } else if (rec.type == CETCD_WAL_SNAPSHOT && rec.data && rec.data_len > 0) {
+            uint64_t idx = 0, term = 0;
+            if (cetcd_wal_decode_snapshot(rec.data, rec.data_len, &idx, &term) == 0
+                && idx > 0) {
+                if (cetcd_raft_compact(srv->raft, idx, term) == 0)
+                    srv->last_snap_index = idx;
+            }
         }
         cetcd_wal_record_free(&rec);
         cetcd_wal_record_init(&rec);
@@ -1293,6 +1301,24 @@ cetcd_metrics *cetcd_server_metrics(cetcd_server *srv) {
     return srv ? srv->metrics : NULL;
 }
 
+static void maybe_snapshot_truncate_(cetcd_server *srv) {
+    if (!srv || !srv->raft || !srv->wal_enc) return;
+    uint64_t count = srv->cfg.snapshot_count
+        ? srv->cfg.snapshot_count
+        : CETCD_DEFAULT_SNAPSHOT_COUNT;
+    uint64_t applied = cetcd_raft_applied(srv->raft);
+    if (applied == 0 || applied < srv->last_snap_index + count) return;
+    if (cetcd_raft_last_index(srv->raft) != applied) return;
+    const cetcd_entry *e = cetcd_raft_entry_at(srv->raft, applied);
+    if (!e) return;
+    cetcd_hard_state hs;
+    cetcd_raft_copy_hard_state(srv->raft, &hs);
+    if (cetcd_wal_encoder_release(srv->wal_enc, applied, e->term, &hs) != 0)
+        return;
+    srv->last_snap_index = applied;
+    (void)cetcd_raft_compact(srv->raft, applied, e->term);
+}
+
 static void raft_tick_cb_(void *arg) {
     cetcd_server *srv = (cetcd_server *)arg;
     if (!srv) return;
@@ -1366,6 +1392,7 @@ static void process_ready_(cetcd_server *srv) {
             }
         }
         cetcd_raft_advance(srv->raft, &rd);
+        maybe_snapshot_truncate_(srv);
     }
 
     cetcd_ready_free(&rd);

@@ -28,6 +28,11 @@ Performance-first, fail-closed design:
 - **Learner promote** — members carry `is_learner`; `MemberPromote` is fail-closed
   (missing / already-voter → empty frame). Raft learners receive logs but do not
   vote or count toward quorum, so a single voter plus learners can still commit.
+- **Snapshot → WAL truncation** — after `snapshot-count` applies (default 10000),
+  rewrite the WAL segment to a `SNAPSHOT` record plus HardState, then compact the
+  in-memory raft log. Fail-closed: a failed rewrite leaves the old segment intact.
+  Restart restores a dummy last-included index from the snapshot record and
+  replays only the suffix.
 
 ## Previously done (auth data plane)
 
@@ -41,7 +46,6 @@ Performance-first, fail-closed design:
 | Gap | Why it matters | Suggested approach |
 |-----|----------------|--------------------|
 | Joint-consensus ConfChange V2 + persist members | Membership is still local (not a raft log entry); restarts drop MemberAdd | Propose ConfChange, persist a `members` bucket, restore before campaign |
-| Snapshot → WAL truncation | Unbounded WAL growth | After `snapshot-count` applies, write snap, `wal.Release`, drop old segments |
 | Nested Txn (`RequestTxn`) | etcd allows nested transactions | Fail-closed today; execute recursively with the same `MaxTxnOps` budget |
 | Lease expiry / revoke still local deletes | Followers do not see expiry deletes via raft | Propose DeleteRange (or per-key Delete) from the expire callback |
 

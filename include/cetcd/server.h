@@ -16,6 +16,8 @@ extern "C" {
 typedef struct cetcd_server cetcd_server;
 
 #define CETCD_MAX_INITIAL_PEERS 32
+/* When snapshot_count is 0, rewrite the WAL after this many applies. */
+#define CETCD_DEFAULT_SNAPSHOT_COUNT 10000ULL
 
 typedef struct cetcd_server_config {
     uint64_t        node_id;
@@ -28,6 +30,7 @@ typedef struct cetcd_server_config {
     uint64_t        election_tick;
     uint64_t        heartbeat_tick;
     bool            auth_enabled;
+    uint64_t        snapshot_count; /* 0 → CETCD_DEFAULT_SNAPSHOT_COUNT */
     cetcd_peer_info initial_peers[CETCD_MAX_INITIAL_PEERS];
     uint32_t        n_initial_peers;
 } cetcd_server_config;

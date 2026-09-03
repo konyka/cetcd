@@ -273,6 +273,46 @@ CETCD_TEST_CASE(wal_decode_hard_state) {
     remove(path_template);
 }
 
+CETCD_TEST_CASE(wal_snapshot_release_drops_entries) {
+    char path_template[] = "/tmp/cetcd-test-wal-rel-XXXXXX";
+    int fd = mkstemp(path_template);
+    CETCD_ASSERT(fd >= 0);
+    close(fd);
+
+    cetcd_wal_encoder *enc = cetcd_wal_encoder_create(path_template);
+    CETCD_ASSERT_NOT_NULL(enc);
+    cetcd_entry ent;
+    memset(&ent, 0, sizeof(ent));
+    ent.term = 1;
+    ent.index = 1;
+    ent.type = CETCD_ENTRY_NORMAL;
+    uint8_t payload[] = {1, 2, 3};
+    ent.data = cetcd_slice_make(payload, sizeof(payload));
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encode_entry(enc, &ent), 0);
+    cetcd_hard_state hs = {1, 1, 1};
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encode_hard_state(enc, &hs), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encoder_sync(enc), 0);
+
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encoder_release(enc, 1, 1, &hs), 0);
+    cetcd_wal_encoder_free(enc);
+
+    cetcd_wal_decoder *dec = cetcd_wal_decoder_open(path_template);
+    CETCD_ASSERT_NOT_NULL(dec);
+    cetcd_wal_record rec;
+    CETCD_ASSERT_EQ_INT(cetcd_wal_decode(dec, &rec), 0);
+    CETCD_ASSERT_EQ_INT(rec.type, CETCD_WAL_SNAPSHOT);
+    uint64_t idx = 0, term = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_wal_decode_snapshot(rec.data, rec.data_len, &idx, &term), 0);
+    CETCD_ASSERT_TRUE(idx == 1 && term == 1);
+    cetcd_wal_record_free(&rec);
+    CETCD_ASSERT_EQ_INT(cetcd_wal_decode(dec, &rec), 0);
+    CETCD_ASSERT_EQ_INT(rec.type, CETCD_WAL_STATE);
+    cetcd_wal_record_free(&rec);
+    CETCD_ASSERT_TRUE(cetcd_wal_decode(dec, &rec) != 0);
+    cetcd_wal_decoder_free(dec);
+    remove(path_template);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(wal_roundtrip_basic),
     CETCD_TEST_ENTRY(wal_decode_rejects_malformed),
@@ -282,6 +322,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(wal_append_does_not_truncate),
     CETCD_TEST_ENTRY(wal_directory_segment_path),
     CETCD_TEST_ENTRY(wal_decode_hard_state),
+    CETCD_TEST_ENTRY(wal_snapshot_release_drops_entries),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

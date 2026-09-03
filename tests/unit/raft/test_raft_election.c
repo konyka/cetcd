@@ -220,6 +220,28 @@ CETCD_TEST_CASE(learner_does_not_block_single_node_commit) {
     cetcd_raft_free(r);
 }
 
+CETCD_TEST_CASE(compact_drops_prefix_keeps_dummy) {
+    cetcd_raft_config cfg = single_node_cfg(1);
+    cetcd_raft *r = cetcd_raft_new(&cfg);
+    for (int i = 0; i < 10; i++) cetcd_raft_tick(r);
+    CETCD_ASSERT_TRUE(cetcd_raft_state(r) == CETCD_NODE_LEADER);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_propose(r, (const uint8_t *)"a", 1), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_propose(r, (const uint8_t *)"b", 1), 0);
+    uint64_t last = cetcd_raft_last_index(r);
+    CETCD_ASSERT_TRUE(last >= 2);
+    uint64_t term = cetcd_raft_entry_at(r, last)->term;
+    CETCD_ASSERT_EQ_INT(cetcd_raft_compact(r, last, term), 0);
+    CETCD_ASSERT_TRUE(cetcd_raft_entry_at(r, last - 1) == NULL);
+    const cetcd_entry *dummy = cetcd_raft_entry_at(r, last);
+    CETCD_ASSERT_NOT_NULL(dummy);
+    CETCD_ASSERT_EQ_INT((int)dummy->data.len, 0);
+    CETCD_ASSERT_TRUE(dummy->term == term);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_propose(r, (const uint8_t *)"c", 1), 0);
+    CETCD_ASSERT_TRUE(cetcd_raft_last_index(r) == last + 1);
+    CETCD_ASSERT_NOT_NULL(cetcd_raft_entry_at(r, last + 1));
+    cetcd_raft_free(r);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(new_raft_starts_as_follower),
     CETCD_TEST_ENTRY(single_node_becomes_leader_after_election_timeout),
@@ -232,6 +254,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(config_null_storage_ok),
     CETCD_TEST_ENTRY(free_null_is_safe),
     CETCD_TEST_ENTRY(learner_does_not_block_single_node_commit),
+    CETCD_TEST_ENTRY(compact_drops_prefix_keeps_dummy),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

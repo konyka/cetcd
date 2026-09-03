@@ -185,6 +185,11 @@ const cetcd_entry *cetcd_raft_entry_at(const cetcd_raft *r, uint64_t index);
 int  cetcd_raft_restore_entry(cetcd_raft *r, const cetcd_entry *e);
 void cetcd_raft_restore_hard_state(cetcd_raft *r, const cetcd_hard_state *hs);
 void cetcd_raft_set_applied(cetcd_raft *r, uint64_t applied);
+void cetcd_raft_copy_hard_state(const cetcd_raft *r, cetcd_hard_state *out);
+/* Drop payloads with index < last_included. last_included becomes a dummy
+ * (term kept, no data) and last_index is raised to it when the log is empty
+ * (WAL snapshot restore). Returns 0 on success. */
+int cetcd_raft_compact(cetcd_raft *r, uint64_t last_included, uint64_t last_term);
 
 /* Memory management for Ready */
 void              cetcd_ready_free(cetcd_ready *rd);

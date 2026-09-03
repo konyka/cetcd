@@ -42,11 +42,17 @@ int cetcd_wal_encode(cetcd_wal_encoder *enc, cetcd_wal_record *rec);
 int cetcd_wal_encode_metadata(cetcd_wal_encoder *enc, const uint8_t *data, size_t len);
 int cetcd_wal_encode_entry(cetcd_wal_encoder *enc, const cetcd_entry *entry);
 int cetcd_wal_encode_hard_state(cetcd_wal_encoder *enc, const cetcd_hard_state *hs);
+int cetcd_wal_encode_snapshot(cetcd_wal_encoder *enc, uint64_t index, uint64_t term);
 int cetcd_wal_encoder_flush(cetcd_wal_encoder *enc);
 /* fsync the WAL file so acknowledged records survive a crash. Returns 0 on
  * success. This is the durability barrier callers must cross before sending
  * Raft messages or applying entries that depend on the persisted records. */
 int cetcd_wal_encoder_sync(cetcd_wal_encoder *enc);
+/* Atomically replace the segment with SNAPSHOT(index,term) + HardState so
+ * prior ENTRY records are dropped. Fail-closed: on error the original file
+ * is left intact (or reopened for append). Returns 0 on success. */
+int cetcd_wal_encoder_release(cetcd_wal_encoder *enc, uint64_t snap_index,
+                              uint64_t snap_term, const cetcd_hard_state *hs);
 
 /* If `path` is a directory, write `{path}/0000000000000000.wal` into `out`.
  * Otherwise copy `path`. Returns 0 on success. */
@@ -55,6 +61,8 @@ int cetcd_wal_resolve_path(const char *path, char *out, size_t cap);
 /* Decode a WAL_ENTRY record payload into `out`. `out->data` is malloc'd. */
 int cetcd_wal_decode_entry(const uint8_t *data, size_t len, cetcd_entry *out);
 int cetcd_wal_decode_hard_state(const uint8_t *data, size_t len, cetcd_hard_state *out);
+int cetcd_wal_decode_snapshot(const uint8_t *data, size_t len,
+                              uint64_t *index, uint64_t *term);
 
 /* ── WAL decoder ─────────────────────────────────────────────────── */
 

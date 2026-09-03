@@ -221,6 +221,9 @@ crosses the sync barrier once per Ready batch (after entries + HardState, before
 send or MVCC apply), so a crash after an acknowledged Ready cannot lose Raft records.
 Malformed frames — unterminated varints, length-delimited fields that overrun the frame, or
 unknown wire types — are rejected by the decoder rather than parsed as zero records.
+After `snapshot-count` applies, `cetcd_wal_encoder_release` writes a new segment
+(`SNAPSHOT` + HardState) and `rename`s it over the live file so a crash mid-rewrite
+cannot drop the old log.
 
 **Peer transport.** Each cluster peer owns a nonblocking `uv_tcp_t` in `libcetcd_server`,
 lazily connected on the first outbound Raft frame and reconnected after failure. Frames are
@@ -359,6 +362,12 @@ campaigns on `server_new` so the first Put does not wait for election ticks.
 - **Learners** are non-voting: they are excluded from quorum and vote counts.
   `MemberPromote` flips a learner to a voter (fail-closed if missing or already
   voting). Membership is still applied locally, not via a ConfChange log entry.
+- **WAL truncation** — after `snapshot-count` applies (config `0` means 10000),
+  and only once `last_index == applied` (so an uncommitted suffix is not dropped),
+  `process_ready_` rewrites `{data_dir}/wal/0000000000000000.wal` to a durable
+  `SNAPSHOT(index,term)` + HardState via `cetcd_wal_encoder_release`, then
+  `cetcd_raft_compact` drops prefix payloads. A failed rewrite keeps the old
+  segment. Restart treats the snapshot record as the dummy last-included index.
 
 Quorum uses one match index per voter (the leader's match is `last_index`). The previous
 implementation also pushed `last_index` as an extra voter, which blocked single-node
@@ -528,7 +537,7 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `version -w json` enhanced (now includes `server` field with value `cetcd`),
 `snapshot restore -w json` enhanced (now includes `keys` count field in JSON output),
 `print_json_string` helper (unified JSON string escaping for all -w json outputs; now used by get/put/del/watch/member/status/endpoint/auth/role/lease commands for proper handling of special characters like \" \\ \n \r \t and control characters),
-`etcd-compatible server flags` (cetcd now accepts `--listen-client-urls`, `--listen-peer-urls` with URL format parsing, plus `--advertise-client-urls`, `--initial-advertise-peer-urls`, `--initial-cluster-state`, `--initial-cluster-token`, `--snapshot-count`, `--quota-backend-bytes`, `--force-new-cluster`, `--max-txn-ops`, `--max-request-bytes`, `--auth-token`, `--bcrypt-cost`, `--cert-file`, `--key-file`, `--trusted-ca-file`, `--client-cert-auth`, `--auto-tls`, `--peer-cert-file`, `--peer-key-file`, `--peer-trusted-ca-file`, `--peer-client-cert-auth`, `--peer-auto-tls`, `--cipher-suites`, `--logger`, `--log-outputs`, `--grpc-keepalive-*`, `--experimental-*` as no-op compatibility flags; `--election-tick` and `--heartbeat-tick` are now accepted as actual Raft timing parameters),
+`etcd-compatible server flags` (cetcd now accepts `--listen-client-urls`, `--listen-peer-urls` with URL format parsing, plus `--advertise-client-urls`, `--initial-advertise-peer-urls`, `--initial-cluster-state`, `--initial-cluster-token`, `--quota-backend-bytes`, `--force-new-cluster`, `--max-txn-ops`, `--max-request-bytes`, `--auth-token`, `--bcrypt-cost`, `--cert-file`, `--key-file`, `--trusted-ca-file`, `--client-cert-auth`, `--auto-tls`, `--peer-cert-file`, `--peer-key-file`, `--peer-trusted-ca-file`, `--peer-client-cert-auth`, `--peer-auto-tls`, `--cipher-suites`, `--logger`, `--log-outputs`, `--grpc-keepalive-*`, `--experimental-*` as no-op compatibility flags; `--election-tick`, `--heartbeat-tick`, and `--snapshot-count` are actual Raft/WAL parameters),
 `get/del --prefix ""` buffer overflow fix (empty key with `--prefix` now correctly uses `\0` as range_end to match all keys, instead of causing a `key_len - 1` underflow),
 `get/del --prefix --from-key` mutual exclusion (returns error when both flags are specified together),
 `alarm TYPE` argument parsing (`alarm activate` and `alarm disarm` now accept an optional TYPE argument: `NOSPACE`, `CORRUPT`, or `NONE`; `alarm list` output now displays `CORRUPT` alarm type correctly),

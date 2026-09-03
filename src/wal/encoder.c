@@ -16,6 +16,7 @@
 struct cetcd_wal_encoder {
     FILE    *fp;
     uint32_t running_crc;
+    char     path[1024];
 };
 
 /* CRC-32C (Castagnoli) implemented as a bitwise routine (no table required). */
@@ -141,6 +142,7 @@ cetcd_wal_encoder *cetcd_wal_encoder_create(const char *path) {
     enc->fp = fopen(resolved, mode);
     if (!enc->fp) { free(enc); return NULL; }
     enc->running_crc = 0;
+    memcpy(enc->path, resolved, strlen(resolved) + 1);
     return enc;
 }
 
@@ -224,6 +226,21 @@ int cetcd_wal_encode_hard_state(cetcd_wal_encoder *enc, const cetcd_hard_state *
     return r;
 }
 
+int cetcd_wal_encode_snapshot(cetcd_wal_encoder *enc, uint64_t index, uint64_t term) {
+    if (!enc || index == 0) return -1;
+    wbuf w; wbuf_init(&w);
+    int oom = 0;
+    oom |= wbuf_append_byte(&w, 0x08); oom |= wbuf_write_varint(&w, index);
+    oom |= wbuf_append_byte(&w, 0x10); oom |= wbuf_write_varint(&w, term);
+    if (oom) { wbuf_free(&w); return -1; }
+    cetcd_wal_record rec; cetcd_wal_record_init(&rec);
+    rec.type = CETCD_WAL_SNAPSHOT; rec.data = w.d; rec.data_len = w.len;
+    rec.crc = crc32c(0, rec.data, rec.data_len);
+    int r = cetcd_wal_encode(enc, &rec);
+    cetcd_wal_record_free(&rec);
+    return r;
+}
+
 int cetcd_wal_encoder_flush(cetcd_wal_encoder *enc) {
     if (!enc || !enc->fp) return -1;
     return fflush(enc->fp);
@@ -237,6 +254,39 @@ int cetcd_wal_encoder_sync(cetcd_wal_encoder *enc) {
 #else
     return fsync(fileno(enc->fp));
 #endif
+}
+
+int cetcd_wal_encoder_release(cetcd_wal_encoder *enc, uint64_t snap_index,
+                              uint64_t snap_term, const cetcd_hard_state *hs) {
+    if (!enc || !enc->fp || !enc->path[0] || !hs || snap_index == 0) return -1;
+    char tmp[1040];
+    int n = snprintf(tmp, sizeof(tmp), "%s.new", enc->path);
+    if (n < 0 || (size_t)n >= sizeof(tmp)) return -1;
+    remove(tmp);
+
+    cetcd_wal_encoder *fresh = cetcd_wal_encoder_create(tmp);
+    if (!fresh) return -1;
+    int rc = 0;
+    if (cetcd_wal_encode_snapshot(fresh, snap_index, snap_term) != 0) rc = -1;
+    if (rc == 0 && cetcd_wal_encode_hard_state(fresh, hs) != 0) rc = -1;
+    if (rc == 0 && cetcd_wal_encoder_sync(fresh) != 0) rc = -1;
+    cetcd_wal_encoder_free(fresh);
+    if (rc != 0) {
+        remove(tmp);
+        return -1;
+    }
+
+    fclose(enc->fp);
+    enc->fp = NULL;
+    if (rename(tmp, enc->path) != 0) {
+        remove(tmp);
+        enc->fp = fopen(enc->path, "ab");
+        return -1;
+    }
+    enc->fp = fopen(enc->path, "ab");
+    if (!enc->fp) return -1;
+    enc->running_crc = 0;
+    return 0;
 }
 
 /* Record helpers */
@@ -327,6 +377,26 @@ int cetcd_wal_decode_hard_state(const uint8_t *data, size_t len, cetcd_hard_stat
         if (field == 1) out->term = v;
         else if (field == 2) out->vote = v;
         else if (field == 3) out->commit = v;
+    }
+    return 0;
+}
+
+int cetcd_wal_decode_snapshot(const uint8_t *data, size_t len,
+                              uint64_t *index, uint64_t *term) {
+    if (!data || !index || !term) return -1;
+    *index = 0;
+    *term = 0;
+    size_t pos = 0;
+    while (pos < len) {
+        uint64_t tag = 0;
+        if (read_varint_local_(data, &pos, len, &tag) != 0) return -1;
+        uint64_t field = tag >> 3;
+        uint64_t wire = tag & 0x07;
+        if (wire != 0) return -1;
+        uint64_t v = 0;
+        if (read_varint_local_(data, &pos, len, &v) != 0) return -1;
+        if (field == 1) *index = v;
+        else if (field == 2) *term = v;
     }
     return 0;
 }

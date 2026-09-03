@@ -63,6 +63,7 @@ struct cetcd_raft {
     uint32_t              log_cap;
     uint64_t              log_last_index;
     uint64_t              log_last_term;
+    uint64_t              log_compacted; /* last included snapshot index; 0 = none */
 
     /* Pending Ready state */
     cetcd_hard_state     *pending_hs;
@@ -79,6 +80,7 @@ struct cetcd_raft {
 
 static cetcd_entry *log_at_(cetcd_raft *r, uint64_t index) {
     if (index == 0 || index > r->log_last_index) return NULL;
+    if (index < r->log_compacted) return NULL;
     return &r->log[index];
 }
 
@@ -940,6 +942,7 @@ uint64_t cetcd_raft_last_index(cetcd_raft *r) {
 
 const cetcd_entry *cetcd_raft_entry_at(const cetcd_raft *r, uint64_t index) {
     if (!r || index == 0 || index > r->log_last_index) return NULL;
+    if (index < r->log_compacted) return NULL;
     return &r->log[index];
 }
 
@@ -960,6 +963,30 @@ void cetcd_raft_restore_hard_state(cetcd_raft *r, const cetcd_hard_state *hs) {
 void cetcd_raft_set_applied(cetcd_raft *r, uint64_t applied) {
     if (!r) return;
     r->applied = applied;
+}
+
+void cetcd_raft_copy_hard_state(const cetcd_raft *r, cetcd_hard_state *out) {
+    if (!r || !out) return;
+    out->term = r->term;
+    out->vote = r->vote;
+    out->commit = r->commit;
+}
+
+int cetcd_raft_compact(cetcd_raft *r, uint64_t last_included, uint64_t last_term) {
+    if (!r || last_included == 0) return -1;
+    if (last_included < r->log_compacted) return -1;
+    if (r->log_last_index != 0 && last_included > r->log_last_index) return -1;
+    cetcd_entry dummy;
+    memset(&dummy, 0, sizeof(dummy));
+    dummy.term = last_term;
+    dummy.index = last_included;
+    dummy.type = CETCD_ENTRY_NORMAL;
+    log_append_(r, &dummy);
+    if (r->log_last_index < last_included) return -1; /* grow/append failed */
+    for (uint64_t i = 1; i < last_included && i < r->log_cap; i++)
+        entry_clear_data_(&r->log[i]);
+    r->log_compacted = last_included;
+    return 0;
 }
 
 /* ── Ready memory management ────────────────────────────────────── */
