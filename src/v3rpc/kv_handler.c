@@ -15,66 +15,6 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
 cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 
-/* Detach key from its lease (if any) then delete from MVCC.
- * Lease detach runs only after a successful delete (fail-closed safe). */
-static cetcd_revision delete_and_detach_(const uint8_t *key, size_t key_len) {
-    cetcd_revision zero = {0, 0};
-    if (!g_rpc_store || !key) return zero;
-    int64_t lease_id = 0;
-    if (g_rpc_lease_mgr) {
-        cetcd_kv kv;
-        memset(&kv, 0, sizeof(kv));
-        if (cetcd_mvcc_get(g_rpc_store, 0, key, key_len, &kv) == 0) {
-            lease_id = kv.lease_id;
-            free((void *)(uintptr_t)kv.key.data);
-            free((void *)(uintptr_t)kv.value.data);
-        }
-    }
-    cetcd_revision r = cetcd_mvcc_delete(g_rpc_store, key, key_len);
-    if (r.main > 0 && g_rpc_lease_mgr && lease_id > 0) {
-        cetcd_lease_detach_key(g_rpc_lease_mgr, (cetcd_lease_id)lease_id,
-                                key, key_len);
-    }
-    return r;
-}
-
-/* Batch-delete keys from a prior Range snapshot (one LMDB txn). */
-static cetcd_revision delete_kvs_and_detach_(const cetcd_kv *kvs, size_t n) {
-    cetcd_revision zero = {0, 0};
-    if (!g_rpc_store || !kvs || n == 0) return zero;
-
-    const uint8_t **keys = (const uint8_t **)calloc(n, sizeof(*keys));
-    size_t *lens = (size_t *)calloc(n, sizeof(*lens));
-    if (!keys || !lens) {
-        free(keys);
-        free(lens);
-        cetcd_revision last = zero;
-        for (size_t i = 0; i < n; i++) {
-            cetcd_revision r = delete_and_detach_(kvs[i].key.data, kvs[i].key.len);
-            if (r.main > last.main) last = r;
-        }
-        return last;
-    }
-
-    for (size_t i = 0; i < n; i++) {
-        keys[i] = kvs[i].key.data;
-        lens[i] = kvs[i].key.len;
-    }
-    cetcd_revision r = cetcd_mvcc_delete_keys(g_rpc_store, keys, lens, n);
-    if (r.main > 0 && g_rpc_lease_mgr) {
-        for (size_t i = 0; i < n; i++) {
-            if (kvs[i].lease_id > 0) {
-                cetcd_lease_detach_key(g_rpc_lease_mgr,
-                                        (cetcd_lease_id)kvs[i].lease_id,
-                                        kvs[i].key.data, kvs[i].key.len);
-            }
-        }
-    }
-    free(keys);
-    free(lens);
-    return r;
-}
-
 /* True if lease_id is 0 or refers to a live lease. */
 static int lease_ok_for_put_(int64_t lease_id) {
     if (lease_id <= 0) return 1;
@@ -1281,30 +1221,22 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
             }
             /* etcd proto3: omitted value is empty bytes — still put. */
             if (pk && g_rpc_store) {
-                int64_t old_lease = 0;
-                if (g_rpc_lease_mgr) {
-                    cetcd_kv old_kv;
-                    memset(&old_kv, 0, sizeof(old_kv));
-                    if (cetcd_mvcc_get(g_rpc_store, 0, pk, pk_len, &old_kv) == 0) {
-                        old_lease = old_kv.lease_id;
-                        free((void *)(uintptr_t)old_kv.key.data);
-                        free((void *)(uintptr_t)old_kv.value.data);
-                    }
+                uint8_t *entry = NULL;
+                size_t elen = 0;
+                if (cetcd_apply_encode_put(&entry, &elen, pk, pk_len,
+                                           pv ? pv : (const uint8_t *)"",
+                                           pv ? pv_len : 0, lease_id) != 0 ||
+                    cetcd_v3rpc_propose_or_apply(entry, elen) < 0) {
+                    free(entry);
+                    if (pk) free(pk);
+                    if (pv) free(pv);
+                    if (prev_kv_buf) free(prev_kv_buf);
+                    free(resp);
+                    goto txn_cleanup;
                 }
-                cetcd_revision r = cetcd_mvcc_put(g_rpc_store, pk, pk_len,
-                    pv ? pv : (const uint8_t *)"", pv ? pv_len : 0, lease_id);
-                if (r.main > final_rev) final_rev = r.main;
-                if (r.main > 0 && g_rpc_lease_mgr) {
-                    if (old_lease > 0 && old_lease != lease_id) {
-                        cetcd_lease_detach_key(g_rpc_lease_mgr,
-                                                (cetcd_lease_id)old_lease,
-                                                pk, pk_len);
-                    }
-                    if (lease_id > 0) {
-                        cetcd_lease_attach_key(g_rpc_lease_mgr, (cetcd_lease_id)lease_id,
-                                                pk, pk_len);
-                    }
-                }
+                free(entry);
+                int64_t now = cetcd_mvcc_revision(g_rpc_store);
+                if (now > final_rev) final_rev = now;
             }
             if (pk) free(pk);
             if (pv) free(pv);
@@ -1405,9 +1337,23 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                             }
                         }
                     }
-                    cetcd_revision r = delete_kvs_and_detach_(kvs, n);
-                    del_rev = r.main;
-                    if (r.main > 0) {
+                    int64_t before = cetcd_mvcc_revision(g_rpc_store);
+                    uint8_t *entry = NULL;
+                    size_t elen = 0;
+                    if (cetcd_apply_encode_delete_range(&entry, &elen, dk, dk_len,
+                                                        drange_end, drange_end_len) != 0 ||
+                        cetcd_v3rpc_propose_or_apply(entry, elen) < 0) {
+                        free(entry);
+                        if (prev_kvs_buf) free(prev_kvs_buf);
+                        if (kvs) cetcd_kv_free_contents(kvs, n);
+                        if (dk) free(dk);
+                        if (drange_end) free(drange_end);
+                        free(resp);
+                        goto txn_cleanup;
+                    }
+                    free(entry);
+                    del_rev = cetcd_mvcc_revision(g_rpc_store);
+                    if (del_rev > before) {
                         deleted_count = (int64_t)n;
                     } else {
                         deleted_count = 0;
@@ -1448,9 +1394,21 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                             free((void *)(uintptr_t)old_kv.value.data);
                         }
                     }
-                    cetcd_revision r = delete_and_detach_(dk, dk_len);
-                    del_rev = r.main;
-                    if (!want_prev_kv && del_rev > 0) deleted_count = 1;
+                    int64_t before = cetcd_mvcc_revision(g_rpc_store);
+                    uint8_t *entry = NULL;
+                    size_t elen = 0;
+                    if (cetcd_apply_encode_delete(&entry, &elen, dk, dk_len) != 0 ||
+                        cetcd_v3rpc_propose_or_apply(entry, elen) < 0) {
+                        free(entry);
+                        if (prev_kvs_buf) free(prev_kvs_buf);
+                        if (dk) free(dk);
+                        if (drange_end) free(drange_end);
+                        free(resp);
+                        goto txn_cleanup;
+                    }
+                    free(entry);
+                    del_rev = cetcd_mvcc_revision(g_rpc_store);
+                    if (!want_prev_kv && del_rev > before) deleted_count = 1;
                 }
                 if (del_rev > final_rev) final_rev = del_rev;
                 if (del_rev == 0 && g_rpc_store) del_rev = cetcd_mvcc_revision(g_rpc_store);

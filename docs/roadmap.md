@@ -19,6 +19,9 @@ Performance-first, fail-closed design:
   (`fopen` no longer truncates; a directory path resolves to that segment).
 - **Replay** — restore log + HardState, skip entries at or below LMDB
   `meta.applied_index`, apply the gap so a crash between WAL sync and MVCC is repaired.
+- **Txn writes** — each Put/DeleteRange in a Txn is proposed like a standalone
+  write (preserves interleaved Range semantics). Tag-3 batch encoding is available
+  for packing consecutive writes; nesting is rejected.
 
 ## Previously done (auth data plane)
 
@@ -31,7 +34,6 @@ Performance-first, fail-closed design:
 
 | Gap | Why it matters | Suggested approach |
 |-----|----------------|--------------------|
-| Txn still mutates MVCC locally | Multi-node txn diverges; restart drops un-logged txn ops | Encode the chosen branch as one apply batch (tag=3); re-use Put/Delete apply |
 | Lease persistence | Restarts drop TTLs; `reindex_from_store` uses a default TTL | Persist lease id/ttl/remaining/keys in an LMDB `lease` bucket; restore before accepting traffic |
 | Joint-consensus membership + learner promote | `MemberPromote` is a no-op | Raft ConfChange V2; persist members bucket |
 | Snapshot → WAL truncation | Unbounded WAL growth | After `snapshot-count` applies, write snap, `wal.Release`, drop old segments |

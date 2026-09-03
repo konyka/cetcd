@@ -102,6 +102,41 @@ int cetcd_apply_encode_delete_range(uint8_t **out, size_t *out_len,
                           range_end, end_len, 0, 0, out, out_len);
 }
 
+int cetcd_apply_encode_batch(uint8_t **out, size_t *out_len,
+                             const uint8_t *const *ops,
+                             const size_t *op_lens, size_t n) {
+    if (!out || !out_len) return -1;
+    if (n == 0 || n > 128) return -1;
+    if (n == 1) {
+        if (!ops || !ops[0] || !op_lens) return -1;
+        uint8_t *buf = (uint8_t *)malloc(op_lens[0]);
+        if (!buf) return -1;
+        memcpy(buf, ops[0], op_lens[0]);
+        *out = buf;
+        *out_len = op_lens[0];
+        return 0;
+    }
+    size_t cap = 1 + 10;
+    for (size_t i = 0; i < n; i++) {
+        if (!ops || !ops[i] || !op_lens) return -1;
+        cap += 10 + op_lens[i];
+    }
+    uint8_t *buf = (uint8_t *)malloc(cap);
+    if (!buf) return -1;
+    size_t pos = 0;
+    buf[pos++] = CETCD_APPLY_BATCH;
+    if (write_varint_(buf, cap, &pos, (uint64_t)n) != 0) { free(buf); return -1; }
+    for (size_t i = 0; i < n; i++) {
+        if (write_varint_(buf, cap, &pos, (uint64_t)op_lens[i]) != 0) { free(buf); return -1; }
+        if (pos + op_lens[i] > cap) { free(buf); return -1; }
+        memcpy(buf + pos, ops[i], op_lens[i]);
+        pos += op_lens[i];
+    }
+    *out = buf;
+    *out_len = pos;
+    return 0;
+}
+
 static void lease_after_put_(const uint8_t *key, size_t key_len,
                              int64_t old_lease, int64_t new_lease) {
     if (!g_rpc_lease_mgr) return;
@@ -196,6 +231,22 @@ int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len) {
     if (!data || len < 2) return -1;
     uint8_t op = data[0];
     size_t pos = 1;
+
+    if (op == CETCD_APPLY_BATCH) {
+        uint64_t n = 0;
+        if (read_varint_(data, len, &pos, &n) != 0) return -1;
+        if (n == 0 || n > 128) return -1;
+        for (uint64_t i = 0; i < n; i++) {
+            uint64_t ilen = 0;
+            if (read_varint_(data, len, &pos, &ilen) != 0) return -1;
+            if (ilen == 0 || ilen > len - pos) return -1;
+            if (data[pos] == CETCD_APPLY_BATCH) return -1; /* no nesting */
+            if (cetcd_v3rpc_apply_entry(data + pos, (size_t)ilen) != 0) return -1;
+            pos += (size_t)ilen;
+        }
+        return 0;
+    }
+
     uint64_t klen = 0;
     if (read_varint_(data, len, &pos, &klen) != 0) return -1;
     if (klen == 0 || klen > len - pos) return -1;

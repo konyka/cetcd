@@ -57,6 +57,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **Delete**：对不存在键为 no-op（不递增 revision）；成功删除从 treap 硬移除。
 - **Watch 多连接**：每个 watcher 绑定创建时的 stream writer；连接关闭时 `detach` 清理；`progress_notify` / `WatchProgressRequest` 已接线。
 - **Auth 数据面**：启用后除 `Authenticate` 外均需有效 token；`root` 为超级用户；RBAC 前缀权限；token 经自定义 TCP `flags&0x02` 传递；用户/角色/`enabled` 持久化到 LMDB。
+- **Txn 写入**：Txn 内的 Put/DeleteRange 同样经 Raft propose（每条 mutation 一条日志，保证交错 Range 语义）；重启可从 WAL 恢复。
 - **Peer 发送**：复用 TCP 连接，避免每条 Raft 消息新建短连接。
 - **历史 Range**：`cetcd_mvcc_range(rev>0)` 按 history 回放；重启后对当前世代有 synthetic history。
 

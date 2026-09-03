@@ -82,6 +82,7 @@ CETCD_API void cetcd_v3rpc_watch_flush_replay(void);
  * plus varints, applied only after WAL sync. */
 #define CETCD_APPLY_PUT          1
 #define CETCD_APPLY_DELETE       2
+#define CETCD_APPLY_BATCH        3
 #define CETCD_APPLY_DELETE_RANGE 4
 
 CETCD_API int cetcd_apply_encode_put(uint8_t **out, size_t *out_len,
@@ -93,6 +94,11 @@ CETCD_API int cetcd_apply_encode_delete(uint8_t **out, size_t *out_len,
 CETCD_API int cetcd_apply_encode_delete_range(uint8_t **out, size_t *out_len,
                                               const uint8_t *key, size_t key_len,
                                               const uint8_t *range_end, size_t end_len);
+
+/* Concatenate already-encoded Put/Delete/DeleteRange ops into one entry. */
+CETCD_API int cetcd_apply_encode_batch(uint8_t **out, size_t *out_len,
+                                       const uint8_t *const *ops,
+                                       const size_t *op_lens, size_t n);
 
 /* Apply a committed NORMAL entry to MVCC (+ lease index). 0 on success. */
 CETCD_API int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len);

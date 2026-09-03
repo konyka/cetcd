@@ -352,7 +352,8 @@ campaigns on `server_new` so the first Put does not wait for election ticks.
   is not advanced if WAL sync failed.
 - **Log owns entry bytes**: propose copies the payload so the RPC buffer can be freed
   immediately.
-- **Txn** still mutates MVCC locally (not yet a raft batch). Lease expiry deletes are
+- **Txn** write ops propose through Raft (one log entry per mutation so a Range
+  in the same txn still observes earlier writes). Lease expiry deletes are
   still local.
 
 Quorum uses one match index per voter (the leader's match is `last_index`). The previous
