@@ -1,11 +1,15 @@
+#define _POSIX_C_SOURCE 200809L
 #include "cetcd/v3rpc.h"
 #include "cetcd/mvcc.h"
 #include "cetcd/lease.h"
 #include "cetcd/peer.h"
+#include "cetcd/backend.h"
 #include "cetcd_test.h"
 
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
 
 extern cetcd_cluster *g_rpc_cluster;
 
@@ -198,6 +202,78 @@ CETCD_TEST_CASE(apply_lease_revoke_deletes_keys) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(quota_blocks_put_not_delete) {
+    char tmpl[] = "/tmp/cetcd-quota-XXXXXX";
+    char *path = mkdtemp(tmpl);
+    CETCD_ASSERT_NOT_NULL(path);
+
+    cetcd_backend_config cfg = {
+        .path = path,
+        .map_size = 16 * 1024 * 1024,
+        .max_dbs = 4
+    };
+    cetcd_backend *be = cetcd_backend_open(&cfg);
+    CETCD_ASSERT_NOT_NULL(be);
+    const uint8_t k[] = {'q'};
+    const uint8_t v[] = {'1'};
+    CETCD_ASSERT_EQ_INT(cetcd_backend_put(be, "kv", k, sizeof(k), v, sizeof(v)), 0);
+    CETCD_ASSERT_TRUE(cetcd_backend_size(be) > 0);
+
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    CETCD_ASSERT_NOT_NULL(rpc);
+    cetcd_v3rpc_set_auth_backend(rpc, be);
+    cetcd_v3rpc_set_quota(1);
+
+    uint8_t *buf = NULL;
+    size_t len = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_put(&buf, &len,
+        (const uint8_t *)"qk", 2, (const uint8_t *)"qv", 2, 0), 0);
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_propose_or_apply(buf, len) < 0);
+    free(buf);
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_alarm_is_active(1));
+
+    uint8_t put_req[16];
+    size_t pos = 0;
+    put_req[pos++] = 0x0a; put_req[pos++] = 0x02;
+    memcpy(put_req + pos, "qk", 2); pos += 2;
+    put_req[pos++] = 0x12; put_req[pos++] = 0x02;
+    memcpy(put_req + pos, "qv", 2); pos += 2;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.KV/Put", put_req, pos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    uint8_t get_alarm[] = {0x08, 0x00};
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Alarm", get_alarm, sizeof(get_alarm));
+    int found_alarm = 0;
+    for (size_t i = 0; resp.data && i < resp.len; i++) {
+        if (resp.data[i] == 0x12) { found_alarm = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(found_alarm);
+    cetcd_rpc_bytes_free(&resp);
+
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_delete(&buf, &len,
+        (const uint8_t *)"qk", 2), 0);
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_propose_or_apply(buf, len) >= 0);
+    free(buf);
+
+    uint8_t disarm[] = {0x08, 0x02, 0x10, 0x00, 0x18, 0x01};
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Alarm", disarm, sizeof(disarm));
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_set_quota(0);
+    cetcd_v3rpc_set_auth_backend(rpc, NULL);
+    cetcd_v3rpc_free(rpc);
+    cetcd_backend_close(be);
+    char db[300];
+    snprintf(db, sizeof(db), "%s/data.mdb", path);
+    unlink(db);
+    snprintf(db, sizeof(db), "%s/lock.mdb", path);
+    unlink(db);
+    rmdir(path);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(apply_put_delete_roundtrip),
     CETCD_TEST_ENTRY(apply_rejects_truncated),
@@ -208,6 +284,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(apply_member_add_remove),
     CETCD_TEST_ENTRY(apply_leave_joint),
     CETCD_TEST_ENTRY(apply_lease_revoke_deletes_keys),
+    CETCD_TEST_ENTRY(quota_blocks_put_not_delete),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

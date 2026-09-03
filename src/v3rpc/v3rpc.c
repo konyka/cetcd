@@ -74,6 +74,7 @@ cetcd_raft       *g_rpc_raft = NULL;
 uint64_t          g_rpc_node_id = 0;
 const char       *g_rpc_auth_user = NULL;
 cetcd_backend    *g_rpc_auth_backend = NULL;
+uint64_t          g_rpc_quota_bytes = 0;
 
 /* Streaming support: event loop and write callback for streaming RPCs */
 cetcd_loop           *g_rpc_loop = NULL;
@@ -286,6 +287,10 @@ static int path_auth_mutates_(const char *path) {
 void cetcd_v3rpc_set_auth_backend(cetcd_v3rpc *rpc, struct cetcd_backend *be) {
     (void)rpc;
     g_rpc_auth_backend = be;
+}
+
+void cetcd_v3rpc_set_quota(uint64_t bytes) {
+    g_rpc_quota_bytes = bytes;
 }
 
 void cetcd_v3rpc_auth_persist(void) {

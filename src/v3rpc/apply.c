@@ -10,10 +10,15 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "cetcd/backend.h"
+
 extern cetcd_mvcc_store *g_rpc_store;
 extern cetcd_lease_mgr  *g_rpc_lease_mgr;
 extern cetcd_raft       *g_rpc_raft;
 extern cetcd_cluster    *g_rpc_cluster;
+extern cetcd_backend    *g_rpc_auth_backend;
+extern uint64_t          g_rpc_quota_bytes;
+extern uint64_t          g_rpc_node_id;
 
 static cetcd_ready_flush_fn g_ready_flush_fn = NULL;
 static void                *g_ready_flush_ctx = NULL;
@@ -485,6 +490,12 @@ int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len) {
 
 int cetcd_v3rpc_propose_or_apply(const uint8_t *data, size_t len) {
     if (!data || len == 0) return -1;
+    if (data[0] == CETCD_APPLY_PUT && g_rpc_quota_bytes && g_rpc_auth_backend) {
+        if (cetcd_backend_size(g_rpc_auth_backend) >= g_rpc_quota_bytes) {
+            cetcd_v3rpc_alarm_activate(1, g_rpc_node_id ? g_rpc_node_id : 1);
+            return -1;
+        }
+    }
     if (!g_rpc_raft)
         return cetcd_v3rpc_apply_entry(data, len) == 0 ? 1 : -1;
     if (cetcd_raft_state(g_rpc_raft) != CETCD_NODE_LEADER) return -1;

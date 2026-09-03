@@ -26,6 +26,41 @@ extern cetcd_raft       *g_rpc_raft;
 extern cetcd_cluster    *g_rpc_cluster;
 extern uint64_t          g_rpc_node_id;
 
+#define MAX_ALARMS 8
+static struct {
+    int active;
+    int alarm_type;
+    uint64_t member_id;
+} g_alarms[MAX_ALARMS];
+
+void cetcd_v3rpc_alarm_activate(int alarm_type, uint64_t member_id) {
+    if (alarm_type <= 0) return;
+    int found = 0;
+    for (int i = 0; i < MAX_ALARMS; i++) {
+        if (g_alarms[i].active && g_alarms[i].alarm_type == alarm_type) {
+            found = 1;
+            break;
+        }
+    }
+    if (found) return;
+    for (int i = 0; i < MAX_ALARMS; i++) {
+        if (!g_alarms[i].active) {
+            g_alarms[i].active = 1;
+            g_alarms[i].alarm_type = alarm_type;
+            g_alarms[i].member_id = member_id > 0 ? member_id : 1;
+            return;
+        }
+    }
+}
+
+int cetcd_v3rpc_alarm_is_active(int alarm_type) {
+    for (int i = 0; i < MAX_ALARMS; i++) {
+        if (g_alarms[i].active && g_alarms[i].alarm_type == alarm_type)
+            return 1;
+    }
+    return 0;
+}
+
 /* Forward declarations */
 cetcd_rpc_bytes maint_handle_status(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes maint_handle_defragment(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
@@ -271,33 +306,9 @@ cetcd_rpc_bytes maint_handle_alarm(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
     }
 
     /* Static alarm storage: supports NOSPACE(1) and CORRUPT(2) simultaneously */
-    #define MAX_ALARMS 8
-    static struct {
-        int active;
-        int alarm_type;   /* 1=NOSPACE, 2=CORRUPT */
-        uint64_t member_id;
-    } g_alarms[MAX_ALARMS];
 
     if (action == 1 && alarm_type > 0) { /* ACTIVATE */
-        /* Check if this alarm already exists */
-        int found = 0;
-        for (int i = 0; i < MAX_ALARMS; i++) {
-            if (g_alarms[i].active && g_alarms[i].alarm_type == alarm_type) {
-                found = 1;
-                break;
-            }
-        }
-        if (!found) {
-            /* Add new alarm */
-            for (int i = 0; i < MAX_ALARMS; i++) {
-                if (!g_alarms[i].active) {
-                    g_alarms[i].active = 1;
-                    g_alarms[i].alarm_type = alarm_type;
-                    g_alarms[i].member_id = member_id > 0 ? member_id : 1;
-                    break;
-                }
-            }
-        }
+        cetcd_v3rpc_alarm_activate(alarm_type, member_id);
     } else if (action == 2 && alarm_type > 0) { /* DEACTIVATE */
         for (int i = 0; i < MAX_ALARMS; i++) {
             if (g_alarms[i].active && g_alarms[i].alarm_type == alarm_type) {

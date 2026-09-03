@@ -15,6 +15,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
 #include <errno.h>
 #include <uv.h>
 #include "io_internal.h"
@@ -563,9 +564,40 @@ typedef struct client_ctx_ {
     cetcd_tcp        *client;
     cetcd_tls_conn   *tls;
     int               tls_ready;
-    uint8_t           buf[65536];
+    uint8_t          *buf;
+    size_t            buf_cap;
     size_t            buf_pos;
 } client_ctx_;
+
+static uint64_t client_max_bytes_(const client_ctx_ *ctx) {
+    uint64_t maxb = ctx && ctx->srv ? ctx->srv->cfg.max_request_bytes : 0;
+    return maxb ? maxb : CETCD_DEFAULT_MAX_REQUEST_BYTES;
+}
+
+/* Grow the client read buffer up to max-request-bytes. -1 → close. */
+static int client_buf_append_(client_ctx_ *ctx, const uint8_t *src, size_t n) {
+    if (!ctx || !src) return -1;
+    if (n == 0) return 0;
+    uint64_t maxb = client_max_bytes_(ctx);
+    if ((uint64_t)ctx->buf_pos + n > maxb) return -1;
+    size_t need = ctx->buf_pos + n;
+    if (need > ctx->buf_cap) {
+        size_t cap = ctx->buf_cap ? ctx->buf_cap : 4096;
+        while (cap < need) {
+            if (cap > SIZE_MAX / 2) return -1;
+            cap *= 2;
+        }
+        if ((uint64_t)cap > maxb) cap = (size_t)maxb;
+        if (need > cap) return -1;
+        uint8_t *nb = (uint8_t *)realloc(ctx->buf, cap);
+        if (!nb) return -1;
+        ctx->buf = nb;
+        ctx->buf_cap = cap;
+    }
+    memcpy(ctx->buf + ctx->buf_pos, src, n);
+    ctx->buf_pos += n;
+    return 0;
+}
 
 static void client_uv_send_(uv_stream_t *stream, uint8_t *frame, size_t total) {
     client_ctx_ *ctx = stream ? (client_ctx_ *)stream->data : NULL;
@@ -594,6 +626,7 @@ static void client_close_cb_(uv_handle_t *handle) {
     client_ctx_ *ctx = (client_ctx_ *)handle->data;
     if (ctx) {
         cetcd_tls_conn_free(ctx->tls);
+        free(ctx->buf);
         free(ctx);
     }
 }
@@ -869,21 +902,17 @@ static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *
                 return;
             }
             if (n == 0) break;
-            if (ctx->buf_pos + (size_t)n > sizeof(ctx->buf)) {
+            if (client_buf_append_(ctx, tmp, (size_t)n) != 0) {
                 uv_close((uv_handle_t *)stream, client_close_cb_);
                 return;
             }
-            memcpy(ctx->buf + ctx->buf_pos, tmp, (size_t)n);
-            ctx->buf_pos += (size_t)n;
         }
     } else {
-        if (ctx->buf_pos + (size_t)nread > sizeof(ctx->buf)) {
+        if (client_buf_append_(ctx, (const uint8_t *)buf->base, (size_t)nread) != 0) {
             if (buf->base) free(buf->base);
             uv_close((uv_handle_t *)stream, client_close_cb_);
             return;
         }
-        memcpy(ctx->buf + ctx->buf_pos, buf->base, (size_t)nread);
-        ctx->buf_pos += (size_t)nread;
         if (buf->base) free(buf->base);
     }
 
@@ -917,7 +946,13 @@ static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *
                                ((uint32_t)ctx->buf[cursor + 1] << 16) |
                                ((uint32_t)ctx->buf[cursor + 2] << 8)  |
                                ((uint32_t)ctx->buf[cursor + 3]);
-        size_t frame_len = cursor + 4 + payload_len;
+        uint64_t maxb = client_max_bytes_(ctx);
+        if ((uint64_t)payload_len > maxb ||
+            (uint64_t)cursor + 4ull + (uint64_t)payload_len > maxb) {
+            uv_close((uv_handle_t *)stream, client_close_cb_);
+            return;
+        }
+        size_t frame_len = cursor + 4 + (size_t)payload_len;
         if (ctx->buf_pos < frame_len) break;
         const uint8_t *payload = ctx->buf + cursor + 4;
 
@@ -986,12 +1021,22 @@ static void on_client_conn_(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
     if (!ctx) { cetcd_tcp_close(client); return; }
     ctx->srv = srv;
     ctx->client = client;
+    {
+        uint64_t maxb = client_max_bytes_(ctx);
+        size_t init = 65536;
+        if ((uint64_t)init > maxb) init = (size_t)maxb;
+        if (init == 0) { free(ctx); cetcd_tcp_close(client); return; }
+        ctx->buf = (uint8_t *)malloc(init);
+        if (!ctx->buf) { free(ctx); cetcd_tcp_close(client); return; }
+        ctx->buf_cap = init;
+    }
 
     uv_stream_t *stream = cetcd_tcp_stream(client);
     if (stream) {
         if (srv->tls_client) {
             ctx->tls = cetcd_tls_conn_accept(srv->tls_client);
             if (!ctx->tls) {
+                free(ctx->buf);
                 free(ctx);
                 cetcd_tcp_close(client);
                 return;
@@ -1348,6 +1393,9 @@ int cetcd_server_start(cetcd_server *srv) {
         int brc = cetcd_auth_set_bcrypt_cost(g_rpc_auth, srv->cfg.bcrypt_cost);
         if (brc != CETCD_OK) return brc;
     }
+    if (srv->cfg.max_request_bytes == 0)
+        srv->cfg.max_request_bytes = CETCD_DEFAULT_MAX_REQUEST_BYTES;
+    cetcd_v3rpc_set_quota(srv->cfg.quota_backend_bytes);
 
     if (!srv->tls_client && !srv->tls_peer && !srv->tls_peer_out) {
         int trc = load_tls_ctx_(&srv->tls_client,

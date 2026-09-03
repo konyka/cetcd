@@ -684,6 +684,34 @@ CETCD_TEST_CASE(server_start_accepts_simple_auth_token) {
     cetcd_server_free(srv);
 }
 
+CETCD_TEST_CASE(server_start_small_max_request_bytes) {
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    cfg.max_request_bytes = 4096;
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+
+    uint8_t put_buf[64];
+    size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x03;
+    memcpy(put_buf + pos, "key", 3); pos += 3;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x03;
+    memcpy(put_buf + pos, "val", 3); pos += 3;
+
+    cetcd_server_rpc_result resp =
+        cetcd_server_handle_rpc(srv, "/etcdserverpb.KV/Put", put_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_server_rpc_result_free(&resp);
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_create_destroy),
     CETCD_TEST_ENTRY(server_handle_rpc_put_range),
@@ -704,6 +732,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_start_rejects_jwt_auth_token),
     CETCD_TEST_ENTRY(server_start_rejects_bad_bcrypt_cost),
     CETCD_TEST_ENTRY(server_start_accepts_simple_auth_token),
+    CETCD_TEST_ENTRY(server_start_small_max_request_bytes),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

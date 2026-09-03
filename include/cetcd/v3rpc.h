@@ -139,6 +139,11 @@ CETCD_API int cetcd_v3rpc_propose_or_apply(const uint8_t *data, size_t len);
 CETCD_API struct cetcd_mvcc_store *cetcd_v3rpc_store(cetcd_v3rpc *rpc);
 CETCD_API struct cetcd_lease_mgr  *cetcd_v3rpc_leases(cetcd_v3rpc *rpc);
 
+/* Backend quota (0 = unlimited). Over-quota Puts raise NOSPACE and fail closed. */
+CETCD_API void cetcd_v3rpc_set_quota(uint64_t bytes);
+CETCD_API void cetcd_v3rpc_alarm_activate(int alarm_type, uint64_t member_id);
+CETCD_API int  cetcd_v3rpc_alarm_is_active(int alarm_type);
+
 #ifdef __cplusplus
 }
 #endif

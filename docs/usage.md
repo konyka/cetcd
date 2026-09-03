@@ -117,7 +117,10 @@ cetcd accepts several etcd server flags for migration compatibility:
 ./build/bin/cetcd --advertise-client-urls http://127.0.0.1:2379 \
   --initial-advertise-peer-urls http://127.0.0.1:2380 \
   --initial-cluster-state new --initial-cluster-token etcd-cluster \
-  --snapshot-count 10000 --quota-backend-bytes 2147483648 \
+  --snapshot-count 10000 --data-dir ./data
+
+# Backend quota (NOSPACE on Puts when LMDB size >= N; 0 = unlimited) and request cap
+./build/bin/cetcd --quota-backend-bytes 2147483648 --max-request-bytes 1572864 \
   --data-dir ./data
 
 # TLS on client/peer accept and outbound Raft (omit for plaintext; cert without key fails start)
@@ -129,7 +132,7 @@ cetcd accepts several etcd server flags for migration compatibility:
 # Still no-op: --auto-tls, --peer-auto-tls, --cipher-suites
 ./build/bin/cetcd --auto-tls --cipher-suites TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
 
-# Limit flags (accepted as no-op) and bcrypt password hashing
+# Limit flags: --max-request-bytes is applied; --max-txn-ops is still a no-op
 ./build/bin/cetcd --max-txn-ops 128 --max-request-bytes 1572864 \
   --auth-token simple --bcrypt-cost 10
 

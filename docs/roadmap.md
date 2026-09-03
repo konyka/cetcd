@@ -62,6 +62,11 @@ Performance-first, fail-closed design:
   records). `--bcrypt-cost N` (4..31) hashes new passwords with `$2b$` via
   libcrypt; verify accepts both encodings. `--auth-token simple` is the
   default; `--auth-token jwt` fails closed until JWT is implemented.
+- **`--max-request-bytes` / `--quota-backend-bytes`** — client read buffer
+  grows up to `max-request-bytes` (default 1.5 MiB); a claimed frame larger
+  than the cap closes the connection. Puts fail closed with NOSPACE when
+  LMDB size is at or above `quota-backend-bytes` (0 = unlimited). Deletes
+  and compact Delete batches still apply so operators can recover space.
 
 ## Previously done (auth data plane)
 
@@ -79,7 +84,6 @@ None remaining in this pass.
 | Gap | Why it matters | Suggested approach |
 |-----|----------------|--------------------|
 | JWT `--auth-token jwt` | etcd issues signed JWTs; cetcd simple tokens are opaque | Keep simple tokens. JWT needs a signing key and TTL parser; fail-closed today. |
-| `--max-request-bytes` / `--quota-backend-bytes` | DoS / disk fill. Client buffer is currently 64 KiB | Growable read buffer capped at `max_request_bytes` (etcd default 1.5 MiB); NOSPACE alarm when LMDB size exceeds quota. |
 | pprof CPU profile quality | `/debug/pprof/profile` is coarse | Keep off the Raft/reactor hot path; sample in a worker. |
 
 ### Wire compatibility

@@ -64,6 +64,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **成员持久化**：MemberAdd/Remove/Promote/Update 经 Raft apply，写入 LMDB `members` 桶；重启在 campaign 前恢复 peer。
 - **Joint 共识**：voter 增删/提升先进入 C_old,new 联合配置，两边多数派都满足才提交；新成员追上 joint-index 后 leader 提出 `LEAVE_JOINT`。重叠的 voter 变更 fail-closed。联合配置持久化以便重启保持双多数。
 - **WAL 截断**：`--snapshot-count` 次 apply（默认 10000）后，将 WAL 段改写为 `SNAPSHOT` + HardState 并压缩内存 log；写失败则保留原段。
+- **请求上限 / 后端配额**：`--max-request-bytes`（默认 1.5 MiB）限制客户端读缓冲，超限关连接；`--quota-backend-bytes` 在 LMDB 体积达到上限时对 Put 返回空帧并激活 NOSPACE，Delete 仍可执行以便回收空间。
 - **Peer 发送**：复用 TCP 连接，避免每条 Raft 消息新建短连接。
 - **历史 Range**：`cetcd_mvcc_range(rev>0)` 按 history 回放；重启后对当前世代有 synthetic history。
 
@@ -946,8 +947,8 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 
 #### 客户端请求处理
 
-1. 客户端连接 → `on_client_conn_` 创建 `client_ctx_`
-2. 数据到达 → `on_client_read_` 解析帧：`path_len(2B) + path + grpc_frame(5B header + payload)`
+1. 客户端连接 → `on_client_conn_` 创建 `client_ctx_`（堆上读缓冲，上限 `max-request-bytes`）
+2. 数据到达 → `on_client_read_` 解析帧：`path_len(2B) + path + grpc_frame(5B header + payload)`；声明长度超过上限则关闭连接
 3. 分发到 `cetcd_server_handle_rpc` → `cetcd_v3rpc_dispatch`
 4. 响应原路写回
 

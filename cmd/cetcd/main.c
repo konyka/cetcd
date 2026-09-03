@@ -41,10 +41,10 @@ static void print_usage(const char *prog) {
     printf("  --initial-cluster-state STATE  Accepted (always 'new' in cetcd)\n");
     printf("  --initial-cluster-token TOKEN  Accepted but no-op\n");
     printf("  --snapshot-count N   Rewrite WAL after N applies (default: 10000)\n");
-    printf("  --quota-backend-bytes N  Accepted but no-op\n");
+    printf("  --quota-backend-bytes N  NOSPACE when LMDB size >= N (0 = unlimited)\n");
     printf("  --force-new-cluster  Accepted but no-op\n");
     printf("  --max-txn-ops N     Accepted but no-op\n");
-    printf("  --max-request-bytes N  Accepted but no-op\n");
+    printf("  --max-request-bytes N  Max client frame (default 1572864); oversized closes\n");
     printf("  --grpc-keepalive-*  Accepted but no-op (plain TCP)\n");
     printf("  --auth-token TYPE   simple (default); jwt is rejected until implemented\n");
     printf("  --bcrypt-cost N     Hash new passwords with bcrypt (4..31; default SHA-256)\n");
@@ -192,13 +192,13 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--snapshot-count") == 0 && i + 1 < argc) {
             cfg.snapshot_count = (uint64_t)strtoull(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--quota-backend-bytes") == 0 && i + 1 < argc) {
-            i++; /* no-op, accepted for etcd compatibility */
+            cfg.quota_backend_bytes = (uint64_t)strtoull(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--force-new-cluster") == 0) {
             /* no-op, accepted for etcd compatibility */
         } else if (strcmp(argv[i], "--max-txn-ops") == 0 && i + 1 < argc) {
             i++; /* no-op */
         } else if (strcmp(argv[i], "--max-request-bytes") == 0 && i + 1 < argc) {
-            i++; /* no-op */
+            cfg.max_request_bytes = (uint64_t)strtoull(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--auth-token") == 0 && i + 1 < argc) {
             strncpy(cfg.auth_token, argv[++i], sizeof(cfg.auth_token) - 1);
         } else if (strcmp(argv[i], "--bcrypt-cost") == 0 && i + 1 < argc) {
