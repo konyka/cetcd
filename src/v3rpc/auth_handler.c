@@ -102,13 +102,19 @@ static size_t write_header_prefix(uint8_t *buf, size_t cap, size_t pos) {
 
 cetcd_rpc_bytes auth_handle_enable(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc; (void)req; (void)req_len;
-    if (g_rpc_auth) cetcd_auth_set_enabled(g_rpc_auth, true);
+    /* etcd: AuthEnable requires a "root" user to already exist. */
+    if (!g_rpc_auth || !cetcd_auth_has_user(g_rpc_auth, "root"))
+        return (cetcd_rpc_bytes){NULL, 0};
+    cetcd_auth_set_enabled(g_rpc_auth, true);
     return simple_ok_response();
 }
 
 cetcd_rpc_bytes auth_handle_disable(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc; (void)req; (void)req_len;
-    if (g_rpc_auth) cetcd_auth_set_enabled(g_rpc_auth, false);
+    if (g_rpc_auth) {
+        cetcd_auth_set_enabled(g_rpc_auth, false);
+        cetcd_auth_revoke_all_tokens(g_rpc_auth);
+    }
     return simple_ok_response();
 }
 
@@ -128,17 +134,25 @@ cetcd_rpc_bytes auth_handle_authenticate(cetcd_v3rpc *rpc, const uint8_t *req, s
         }
     }
     bool ok = false;
+    char *tok = NULL;
     if (g_rpc_auth && name && pass) {
         ok = cetcd_auth_check_password(g_rpc_auth, (const char *)name, (const char *)pass);
+        if (ok) tok = cetcd_auth_issue_token(g_rpc_auth, (const char *)name);
     }
     free(name); free(pass);
-    if (!ok) return (cetcd_rpc_bytes){NULL, 0};
+    if (!ok || !tok) {
+        free(tok);
+        return (cetcd_rpc_bytes){NULL, 0};
+    }
+    size_t tlen = strlen(tok);
+    if (tlen > 64) tlen = 64;
     /* AuthenticateResponse: field 1 (header) + field 2 (token) */
-    uint8_t buf[64];
+    uint8_t buf[96];
     size_t bpos = write_header_prefix(buf, sizeof(buf), 0);
     buf[bpos++] = 0x12; /* field 2 = token */
-    buf[bpos++] = 0x05; /* length = 5 */
-    memcpy(buf + bpos, "token", 5); bpos += 5;
+    buf[bpos++] = (uint8_t)tlen;
+    memcpy(buf + bpos, tok, tlen); bpos += tlen;
+    free(tok);
     return make_response(buf, bpos);
 }
 

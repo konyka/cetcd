@@ -53,6 +53,12 @@ cetcd_server_rpc_result cetcd_server_handle_rpc(cetcd_server *srv,
                                                   const char *path,
                                                   const uint8_t *req,
                                                   size_t req_len);
+
+cetcd_server_rpc_result cetcd_server_handle_rpc_ex(cetcd_server *srv,
+                                                    const char *path,
+                                                    const uint8_t *req,
+                                                    size_t req_len,
+                                                    const char *token);
 void cetcd_server_rpc_result_free(cetcd_server_rpc_result *r);
 
 /* Tick the Raft state machine (call periodically). */

@@ -85,6 +85,39 @@ int cetcd_auth_grant_permission(cetcd_auth_store *s, const char *role,
  * Returns CETCD_OK on success, CETCD_ERR_NOTFOUND if role doesn't exist. */
 int cetcd_auth_revoke_permission(cetcd_auth_store *s, const char *role);
 
+/* ── Data-plane tokens (simple opaque tokens, O(1) hashmap lookup) ── */
+
+#define CETCD_AUTH_DEFAULT_TOKEN_TTL_NS (300ULL * 1000000000ULL)
+
+void        cetcd_auth_set_token_ttl_ns(cetcd_auth_store *s, uint64_t ttl_ns);
+
+/* Issue a unique opaque token for `username`. Caller frees the returned
+ * heap string. Returns NULL on failure (unknown user / OOM). */
+char       *cetcd_auth_issue_token(cetcd_auth_store *s, const char *username);
+
+/* Resolve token → username. Returns an interior pointer (do not free),
+ * or NULL if missing/expired. Expired entries are dropped (lazy GC). */
+const char *cetcd_auth_user_for_token(cetcd_auth_store *s, const char *token,
+                                      uint64_t now_ns);
+
+void        cetcd_auth_revoke_user_tokens(cetcd_auth_store *s, const char *username);
+void        cetcd_auth_revoke_all_tokens(cetcd_auth_store *s);
+
+/* Username "root", or a user holding a role named "root". */
+bool        cetcd_auth_is_admin(const cetcd_auth_store *s, const char *username);
+
+/* Key permission: empty role prefix matches all keys; otherwise the key
+ * must start with the role prefix. `want_write` 0 = read, non-zero = write.
+ * Superuser (admin) always succeeds. When auth is disabled, always true. */
+bool        cetcd_auth_check_perm(const cetcd_auth_store *s, const char *username,
+                                  const uint8_t *key, size_t key_len, int want_write);
+
+/* Persist / restore RBAC (users, roles, enabled) to LMDB. Fail-closed:
+ * save errors are returned to the caller; load of a missing store is OK. */
+struct cetcd_backend;
+int cetcd_auth_save(const cetcd_auth_store *s, struct cetcd_backend *be);
+int cetcd_auth_load(cetcd_auth_store *s, struct cetcd_backend *be);
+
 #ifdef __cplusplus
 }
 #endif

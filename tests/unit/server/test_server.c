@@ -75,6 +75,18 @@ CETCD_TEST_CASE(server_handle_rpc_auth) {
     CETCD_ASSERT_NOT_NULL(srv);
 
     uint8_t enable_buf[] = {0x00};
+    /* AuthEnable requires a root user (etcd). */
+    uint8_t add_buf[32];
+    size_t ap = 0;
+    add_buf[ap++] = 0x0a; add_buf[ap++] = 0x04;
+    memcpy(add_buf + ap, "root", 4); ap += 4;
+    add_buf[ap++] = 0x12; add_buf[ap++] = 0x03;
+    memcpy(add_buf + ap, "pw1", 3); ap += 3;
+    cetcd_server_rpc_result add =
+        cetcd_server_handle_rpc(srv, "/etcdserverpb.Auth/UserAdd", add_buf, ap);
+    CETCD_ASSERT_NOT_NULL(add.data);
+    cetcd_server_rpc_result_free(&add);
+
     cetcd_server_rpc_result resp =
         cetcd_server_handle_rpc(srv, "/etcdserverpb.Auth/AuthEnable",
                                 enable_buf, sizeof(enable_buf));

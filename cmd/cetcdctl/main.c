@@ -2,7 +2,8 @@
  * cetcdctl — command-line client for cetcd
  *
  * Connects to a cetcd server using the custom gRPC-like framing protocol:
- *   Request:  2B path_len (BE) + path + 1B compressed + 4B payload_len (BE) + payload
+ *   Request:  2B path_len (BE) + path + 1B flags + [2B token_len + token if flags&0x02]
+ *             + 4B payload_len (BE) + payload
  *   Response: same format
  *
  * Supported commands:
@@ -188,7 +189,18 @@ static int send_request(int fd, const char *path,
     header[hpos++] = (uint8_t)(path_len & 0xFF);
     memcpy(header + hpos, path, path_len);
     hpos += path_len;
-    header[hpos++] = 0; /* compressed = false */
+    size_t token_len = g_auth_token[0] ? strlen(g_auth_token) : 0;
+    if (hpos + token_len + 8 > sizeof(header)) return -1;
+    uint8_t flags = 0;
+    if (token_len > 0 && token_len <= 128)
+        flags |= 0x02;
+    header[hpos++] = flags;
+    if (flags & 0x02) {
+        header[hpos++] = (uint8_t)((token_len >> 8) & 0xFF);
+        header[hpos++] = (uint8_t)(token_len & 0xFF);
+        memcpy(header + hpos, g_auth_token, token_len);
+        hpos += token_len;
+    }
     header[hpos++] = (uint8_t)((payload_len >> 24) & 0xFF);
     header[hpos++] = (uint8_t)((payload_len >> 16) & 0xFF);
     header[hpos++] = (uint8_t)((payload_len >> 8) & 0xFF);

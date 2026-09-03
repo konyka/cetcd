@@ -8,6 +8,7 @@
 #include "cetcd/auth.h"
 #include "cetcd/peer.h"
 #include "cetcd/raft.h"
+#include "cetcd/backend.h"
 
 /* Forward declarations for per RPC handlers (defined in separate files) */
 cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
@@ -71,6 +72,8 @@ cetcd_auth_store *g_rpc_auth = NULL;
 cetcd_cluster    *g_rpc_cluster = NULL;
 cetcd_raft       *g_rpc_raft = NULL;
 uint64_t          g_rpc_node_id = 0;
+const char       *g_rpc_auth_user = NULL;
+cetcd_backend    *g_rpc_auth_backend = NULL;
 
 /* Streaming support: event loop and write callback for streaming RPCs */
 cetcd_loop           *g_rpc_loop = NULL;
@@ -103,17 +106,14 @@ void cetcd_v3rpc_free(cetcd_v3rpc *rpc) {
         cetcd_auth_store_free(rpc->auth);
         rpc->auth = NULL;
     }
+    if (g_rpc_auth_backend) g_rpc_auth_backend = NULL;
     free(rpc);
 }
 
-cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
+static cetcd_rpc_bytes cetcd_v3rpc_dispatch_inner_(cetcd_v3rpc *rpc,
                                  const char *path,
                                  const uint8_t *req_data,
                                  size_t req_len) {
-    if (!rpc || !path || !req_data) {
-        cetcd_rpc_bytes empty = {NULL, 0};
-        return empty;
-    }
     /* Dispatch known paths to handlers */
     if (strcmp(path, "/etcdserverpb.KV/Put") == 0) {
         return kv_handle_put(rpc, req_data, req_len);
@@ -251,6 +251,89 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
     /* Unknown path */
     cetcd_rpc_bytes empty = {NULL, 0};
     return empty;
+}
+
+static int path_is_authenticate_(const char *path) {
+    return strcmp(path, "/etcdserverpb.Auth/Authenticate") == 0;
+}
+
+static int path_requires_admin_(const char *path) {
+    if (strncmp(path, "/etcdserverpb.Auth/", 19) == 0) {
+        if (path_is_authenticate_(path)) return 0;
+        if (strcmp(path, "/etcdserverpb.Auth/AuthStatus") == 0) return 0;
+        return 1;
+    }
+    if (strcmp(path, "/etcdserverpb.Cluster/MemberAdd") == 0) return 1;
+    if (strcmp(path, "/etcdserverpb.Cluster/MemberRemove") == 0) return 1;
+    if (strcmp(path, "/etcdserverpb.Cluster/MemberUpdate") == 0) return 1;
+    if (strcmp(path, "/etcdserverpb.Cluster/MemberPromote") == 0) return 1;
+    if (strncmp(path, "/etcdserverpb.Maintenance/", 26) == 0 &&
+        strcmp(path, "/etcdserverpb.Maintenance/Status") != 0)
+        return 1;
+    return 0;
+}
+
+static int path_auth_mutates_(const char *path) {
+    return strncmp(path, "/etcdserverpb.Auth/", 19) == 0 &&
+           !path_is_authenticate_(path) &&
+           strcmp(path, "/etcdserverpb.Auth/AuthStatus") != 0 &&
+           strcmp(path, "/etcdserverpb.Auth/UserList") != 0 &&
+           strcmp(path, "/etcdserverpb.Auth/UserGet") != 0 &&
+           strcmp(path, "/etcdserverpb.Auth/RoleList") != 0 &&
+           strcmp(path, "/etcdserverpb.Auth/RoleGet") != 0;
+}
+
+void cetcd_v3rpc_set_auth_backend(cetcd_v3rpc *rpc, struct cetcd_backend *be) {
+    (void)rpc;
+    g_rpc_auth_backend = be;
+}
+
+void cetcd_v3rpc_auth_persist(void) {
+    if (g_rpc_auth && g_rpc_auth_backend)
+        (void)cetcd_auth_save(g_rpc_auth, g_rpc_auth_backend);
+}
+
+int cetcd_v3rpc_check_key_perm(int want_write, const uint8_t *key, size_t key_len) {
+    if (!g_rpc_auth || !cetcd_auth_is_enabled(g_rpc_auth)) return 0;
+    if (!g_rpc_auth_user || !key) return -1;
+    return cetcd_auth_check_perm(g_rpc_auth, g_rpc_auth_user, key, key_len, want_write)
+               ? 0 : -1;
+}
+
+cetcd_rpc_bytes cetcd_v3rpc_dispatch_ex(cetcd_v3rpc *rpc,
+                                         const char *path,
+                                         const uint8_t *req_data,
+                                         size_t req_len,
+                                         const char *token) {
+    cetcd_rpc_bytes empty = {NULL, 0};
+    g_rpc_auth_user = NULL;
+    if (!rpc || !path || !req_data) return empty;
+
+    if (g_rpc_auth && cetcd_auth_is_enabled(g_rpc_auth) &&
+        !path_is_authenticate_(path)) {
+        const char *user = cetcd_auth_user_for_token(
+            g_rpc_auth, token, cetcd_clock_realtime_ns());
+        if (!user) return empty;
+        g_rpc_auth_user = user;
+        if (path_requires_admin_(path) &&
+            !cetcd_auth_is_admin(g_rpc_auth, user)) {
+            g_rpc_auth_user = NULL;
+            return empty;
+        }
+    }
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch_inner_(rpc, path, req_data, req_len);
+    if (resp.data && path_auth_mutates_(path))
+        cetcd_v3rpc_auth_persist();
+    g_rpc_auth_user = NULL;
+    return resp;
+}
+
+cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
+                                 const char *path,
+                                 const uint8_t *req_data,
+                                 size_t req_len) {
+    return cetcd_v3rpc_dispatch_ex(rpc, path, req_data, req_len, NULL);
 }
 
 void cetcd_rpc_bytes_free(cetcd_rpc_bytes *b) {

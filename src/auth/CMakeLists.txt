@@ -4,6 +4,7 @@ cetcd_add_module(auth
     PUBLIC_DEPS
         cetcd_base
     PRIVATE_DEPS
+        cetcd_backend
 )
 
 # Link OpenSSL for SHA-256 password hashing (optional — falls back to

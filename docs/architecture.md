@@ -21,7 +21,10 @@ internals are organised. For deeper rationale on individual decisions, see
 | MVCC persistence | LMDB mirror of current key generations + revision; restart reload works |
 | Raft | State machine + peer TCP framing; KV writes currently apply directly to MVCC |
 | Lease expiry | Server tick advances leases and deletes attached keys |
-| Auth enforcement on data plane | Partial (Authenticate exists; KV path does not yet gate on tokens) |
+| Auth data-plane enforcement | Implemented: opaque tokens, RBAC prefix perms, fail-closed, LMDB persist |
+
+Remaining work (HTTP/2 gRPC, Raft-applied writes, lease/WAL replay, TLS wiring, …)
+is tracked in [`docs/roadmap.md`](./roadmap.md).
 
 ### Hardening pass (2026-07)
 
@@ -232,8 +235,9 @@ per cetcd instance. Current buckets used by the live server:
 
 - `key` — current MVCC key generations (value blob: create/mod rev, version, lease, value).
 - `meta` — store revision (`revision` key).
+- `auth` — RBAC snapshot (`enabled`, `users`, `roles` blobs).
 
-Additional buckets (`lease`, `auth*`, `members`, …) are reserved for upcoming persistence
+Additional buckets (`lease`, `members`, …) are reserved for upcoming persistence
 of those subsystems. cetcd is **not** disk-format compatible with bbolt; use `cetcd-migrate`
 to convert an etcd data directory. See [ADR 0002](./adr/0002-lmdb-backend.md).
 
@@ -340,8 +344,14 @@ The Raft module **does no I/O and spawns no threads**. The embedder owns persist
 The live server accepts a **custom framed TCP protocol** (used by `cetcdctl`):
 
 ```
-2B path_len (BE) + path + 1B compressed + 4B payload_len (BE) + protobuf payload
+2B path_len (BE) + path + 1B flags + [2B token_len (BE) + token if flags&0x02]
++ 4B payload_len (BE) + protobuf payload
 ```
+
+`flags` bit 0 is reserved (compressed). Bit 1 (`0x02`) means a bearer token follows
+the flags byte. Existing clients that send `flags=0` remain compatible; when auth
+is enabled those requests are rejected (fail-closed). `cetcdctl --user` authenticates
+once, then attaches the token to every subsequent RPC.
 
 RPC path strings match etcd (`/etcdserverpb.KV/Put`, …). Request/response bodies are
 etcd v3.5 protobuf messages. Domain/RPC errors from handlers (`{NULL,0}`) are

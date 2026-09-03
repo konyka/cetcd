@@ -36,6 +36,24 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
                                       const uint8_t *req_data,
                                       size_t req_len);
 
+/* Dispatch with an optional bearer token (NULL if none). When auth is
+ * enabled, all RPCs except Authenticate require a valid unexpired token. */
+cetcd_rpc_bytes cetcd_v3rpc_dispatch_ex(cetcd_v3rpc *rpc,
+                                         const char *path,
+                                         const uint8_t *req_data,
+                                         size_t req_len,
+                                         const char *token);
+
+/* 0 if the current request user may access `key`; -1 if denied.
+ * Always 0 when auth is disabled. */
+CETCD_API int cetcd_v3rpc_check_key_perm(int want_write,
+                                         const uint8_t *key, size_t key_len);
+
+struct cetcd_backend;
+CETCD_API void cetcd_v3rpc_set_auth_backend(cetcd_v3rpc *rpc,
+                                            struct cetcd_backend *be);
+CETCD_API void cetcd_v3rpc_auth_persist(void);
+
 void cetcd_rpc_bytes_free(cetcd_rpc_bytes *b);
 
 /* Streaming support: associate the event loop and a writer callback.

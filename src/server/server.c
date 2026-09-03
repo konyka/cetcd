@@ -581,21 +581,37 @@ static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *
 
     while (ctx->buf_pos >= 2) {
         uint16_t path_len = ((uint16_t)ctx->buf[0] << 8) | ctx->buf[1];
-        size_t header = 2 + path_len;
-        if (ctx->buf_pos < header + 5) break;
+        size_t after_path = 2 + path_len;
+        if (ctx->buf_pos < after_path + 1) break;
 
         char path[256];
         if (path_len >= sizeof(path)) { uv_close((uv_handle_t *)stream, client_close_cb_); return; }
         memcpy(path, ctx->buf + 2, path_len);
         path[path_len] = '\0';
 
-        const uint8_t *grpc_hdr = ctx->buf + header;
-        uint32_t payload_len = ((uint32_t)grpc_hdr[1] << 24) |
-                               ((uint32_t)grpc_hdr[2] << 16) |
-                               ((uint32_t)grpc_hdr[3] << 8)  |
-                               ((uint32_t)grpc_hdr[4]);
-        size_t frame_len = header + 5 + payload_len;
+        uint8_t flags = ctx->buf[after_path];
+        size_t cursor = after_path + 1;
+        char token[129];
+        token[0] = '\0';
+        if (flags & 0x02) {
+            if (ctx->buf_pos < cursor + 2) break;
+            uint16_t tlen = ((uint16_t)ctx->buf[cursor] << 8) | ctx->buf[cursor + 1];
+            cursor += 2;
+            if (tlen > 128) { uv_close((uv_handle_t *)stream, client_close_cb_); return; }
+            if (ctx->buf_pos < cursor + tlen + 4) break;
+            memcpy(token, ctx->buf + cursor, tlen);
+            token[tlen] = '\0';
+            cursor += tlen;
+        }
+        if (ctx->buf_pos < cursor + 4) break;
+
+        uint32_t payload_len = ((uint32_t)ctx->buf[cursor] << 24) |
+                               ((uint32_t)ctx->buf[cursor + 1] << 16) |
+                               ((uint32_t)ctx->buf[cursor + 2] << 8)  |
+                               ((uint32_t)ctx->buf[cursor + 3]);
+        size_t frame_len = cursor + 4 + payload_len;
         if (ctx->buf_pos < frame_len) break;
+        const uint8_t *payload = ctx->buf + cursor + 4;
 
         /* For Watch RPCs, set the stream writer to this client's socket
          * so streaming events can be sent directly to this connection */
@@ -603,8 +619,8 @@ static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *
             cetcd_v3rpc_set_stream_writer(ctx->srv->rpc, client_stream_write_, stream);
         }
 
-        cetcd_server_rpc_result resp = cetcd_server_handle_rpc(ctx->srv,
-            path, grpc_hdr + 5, payload_len);
+        cetcd_server_rpc_result resp = cetcd_server_handle_rpc_ex(ctx->srv,
+            path, payload, payload_len, token[0] ? token : NULL);
 
         /* Always reply: payload_len=0 signals a domain/RPC error (handlers
          * return {NULL,0}). Omitting the frame left clients blocked on recv. */
@@ -934,6 +950,10 @@ int cetcd_server_start(cetcd_server *srv) {
                 if (leases)
                     cetcd_lease_reindex_from_store(leases, store);
             }
+            cetcd_v3rpc_set_auth_backend(srv->rpc, srv->backend);
+            extern cetcd_auth_store *g_rpc_auth;
+            if (g_rpc_auth)
+                (void)cetcd_auth_load(g_rpc_auth, srv->backend);
         }
 
         if (!srv->wal_enc) {
@@ -972,17 +992,25 @@ int cetcd_server_apply(cetcd_server *srv) {
     return 0;
 }
 
+cetcd_server_rpc_result cetcd_server_handle_rpc_ex(cetcd_server *srv,
+                                                    const char *path,
+                                                    const uint8_t *req,
+                                                    size_t req_len,
+                                                    const char *token) {
+    cetcd_server_rpc_result result = {NULL, 0};
+    if (!srv || !srv->rpc || !path) return result;
+    if (srv->metrics) cetcd_metrics_counter(srv->metrics, "grpc_requests_total", 1);
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch_ex(srv->rpc, path, req, req_len, token);
+    result.data = resp.data;
+    result.len = resp.len;
+    return result;
+}
+
 cetcd_server_rpc_result cetcd_server_handle_rpc(cetcd_server *srv,
                                                   const char *path,
                                                   const uint8_t *req,
                                                   size_t req_len) {
-    cetcd_server_rpc_result result = {NULL, 0};
-    if (!srv || !srv->rpc || !path) return result;
-    if (srv->metrics) cetcd_metrics_counter(srv->metrics, "grpc_requests_total", 1);
-    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(srv->rpc, path, req, req_len);
-    result.data = resp.data;
-    result.len = resp.len;
-    return result;
+    return cetcd_server_handle_rpc_ex(srv, path, req, req_len, NULL);
 }
 
 void cetcd_server_rpc_result_free(cetcd_server_rpc_result *r) {

@@ -167,6 +167,11 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
         if (val) free(val);
         return (cetcd_rpc_bytes){NULL, 0};
     }
+    if (cetcd_v3rpc_check_key_perm(1, key, key_len) != 0) {
+        free(key);
+        if (val) free(val);
+        return (cetcd_rpc_bytes){NULL, 0};
+    }
     /* etcd ErrValueProvided / ErrLeaseProvided */
     if ((ignore_value && val_len > 0) || (ignore_lease && lease_id != 0)) {
         if (key) free(key);
@@ -401,6 +406,11 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
     /* etcd ErrEmptyKey: key must be provided (len > 0; "\0" alone is valid). */
     if (!key || key_len == 0) {
         if (key) free(key);
+        if (range_end) free(range_end);
+        return (cetcd_rpc_bytes){NULL, 0};
+    }
+    if (cetcd_v3rpc_check_key_perm(0, key, key_len) != 0) {
+        free(key);
         if (range_end) free(range_end);
         return (cetcd_rpc_bytes){NULL, 0};
     }
@@ -650,6 +660,11 @@ cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, siz
         if (range_end) free(range_end);
         return (cetcd_rpc_bytes){NULL, 0};
     }
+    if (cetcd_v3rpc_check_key_perm(1, key, key_len) != 0) {
+        free(key);
+        if (range_end) free(range_end);
+        return (cetcd_rpc_bytes){NULL, 0};
+    }
 
     /* DeleteRangeResponse:
      *   field 1 (header)   = ResponseHeader, tag = 0x0a
@@ -840,6 +855,39 @@ typedef struct {
     size_t         len;
 } txn_op_t;
 
+static int txn_op_check_perm_(const txn_op_t *op) {
+    if (!op || !op->data || op->len == 0) return 0;
+    size_t pos = 0;
+    uint8_t tag = op->data[pos++];
+    int want_write = 1;
+    if (tag == 0x0a) want_write = 0;           /* RequestRange */
+    else if (tag == 0x12 || tag == 0x1a) want_write = 1; /* Put / DeleteRange */
+    else return -1; /* nested/unknown */
+    uint64_t ilen = 0;
+    if (read_varint(op->data, op->len, &pos, &ilen) != 0) return -1;
+    size_t end = pos + (size_t)ilen;
+    if (end > op->len) end = op->len;
+    while (pos < end) {
+        uint8_t t = op->data[pos++];
+        if (t == 0x0a) {
+            uint8_t *key = NULL;
+            size_t klen = 0;
+            if (read_bytes(op->data, end, &pos, &key, &klen) != 0) return -1;
+            int rc = cetcd_v3rpc_check_key_perm(want_write, key, klen);
+            free(key);
+            return rc;
+        }
+        uint64_t skip = 0;
+        if (read_varint(op->data, end, &pos, &skip) != 0) break;
+        int wt = t & 7;
+        if (wt == 2) {
+            if (pos + skip > end) break;
+            pos += (size_t)skip;
+        }
+    }
+    return 0;
+}
+
 cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
     txn_compare_t compares[TXN_MAX_OPS];
@@ -928,11 +976,20 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
         if (opc > TXN_MAX_OPS) goto txn_cleanup;
     }
 
-    /* --- Phase 2: Evaluate compares against the MVCC store --- */
     for (size_t i = 0; i < n_compares; i++) {
         if (!compares[i].key || compares[i].key_len == 0)
             goto txn_cleanup; /* etcd ErrEmptyKey */
+        if (cetcd_v3rpc_check_key_perm(0, compares[i].key, compares[i].key_len) != 0)
+            goto txn_cleanup;
     }
+    for (size_t i = 0; i < n_success; i++) {
+        if (txn_op_check_perm_(&success_ops[i]) != 0) goto txn_cleanup;
+    }
+    for (size_t i = 0; i < n_failure; i++) {
+        if (txn_op_check_perm_(&failure_ops[i]) != 0) goto txn_cleanup;
+    }
+
+    /* --- Phase 2: Evaluate compares against the MVCC store --- */
     bool succeeded = true;
     for (size_t i = 0; i < n_compares; i++) {
         txn_compare_t *c = &compares[i];

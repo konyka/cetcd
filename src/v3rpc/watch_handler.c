@@ -696,6 +696,10 @@ cetcd_rpc_bytes watch_handle_watch(cetcd_v3rpc *rpc,
         free_watch_request_parsed(&p);
         return (cetcd_rpc_bytes){NULL, 0};
     }
+    if (p.is_create && cetcd_v3rpc_check_key_perm(0, p.key, p.key_len) != 0) {
+        free_watch_request_parsed(&p);
+        return (cetcd_rpc_bytes){NULL, 0};
+    }
 
     cetcd_rpc_bytes out;
     if (g_rpc_stream_write_fn) {

@@ -13,6 +13,75 @@ extern cetcd_loop           *g_rpc_loop;
 extern cetcd_stream_write_fn g_rpc_stream_write_fn;
 extern void                 *g_rpc_stream_write_ctx;
 
+static void test_user_add_(cetcd_v3rpc *rpc, const char *name, const char *pass) {
+    uint8_t buf[64];
+    size_t p = 0;
+    size_t nlen = strlen(name), plen = strlen(pass);
+    buf[p++] = 0x0a; buf[p++] = (uint8_t)nlen;
+    memcpy(buf + p, name, nlen); p += nlen;
+    buf[p++] = 0x12; buf[p++] = (uint8_t)plen;
+    memcpy(buf + p, pass, plen); p += plen;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/UserAdd", buf, p);
+    cetcd_rpc_bytes_free(&r);
+}
+
+static int test_extract_token_(const uint8_t *data, size_t len, char *out, size_t cap) {
+    size_t pos = 0;
+    while (pos < len) {
+        uint8_t tag = data[pos++];
+        if (tag == 0x12) {
+            uint64_t tlen = 0; int shift = 0;
+            while (pos < len) {
+                uint8_t b = data[pos++];
+                tlen |= (uint64_t)(b & 0x7F) << shift;
+                shift += 7;
+                if (!(b & 0x80)) break;
+            }
+            if (tlen >= cap) tlen = cap - 1;
+            if (pos + tlen > len) return -1;
+            memcpy(out, data + pos, (size_t)tlen);
+            out[tlen] = '\0';
+            return 0;
+        } else if (tag == 0x0a) {
+            uint64_t l = 0; int shift = 0;
+            while (pos < len) {
+                uint8_t b = data[pos++];
+                l |= (uint64_t)(b & 0x7F) << shift;
+                shift += 7;
+                if (!(b & 0x80)) break;
+            }
+            pos += (size_t)l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (pos < len) {
+                uint8_t b = data[pos++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                shift += 7;
+                if (!(b & 0x80)) break;
+            }
+            (void)v;
+        }
+    }
+    return -1;
+}
+
+static int test_login_(cetcd_v3rpc *rpc, const char *name, const char *pass,
+                       char *token, size_t cap) {
+    uint8_t buf[64];
+    size_t p = 0;
+    size_t nlen = strlen(name), plen = strlen(pass);
+    buf[p++] = 0x0a; buf[p++] = (uint8_t)nlen;
+    memcpy(buf + p, name, nlen); p += nlen;
+    buf[p++] = 0x12; buf[p++] = (uint8_t)plen;
+    memcpy(buf + p, pass, plen); p += plen;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/Authenticate", buf, p);
+    int rc = -1;
+    if (r.data && r.len > 0)
+        rc = test_extract_token_(r.data, r.len, token, cap);
+    cetcd_rpc_bytes_free(&r);
+    return rc;
+}
+
 CETCD_TEST_CASE(v3rpc_create_destroy) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
     CETCD_ASSERT_NOT_NULL(rpc);
@@ -424,14 +493,24 @@ CETCD_TEST_CASE(v3rpc_auth_enable_disable) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
     uint8_t dummy[] = {0x00};
 
+    test_user_add_(rpc, "root", "secret");
+
     cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
         "/etcdserverpb.Auth/AuthEnable", dummy, 1);
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 0);
     cetcd_rpc_bytes_free(&resp);
 
+    /* Auth is on: disable without a token must fail. */
     resp = cetcd_v3rpc_dispatch(rpc,
         "/etcdserverpb.Auth/AuthDisable", dummy, 1);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    char token[64];
+    CETCD_ASSERT_EQ_INT(test_login_(rpc, "root", "secret", token, sizeof(token)), 0);
+    resp = cetcd_v3rpc_dispatch_ex(rpc,
+        "/etcdserverpb.Auth/AuthDisable", dummy, 1, token);
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 0);
     cetcd_rpc_bytes_free(&resp);
@@ -2678,17 +2757,19 @@ CETCD_TEST_CASE(v3rpc_auth_responses_have_header) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
     uint8_t dummy[] = {0x00};
 
-    /* AuthEnable response should start with header (tag 0x0a) */
+    /* AuthStatus (auth still off) should start with header */
     cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
-        "/etcdserverpb.Auth/AuthEnable", dummy, 1);
+        "/etcdserverpb.Auth/AuthStatus", dummy, 1);
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 0);
     CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
     cetcd_rpc_bytes_free(&resp);
 
-    /* AuthStatus response should also start with header */
+    test_user_add_(rpc, "root", "secret");
+
+    /* AuthEnable response should start with header (tag 0x0a) */
     resp = cetcd_v3rpc_dispatch(rpc,
-        "/etcdserverpb.Auth/AuthStatus", dummy, 1);
+        "/etcdserverpb.Auth/AuthEnable", dummy, 1);
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 0);
     CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
@@ -5388,6 +5469,108 @@ CETCD_TEST_CASE(v3rpc_watch_noput_filter) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_auth_enable_requires_root) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    uint8_t dummy[] = {0x00};
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Auth/AuthEnable", dummy, 1);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_auth_dataplane_requires_token) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    test_user_add_(rpc, "root", "secret");
+    uint8_t dummy[] = {0x00};
+    cetcd_rpc_bytes er = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Auth/AuthEnable", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(er.data);
+    cetcd_rpc_bytes_free(&er);
+
+    uint8_t put_buf[32];
+    size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x01; put_buf[pos++] = 'k';
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x01; put_buf[pos++] = 'v';
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    char token[64];
+    CETCD_ASSERT_EQ_INT(test_login_(rpc, "root", "secret", token, sizeof(token)), 0);
+    CETCD_ASSERT_TRUE(strcmp(token, "token") != 0);
+    resp = cetcd_v3rpc_dispatch_ex(rpc, "/etcdserverpb.KV/Put", put_buf, pos, token);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_auth_key_permission_denied) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    test_user_add_(rpc, "root", "secret");
+    test_user_add_(rpc, "app", "pw");
+
+    /* Role with read/write only on prefix /app */
+    uint8_t role_buf[32];
+    size_t p = 0;
+    role_buf[p++] = 0x0a; role_buf[p++] = 0x05;
+    memcpy(role_buf + p, "apprw", 5); p += 5;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleAdd", role_buf, p);
+    cetcd_rpc_bytes_free(&r);
+
+    /* RoleGrantPermission: Permission key is field 2 tag 0x0a */
+    uint8_t perm[32];
+    size_t ppos = 0;
+    perm[ppos++] = 0x08; perm[ppos++] = 0x02; /* READWRITE */
+    perm[ppos++] = 0x0a; perm[ppos++] = 0x04;
+    memcpy(perm + ppos, "/app", 4); ppos += 4;
+    uint8_t perm_buf[64];
+    p = 0;
+    perm_buf[p++] = 0x0a; perm_buf[p++] = 0x05;
+    memcpy(perm_buf + p, "apprw", 5); p += 5;
+    perm_buf[p++] = 0x12; perm_buf[p++] = (uint8_t)ppos;
+    memcpy(perm_buf + p, perm, ppos); p += ppos;
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleGrantPermission", perm_buf, p);
+    cetcd_rpc_bytes_free(&r);
+
+    uint8_t grant[32];
+    p = 0;
+    grant[p++] = 0x0a; grant[p++] = 0x03;
+    memcpy(grant + p, "app", 3); p += 3;
+    grant[p++] = 0x12; grant[p++] = 0x05;
+    memcpy(grant + p, "apprw", 5); p += 5;
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/UserGrantRole", grant, p);
+    cetcd_rpc_bytes_free(&r);
+
+    uint8_t dummy[] = {0x00};
+    r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/AuthEnable", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(r.data);
+    cetcd_rpc_bytes_free(&r);
+
+    char token[64];
+    CETCD_ASSERT_EQ_INT(test_login_(rpc, "app", "pw", token, sizeof(token)), 0);
+
+    uint8_t put_ok[32];
+    size_t pos = 0;
+    put_ok[pos++] = 0x0a; put_ok[pos++] = 0x06;
+    memcpy(put_ok + pos, "/app/x", 6); pos += 6;
+    put_ok[pos++] = 0x12; put_ok[pos++] = 0x01; put_ok[pos++] = '1';
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch_ex(rpc, "/etcdserverpb.KV/Put", put_ok, pos, token);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+
+    uint8_t put_bad[32];
+    pos = 0;
+    put_bad[pos++] = 0x0a; put_bad[pos++] = 0x04;
+    memcpy(put_bad + pos, "/sec", 4); pos += 4;
+    put_bad[pos++] = 0x12; put_bad[pos++] = 0x01; put_bad[pos++] = '1';
+    resp = cetcd_v3rpc_dispatch_ex(rpc, "/etcdserverpb.KV/Put", put_bad, pos, token);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
@@ -5513,6 +5696,9 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(test_watch_progress_notify),
     CETCD_TEST_ENTRY(test_watch_cancel),
     CETCD_TEST_ENTRY(v3rpc_watch_noput_filter),
+    CETCD_TEST_ENTRY(v3rpc_auth_enable_requires_root),
+    CETCD_TEST_ENTRY(v3rpc_auth_dataplane_requires_token),
+    CETCD_TEST_ENTRY(v3rpc_auth_key_permission_denied),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

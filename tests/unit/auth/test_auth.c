@@ -1,6 +1,12 @@
+#define _POSIX_C_SOURCE 200809L
 #include "cetcd/base.h"
 #include "cetcd/auth.h"
+#include "cetcd/backend.h"
 #include "cetcd_test.h"
+
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 CETCD_TEST_CASE(auth_store_create_destroy) {
     cetcd_auth_store *s = cetcd_auth_store_new();
@@ -97,6 +103,108 @@ CETCD_TEST_CASE(auth_enable_disable) {
     cetcd_auth_store_free(s);
 }
 
+CETCD_TEST_CASE(auth_issue_unique_tokens) {
+    cetcd_auth_store *s = cetcd_auth_store_new();
+    CETCD_ASSERT_EQ_INT(cetcd_auth_add_user(s, "alice", "secret"), CETCD_OK);
+
+    char *t1 = cetcd_auth_issue_token(s, "alice");
+    char *t2 = cetcd_auth_issue_token(s, "alice");
+    CETCD_ASSERT_NOT_NULL(t1);
+    CETCD_ASSERT_NOT_NULL(t2);
+    CETCD_ASSERT_TRUE(strlen(t1) >= 16);
+    CETCD_ASSERT_TRUE(strcmp(t1, t2) != 0);
+    CETCD_ASSERT_TRUE(strcmp(t1, "token") != 0);
+
+    uint64_t now = cetcd_clock_realtime_ns();
+    CETCD_ASSERT_TRUE(strcmp(cetcd_auth_user_for_token(s, t1, now), "alice") == 0);
+    CETCD_ASSERT_TRUE(strcmp(cetcd_auth_user_for_token(s, t2, now), "alice") == 0);
+    CETCD_ASSERT_NULL(cetcd_auth_user_for_token(s, "nope", now));
+    CETCD_ASSERT_NULL(cetcd_auth_user_for_token(s, NULL, now));
+
+    free(t1);
+    free(t2);
+    cetcd_auth_store_free(s);
+}
+
+CETCD_TEST_CASE(auth_token_expiry_fail_closed) {
+    cetcd_auth_store *s = cetcd_auth_store_new();
+    CETCD_ASSERT_EQ_INT(cetcd_auth_add_user(s, "bob", "pw"), CETCD_OK);
+    cetcd_auth_set_token_ttl_ns(s, 1000000000ULL); /* 1s */
+
+    char *tok = cetcd_auth_issue_token(s, "bob");
+    CETCD_ASSERT_NOT_NULL(tok);
+    uint64_t now = cetcd_clock_realtime_ns();
+    CETCD_ASSERT_NOT_NULL(cetcd_auth_user_for_token(s, tok, now));
+    CETCD_ASSERT_NULL(cetcd_auth_user_for_token(s, tok, now + 2000000000ULL));
+    free(tok);
+    cetcd_auth_store_free(s);
+}
+
+CETCD_TEST_CASE(auth_revoke_tokens_on_password_change) {
+    cetcd_auth_store *s = cetcd_auth_store_new();
+    cetcd_auth_add_user(s, "carol", "old");
+    char *tok = cetcd_auth_issue_token(s, "carol");
+    CETCD_ASSERT_NOT_NULL(tok);
+    uint64_t now = cetcd_clock_realtime_ns();
+    CETCD_ASSERT_NOT_NULL(cetcd_auth_user_for_token(s, tok, now));
+
+    CETCD_ASSERT_EQ_INT(cetcd_auth_change_password(s, "carol", "new"), CETCD_OK);
+    CETCD_ASSERT_NULL(cetcd_auth_user_for_token(s, tok, now));
+    free(tok);
+    cetcd_auth_store_free(s);
+}
+
+CETCD_TEST_CASE(auth_admin_and_key_perm) {
+    cetcd_auth_store *s = cetcd_auth_store_new();
+    cetcd_auth_add_user(s, "root", "r");
+    cetcd_auth_add_user(s, "app", "a");
+    cetcd_auth_add_role(s, "appread", 1, 0, "/app", 4);
+    cetcd_auth_grant_role(s, "app", "appread");
+
+    CETCD_ASSERT_TRUE(cetcd_auth_is_admin(s, "root"));
+    CETCD_ASSERT_FALSE(cetcd_auth_is_admin(s, "app"));
+
+    /* Auth disabled: allow all. */
+    CETCD_ASSERT_TRUE(cetcd_auth_check_perm(s, "app", (const uint8_t *)"/x", 2, 1));
+
+    cetcd_auth_set_enabled(s, true);
+    CETCD_ASSERT_TRUE(cetcd_auth_check_perm(s, "root", (const uint8_t *)"/x", 2, 1));
+    CETCD_ASSERT_TRUE(cetcd_auth_check_perm(s, "app", (const uint8_t *)"/app/k", 6, 0));
+    CETCD_ASSERT_FALSE(cetcd_auth_check_perm(s, "app", (const uint8_t *)"/app/k", 6, 1));
+    CETCD_ASSERT_FALSE(cetcd_auth_check_perm(s, "app", (const uint8_t *)"/other", 6, 0));
+    CETCD_ASSERT_FALSE(cetcd_auth_check_perm(s, NULL, (const uint8_t *)"/app", 4, 0));
+    cetcd_auth_store_free(s);
+}
+
+CETCD_TEST_CASE(auth_persist_roundtrip) {
+    char path_template[] = "/tmp/cetcd-test-auth-XXXXXX";
+    char *path = mkdtemp(path_template);
+    CETCD_ASSERT_NOT_NULL(path);
+    cetcd_backend_config cfg = {
+        .path = path, .map_size = 16 * 1024 * 1024, .max_dbs = 8
+    };
+    cetcd_backend *be = cetcd_backend_open(&cfg);
+    CETCD_ASSERT_NOT_NULL(be);
+
+    cetcd_auth_store *s = cetcd_auth_store_new();
+    CETCD_ASSERT_EQ_INT(cetcd_auth_add_user(s, "root", "secret"), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_auth_add_role(s, "rw", 1, 1, "/", 1), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_auth_grant_role(s, "root", "rw"), CETCD_OK);
+    cetcd_auth_set_enabled(s, true);
+    CETCD_ASSERT_EQ_INT(cetcd_auth_save(s, be), CETCD_OK);
+    cetcd_auth_store_free(s);
+
+    cetcd_auth_store *loaded = cetcd_auth_store_new();
+    CETCD_ASSERT_EQ_INT(cetcd_auth_load(loaded, be), CETCD_OK);
+    CETCD_ASSERT_TRUE(cetcd_auth_is_enabled(loaded));
+    CETCD_ASSERT_TRUE(cetcd_auth_has_user(loaded, "root"));
+    CETCD_ASSERT_TRUE(cetcd_auth_check_password(loaded, "root", "secret"));
+    CETCD_ASSERT_FALSE(cetcd_auth_check_password(loaded, "root", "wrong"));
+    CETCD_ASSERT_EQ_INT((int)cetcd_auth_role_count(loaded), 1);
+    cetcd_auth_store_free(loaded);
+    cetcd_backend_close(be);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auth_store_create_destroy),
     CETCD_TEST_ENTRY(auth_add_remove_user),
@@ -104,6 +212,11 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auth_add_remove_role),
     CETCD_TEST_ENTRY(auth_grant_revoke_role),
     CETCD_TEST_ENTRY(auth_enable_disable),
+    CETCD_TEST_ENTRY(auth_issue_unique_tokens),
+    CETCD_TEST_ENTRY(auth_token_expiry_fail_closed),
+    CETCD_TEST_ENTRY(auth_revoke_tokens_on_password_change),
+    CETCD_TEST_ENTRY(auth_admin_and_key_perm),
+    CETCD_TEST_ENTRY(auth_persist_roundtrip),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

@@ -15,4 +15,5 @@ cetcd_add_module(v3rpc
         cetcd_lease
         cetcd_auth
         cetcd_peer
+        cetcd_backend
 )
