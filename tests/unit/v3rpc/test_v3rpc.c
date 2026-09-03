@@ -1337,6 +1337,43 @@ CETCD_TEST_CASE(v3rpc_cluster_member_promote) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_member_promote_learner_fail_closed) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    cetcd_cluster *saved = g_rpc_cluster;
+    uint64_t saved_id = g_rpc_node_id;
+    g_rpc_cluster = cetcd_cluster_new(1);
+    g_rpc_node_id = 1;
+
+    cetcd_peer_info learner = {.id = 7, .addr = "10.0.0.7", .port = 2380, .is_learner = 1};
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_add_peer(g_rpc_cluster, &learner), CETCD_OK);
+
+    uint8_t prom[4];
+    size_t pos = 0;
+    prom[pos++] = 0x08; prom[pos++] = 7;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Cluster/MemberPromote", prom, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_get_peer(g_rpc_cluster, 7)->is_learner, 0);
+
+    /* Second promote of a voter is fail-closed. */
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Cluster/MemberPromote", prom, pos);
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
+    uint8_t missing[4];
+    pos = 0;
+    missing[pos++] = 0x08; missing[pos++] = 99;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Cluster/MemberPromote", missing, pos);
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_cluster_free(g_rpc_cluster);
+    g_rpc_cluster = saved;
+    g_rpc_node_id = saved_id;
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_auth_status) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
     uint8_t dummy[] = {0x00};
@@ -5616,6 +5653,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_cluster_member_remove),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_update),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_promote),
+    CETCD_TEST_ENTRY(v3rpc_member_promote_learner_fail_closed),
     CETCD_TEST_ENTRY(v3rpc_auth_status),
     CETCD_TEST_ENTRY(v3rpc_auth_user_list),
     CETCD_TEST_ENTRY(v3rpc_auth_user_change_password),

@@ -140,6 +140,22 @@ CETCD_TEST_CASE(cluster_update_peer) {
     cetcd_cluster_free(c);
 }
 
+CETCD_TEST_CASE(cluster_promote_learner) {
+    cetcd_cluster *c = cetcd_cluster_new(1);
+    cetcd_peer_info p = {.id = 2, .addr = "10.0.0.2", .port = 2380, .is_learner = 1};
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_add_peer(c, &p), CETCD_OK);
+    const cetcd_peer_info *got = cetcd_cluster_get_peer(c, 2);
+    CETCD_ASSERT_NOT_NULL(got);
+    CETCD_ASSERT_EQ_INT(got->is_learner, 1);
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_promote(c, 2), CETCD_OK);
+    got = cetcd_cluster_get_peer(c, 2);
+    CETCD_ASSERT_EQ_INT(got->is_learner, 0);
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_promote(c, 2), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_promote(c, 99), CETCD_ERR_NOTFOUND);
+    CETCD_ASSERT_EQ_INT((int)cetcd_cluster_alloc_id(c), 3);
+    cetcd_cluster_free(c);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(peer_create_destroy),
     CETCD_TEST_ENTRY(cluster_create_add_remove),
@@ -150,6 +166,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(cluster_get_peer_by_index),
     CETCD_TEST_ENTRY(cluster_self_id),
     CETCD_TEST_ENTRY(cluster_update_peer),
+    CETCD_TEST_ENTRY(cluster_promote_learner),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

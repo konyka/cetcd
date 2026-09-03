@@ -18,6 +18,7 @@ typedef struct {
     uint64_t id;
     char     addr[256];
     uint16_t port;
+    int      is_learner; /* 1 = non-voting; 0 = voter */
 } cetcd_peer_info;
 
 cetcd_peer *cetcd_peer_new(uint64_t id, const char *addr, uint16_t port);
@@ -47,6 +48,12 @@ const cetcd_peer_info *cetcd_cluster_get_peer(const cetcd_cluster *c, uint64_t i
 const cetcd_peer_info *cetcd_cluster_get_peer_by_index(const cetcd_cluster *c, size_t index);
 uint64_t              cetcd_cluster_self_id(const cetcd_cluster *c);
 int                   cetcd_cluster_update_peer(cetcd_cluster *c, uint64_t id, const cetcd_peer_info *info);
+
+/* Promote a learner to a voter. Returns NOTFOUND if missing, INVAL if already a voter. */
+int cetcd_cluster_promote(cetcd_cluster *c, uint64_t id);
+
+/* Assign an unused id when `info->id == 0` (max(self, peers)+1). */
+uint64_t cetcd_cluster_alloc_id(const cetcd_cluster *c);
 
 #ifdef __cplusplus
 }

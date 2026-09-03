@@ -47,6 +47,7 @@ struct cetcd_raft {
 
     /* Cluster membership */
     uint64_t             *peers;
+    uint8_t              *peer_learner; /* 1 = learner, not in quorum */
     uint32_t              n_peers;
     uint32_t              peers_cap;
 
@@ -144,6 +145,10 @@ static uint32_t quorum_(uint32_t n) {
     return n / 2 + 1;
 }
 
+static int peer_is_learner_(const cetcd_raft *r, uint32_t i) {
+    return r->peer_learner && i < r->n_peers && r->peer_learner[i];
+}
+
 static bool has_peer_(cetcd_raft *r, uint64_t id) {
     for (uint32_t i = 0; i < r->n_peers; i++) {
         if (r->peers[i] == id) return true;
@@ -151,7 +156,7 @@ static bool has_peer_(cetcd_raft *r, uint64_t id) {
     return false;
 }
 
-static void add_peer_(cetcd_raft *r, uint64_t id) {
+static void add_peer_(cetcd_raft *r, uint64_t id, int is_learner) {
     if (has_peer_(r, id)) return;
     if (r->n_peers >= r->peers_cap) {
         uint32_t new_cap = r->peers_cap ? r->peers_cap * 2 : 8;
@@ -159,15 +164,33 @@ static void add_peer_(cetcd_raft *r, uint64_t id) {
         if (new_peers == NULL) return;
         uint64_t *new_votes = (uint64_t *)realloc(r->votes_granted, new_cap * sizeof(uint64_t));
         if (new_votes == NULL) { r->peers = new_peers; r->peers_cap = new_cap; return; }
+        uint8_t *new_learn = (uint8_t *)realloc(r->peer_learner, new_cap * sizeof(uint8_t));
+        if (new_learn == NULL) {
+            r->peers = new_peers;
+            r->votes_granted = new_votes;
+            r->peers_cap = new_cap;
+            return;
+        }
         r->peers = new_peers;
         r->votes_granted = new_votes;
+        r->peer_learner = new_learn;
         r->peers_cap = new_cap;
     }
-    r->peers[r->n_peers++] = id;
+    r->peers[r->n_peers] = id;
+    r->peer_learner[r->n_peers] = is_learner ? 1 : 0;
+    if (r->n_peers < MAX_PEERS_) {
+        r->progress[r->n_peers].next_idx = r->log_last_index + 1;
+        r->progress[r->n_peers].match_idx = 0;
+    }
+    r->n_peers++;
 }
 
 static uint32_t cluster_size_(cetcd_raft *r) {
-    return r->n_peers;
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < r->n_peers; i++) {
+        if (!peer_is_learner_(r, i)) n++;
+    }
+    return n;
 }
 
 /* ── Pending state helpers ──────────────────────────────────────── */
@@ -222,6 +245,7 @@ static void maybe_advance_commit_(cetcd_raft *r) {
     uint64_t sorted[MAX_PEERS_];
     uint32_t n = 0;
     for (uint32_t i = 0; i < r->n_peers && i < MAX_PEERS_; i++) {
+        if (peer_is_learner_(r, i)) continue;
         if (r->peers[i] == r->id)
             sorted[n++] = r->log_last_index;
         else
@@ -278,7 +302,7 @@ cetcd_raft *cetcd_raft_new(cetcd_raft_config *cfg) {
     r->pre_vote          = cfg->pre_vote;
     r->storage           = cfg->storage;
 
-    add_peer_(r, cfg->id);
+    add_peer_(r, cfg->id, 0);
 
     r->log_cap = 64;
     r->log = (cetcd_entry *)calloc(r->log_cap, sizeof(cetcd_entry));
@@ -299,6 +323,7 @@ void cetcd_raft_free(cetcd_raft *r) {
     free(r->pending_entries);
     free(r->pending_msgs);
     free(r->peers);
+    free(r->peer_learner);
     free(r->votes_granted);
     if (r->log) {
         for (uint64_t i = 1; i <= r->log_last_index && i < r->log_cap; i++)
@@ -415,6 +440,11 @@ static int handle_vote_resp_(cetcd_raft *r, cetcd_msg *msg) {
     if (r->role != ROLE_CANDIDATE) return 0;
 
     if (!msg->reject) {
+        int from_learner = 0;
+        for (uint32_t i = 0; i < r->n_peers; i++) {
+            if (r->peers[i] == msg->from) { from_learner = peer_is_learner_(r, i); break; }
+        }
+        if (from_learner) return 0;
         if (r->n_votes_granted < r->peers_cap)
             r->votes_granted[r->n_votes_granted++] = msg->from;
         if (r->n_votes_granted >= quorum_(cluster_size_(r))) {
@@ -796,8 +826,46 @@ int cetcd_raft_propose_conf_change(cetcd_raft *r, const uint8_t *data, size_t le
 void cetcd_raft_apply_conf_change(cetcd_raft *r, const cetcd_conf_state *cs) {
     if (!r || !cs) return;
     for (uint32_t i = 0; i < cs->n_voters; i++) {
-        add_peer_(r, cs->voters[i]);
+        add_peer_(r, cs->voters[i], 0);
     }
+    for (uint32_t i = 0; i < cs->n_learners; i++) {
+        add_peer_(r, cs->learners[i], 1);
+    }
+}
+
+int cetcd_raft_add_peer(cetcd_raft *r, uint64_t id, int is_learner) {
+    if (!r || id == 0) return -1;
+    if (has_peer_(r, id)) return -1;
+    add_peer_(r, id, is_learner);
+    return has_peer_(r, id) ? 0 : -1;
+}
+
+int cetcd_raft_promote(cetcd_raft *r, uint64_t id) {
+    if (!r || id == 0) return -1;
+    for (uint32_t i = 0; i < r->n_peers; i++) {
+        if (r->peers[i] == id) {
+            if (!peer_is_learner_(r, i)) return -1;
+            r->peer_learner[i] = 0;
+            return 0;
+        }
+    }
+    return -1;
+}
+
+int cetcd_raft_remove_peer(cetcd_raft *r, uint64_t id) {
+    if (!r || id == 0 || id == r->id) return -1;
+    for (uint32_t i = 0; i < r->n_peers; i++) {
+        if (r->peers[i] != id) continue;
+        for (uint32_t j = i + 1; j < r->n_peers; j++) {
+            r->peers[j - 1] = r->peers[j];
+            r->peer_learner[j - 1] = r->peer_learner[j];
+            if (j < MAX_PEERS_ && j - 1 < MAX_PEERS_)
+                r->progress[j - 1] = r->progress[j];
+        }
+        r->n_peers--;
+        return 0;
+    }
+    return -1;
 }
 
 cetcd_ready cetcd_raft_ready(cetcd_raft *r) {

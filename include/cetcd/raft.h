@@ -164,6 +164,12 @@ int            cetcd_raft_propose(cetcd_raft *r, const uint8_t *data, size_t len
 int            cetcd_raft_propose_conf_change(cetcd_raft *r, const uint8_t *data, size_t len);
 void           cetcd_raft_apply_conf_change(cetcd_raft *r, const cetcd_conf_state *cs);
 
+/* Local membership (log-based ConfChange V2 is still pending). Learners
+ * receive logs but do not vote or count toward quorum. */
+int            cetcd_raft_add_peer(cetcd_raft *r, uint64_t id, int is_learner);
+int            cetcd_raft_promote(cetcd_raft *r, uint64_t id);
+int            cetcd_raft_remove_peer(cetcd_raft *r, uint64_t id);
+
 /* Queries */
 cetcd_node_state  cetcd_raft_state(cetcd_raft *r);
 uint64_t          cetcd_raft_leader(cetcd_raft *r);

@@ -356,6 +356,9 @@ campaigns on `server_new` so the first Put does not wait for election ticks.
   in the same txn still observes earlier writes).
 - **Leases** persist to an LMDB `lease` bucket (granted TTL + wall-clock deadline)
   so restarts restore remaining TTL. Lease expiry deletes are still local.
+- **Learners** are non-voting: they are excluded from quorum and vote counts.
+  `MemberPromote` flips a learner to a voter (fail-closed if missing or already
+  voting). Membership is still applied locally, not via a ConfChange log entry.
 
 Quorum uses one match index per voter (the leader's match is `last_index`). The previous
 implementation also pushed `last_index` as an extra voter, which blocked single-node

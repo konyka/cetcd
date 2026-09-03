@@ -206,6 +206,20 @@ CETCD_TEST_CASE(free_null_is_safe) {
     cetcd_raft_free(NULL);
 }
 
+CETCD_TEST_CASE(learner_does_not_block_single_node_commit) {
+    cetcd_raft_config cfg = single_node_cfg(1);
+    cetcd_raft *r = cetcd_raft_new(&cfg);
+    for (int i = 0; i < 10; i++) cetcd_raft_tick(r);
+    CETCD_ASSERT_TRUE(cetcd_raft_state(r) == CETCD_NODE_LEADER);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_add_peer(r, 2, 1), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_propose(r, (const uint8_t *)"x", 1), 0);
+    CETCD_ASSERT_TRUE(cetcd_raft_committed(r) >= 1);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_promote(r, 2), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_promote(r, 2), -1);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_promote(r, 99), -1);
+    cetcd_raft_free(r);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(new_raft_starts_as_follower),
     CETCD_TEST_ENTRY(single_node_becomes_leader_after_election_timeout),
@@ -217,6 +231,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(step_with_hup_triggers_election),
     CETCD_TEST_ENTRY(config_null_storage_ok),
     CETCD_TEST_ENTRY(free_null_is_safe),
+    CETCD_TEST_ENTRY(learner_does_not_block_single_node_commit),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

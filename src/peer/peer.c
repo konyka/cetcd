@@ -10,6 +10,7 @@ struct cetcd_peer {
     uint64_t id;
     char     addr[256];
     uint16_t port;
+    int      is_learner;
 };
 
 struct cetcd_cluster {
@@ -32,6 +33,7 @@ cetcd_peer *cetcd_peer_new(uint64_t id, const char *addr, uint16_t port) {
         p->addr[0] = '\0';
     }
     p->port = port;
+    p->is_learner = 0;
     return p;
 }
 
@@ -93,6 +95,7 @@ int cetcd_cluster_add_peer(cetcd_cluster *c, const cetcd_peer_info *info) {
     }
     cetcd_peer *p = cetcd_peer_new(info->id, info->addr, info->port);
     if (!p) return CETCD_ERR_NOMEM;
+    p->is_learner = info->is_learner ? 1 : 0;
     c->peers[c->peer_count++] = p;
     return CETCD_OK;
 }
@@ -182,6 +185,7 @@ const cetcd_peer_info *cetcd_cluster_get_peer(const cetcd_cluster *c, uint64_t i
             strncpy(peer_info_buf_.addr, c->peers[i]->addr, sizeof(peer_info_buf_.addr) - 1);
             peer_info_buf_.addr[sizeof(peer_info_buf_.addr) - 1] = '\0';
             peer_info_buf_.port = c->peers[i]->port;
+            peer_info_buf_.is_learner = c->peers[i]->is_learner;
             return &peer_info_buf_;
         }
     }
@@ -194,6 +198,7 @@ const cetcd_peer_info *cetcd_cluster_get_peer_by_index(const cetcd_cluster *c, s
     peer_info_buf_.id = c->peers[index]->id;
     snprintf(peer_info_buf_.addr, sizeof(peer_info_buf_.addr), "%s", c->peers[index]->addr);
     peer_info_buf_.port = c->peers[index]->port;
+    peer_info_buf_.is_learner = c->peers[index]->is_learner;
     return &peer_info_buf_;
 }
 
@@ -209,6 +214,29 @@ int cetcd_cluster_update_peer(cetcd_cluster *c, uint64_t id, const cetcd_peer_in
             c->peers[i]->id = info->id;
             snprintf(c->peers[i]->addr, sizeof(c->peers[i]->addr), "%s", info->addr);
             c->peers[i]->port = info->port;
+            c->peers[i]->is_learner = info->is_learner ? 1 : 0;
+            return CETCD_OK;
+        }
+    }
+    return CETCD_ERR_NOTFOUND;
+}
+
+uint64_t cetcd_cluster_alloc_id(const cetcd_cluster *c) {
+    if (!c) return 1;
+    uint64_t max = c->self_id;
+    for (size_t i = 0; i < c->peer_count; i++) {
+        if (c->peers[i] && c->peers[i]->id > max)
+            max = c->peers[i]->id;
+    }
+    return max + 1;
+}
+
+int cetcd_cluster_promote(cetcd_cluster *c, uint64_t id) {
+    if (!c || id == 0) return CETCD_ERR_INVAL;
+    for (size_t i = 0; i < c->peer_count; i++) {
+        if (c->peers[i] && c->peers[i]->id == id) {
+            if (!c->peers[i]->is_learner) return CETCD_ERR_INVAL;
+            c->peers[i]->is_learner = 0;
             return CETCD_OK;
         }
     }

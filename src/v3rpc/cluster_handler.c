@@ -43,10 +43,12 @@
 #include "cetcd/v3rpc.h"
 #include "cetcd/peer.h"
 #include "cetcd/mvcc.h"
+#include "cetcd/raft.h"
 
 extern cetcd_cluster *g_rpc_cluster;
 extern uint64_t       g_rpc_node_id;
 extern cetcd_mvcc_store *g_rpc_store;
+extern cetcd_raft    *g_rpc_raft;
 
 /* Forward declarations */
 cetcd_rpc_bytes cluster_handle_member_list(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
@@ -117,7 +119,7 @@ static cetcd_rpc_bytes make_simple_cluster_response(void) {
  *   field 2 (peerURLs) = repeated string, tag = 0x12
  */
 static size_t encode_member(uint8_t *buf, size_t cap, uint64_t id,
-                             const char *peer_addr) {
+                             const char *peer_addr, int is_learner) {
     size_t pos = 0;
     buf[pos++] = 0x08; /* field 1 = ID */
     write_varint_c(buf, cap, &pos, id);
@@ -152,6 +154,10 @@ static size_t encode_member(uint8_t *buf, size_t cap, uint64_t id,
             pos += clen;
         }
     }
+    if (is_learner) {
+        buf[pos++] = 0x28; /* field 5 = isLearner */
+        buf[pos++] = 0x01;
+    }
     return pos;
 }
 
@@ -181,7 +187,7 @@ cetcd_rpc_bytes cluster_handle_member_list(cetcd_v3rpc *rpc,
     if (g_rpc_node_id > 0) {
         uint8_t member_buf[256];
         size_t mlen = encode_member(member_buf, sizeof(member_buf),
-                                     g_rpc_node_id, "127.0.0.1:2380");
+                                     g_rpc_node_id, "127.0.0.1:2380", 0);
         /* field 2 (members) = repeated Member, tag = 0x12 */
         buf[pos++] = 0x12;
         write_varint_c(buf, sizeof(buf), &pos, (uint64_t)mlen);
@@ -201,7 +207,7 @@ cetcd_rpc_bytes cluster_handle_member_list(cetcd_v3rpc *rpc,
             snprintf(peer_url, sizeof(peer_url), "%s:%u", pi->addr, pi->port);
             uint8_t member_buf[256];
             size_t mlen = encode_member(member_buf, sizeof(member_buf),
-                                         pi->id, peer_url);
+                                         pi->id, peer_url, pi->is_learner);
             if (pos + 2 + mlen < sizeof(buf)) {
                 buf[pos++] = 0x12;
                 write_varint_c(buf, sizeof(buf), &pos, (uint64_t)mlen);
@@ -227,6 +233,7 @@ cetcd_rpc_bytes cluster_handle_member_add(cetcd_v3rpc *rpc,
     (void)rpc;
     size_t pos = 0;
     uint8_t *peer_url = NULL; size_t peer_url_len = 0;
+    int is_learner = 0;
 
     while (pos < req_len) {
         uint8_t tag = req[pos++];
@@ -236,6 +243,7 @@ cetcd_rpc_bytes cluster_handle_member_add(cetcd_v3rpc *rpc,
         } else if (tag == 0x10) {
             /* isLearner: bool */
             uint64_t v = 0; read_varint_c(req, req_len, &pos, &v);
+            is_learner = v ? 1 : 0;
         } else {
             uint64_t skip = 0; read_varint_c(req, req_len, &pos, &skip);
         }
@@ -244,8 +252,13 @@ cetcd_rpc_bytes cluster_handle_member_add(cetcd_v3rpc *rpc,
     /* If we have a cluster, add the peer */
     uint64_t new_id = 0;
     if (g_rpc_cluster && peer_url) {
+        if (g_rpc_raft && cetcd_raft_state(g_rpc_raft) != CETCD_NODE_LEADER) {
+            if (peer_url) free(peer_url);
+            return (cetcd_rpc_bytes){NULL, 0};
+        }
         cetcd_peer_info info = {0};
-        info.id = 0; /* auto-assign */
+        info.id = cetcd_cluster_alloc_id(g_rpc_cluster);
+        info.is_learner = is_learner;
         /* Parse "host:port" from peer_url */
         char addr[256] = {0};
         size_t copy_len = peer_url_len < sizeof(addr) - 1 ? peer_url_len : sizeof(addr) - 1;
@@ -260,7 +273,15 @@ cetcd_rpc_bytes cluster_handle_member_add(cetcd_v3rpc *rpc,
             info.port = 2380;
         }
         snprintf(info.addr, sizeof(info.addr), "%s", addr);
-        cetcd_cluster_add_peer(g_rpc_cluster, &info);
+        if (cetcd_cluster_add_peer(g_rpc_cluster, &info) != CETCD_OK) {
+            if (peer_url) free(peer_url);
+            return (cetcd_rpc_bytes){NULL, 0};
+        }
+        if (g_rpc_raft && cetcd_raft_add_peer(g_rpc_raft, info.id, is_learner) != 0) {
+            cetcd_cluster_remove_peer(g_rpc_cluster, info.id);
+            if (peer_url) free(peer_url);
+            return (cetcd_rpc_bytes){NULL, 0};
+        }
         new_id = info.id;
     }
     if (peer_url) free(peer_url);
@@ -280,7 +301,7 @@ cetcd_rpc_bytes cluster_handle_member_add(cetcd_v3rpc *rpc,
     }
     if (new_id > 0) {
         uint8_t member_buf[128];
-        size_t mlen = encode_member(member_buf, sizeof(member_buf), new_id, "");
+        size_t mlen = encode_member(member_buf, sizeof(member_buf), new_id, "", is_learner);
         buf[bpos++] = 0x12;
         write_varint_c(buf, sizeof(buf), &bpos, (uint64_t)mlen);
         if (bpos + mlen < sizeof(buf)) {
@@ -317,6 +338,7 @@ cetcd_rpc_bytes cluster_handle_member_remove(cetcd_v3rpc *rpc,
 
     if (g_rpc_cluster && member_id > 0) {
         cetcd_cluster_remove_peer(g_rpc_cluster, member_id);
+        if (g_rpc_raft) (void)cetcd_raft_remove_peer(g_rpc_raft, member_id);
     }
 
     return make_simple_cluster_response();
@@ -406,7 +428,12 @@ cetcd_rpc_bytes cluster_handle_member_promote(cetcd_v3rpc *rpc,
         }
     }
 
-    /* Promotion is a no-op in the current implementation since we don't
-     * distinguish between learners and voting members yet. */
+    /* Fail-closed: missing or already-voting member is an error. */
+    if (g_rpc_cluster && member_id > 0) {
+        if (cetcd_cluster_promote(g_rpc_cluster, member_id) != CETCD_OK)
+            return (cetcd_rpc_bytes){NULL, 0};
+        if (g_rpc_raft)
+            (void)cetcd_raft_promote(g_rpc_raft, member_id);
+    }
     return make_simple_cluster_response();
 }

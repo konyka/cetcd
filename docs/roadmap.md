@@ -25,6 +25,9 @@ Performance-first, fail-closed design:
 - **Lease persistence** — Grant/KeepAlive/Revoke/expire write the LMDB `lease`
   bucket (id + granted TTL + wall-clock deadline). Restart restores remaining TTL
   before accepting traffic; keys are reattached from MVCC.
+- **Learner promote** — members carry `is_learner`; `MemberPromote` is fail-closed
+  (missing / already-voter → empty frame). Raft learners receive logs but do not
+  vote or count toward quorum, so a single voter plus learners can still commit.
 
 ## Previously done (auth data plane)
 
@@ -37,7 +40,7 @@ Performance-first, fail-closed design:
 
 | Gap | Why it matters | Suggested approach |
 |-----|----------------|--------------------|
-| Joint-consensus membership + learner promote | `MemberPromote` is a no-op | Raft ConfChange V2; persist members bucket |
+| Joint-consensus ConfChange V2 + persist members | Membership is still local (not a raft log entry); restarts drop MemberAdd | Propose ConfChange, persist a `members` bucket, restore before campaign |
 | Snapshot → WAL truncation | Unbounded WAL growth | After `snapshot-count` applies, write snap, `wal.Release`, drop old segments |
 | Nested Txn (`RequestTxn`) | etcd allows nested transactions | Fail-closed today; execute recursively with the same `MaxTxnOps` budget |
 | Lease expiry / revoke still local deletes | Followers do not see expiry deletes via raft | Propose DeleteRange (or per-key Delete) from the expire callback |
