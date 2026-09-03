@@ -55,6 +55,14 @@ int cetcd_cluster_promote(cetcd_cluster *c, uint64_t id);
 /* Assign an unused id when `info->id == 0` (max(self, peers)+1). */
 uint64_t cetcd_cluster_alloc_id(const cetcd_cluster *c);
 
+struct cetcd_backend;
+void cetcd_cluster_set_backend(cetcd_cluster *c, struct cetcd_backend *be);
+/* Persist one peer (id key). No-op without a backend. Fail-closed. */
+int cetcd_cluster_persist_peer(cetcd_cluster *c, const cetcd_peer_info *info);
+int cetcd_cluster_persist_del(cetcd_cluster *c, uint64_t id);
+/* Restore peers from the `members` bucket (does not touch Raft). */
+int cetcd_cluster_load(cetcd_cluster *c, struct cetcd_backend *be);
+
 #ifdef __cplusplus
 }
 #endif

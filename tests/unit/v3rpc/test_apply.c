@@ -1,9 +1,12 @@
 #include "cetcd/v3rpc.h"
 #include "cetcd/mvcc.h"
+#include "cetcd/peer.h"
 #include "cetcd_test.h"
 
 #include <string.h>
 #include <stdlib.h>
+
+extern cetcd_cluster *g_rpc_cluster;
 
 CETCD_TEST_CASE(apply_put_delete_roundtrip) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
@@ -136,6 +139,31 @@ CETCD_TEST_CASE(apply_batch_rejects_nesting) {
     CETCD_ASSERT_TRUE(cetcd_v3rpc_apply_entry(outer, p) != 0);
 }
 
+CETCD_TEST_CASE(apply_member_add_remove) {
+    cetcd_cluster *saved = g_rpc_cluster;
+    g_rpc_cluster = cetcd_cluster_new(1);
+    uint8_t *buf = NULL;
+    size_t len = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_member_add(&buf, &len, 2, 1,
+        "10.0.0.2", 2380), 0);
+    CETCD_ASSERT_EQ_INT((int)buf[0], CETCD_APPLY_MEMBER_ADD);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+    const cetcd_peer_info *got = cetcd_cluster_get_peer(g_rpc_cluster, 2);
+    CETCD_ASSERT_NOT_NULL(got);
+    CETCD_ASSERT_EQ_INT(got->is_learner, 1);
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_member_promote(&buf, &len, 2), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_get_peer(g_rpc_cluster, 2)->is_learner, 0);
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_member_remove(&buf, &len, 2), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+    CETCD_ASSERT_TRUE(cetcd_cluster_get_peer(g_rpc_cluster, 2) == NULL);
+    cetcd_cluster_free(g_rpc_cluster);
+    g_rpc_cluster = saved;
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(apply_put_delete_roundtrip),
     CETCD_TEST_ENTRY(apply_rejects_truncated),
@@ -143,6 +171,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(propose_or_apply_local_without_raft),
     CETCD_TEST_ENTRY(apply_batch_two_puts),
     CETCD_TEST_ENTRY(apply_batch_rejects_nesting),
+    CETCD_TEST_ENTRY(apply_member_add_remove),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

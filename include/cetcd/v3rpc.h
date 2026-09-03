@@ -84,6 +84,10 @@ CETCD_API void cetcd_v3rpc_watch_flush_replay(void);
 #define CETCD_APPLY_DELETE       2
 #define CETCD_APPLY_BATCH        3
 #define CETCD_APPLY_DELETE_RANGE 4
+#define CETCD_APPLY_MEMBER_ADD     5
+#define CETCD_APPLY_MEMBER_REMOVE  6
+#define CETCD_APPLY_MEMBER_PROMOTE 7
+#define CETCD_APPLY_MEMBER_UPDATE  8
 
 CETCD_API int cetcd_apply_encode_put(uint8_t **out, size_t *out_len,
                                      const uint8_t *key, size_t key_len,
@@ -99,6 +103,17 @@ CETCD_API int cetcd_apply_encode_delete_range(uint8_t **out, size_t *out_len,
 CETCD_API int cetcd_apply_encode_batch(uint8_t **out, size_t *out_len,
                                        const uint8_t *const *ops,
                                        const size_t *op_lens, size_t n);
+
+CETCD_API int cetcd_apply_encode_member_add(uint8_t **out, size_t *out_len,
+                                            uint64_t id, int is_learner,
+                                            const char *addr, uint16_t port);
+CETCD_API int cetcd_apply_encode_member_remove(uint8_t **out, size_t *out_len,
+                                               uint64_t id);
+CETCD_API int cetcd_apply_encode_member_promote(uint8_t **out, size_t *out_len,
+                                                uint64_t id);
+CETCD_API int cetcd_apply_encode_member_update(uint8_t **out, size_t *out_len,
+                                               uint64_t id,
+                                               const char *addr, uint16_t port);
 
 /* Apply a committed NORMAL entry to MVCC (+ lease index). 0 on success. */
 CETCD_API int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len);

@@ -149,6 +149,7 @@ static void ready_flush_cb_(void *arg) {
 static void maybe_campaign_single_(cetcd_server *srv) {
     if (!srv || !srv->raft) return;
     if (srv->cfg.n_initial_peers != 0) return;
+    if (cetcd_raft_voter_count(srv->raft) > 1) return;
     if (cetcd_raft_state(srv->raft) == CETCD_NODE_LEADER) return;
     cetcd_msg hup;
     memset(&hup, 0, sizeof(hup));
@@ -1058,6 +1059,20 @@ int cetcd_server_start(cetcd_server *srv) {
             extern cetcd_auth_store *g_rpc_auth;
             if (g_rpc_auth)
                 (void)cetcd_auth_load(g_rpc_auth, srv->backend);
+            if (srv->cluster) {
+                cetcd_cluster_set_backend(srv->cluster, srv->backend);
+                (void)cetcd_cluster_load(srv->cluster, srv->backend);
+                if (srv->raft) {
+                    size_t n = cetcd_cluster_peer_count(srv->cluster);
+                    for (size_t i = 0; i < n; i++) {
+                        const cetcd_peer_info *pi =
+                            cetcd_cluster_get_peer_by_index(srv->cluster, i);
+                        if (!pi) continue;
+                        cetcd_peer_info copy = *pi;
+                        (void)cetcd_raft_add_peer(srv->raft, copy.id, copy.is_learner);
+                    }
+                }
+            }
         }
 
         uint64_t applied = load_applied_(srv->backend);

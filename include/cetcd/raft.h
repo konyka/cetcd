@@ -179,6 +179,7 @@ uint64_t          cetcd_raft_term(cetcd_raft *r);
 uint64_t          cetcd_raft_committed(cetcd_raft *r);
 uint64_t          cetcd_raft_applied(cetcd_raft *r);
 uint64_t          cetcd_raft_last_index(cetcd_raft *r);
+uint32_t          cetcd_raft_voter_count(const cetcd_raft *r);
 const cetcd_entry *cetcd_raft_entry_at(const cetcd_raft *r, uint64_t index);
 
 /* Restart: restuff the in-memory log / HardState from WAL without Ready. */

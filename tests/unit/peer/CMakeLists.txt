@@ -1,1 +1,1 @@
-cetcd_add_unit_test(peer_sanity MODULE peer SOURCES test_peer.c)
+cetcd_add_unit_test(peer_sanity MODULE peer SOURCES test_peer.c EXTRA_DEPS cetcd_backend)

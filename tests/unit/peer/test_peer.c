@@ -1,6 +1,12 @@
+#define _POSIX_C_SOURCE 200809L
 #include "cetcd/base.h"
 #include "cetcd/peer.h"
+#include "cetcd/backend.h"
 #include "cetcd_test.h"
+
+#include <string.h>
+#include <unistd.h>
+#include <stdio.h>
 
 CETCD_TEST_CASE(peer_create_destroy) {
     cetcd_peer *p = cetcd_peer_new(1, "127.0.0.1", 2379);
@@ -156,6 +162,42 @@ CETCD_TEST_CASE(cluster_promote_learner) {
     cetcd_cluster_free(c);
 }
 
+CETCD_TEST_CASE(cluster_members_persist_roundtrip) {
+    char dir[] = "/tmp/cetcd-test-members-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(dir));
+    cetcd_backend_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.path = dir;
+    cfg.map_size = 1024 * 1024;
+    cfg.max_dbs = 8;
+    cetcd_backend *be = cetcd_backend_open(&cfg);
+    CETCD_ASSERT_NOT_NULL(be);
+
+    cetcd_cluster *c = cetcd_cluster_new(1);
+    cetcd_cluster_set_backend(c, be);
+    cetcd_peer_info p = {.id = 2, .addr = "10.0.0.2", .port = 2380, .is_learner = 1};
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_add_peer(c, &p), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_persist_peer(c, &p), CETCD_OK);
+    cetcd_cluster_free(c);
+
+    c = cetcd_cluster_new(1);
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_load(c, be), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)cetcd_cluster_peer_count(c), 1);
+    const cetcd_peer_info *got = cetcd_cluster_get_peer(c, 2);
+    CETCD_ASSERT_NOT_NULL(got);
+    CETCD_ASSERT_EQ_INT(got->is_learner, 1);
+    CETCD_ASSERT_EQ_INT((int)got->port, 2380);
+    CETCD_ASSERT_EQ_INT(strcmp(got->addr, "10.0.0.2"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_persist_del(c, 2), CETCD_OK);
+    cetcd_cluster_free(c);
+
+    c = cetcd_cluster_new(1);
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_load(c, be), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)cetcd_cluster_peer_count(c), 0);
+    cetcd_cluster_free(c);
+    cetcd_backend_close(be);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(peer_create_destroy),
     CETCD_TEST_ENTRY(cluster_create_add_remove),
@@ -167,6 +209,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(cluster_self_id),
     CETCD_TEST_ENTRY(cluster_update_peer),
     CETCD_TEST_ENTRY(cluster_promote_learner),
+    CETCD_TEST_ENTRY(cluster_members_persist_roundtrip),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

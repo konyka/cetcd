@@ -39,6 +39,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "cetcd/v3rpc.h"
 #include "cetcd/peer.h"
@@ -224,6 +225,27 @@ cetcd_rpc_bytes cluster_handle_member_list(cetcd_v3rpc *rpc,
     return (cetcd_rpc_bytes){out, pos};
 }
 
+static int parse_peer_url_(const char *url, size_t url_len,
+                           char *addr, size_t addr_cap, uint16_t *port) {
+    if (!url || !addr || !port || addr_cap < 2) return -1;
+    char buf[256];
+    size_t n = url_len < sizeof(buf) - 1 ? url_len : sizeof(buf) - 1;
+    memcpy(buf, url, n);
+    buf[n] = '\0';
+    const char *p = buf;
+    if (strncmp(p, "http://", 7) == 0) p += 7;
+    else if (strncmp(p, "https://", 8) == 0) p += 8;
+    char *colon = strrchr(p, ':');
+    if (colon) {
+        *colon = '\0';
+        *port = (uint16_t)atoi(colon + 1);
+    } else {
+        *port = 2380;
+    }
+    snprintf(addr, addr_cap, "%s", p);
+    return 0;
+}
+
 /*
  * MemberAdd RPC.
  * Adds a new member to the cluster.
@@ -249,37 +271,28 @@ cetcd_rpc_bytes cluster_handle_member_add(cetcd_v3rpc *rpc,
         }
     }
 
-    /* If we have a cluster, add the peer */
+    /* If we have a cluster, add the peer through Raft (or locally). */
     uint64_t new_id = 0;
     if (g_rpc_cluster && peer_url) {
-        if (g_rpc_raft && cetcd_raft_state(g_rpc_raft) != CETCD_NODE_LEADER) {
-            if (peer_url) free(peer_url);
-            return (cetcd_rpc_bytes){NULL, 0};
-        }
         cetcd_peer_info info = {0};
         info.id = cetcd_cluster_alloc_id(g_rpc_cluster);
         info.is_learner = is_learner;
-        /* Parse "host:port" from peer_url */
-        char addr[256] = {0};
-        size_t copy_len = peer_url_len < sizeof(addr) - 1 ? peer_url_len : sizeof(addr) - 1;
-        memcpy(addr, peer_url, copy_len);
-        addr[copy_len] = '\0';
-        /* Try to find port separator */
-        char *colon = strrchr(addr, ':');
-        if (colon) {
-            *colon = '\0';
-            info.port = (uint16_t)atoi(colon + 1);
-        } else {
-            info.port = 2380;
-        }
-        snprintf(info.addr, sizeof(info.addr), "%s", addr);
-        if (cetcd_cluster_add_peer(g_rpc_cluster, &info) != CETCD_OK) {
-            if (peer_url) free(peer_url);
+        if (parse_peer_url_((const char *)peer_url, peer_url_len,
+                            info.addr, sizeof(info.addr), &info.port) != 0) {
+            free(peer_url);
             return (cetcd_rpc_bytes){NULL, 0};
         }
-        if (g_rpc_raft && cetcd_raft_add_peer(g_rpc_raft, info.id, is_learner) != 0) {
-            cetcd_cluster_remove_peer(g_rpc_cluster, info.id);
-            if (peer_url) free(peer_url);
+        uint8_t *entry = NULL;
+        size_t elen = 0;
+        if (cetcd_apply_encode_member_add(&entry, &elen, info.id, info.is_learner,
+                                          info.addr, info.port) != 0) {
+            free(peer_url);
+            return (cetcd_rpc_bytes){NULL, 0};
+        }
+        int rc = cetcd_v3rpc_propose_or_apply(entry, elen);
+        free(entry);
+        if (rc < 0 || !cetcd_cluster_get_peer(g_rpc_cluster, info.id)) {
+            free(peer_url);
             return (cetcd_rpc_bytes){NULL, 0};
         }
         new_id = info.id;
@@ -337,8 +350,13 @@ cetcd_rpc_bytes cluster_handle_member_remove(cetcd_v3rpc *rpc,
     }
 
     if (g_rpc_cluster && member_id > 0) {
-        cetcd_cluster_remove_peer(g_rpc_cluster, member_id);
-        if (g_rpc_raft) (void)cetcd_raft_remove_peer(g_rpc_raft, member_id);
+        uint8_t *entry = NULL;
+        size_t elen = 0;
+        if (cetcd_apply_encode_member_remove(&entry, &elen, member_id) != 0)
+            return (cetcd_rpc_bytes){NULL, 0};
+        int rc = cetcd_v3rpc_propose_or_apply(entry, elen);
+        free(entry);
+        if (rc < 0) return (cetcd_rpc_bytes){NULL, 0};
     }
 
     return make_simple_cluster_response();
@@ -389,21 +407,17 @@ cetcd_rpc_bytes cluster_handle_member_update(cetcd_v3rpc *rpc,
             }
         }
         if (new_url[0]) {
-            cetcd_peer_info info = {0};
-            info.id = member_id;
-            char addr[256] = {0};
-            size_t copy_len = strlen(new_url) < sizeof(addr) - 1 ? strlen(new_url) : sizeof(addr) - 1;
-            memcpy(addr, new_url, copy_len);
-            addr[copy_len] = '\0';
-            char *colon = strrchr(addr, ':');
-            if (colon) {
-                *colon = '\0';
-                info.port = (uint16_t)atoi(colon + 1);
-            } else {
-                info.port = 2380;
-            }
-            snprintf(info.addr, sizeof(info.addr), "%s", addr);
-            cetcd_cluster_update_peer(g_rpc_cluster, member_id, &info);
+            char addr[256];
+            uint16_t port = 2380;
+            if (parse_peer_url_(new_url, strlen(new_url), addr, sizeof(addr), &port) != 0)
+                return make_simple_cluster_response();
+            uint8_t *entry = NULL;
+            size_t elen = 0;
+            if (cetcd_apply_encode_member_update(&entry, &elen, member_id, addr, port) != 0)
+                return (cetcd_rpc_bytes){NULL, 0};
+            int rc = cetcd_v3rpc_propose_or_apply(entry, elen);
+            free(entry);
+            if (rc < 0) return (cetcd_rpc_bytes){NULL, 0};
         }
     }
     return make_simple_cluster_response();
@@ -430,10 +444,16 @@ cetcd_rpc_bytes cluster_handle_member_promote(cetcd_v3rpc *rpc,
 
     /* Fail-closed: missing or already-voting member is an error. */
     if (g_rpc_cluster && member_id > 0) {
-        if (cetcd_cluster_promote(g_rpc_cluster, member_id) != CETCD_OK)
+        const cetcd_peer_info *cur = cetcd_cluster_get_peer(g_rpc_cluster, member_id);
+        if (!cur || !cur->is_learner)
             return (cetcd_rpc_bytes){NULL, 0};
-        if (g_rpc_raft)
-            (void)cetcd_raft_promote(g_rpc_raft, member_id);
+        uint8_t *entry = NULL;
+        size_t elen = 0;
+        if (cetcd_apply_encode_member_promote(&entry, &elen, member_id) != 0)
+            return (cetcd_rpc_bytes){NULL, 0};
+        int rc = cetcd_v3rpc_propose_or_apply(entry, elen);
+        free(entry);
+        if (rc < 0) return (cetcd_rpc_bytes){NULL, 0};
     }
     return make_simple_cluster_response();
 }

@@ -33,6 +33,10 @@ Performance-first, fail-closed design:
   in-memory raft log. Fail-closed: a failed rewrite leaves the old segment intact.
   Restart restores a dummy last-included index from the snapshot record and
   replays only the suffix.
+- **Member persistence** — MemberAdd/Remove/Promote/Update encode compact apply
+  tags, go through Raft, and persist the LMDB `members` bucket before mutating
+  memory. Restart loads peers (and Raft ids) before campaign so a MemberAdd
+  survives process restart. Joint-consensus ConfChange V2 is still pending.
 
 ## Previously done (auth data plane)
 
@@ -45,7 +49,7 @@ Performance-first, fail-closed design:
 
 | Gap | Why it matters | Suggested approach |
 |-----|----------------|--------------------|
-| Joint-consensus ConfChange V2 + persist members | Membership is still local (not a raft log entry); restarts drop MemberAdd | Propose ConfChange, persist a `members` bucket, restore before campaign |
+| Joint-consensus ConfChange V2 | Membership apply is one-phase; adding a voter does not use a joint quorum | Propose ConfChange V2, keep both configs until the new quorum is caught up |
 | Nested Txn (`RequestTxn`) | etcd allows nested transactions | Fail-closed today; execute recursively with the same `MaxTxnOps` budget |
 | Lease expiry / revoke still local deletes | Followers do not see expiry deletes via raft | Propose DeleteRange (or per-key Delete) from the expire callback |
 

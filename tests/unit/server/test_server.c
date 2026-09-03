@@ -504,6 +504,46 @@ CETCD_TEST_CASE(server_snapshot_count_truncates_wal) {
     cetcd_server_free(srv);
 }
 
+CETCD_TEST_CASE(server_member_add_survives_restart) {
+    char data_dir[] = "/tmp/cetcd-test-memb-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+
+    uint8_t add_buf[32];
+    size_t pos = 0;
+    add_buf[pos++] = 0x0a;
+    add_buf[pos++] = 0x0e;
+    memcpy(add_buf + pos, "127.0.0.1:2382", 14); pos += 14;
+    cetcd_server_rpc_result resp =
+        cetcd_server_handle_rpc(srv, "/etcdserverpb.Cluster/MemberAdd", add_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_server_rpc_result_free(&resp);
+    CETCD_ASSERT_EQ_INT((int)cetcd_server_peer_count(srv), 1);
+    cetcd_server_stop(srv);
+    cetcd_server_free(srv);
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+    srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+    CETCD_ASSERT_EQ_INT((int)cetcd_server_peer_count(srv), 1);
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_create_destroy),
     CETCD_TEST_ENTRY(server_handle_rpc_put_range),
@@ -516,6 +556,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_txn_put_survives_restart),
     CETCD_TEST_ENTRY(server_lease_survives_restart),
     CETCD_TEST_ENTRY(server_snapshot_count_truncates_wal),
+    CETCD_TEST_ENTRY(server_member_add_survives_restart),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

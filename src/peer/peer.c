@@ -1,9 +1,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include "cetcd/peer.h"
 #include "cetcd/base.h"
+#include "cetcd/backend.h"
 
 /* Internal structures matching the public API as opaque types in header */
 struct cetcd_peer {
@@ -20,6 +22,7 @@ struct cetcd_cluster {
     size_t             peer_cap;
     cetcd_peer_send_fn send_fn;
     void              *send_udata;
+    struct cetcd_backend *backend;
 };
 
 /* cetcd_peer API */
@@ -51,6 +54,7 @@ cetcd_cluster *cetcd_cluster_new(uint64_t self_id) {
     c->peer_cap = 0;
     c->send_fn = NULL;
     c->send_udata = NULL;
+    c->backend = NULL;
     /* Start with a small capacity to avoid many reallocs */
     c->peer_cap = 4;
     c->peers = (cetcd_peer **)malloc(c->peer_cap * sizeof(cetcd_peer *));
@@ -241,4 +245,81 @@ int cetcd_cluster_promote(cetcd_cluster *c, uint64_t id) {
         }
     }
     return CETCD_ERR_NOTFOUND;
+}
+
+#define MEMBERS_BUCKET "members"
+
+static void write_le64_(uint8_t *p, uint64_t v) {
+    for (int i = 0; i < 8; i++)
+        p[i] = (uint8_t)((v >> (8 * i)) & 0xFF);
+}
+
+static uint64_t read_le64_(const uint8_t *p) {
+    uint64_t v = 0;
+    for (int i = 0; i < 8; i++)
+        v |= (uint64_t)p[i] << (8 * i);
+    return v;
+}
+
+void cetcd_cluster_set_backend(cetcd_cluster *c, struct cetcd_backend *be) {
+    if (c) c->backend = be;
+}
+
+int cetcd_cluster_persist_peer(cetcd_cluster *c, const cetcd_peer_info *info) {
+    if (!c || !info || info->id == 0) return CETCD_ERR_INVAL;
+    if (!c->backend) return CETCD_OK;
+    uint8_t key[8];
+    write_le64_(key, info->id);
+    size_t alen = 0;
+    while (alen < sizeof(info->addr) && info->addr[alen]) alen++;
+    uint8_t val[1 + 2 + 256];
+    val[0] = info->is_learner ? 1 : 0;
+    val[1] = (uint8_t)(info->port & 0xFF);
+    val[2] = (uint8_t)((info->port >> 8) & 0xFF);
+    if (alen > 0) memcpy(val + 3, info->addr, alen);
+    return cetcd_backend_put(c->backend, MEMBERS_BUCKET, key, sizeof(key),
+                             val, 3 + alen);
+}
+
+int cetcd_cluster_persist_del(cetcd_cluster *c, uint64_t id) {
+    if (!c || id == 0) return CETCD_ERR_INVAL;
+    if (!c->backend) return CETCD_OK;
+    uint8_t key[8];
+    write_le64_(key, id);
+    int rc = cetcd_backend_del(c->backend, MEMBERS_BUCKET, key, sizeof(key));
+    if (rc == CETCD_ERR_NOTFOUND) return CETCD_OK;
+    return rc;
+}
+
+typedef struct {
+    cetcd_cluster *c;
+    int            rc;
+} load_ctx_;
+
+static bool load_cb_(const uint8_t *key, size_t key_len,
+                     const uint8_t *val, size_t val_len, void *udata) {
+    load_ctx_ *ctx = (load_ctx_ *)udata;
+    if (key_len != 8 || val_len < 3) return true;
+    cetcd_peer_info info;
+    memset(&info, 0, sizeof(info));
+    info.id = read_le64_(key);
+    info.is_learner = val[0] ? 1 : 0;
+    info.port = (uint16_t)val[1] | ((uint16_t)val[2] << 8);
+    size_t alen = val_len - 3;
+    if (alen >= sizeof(info.addr)) alen = sizeof(info.addr) - 1;
+    if (alen) memcpy(info.addr, val + 3, alen);
+    info.addr[alen] = '\0';
+    int rc = cetcd_cluster_add_peer(ctx->c, &info);
+    if (rc != CETCD_OK && rc != CETCD_ERR_EXISTS)
+        ctx->rc = rc;
+    return true;
+}
+
+int cetcd_cluster_load(cetcd_cluster *c, struct cetcd_backend *be) {
+    if (!c || !be) return CETCD_ERR_INVAL;
+    c->backend = be;
+    load_ctx_ ctx = {.c = c, .rc = CETCD_OK};
+    int rc = cetcd_backend_foreach(be, MEMBERS_BUCKET, load_cb_, &ctx);
+    if (rc != CETCD_OK && rc != CETCD_ERR_NOTFOUND) return rc;
+    return ctx.rc;
 }

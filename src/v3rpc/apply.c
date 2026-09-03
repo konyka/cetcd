@@ -2,15 +2,18 @@
 #include "cetcd/mvcc.h"
 #include "cetcd/lease.h"
 #include "cetcd/raft.h"
+#include "cetcd/peer.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 extern cetcd_mvcc_store *g_rpc_store;
 extern cetcd_lease_mgr  *g_rpc_lease_mgr;
 extern cetcd_raft       *g_rpc_raft;
+extern cetcd_cluster    *g_rpc_cluster;
 
 static cetcd_ready_flush_fn g_ready_flush_fn = NULL;
 static void                *g_ready_flush_ctx = NULL;
@@ -137,6 +140,74 @@ int cetcd_apply_encode_batch(uint8_t **out, size_t *out_len,
     return 0;
 }
 
+int cetcd_apply_encode_member_add(uint8_t **out, size_t *out_len,
+                                  uint64_t id, int is_learner,
+                                  const char *addr, uint16_t port) {
+    if (!out || !out_len || id == 0) return -1;
+    size_t alen = addr ? strlen(addr) : 0;
+    size_t cap = 1 + 10 + 10 + 10 + alen + 10;
+    uint8_t *buf = (uint8_t *)malloc(cap);
+    if (!buf) return -1;
+    size_t pos = 0;
+    buf[pos++] = CETCD_APPLY_MEMBER_ADD;
+    if (write_varint_(buf, cap, &pos, id) != 0) { free(buf); return -1; }
+    if (write_varint_(buf, cap, &pos, is_learner ? 1 : 0) != 0) { free(buf); return -1; }
+    if (write_varint_(buf, cap, &pos, (uint64_t)alen) != 0) { free(buf); return -1; }
+    if (alen) {
+        memcpy(buf + pos, addr, alen);
+        pos += alen;
+    }
+    if (write_varint_(buf, cap, &pos, (uint64_t)port) != 0) { free(buf); return -1; }
+    *out = buf;
+    *out_len = pos;
+    return 0;
+}
+
+int cetcd_apply_encode_member_remove(uint8_t **out, size_t *out_len, uint64_t id) {
+    if (!out || !out_len || id == 0) return -1;
+    uint8_t *buf = (uint8_t *)malloc(16);
+    if (!buf) return -1;
+    size_t pos = 0;
+    buf[pos++] = CETCD_APPLY_MEMBER_REMOVE;
+    if (write_varint_(buf, 16, &pos, id) != 0) { free(buf); return -1; }
+    *out = buf;
+    *out_len = pos;
+    return 0;
+}
+
+int cetcd_apply_encode_member_promote(uint8_t **out, size_t *out_len, uint64_t id) {
+    if (!out || !out_len || id == 0) return -1;
+    uint8_t *buf = (uint8_t *)malloc(16);
+    if (!buf) return -1;
+    size_t pos = 0;
+    buf[pos++] = CETCD_APPLY_MEMBER_PROMOTE;
+    if (write_varint_(buf, 16, &pos, id) != 0) { free(buf); return -1; }
+    *out = buf;
+    *out_len = pos;
+    return 0;
+}
+
+int cetcd_apply_encode_member_update(uint8_t **out, size_t *out_len,
+                                     uint64_t id, const char *addr, uint16_t port) {
+    if (!out || !out_len || id == 0) return -1;
+    size_t alen = addr ? strlen(addr) : 0;
+    size_t cap = 1 + 10 + 10 + alen + 10;
+    uint8_t *buf = (uint8_t *)malloc(cap);
+    if (!buf) return -1;
+    size_t pos = 0;
+    buf[pos++] = CETCD_APPLY_MEMBER_UPDATE;
+    if (write_varint_(buf, cap, &pos, id) != 0) { free(buf); return -1; }
+    if (write_varint_(buf, cap, &pos, (uint64_t)alen) != 0) { free(buf); return -1; }
+    if (alen) {
+        memcpy(buf + pos, addr, alen);
+        pos += alen;
+    }
+    if (write_varint_(buf, cap, &pos, (uint64_t)port) != 0) { free(buf); return -1; }
+    *out = buf;
+    *out_len = pos;
+    return 0;
+}
+
 static void lease_after_put_(const uint8_t *key, size_t key_len,
                              int64_t old_lease, int64_t new_lease) {
     if (!g_rpc_lease_mgr) return;
@@ -227,10 +298,79 @@ static int apply_delete_range_(const uint8_t *key, size_t klen,
     return 0;
 }
 
+static int apply_member_(uint8_t op, const uint8_t *data, size_t len) {
+    if (!g_rpc_cluster) return -1;
+    size_t pos = 1;
+    uint64_t id = 0;
+    if (read_varint_(data, len, &pos, &id) != 0 || id == 0) return -1;
+
+    if (op == CETCD_APPLY_MEMBER_REMOVE) {
+        if (cetcd_cluster_persist_del(g_rpc_cluster, id) != CETCD_OK) return -1;
+        (void)cetcd_cluster_remove_peer(g_rpc_cluster, id);
+        if (g_rpc_raft) (void)cetcd_raft_remove_peer(g_rpc_raft, id);
+        return 0;
+    }
+    if (op == CETCD_APPLY_MEMBER_PROMOTE) {
+        const cetcd_peer_info *cur = cetcd_cluster_get_peer(g_rpc_cluster, id);
+        if (!cur) return -1;
+        cetcd_peer_info next = *cur;
+        if (!next.is_learner) return 0; /* idempotent replay */
+        next.is_learner = 0;
+        if (cetcd_cluster_persist_peer(g_rpc_cluster, &next) != CETCD_OK) return -1;
+        if (cetcd_cluster_promote(g_rpc_cluster, id) != CETCD_OK) return -1;
+        if (g_rpc_raft) (void)cetcd_raft_promote(g_rpc_raft, id);
+        return 0;
+    }
+
+    uint64_t is_learner = 0;
+    if (op == CETCD_APPLY_MEMBER_ADD) {
+        if (read_varint_(data, len, &pos, &is_learner) != 0) return -1;
+    }
+    uint64_t alen = 0;
+    if (read_varint_(data, len, &pos, &alen) != 0) return -1;
+    if (alen > len - pos) return -1;
+    char addr[256];
+    memset(addr, 0, sizeof(addr));
+    if (alen >= sizeof(addr)) alen = sizeof(addr) - 1;
+    if (alen) memcpy(addr, data + pos, (size_t)alen);
+    pos += (size_t)alen;
+    uint64_t port = 0;
+    if (read_varint_(data, len, &pos, &port) != 0) return -1;
+
+    cetcd_peer_info info;
+    memset(&info, 0, sizeof(info));
+    info.id = id;
+    info.is_learner = is_learner ? 1 : 0;
+    info.port = (uint16_t)port;
+    snprintf(info.addr, sizeof(info.addr), "%s", addr);
+
+    if (op == CETCD_APPLY_MEMBER_UPDATE) {
+        const cetcd_peer_info *cur = cetcd_cluster_get_peer(g_rpc_cluster, id);
+        if (cur) info.is_learner = cur->is_learner;
+        if (cetcd_cluster_persist_peer(g_rpc_cluster, &info) != CETCD_OK) return -1;
+        return cetcd_cluster_update_peer(g_rpc_cluster, id, &info) == CETCD_OK ? 0 : -1;
+    }
+
+    if (cetcd_cluster_persist_peer(g_rpc_cluster, &info) != CETCD_OK) return -1;
+    int rc = cetcd_cluster_add_peer(g_rpc_cluster, &info);
+    if (rc != CETCD_OK && rc != CETCD_ERR_EXISTS) return -1;
+    if (g_rpc_raft)
+        (void)cetcd_raft_add_peer(g_rpc_raft, info.id, info.is_learner);
+    return 0;
+}
+
 int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len) {
-    if (!data || len < 2) return -1;
+    if (!data || len < 1) return -1;
     uint8_t op = data[0];
     size_t pos = 1;
+
+    if (op == CETCD_APPLY_MEMBER_ADD || op == CETCD_APPLY_MEMBER_REMOVE
+        || op == CETCD_APPLY_MEMBER_PROMOTE || op == CETCD_APPLY_MEMBER_UPDATE) {
+        if (len < 2) return -1;
+        return apply_member_(op, data, len);
+    }
+
+    if (len < 2) return -1;
 
     if (op == CETCD_APPLY_BATCH) {
         uint64_t n = 0;

@@ -940,6 +940,15 @@ uint64_t cetcd_raft_last_index(cetcd_raft *r) {
     return r->log_last_index;
 }
 
+uint32_t cetcd_raft_voter_count(const cetcd_raft *r) {
+    if (!r) return 0;
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < r->n_peers; i++) {
+        if (!peer_is_learner_(r, i)) n++;
+    }
+    return n;
+}
+
 const cetcd_entry *cetcd_raft_entry_at(const cetcd_raft *r, uint64_t index) {
     if (!r || index == 0 || index > r->log_last_index) return NULL;
     if (index < r->log_compacted) return NULL;

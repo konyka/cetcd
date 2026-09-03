@@ -241,9 +241,10 @@ per cetcd instance. Current buckets used by the live server:
 - `meta` — store revision (`revision`), compaction watermark (`compacted`),
   and raft apply cursor (`applied_index`).
 - `auth` — RBAC snapshot (`enabled`, `users`, `roles` blobs).
+- `lease` — grant TTL + wall-clock deadline per lease id.
+- `members` — cluster peer id, learner flag, addr, port.
 
-Additional buckets (`lease`, `members`, …) are reserved for upcoming persistence
-of those subsystems. cetcd is **not** disk-format compatible with bbolt; use `cetcd-migrate`
+cetcd is **not** disk-format compatible with bbolt; use `cetcd-migrate`
 to convert an etcd data directory. See [ADR 0002](./adr/0002-lmdb-backend.md).
 
 On `cetcd_server_start` with a configured `data_dir`, the server opens LMDB, calls
@@ -361,7 +362,10 @@ campaigns on `server_new` so the first Put does not wait for election ticks.
   so restarts restore remaining TTL. Lease expiry deletes are still local.
 - **Learners** are non-voting: they are excluded from quorum and vote counts.
   `MemberPromote` flips a learner to a voter (fail-closed if missing or already
-  voting). Membership is still applied locally, not via a ConfChange log entry.
+  voting). Membership changes are compact apply tags (5–8) proposed like KV
+  writes, persisted to an LMDB `members` bucket, then applied to the cluster
+  and Raft peer list. Restart loads that bucket before campaign.
+  Joint-consensus ConfChange V2 is still pending.
 - **WAL truncation** — after `snapshot-count` applies (config `0` means 10000),
   and only once `last_index == applied` (so an uncommitted suffix is not dropped),
   `process_ready_` rewrites `{data_dir}/wal/0000000000000000.wal` to a durable

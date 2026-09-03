@@ -3,6 +3,7 @@ cetcd_add_module(peer
         peer.c
     PUBLIC_DEPS
         cetcd_base
+        cetcd_backend
     PRIVATE_DEPS
         cetcd_raft
 )
