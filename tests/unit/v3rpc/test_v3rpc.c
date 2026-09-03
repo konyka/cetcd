@@ -806,12 +806,69 @@ CETCD_TEST_CASE(v3rpc_txn_too_many_ops) {
     cetcd_v3rpc_free(rpc);
 }
 
-CETCD_TEST_CASE(v3rpc_txn_nested_request_txn_rejected) {
+CETCD_TEST_CASE(v3rpc_txn_nested_request_txn) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
-    /* success op = RequestTxn (empty nested) — must fail, not silent-skip. */
+    /* Inner Txn success = Put key="nk" value="nv" */
+    uint8_t put_inner[16];
+    size_t p = 0;
+    put_inner[p++] = 0x0a; put_inner[p++] = 0x02;
+    memcpy(put_inner + p, "nk", 2); p += 2;
+    put_inner[p++] = 0x12; put_inner[p++] = 0x02;
+    memcpy(put_inner + p, "nv", 2); p += 2;
+    uint8_t inner_op[24];
+    size_t io = 0;
+    inner_op[io++] = 0x12; /* RequestPut */
+    inner_op[io++] = (uint8_t)p;
+    memcpy(inner_op + io, put_inner, p); io += p;
+    uint8_t inner_txn[32];
+    size_t it = 0;
+    inner_txn[it++] = 0x12; /* success */
+    inner_txn[it++] = (uint8_t)io;
+    memcpy(inner_txn + it, inner_op, io); it += io;
+
+    uint8_t outer_op[48];
+    size_t oo = 0;
+    outer_op[oo++] = 0x22; /* RequestTxn */
+    outer_op[oo++] = (uint8_t)it;
+    memcpy(outer_op + oo, inner_txn, it); oo += it;
+    uint8_t txn_buf[64];
+    size_t tpos = 0;
+    txn_buf[tpos++] = 0x12; /* field 2 = success */
+    txn_buf[tpos++] = (uint8_t)oo;
+    memcpy(txn_buf + tpos, outer_op, oo); tpos += oo;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", txn_buf, tpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int saw_txn = 0;
+    for (size_t i = 0; i + 1 < resp.len; i++) {
+        if (resp.data[i] == 0x22) { saw_txn = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(saw_txn);
+    cetcd_rpc_bytes_free(&resp);
+
+    uint8_t range_buf[8];
+    size_t rp = 0;
+    range_buf[rp++] = 0x0a; range_buf[rp++] = 0x02;
+    memcpy(range_buf + rp, "nk", 2); rp += 2;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_buf, rp);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found = 0;
+    for (size_t i = 0; i + 2 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "nv", 2) == 0) { found = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(found);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_txn_unknown_request_op_rejected) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* RequestOp field 5 is not Range/Put/DeleteRange/Txn — fail closed. */
     uint8_t op[8]; size_t o = 0;
-    op[o++] = 0x22; /* RequestOp field 4 = RequestTxn */
+    op[o++] = 0x2a;
     op[o++] = 0;
 
     uint8_t txn_buf[16]; size_t tpos = 0;
@@ -5631,7 +5688,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_lease_leases),
     CETCD_TEST_ENTRY(v3rpc_txn),
     CETCD_TEST_ENTRY(v3rpc_txn_too_many_ops),
-    CETCD_TEST_ENTRY(v3rpc_txn_nested_request_txn_rejected),
+    CETCD_TEST_ENTRY(v3rpc_txn_nested_request_txn),
+    CETCD_TEST_ENTRY(v3rpc_txn_unknown_request_op_rejected),
     CETCD_TEST_ENTRY(v3rpc_txn_value_compare_missing_key),
     CETCD_TEST_ENTRY(v3rpc_txn_empty_range_compare),
     CETCD_TEST_ENTRY(v3rpc_watch),

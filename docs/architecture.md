@@ -654,9 +654,9 @@ The `Txn` handler now evaluates `Compare` clauses against the MVCC store — sup
 `TxnResponse` with `ResponseHeader`, `succeeded` flag, and `ResponseOp` entries.
 `max(len(compare), len(success), len(failure)) > 128` fails at the RPC layer
 (`ErrTooManyOps`, etcd default `MaxTxnOps`) instead of silently truncating ops.
-Nested `RequestTxn` (RequestOp field 4) and unrecognized RequestOp tags fail at the
-RPC layer instead of being silently skipped while the outer Txn still returns success
-(full nested-Txn execution remains deferred).
+Nested `RequestTxn` (RequestOp field 4) is executed recursively with the same
+per-level `MaxTxnOps` budget; nesting deeper than 16 is fail-closed (C stack).
+Unrecognized RequestOp tags still fail the outer Txn instead of being skipped.
 Missing keys use actual `0` for integer targets while still loading the compare operand
 (so `VERSION == 1` fails, while `CREATE == 0` still succeeds for create-if-absent).
 `VALUE` compares on a missing key (or empty compare range) always evaluate false —
@@ -902,7 +902,7 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `Compact already compacted` (`revision <= compacted_rev` fails at the RPC layer instead of a silent success),
 `Compact zero revision` (omitted / `revision=0` fails at the RPC layer instead of a silent success),
 `HashKV bad revision` (`revision < compacted_rev` / `revision > current` fails at the RPC layer; was previously ignored),
-`Txn nested RequestTxn` (RequestOp field 4 / unknown op tags fail at the RPC layer instead of silent skip),
+`Txn nested RequestTxn` (RequestOp field 4 executes recursively; unknown op tags still fail at the RPC layer),
 `Txn VALUE/empty-range Compare` (missing-key VALUE and empty-range non-vacuous compares match etcd),
 `LeaseGrant duplicate ID` (re-granting an existing custom ID fails at the RPC layer instead of returning success with `ID=0`),
 `LeaseGrant MaxLeaseTTL` (`TTL > 9000000000` fails at the RPC layer; boundary value still succeeds),

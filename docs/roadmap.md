@@ -37,6 +37,9 @@ Performance-first, fail-closed design:
   tags, go through Raft, and persist the LMDB `members` bucket before mutating
   memory. Restart loads peers (and Raft ids) before campaign so a MemberAdd
   survives process restart. Joint-consensus ConfChange V2 is still pending.
+- **Nested Txn** — `RequestTxn` executes recursively (each level still
+  `max(compare,success,failure) ≤ 128`). Depth is capped at 16 to bound C
+  stack. Unknown RequestOp tags stay fail-closed.
 
 ## Previously done (auth data plane)
 
@@ -50,7 +53,6 @@ Performance-first, fail-closed design:
 | Gap | Why it matters | Suggested approach |
 |-----|----------------|--------------------|
 | Joint-consensus ConfChange V2 | Membership apply is one-phase; adding a voter does not use a joint quorum | Propose ConfChange V2, keep both configs until the new quorum is caught up |
-| Nested Txn (`RequestTxn`) | etcd allows nested transactions | Fail-closed today; execute recursively with the same `MaxTxnOps` budget |
 | Lease expiry / revoke still local deletes | Followers do not see expiry deletes via raft | Propose DeleteRange (or per-key Delete) from the expire callback |
 
 ### Security / ops

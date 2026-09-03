@@ -831,6 +831,12 @@ typedef struct {
     size_t         len;
 } txn_op_t;
 
+/* etcd has no extra depth cap; bound C stack (each frame holds TXN_MAX_OPS compares). */
+#define TXN_MAX_DEPTH 16
+static _Thread_local int g_txn_depth;
+
+static int txn_request_check_perm_(const uint8_t *req, size_t req_len);
+
 static int txn_op_check_perm_(const txn_op_t *op) {
     if (!op || !op->data || op->len == 0) return 0;
     size_t pos = 0;
@@ -838,7 +844,16 @@ static int txn_op_check_perm_(const txn_op_t *op) {
     int want_write = 1;
     if (tag == 0x0a) want_write = 0;           /* RequestRange */
     else if (tag == 0x12 || tag == 0x1a) want_write = 1; /* Put / DeleteRange */
-    else return -1; /* nested/unknown */
+    else if (tag == 0x22) {                    /* RequestTxn */
+        uint64_t nlen = 0;
+        if (read_varint(op->data, op->len, &pos, &nlen) != 0) return -1;
+        if (pos + nlen > op->len) return -1;
+        if (g_txn_depth + 1 >= TXN_MAX_DEPTH) return -1;
+        g_txn_depth++;
+        int rc = txn_request_check_perm_(op->data + pos, (size_t)nlen);
+        g_txn_depth--;
+        return rc;
+    } else return -1; /* unknown */
     uint64_t ilen = 0;
     if (read_varint(op->data, op->len, &pos, &ilen) != 0) return -1;
     size_t end = pos + (size_t)ilen;
@@ -864,8 +879,55 @@ static int txn_op_check_perm_(const txn_op_t *op) {
     return 0;
 }
 
+static int txn_request_check_perm_(const uint8_t *req, size_t req_len) {
+    if (!req) return 0;
+    size_t pos = 0;
+    while (pos < req_len) {
+        uint8_t tag = req[pos++];
+        if (tag == 0x0a) {
+            uint64_t clen = 0;
+            if (read_varint(req, req_len, &pos, &clen) != 0) return -1;
+            size_t cend = pos + (size_t)clen;
+            if (cend > req_len) cend = req_len;
+            while (pos < cend) {
+                uint8_t ct = req[pos++];
+                if (ct == 0x1a) {
+                    uint8_t *key = NULL;
+                    size_t klen = 0;
+                    if (read_bytes(req, cend, &pos, &key, &klen) != 0) return -1;
+                    int rc = cetcd_v3rpc_check_key_perm(0, key, klen);
+                    free(key);
+                    if (rc != 0) return rc;
+                } else {
+                    uint64_t skip = 0;
+                    if (read_varint(req, cend, &pos, &skip) != 0) break;
+                    if ((ct & 7) == 2) {
+                        if (pos + skip > cend) break;
+                        pos += (size_t)skip;
+                    }
+                }
+            }
+            pos = cend;
+        } else if (tag == 0x12 || tag == 0x1a) {
+            uint64_t olen = 0;
+            if (read_varint(req, req_len, &pos, &olen) != 0) return -1;
+            if (pos + olen > req_len) return -1;
+            txn_op_t inner = { req + pos, (size_t)olen };
+            if (txn_op_check_perm_(&inner) != 0) return -1;
+            pos += (size_t)olen;
+        } else {
+            uint64_t skip = 0;
+            if (read_varint(req, req_len, &pos, &skip) != 0) break;
+            if ((tag & 7) == 2) {
+                if (pos + skip > req_len) break;
+                pos += (size_t)skip;
+            }
+        }
+    }
+    return 0;
+}
+
 cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
-    (void)rpc;
     txn_compare_t compares[TXN_MAX_OPS];
     size_t n_compares = 0;
     txn_op_t success_ops[TXN_MAX_OPS];
@@ -1710,9 +1772,51 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                 free(rng_inner);
             }
         } else if (op_tag == 0x22) {
-            /* RequestTxn (nested): unsupported — fail closed, do not silent-skip. */
-            free(resp);
-            goto txn_cleanup;
+            uint64_t nlen = 0;
+            if (read_varint(od, ol, &op_pos, &nlen) != 0) {
+                free(resp);
+                goto txn_cleanup;
+            }
+            if (op_pos + nlen > ol) {
+                free(resp);
+                goto txn_cleanup;
+            }
+            if (g_txn_depth + 1 >= TXN_MAX_DEPTH) {
+                free(resp);
+                goto txn_cleanup;
+            }
+            g_txn_depth++;
+            cetcd_rpc_bytes nested = kv_handle_txn(rpc, od + op_pos, (size_t)nlen);
+            g_txn_depth--;
+            if (!nested.data || nested.len == 0) {
+                cetcd_rpc_bytes_free(&nested);
+                free(resp);
+                goto txn_cleanup;
+            }
+            size_t nlen_vi = 1;
+            for (uint64_t t = nested.len; t >= 128; t >>= 7) nlen_vi++;
+            size_t inner_msg_len = 1 + nlen_vi + nested.len;
+            if (rpos + 16 + inner_msg_len > resp_cap) {
+                resp_cap = resp_cap * 2 + inner_msg_len + 64;
+                uint8_t *t = realloc(resp, resp_cap);
+                if (!t) {
+                    free(resp);
+                    cetcd_rpc_bytes_free(&nested);
+                    goto txn_cleanup;
+                }
+                resp = t;
+            }
+            resp[rpos++] = 0x1a; /* field 3 = responses */
+            write_varint_local(resp, resp_cap, &rpos, (uint64_t)inner_msg_len);
+            resp[rpos++] = 0x22; /* field 4 = ResponseTxn */
+            write_varint_local(resp, resp_cap, &rpos, (uint64_t)nested.len);
+            memcpy(resp + rpos, nested.data, nested.len);
+            rpos += nested.len;
+            cetcd_rpc_bytes_free(&nested);
+            if (g_rpc_store) {
+                int64_t now = cetcd_mvcc_revision(g_rpc_store);
+                if (now > final_rev) final_rev = now;
+            }
         } else {
             /* Unrecognized RequestOp — fail closed. */
             free(resp);
