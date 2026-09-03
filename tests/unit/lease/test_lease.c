@@ -1,7 +1,13 @@
+#define _POSIX_C_SOURCE 200809L
 #include "cetcd/base.h"
 #include "cetcd/lease.h"
 #include "cetcd/mvcc.h"
+#include "cetcd/backend.h"
 #include "cetcd_test.h"
+
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 static int g_expired_count;
 static cetcd_lease_id g_expired_id;
@@ -287,6 +293,90 @@ CETCD_TEST_CASE(lease_reindex_from_store) {
     cetcd_lease_mgr_free(mgr);
 }
 
+CETCD_TEST_CASE(lease_persist_roundtrip) {
+    char path_template[] = "/tmp/cetcd-test-lease-XXXXXX";
+    char *path = mkdtemp(path_template);
+    CETCD_ASSERT_NOT_NULL(path);
+    cetcd_backend_config cfg = {
+        .path = path, .map_size = 16 * 1024 * 1024, .max_dbs = 8
+    };
+    cetcd_backend *be = cetcd_backend_open(&cfg);
+    CETCD_ASSERT_NOT_NULL(be);
+
+    cetcd_lease_mgr *mgr = cetcd_lease_mgr_new(test_expire_cb, NULL);
+    cetcd_lease_id id = cetcd_lease_grant(mgr, 10);
+    CETCD_ASSERT_TRUE(id > 0);
+    cetcd_lease_mgr_tick(mgr, 5000);
+    CETCD_ASSERT_EQ_INT(cetcd_lease_save(mgr, be), CETCD_OK);
+    int64_t granted = cetcd_lease_granted_ttl(mgr, id);
+    cetcd_lease_mgr_free(mgr);
+
+    cetcd_lease_mgr *loaded = cetcd_lease_mgr_new(test_expire_cb, NULL);
+    CETCD_ASSERT_EQ_INT(cetcd_lease_load(loaded, be), CETCD_OK);
+    CETCD_ASSERT_TRUE(cetcd_lease_exists(loaded, id));
+    CETCD_ASSERT_EQ_INT((int)cetcd_lease_granted_ttl(loaded, id), (int)granted);
+    int64_t rem = cetcd_lease_ttl_remaining(loaded, id);
+    CETCD_ASSERT_TRUE(rem >= 4 && rem <= 5);
+    cetcd_lease_mgr_free(loaded);
+    cetcd_backend_close(be);
+}
+
+CETCD_TEST_CASE(lease_persist_revoke) {
+    char path_template[] = "/tmp/cetcd-test-lease-rev-XXXXXX";
+    char *path = mkdtemp(path_template);
+    CETCD_ASSERT_NOT_NULL(path);
+    cetcd_backend_config cfg = {
+        .path = path, .map_size = 16 * 1024 * 1024, .max_dbs = 8
+    };
+    cetcd_backend *be = cetcd_backend_open(&cfg);
+    CETCD_ASSERT_NOT_NULL(be);
+
+    cetcd_lease_mgr *mgr = cetcd_lease_mgr_new(test_expire_cb, NULL);
+    cetcd_lease_mgr_set_backend(mgr, be);
+    cetcd_lease_id id = cetcd_lease_grant(mgr, 30);
+    CETCD_ASSERT_TRUE(id > 0);
+    CETCD_ASSERT_EQ_INT(cetcd_lease_revoke(mgr, id), CETCD_OK);
+    cetcd_lease_mgr_free(mgr);
+
+    cetcd_lease_mgr *loaded = cetcd_lease_mgr_new(test_expire_cb, NULL);
+    CETCD_ASSERT_EQ_INT(cetcd_lease_load(loaded, be), CETCD_OK);
+    CETCD_ASSERT_FALSE(cetcd_lease_exists(loaded, id));
+    cetcd_lease_mgr_free(loaded);
+    cetcd_backend_close(be);
+}
+
+CETCD_TEST_CASE(lease_load_preserves_ttl_on_reindex) {
+    char path_template[] = "/tmp/cetcd-test-lease-idx-XXXXXX";
+    char *path = mkdtemp(path_template);
+    CETCD_ASSERT_NOT_NULL(path);
+    cetcd_backend_config cfg = {
+        .path = path, .map_size = 16 * 1024 * 1024, .max_dbs = 8
+    };
+    cetcd_backend *be = cetcd_backend_open(&cfg);
+    CETCD_ASSERT_NOT_NULL(be);
+
+    cetcd_lease_mgr *mgr = cetcd_lease_mgr_new(test_expire_cb, NULL);
+    CETCD_ASSERT_EQ_INT((int)cetcd_lease_grant_id(mgr, 0x42, 60), 0x42);
+    CETCD_ASSERT_EQ_INT(cetcd_lease_save(mgr, be), CETCD_OK);
+    cetcd_lease_mgr_free(mgr);
+
+    cetcd_mvcc_store *store = cetcd_mvcc_store_new();
+    const uint8_t k1[] = "lk1", v[] = "v";
+    cetcd_mvcc_put(store, k1, 3, v, 1, 0x42);
+
+    cetcd_lease_mgr *loaded = cetcd_lease_mgr_new(test_expire_cb, NULL);
+    CETCD_ASSERT_EQ_INT(cetcd_lease_load(loaded, be), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_lease_reindex_from_store(loaded, store), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)cetcd_lease_granted_ttl(loaded, 0x42), 60);
+    const uint8_t *const *keys = NULL;
+    const size_t *lens = NULL;
+    CETCD_ASSERT_EQ_INT((int)cetcd_lease_keys(loaded, 0x42, &keys, &lens), 1);
+
+    cetcd_mvcc_store_free(store);
+    cetcd_lease_mgr_free(loaded);
+    cetcd_backend_close(be);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(lease_grant_revoke),
     CETCD_TEST_ENTRY(lease_expire),
@@ -300,6 +390,9 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(lease_grant_custom_id),
     CETCD_TEST_ENTRY(lease_grant_custom_id_bumps_next),
     CETCD_TEST_ENTRY(lease_reindex_from_store),
+    CETCD_TEST_ENTRY(lease_persist_roundtrip),
+    CETCD_TEST_ENTRY(lease_persist_revoke),
+    CETCD_TEST_ENTRY(lease_load_preserves_ttl_on_reindex),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

@@ -353,8 +353,9 @@ campaigns on `server_new` so the first Put does not wait for election ticks.
 - **Log owns entry bytes**: propose copies the payload so the RPC buffer can be freed
   immediately.
 - **Txn** write ops propose through Raft (one log entry per mutation so a Range
-  in the same txn still observes earlier writes). Lease expiry deletes are
-  still local.
+  in the same txn still observes earlier writes).
+- **Leases** persist to an LMDB `lease` bucket (granted TTL + wall-clock deadline)
+  so restarts restore remaining TTL. Lease expiry deletes are still local.
 
 Quorum uses one match index per voter (the leader's match is `last_index`). The previous
 implementation also pushed `last_index` as an extra voter, which blocked single-node

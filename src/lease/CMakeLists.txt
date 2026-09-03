@@ -4,4 +4,5 @@ cetcd_add_module(lease
     PUBLIC_DEPS
         cetcd_base
         cetcd_mvcc
+        cetcd_backend
 )

@@ -20,6 +20,7 @@ typedef struct cetcd_lease_mgr cetcd_lease_mgr;
 typedef struct cetcd_mvcc_store cetcd_mvcc_store;
 #define CETCD_MVCC_STORE_TYPEDEF 1
 #endif
+struct cetcd_backend;
 
 /* Callback when a lease expires. Keys attached to the lease are passed. */
 typedef void (*cetcd_lease_expire_fn)(cetcd_lease_id id,
@@ -75,8 +76,21 @@ size_t cetcd_lease_keys(const cetcd_lease_mgr *mgr, cetcd_lease_id id,
                          const size_t **out_lens);
 
 /* Rebuild in-memory lease index from live MVCC keys (after cetcd_mvcc_load).
- * Grants missing lease IDs with a default TTL until lease-bucket persistence. */
+ * If the lease bucket was loaded, missing IDs expire on the next tick;
+ * otherwise they are granted CETCD_LEASE_REBUILD_TTL (upgrade path). */
 int cetcd_lease_reindex_from_store(cetcd_lease_mgr *mgr, cetcd_mvcc_store *store);
+
+/* Attach LMDB so Grant/KeepAlive/Revoke/expire persist the `lease` bucket. */
+void cetcd_lease_mgr_set_backend(cetcd_lease_mgr *mgr, struct cetcd_backend *be);
+
+/* Snapshot every live lease + next_id into `be`. 0 on success. */
+int cetcd_lease_save(cetcd_lease_mgr *mgr, struct cetcd_backend *be);
+
+/* Restore leases from the `lease` bucket. Remaining TTL uses wall-clock
+ * deadlines so downtime is consumed. Missing bucket is OK (empty). */
+int cetcd_lease_load(cetcd_lease_mgr *mgr, struct cetcd_backend *be);
+
+#define CETCD_LEASE_REBUILD_TTL 300
 
 #ifdef __cplusplus
 }

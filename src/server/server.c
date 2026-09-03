@@ -1038,10 +1038,13 @@ int cetcd_server_start(cetcd_server *srv) {
             cetcd_mvcc_store *store = cetcd_v3rpc_store(srv->rpc);
             if (store) {
                 cetcd_mvcc_load(store, srv->backend);
-                /* Lease mgr is memory-only; rebuild index from key.lease_id. */
+                /* Lease mgr: restore TTLs from the lease bucket, then attach keys. */
                 cetcd_lease_mgr *leases = cetcd_v3rpc_leases(srv->rpc);
-                if (leases)
+                if (leases) {
+                    cetcd_lease_mgr_set_backend(leases, srv->backend);
+                    (void)cetcd_lease_load(leases, srv->backend);
                     cetcd_lease_reindex_from_store(leases, store);
+                }
             }
             cetcd_v3rpc_set_auth_backend(srv->rpc, srv->backend);
             extern cetcd_auth_store *g_rpc_auth;

@@ -22,6 +22,9 @@ Performance-first, fail-closed design:
 - **Txn writes** — each Put/DeleteRange in a Txn is proposed like a standalone
   write (preserves interleaved Range semantics). Tag-3 batch encoding is available
   for packing consecutive writes; nesting is rejected.
+- **Lease persistence** — Grant/KeepAlive/Revoke/expire write the LMDB `lease`
+  bucket (id + granted TTL + wall-clock deadline). Restart restores remaining TTL
+  before accepting traffic; keys are reattached from MVCC.
 
 ## Previously done (auth data plane)
 
@@ -34,7 +37,6 @@ Performance-first, fail-closed design:
 
 | Gap | Why it matters | Suggested approach |
 |-----|----------------|--------------------|
-| Lease persistence | Restarts drop TTLs; `reindex_from_store` uses a default TTL | Persist lease id/ttl/remaining/keys in an LMDB `lease` bucket; restore before accepting traffic |
 | Joint-consensus membership + learner promote | `MemberPromote` is a no-op | Raft ConfChange V2; persist members bucket |
 | Snapshot → WAL truncation | Unbounded WAL growth | After `snapshot-count` applies, write snap, `wal.Release`, drop old segments |
 | Nested Txn (`RequestTxn`) | etcd allows nested transactions | Fail-closed today; execute recursively with the same `MaxTxnOps` budget |
