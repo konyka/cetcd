@@ -20,6 +20,10 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/hmac.h>
+#include <openssl/pem.h>
+#include <openssl/bio.h>
+#include <openssl/bn.h>
+#include <openssl/ecdsa.h>
 #endif
 #include <stdio.h>
 #if CETCD_HAS_CRYPT
@@ -36,6 +40,11 @@ typedef struct cetcd_auth_token_ent {
     uint64_t expires_ns;
 } cetcd_auth_token_ent;
 
+#define CETCD_JWT_NONE  0
+#define CETCD_JWT_HS256 1
+#define CETCD_JWT_RS256 2
+#define CETCD_JWT_ES256 3
+
 struct cetcd_auth_store {
     cetcd_hashmap *users;   /* key: username (string), value: cetcd_user* */
     cetcd_hashmap *roles;   /* key: role name (string), value: cetcd_role* */
@@ -44,9 +53,12 @@ struct cetcd_auth_store {
     uint64_t token_ttl_ns;
     uint64_t token_seq;
     int      bcrypt_cost; /* 0 = SHA-256 */
-    int      jwt_hs256;   /* 1 = issue/verify HS256 JWTs instead of opaque */
+    int      jwt_alg;
     uint8_t *jwt_key;
     size_t   jwt_key_len;
+#if CETCD_HAS_OPENSSL
+    EVP_PKEY *jwt_pkey;
+#endif
     char     jwt_user[128];
 };
 
@@ -122,6 +134,9 @@ void cetcd_auth_store_free(cetcd_auth_store *s) {
         cetcd_hashmap_free(s->tokens);
     }
     free(s->jwt_key);
+#if CETCD_HAS_OPENSSL
+    EVP_PKEY_free(s->jwt_pkey);
+#endif
     free(s);
 }
 
@@ -742,6 +757,130 @@ static int jwt_ct_eq_(const uint8_t *a, const uint8_t *b, size_t n) {
     return d == 0;
 }
 
+static int jwt_digest_sign_(EVP_PKEY *pkey, const uint8_t *data, size_t len,
+                            uint8_t **out, size_t *out_len) {
+    if (!pkey || !data || !out || !out_len) return -1;
+    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    if (!ctx) return -1;
+    size_t sl = 0;
+    uint8_t *sig = NULL;
+    if (EVP_DigestSignInit(ctx, NULL, EVP_sha256(), NULL, pkey) != 1 ||
+        EVP_DigestSign(ctx, NULL, &sl, data, len) != 1) {
+        EVP_MD_CTX_free(ctx);
+        return -1;
+    }
+    sig = (uint8_t *)malloc(sl);
+    if (!sig) { EVP_MD_CTX_free(ctx); return -1; }
+    if (EVP_DigestSign(ctx, sig, &sl, data, len) != 1) {
+        free(sig);
+        EVP_MD_CTX_free(ctx);
+        return -1;
+    }
+    EVP_MD_CTX_free(ctx);
+    *out = sig;
+    *out_len = sl;
+    return 0;
+}
+
+static int jwt_digest_verify_(EVP_PKEY *pkey, const uint8_t *data, size_t len,
+                              const uint8_t *sig, size_t sig_len) {
+    if (!pkey || !data || !sig) return -1;
+    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    if (!ctx) return -1;
+    int ok = EVP_DigestVerifyInit(ctx, NULL, EVP_sha256(), NULL, pkey) == 1 &&
+             EVP_DigestVerify(ctx, sig, sig_len, data, len) == 1;
+    EVP_MD_CTX_free(ctx);
+    return ok ? 0 : -1;
+}
+
+static int ecdsa_der_to_raw_(const uint8_t *der, size_t der_len, uint8_t raw[64]) {
+    const unsigned char *p = der;
+    ECDSA_SIG *sig = d2i_ECDSA_SIG(NULL, &p, (long)der_len);
+    if (!sig) return -1;
+    const BIGNUM *r = NULL, *s = NULL;
+    ECDSA_SIG_get0(sig, &r, &s);
+    int ok = r && s && BN_bn2binpad(r, raw, 32) == 32 &&
+             BN_bn2binpad(s, raw + 32, 32) == 32;
+    ECDSA_SIG_free(sig);
+    return ok ? 0 : -1;
+}
+
+static int ecdsa_raw_to_der_(const uint8_t raw[64], uint8_t **der, size_t *der_len) {
+    BIGNUM *r = BN_bin2bn(raw, 32, NULL);
+    BIGNUM *s = BN_bin2bn(raw + 32, 32, NULL);
+    ECDSA_SIG *sig = ECDSA_SIG_new();
+    if (!r || !s || !sig || ECDSA_SIG_set0(sig, r, s) != 1) {
+        BN_free(r); BN_free(s); ECDSA_SIG_free(sig);
+        return -1;
+    }
+    int n = i2d_ECDSA_SIG(sig, NULL);
+    if (n <= 0) { ECDSA_SIG_free(sig); return -1; }
+    uint8_t *buf = (uint8_t *)malloc((size_t)n);
+    if (!buf) { ECDSA_SIG_free(sig); return -1; }
+    uint8_t *p = buf;
+    if (i2d_ECDSA_SIG(sig, &p) != n) {
+        free(buf); ECDSA_SIG_free(sig); return -1;
+    }
+    ECDSA_SIG_free(sig);
+    *der = buf;
+    *der_len = (size_t)n;
+    return 0;
+}
+
+static const char *jwt_alg_name_(int alg) {
+    if (alg == CETCD_JWT_HS256) return "HS256";
+    if (alg == CETCD_JWT_RS256) return "RS256";
+    if (alg == CETCD_JWT_ES256) return "ES256";
+    return NULL;
+}
+
+static int jwt_sign_(cetcd_auth_store *s, const uint8_t *data, size_t len,
+                     uint8_t **out, size_t *out_len) {
+    if (s->jwt_alg == CETCD_JWT_HS256) {
+        uint8_t *mac = (uint8_t *)malloc(32);
+        if (!mac) return -1;
+        if (jwt_hmac_(s, data, len, mac) != 0) { free(mac); return -1; }
+        *out = mac;
+        *out_len = 32;
+        return 0;
+    }
+    uint8_t *sig = NULL;
+    size_t sl = 0;
+    if (jwt_digest_sign_(s->jwt_pkey, data, len, &sig, &sl) != 0) return -1;
+    if (s->jwt_alg == CETCD_JWT_ES256) {
+        uint8_t raw[64];
+        if (ecdsa_der_to_raw_(sig, sl, raw) != 0) { free(sig); return -1; }
+        free(sig);
+        sig = (uint8_t *)malloc(64);
+        if (!sig) return -1;
+        memcpy(sig, raw, 64);
+        sl = 64;
+    }
+    *out = sig;
+    *out_len = sl;
+    return 0;
+}
+
+static int jwt_verify_(cetcd_auth_store *s, const uint8_t *data, size_t len,
+                       const uint8_t *sig, size_t sig_len) {
+    if (s->jwt_alg == CETCD_JWT_HS256) {
+        uint8_t expect[32];
+        if (sig_len != 32) return -1;
+        if (jwt_hmac_(s, data, len, expect) != 0) return -1;
+        return jwt_ct_eq_(sig, expect, 32) ? 0 : -1;
+    }
+    if (s->jwt_alg == CETCD_JWT_ES256) {
+        if (sig_len != 64) return -1;
+        uint8_t *der = NULL;
+        size_t der_len = 0;
+        if (ecdsa_raw_to_der_(sig, &der, &der_len) != 0) return -1;
+        int rc = jwt_digest_verify_(s->jwt_pkey, data, len, der, der_len);
+        free(der);
+        return rc;
+    }
+    return jwt_digest_verify_(s->jwt_pkey, data, len, sig, sig_len);
+}
+
 static int jwt_claim_str_(const char *json, size_t len, const char *key,
                           char *out, size_t cap) {
     char pat[80];
@@ -788,9 +927,12 @@ static int jwt_claim_u64_(const char *json, size_t len, const char *key, uint64_
 }
 
 static char *jwt_issue_(cetcd_auth_store *s, const char *username) {
-    static const char hdr[] = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}";
-    if (!s->jwt_key || s->jwt_key_len == 0) return NULL;
+    const char *alg = jwt_alg_name_(s->jwt_alg);
+    if (!alg) return NULL;
     if (strchr(username, '"') || strchr(username, '\\')) return NULL;
+    char hdr[48];
+    int hn = snprintf(hdr, sizeof(hdr), "{\"alg\":\"%s\",\"typ\":\"JWT\"}", alg);
+    if (hn < 0 || (size_t)hn >= sizeof(hdr)) return NULL;
     uint64_t ttl = s->token_ttl_ns ? s->token_ttl_ns : CETCD_AUTH_JWT_DEFAULT_TTL_NS;
     uint64_t exp = cetcd_clock_realtime_ns() / 1000000000ULL + ttl / 1000000000ULL;
     if (ttl / 1000000000ULL == 0) exp += 1;
@@ -802,27 +944,33 @@ static char *jwt_issue_(cetcd_auth_store *s, const char *username) {
                       (unsigned long long)exp);
     if (pn < 0 || (size_t)pn >= sizeof(payload)) return NULL;
     char hb[64], pb[400];
-    size_t hlen = b64url_encode_((const uint8_t *)hdr, sizeof(hdr) - 1, hb, sizeof(hb));
+    size_t hlen = b64url_encode_((const uint8_t *)hdr, (size_t)hn, hb, sizeof(hb));
     size_t plen = b64url_encode_((const uint8_t *)payload, (size_t)pn, pb, sizeof(pb));
     if (!hlen || !plen) return NULL;
     char signing[512];
     int sl = snprintf(signing, sizeof(signing), "%s.%s", hb, pb);
     if (sl < 0 || (size_t)sl >= sizeof(signing)) return NULL;
-    uint8_t mac[32];
-    if (jwt_hmac_(s, (const uint8_t *)signing, (size_t)sl, mac) != 0) return NULL;
-    char sb[64];
-    if (!b64url_encode_(mac, 32, sb, sizeof(sb))) return NULL;
-    size_t tok_len = (size_t)sl + 1 + strlen(sb);
+    uint8_t *sig = NULL;
+    size_t sig_len = 0;
+    if (jwt_sign_(s, (const uint8_t *)signing, (size_t)sl, &sig, &sig_len) != 0)
+        return NULL;
+    char sb[1024];
+    size_t sblen = b64url_encode_(sig, sig_len, sb, sizeof(sb));
+    free(sig);
+    if (!sblen) return NULL;
+    size_t tok_len = (size_t)sl + 1 + sblen;
     if (tok_len >= CETCD_AUTH_MAX_TOKEN_LEN) return NULL;
     char *tok = (char *)malloc(tok_len + 1);
     if (!tok) return NULL;
     memcpy(tok, signing, (size_t)sl);
     tok[sl] = '.';
-    memcpy(tok + sl + 1, sb, strlen(sb) + 1);
+    memcpy(tok + sl + 1, sb, sblen + 1);
     return tok;
 }
 
 static const char *jwt_user_for_(cetcd_auth_store *s, const char *token, uint64_t now_ns) {
+    const char *alg = jwt_alg_name_(s->jwt_alg);
+    if (!alg) return NULL;
     const char *p1 = strchr(token, '.');
     if (!p1) return NULL;
     const char *p2 = strchr(p1 + 1, '.');
@@ -831,19 +979,19 @@ static const char *jwt_user_for_(cetcd_auth_store *s, const char *token, uint64_
     size_t plen = (size_t)(p2 - (p1 + 1));
     size_t slen = strlen(p2 + 1);
     if (!hlen || !plen || !slen) return NULL;
-    uint8_t hdr[128], pay[512], mac[48], expect[32];
+    uint8_t hdr[128], pay[512], mac[1024];
     size_t hdr_n = 0, pay_n = 0, mac_n = 0;
     if (b64url_decode_(token, hlen, hdr, sizeof(hdr) - 1, &hdr_n) != 0) return NULL;
     if (b64url_decode_(p1 + 1, plen, pay, sizeof(pay) - 1, &pay_n) != 0) return NULL;
     if (b64url_decode_(p2 + 1, slen, mac, sizeof(mac), &mac_n) != 0) return NULL;
     hdr[hdr_n] = '\0';
     pay[pay_n] = '\0';
-    if (!find_bytes_(hdr, hdr_n, "HS256", 5) || find_bytes_(hdr, hdr_n, "\"none\"", 6))
+    if (!find_bytes_(hdr, hdr_n, alg, strlen(alg)) ||
+        find_bytes_(hdr, hdr_n, "\"none\"", 6))
         return NULL;
-    if (mac_n != 32) return NULL;
-    size_t sig_len = hlen + 1 + plen;
-    if (jwt_hmac_(s, (const uint8_t *)token, sig_len, expect) != 0) return NULL;
-    if (!jwt_ct_eq_(mac, expect, 32)) return NULL;
+    size_t sig_in_len = hlen + 1 + plen;
+    if (jwt_verify_(s, (const uint8_t *)token, sig_in_len, mac, mac_n) != 0)
+        return NULL;
     char user[128];
     uint64_t rev = 0, exp = 0;
     if (jwt_claim_str_((const char *)pay, pay_n, "username", user, sizeof(user)) != 0)
@@ -867,26 +1015,53 @@ static int jwt_apply_spec_(cetcd_auth_store *s, const char *sign_method,
     return CETCD_ERR_UNSUPPORT;
 #else
     if (!sign_method || !sign_method[0]) return CETCD_ERR_INVAL;
-    if (strcmp(sign_method, "HS256") != 0) return CETCD_ERR_UNSUPPORT;
+    int alg = CETCD_JWT_NONE;
+    if (strcmp(sign_method, "HS256") == 0) alg = CETCD_JWT_HS256;
+    else if (strcmp(sign_method, "RS256") == 0) alg = CETCD_JWT_RS256;
+    else if (strcmp(sign_method, "ES256") == 0) alg = CETCD_JWT_ES256;
+    else return CETCD_ERR_UNSUPPORT;
     if (!priv_key || !priv_key[0]) return CETCD_ERR_INVAL;
-    uint8_t *key = NULL;
-    size_t key_len = 0;
-    int rc = read_whole_file_(priv_key, &key, &key_len);
-    if (rc != CETCD_OK) return rc;
     if (ttl && ttl[0]) {
         uint64_t ns = 0;
-        if (parse_go_duration_ns_(ttl, &ns) != 0 || ns == 0) {
-            free(key);
+        if (parse_go_duration_ns_(ttl, &ns) != 0 || ns == 0)
             return CETCD_ERR_INVAL;
-        }
         s->token_ttl_ns = ns;
     } else {
         s->token_ttl_ns = CETCD_AUTH_JWT_DEFAULT_TTL_NS;
     }
+    if (alg == CETCD_JWT_HS256) {
+        uint8_t *key = NULL;
+        size_t key_len = 0;
+        int rc = read_whole_file_(priv_key, &key, &key_len);
+        if (rc != CETCD_OK) return rc;
+        free(s->jwt_key);
+        s->jwt_key = key;
+        s->jwt_key_len = key_len;
+        EVP_PKEY_free(s->jwt_pkey);
+        s->jwt_pkey = NULL;
+        s->jwt_alg = alg;
+        return CETCD_OK;
+    }
+    BIO *bio = BIO_new_file(priv_key, "r");
+    if (!bio) return CETCD_ERR_IO;
+    EVP_PKEY *pk = PEM_read_bio_PrivateKey(bio, NULL, NULL, NULL);
+    BIO_free(bio);
+    if (!pk) return CETCD_ERR_INVAL;
+    if (alg == CETCD_JWT_RS256 && !EVP_PKEY_is_a(pk, "RSA")) {
+        EVP_PKEY_free(pk);
+        return CETCD_ERR_INVAL;
+    }
+    if (alg == CETCD_JWT_ES256 &&
+        (!EVP_PKEY_is_a(pk, "EC") || EVP_PKEY_get_bits(pk) != 256)) {
+        EVP_PKEY_free(pk);
+        return CETCD_ERR_INVAL;
+    }
     free(s->jwt_key);
-    s->jwt_key = key;
-    s->jwt_key_len = key_len;
-    s->jwt_hs256 = 1;
+    s->jwt_key = NULL;
+    s->jwt_key_len = 0;
+    EVP_PKEY_free(s->jwt_pkey);
+    s->jwt_pkey = pk;
+    s->jwt_alg = alg;
     return CETCD_OK;
 #endif
 }
@@ -917,7 +1092,7 @@ int cetcd_auth_set_token_spec(cetcd_auth_store *s, const char *spec) {
         if (strcmp(k, "sign-method") == 0) sign_method = v;
         else if (strcmp(k, "priv-key") == 0) priv_key = v;
         else if (strcmp(k, "ttl") == 0) ttl = v;
-        else if (strcmp(k, "pub-key") == 0) { /* HS256 ignores pub-key */ }
+        else if (strcmp(k, "pub-key") == 0) { /* priv-key is enough to sign+verify */ }
         else return CETCD_ERR_INVAL;
         p = next ? next + 1 : NULL;
     }
@@ -932,7 +1107,7 @@ char *cetcd_auth_issue_token(cetcd_auth_store *s, const char *username) {
     if (!s || !username || !s->tokens) return NULL;
     if (!cetcd_find_user(s, username)) return NULL;
 #if CETCD_HAS_OPENSSL
-    if (s->jwt_hs256)
+    if (s->jwt_alg)
         return jwt_issue_(s, username);
 #endif
 
@@ -971,7 +1146,7 @@ const char *cetcd_auth_user_for_token(cetcd_auth_store *s, const char *token,
                                       uint64_t now_ns) {
     if (!s || !token || token[0] == '\0') return NULL;
 #if CETCD_HAS_OPENSSL
-    if (s->jwt_hs256)
+    if (s->jwt_alg)
         return jwt_user_for_(s, token, now_ns);
 #endif
     if (!s->tokens) return NULL;
@@ -1030,7 +1205,7 @@ static void auth_drop_collected_tokens_(cetcd_auth_store *s, struct auth_tok_col
 
 void cetcd_auth_revoke_user_tokens(cetcd_auth_store *s, const char *username) {
     if (!s || !username) return;
-    if (s->jwt_hs256) return; /* etcd JWT invalidateUser is a no-op */
+    if (s->jwt_alg) return; /* etcd JWT invalidateUser is a no-op */
     if (!s->tokens) return;
     struct auth_tok_collect c;
     memset(&c, 0, sizeof(c));

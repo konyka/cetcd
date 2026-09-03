@@ -61,8 +61,8 @@ Performance-first, fail-closed design:
 - **bcrypt password hashing** — default remains SHA-256 (cheap, existing
   records). `--bcrypt-cost N` (4..31) hashes new passwords with `$2b$` via
   libcrypt; verify accepts both encodings. `--auth-token simple` is the
-  default; `--auth-token jwt,sign-method=HS256,priv-key=PATH[,ttl=5m]` issues
-  HS256 JWTs (username/revision/exp). Other sign-methods fail closed.
+  default; `--auth-token jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]`
+  issues JWTs (username/revision/exp). Other sign-methods fail closed.
 - **`--max-request-bytes` / `--quota-backend-bytes`** — client read buffer
   grows up to `max-request-bytes` (default 1.5 MiB); a claimed frame larger
   than the cap closes the connection. Puts fail closed with NOSPACE when
@@ -84,7 +84,6 @@ None remaining in this pass.
 
 | Gap | Why it matters | Suggested approach |
 |-----|----------------|--------------------|
-| JWT RS256/ES256 | HS256 covers HMAC clusters; RSA/ECDSA PEMs are still fail-closed | Same compact JWT codec with EVP_DigestSign. |
 | pprof CPU profile quality | `/debug/pprof/profile` is coarse | Keep off the Raft/reactor hot path; sample in a worker. |
 
 ### Wire compatibility

@@ -94,8 +94,8 @@ int cetcd_auth_revoke_permission(cetcd_auth_store *s, const char *role);
 void        cetcd_auth_set_token_ttl_ns(cetcd_auth_store *s, uint64_t ttl_ns);
 
 /* etcd --auth-token spec: "simple" / empty, or
- * "jwt,sign-method=HS256,priv-key=PATH[,ttl=5m]". Other JWT methods and
- * jwt without a signing key fail closed. */
+ * "jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]". Other JWT
+ * methods and jwt without a signing key fail closed. */
 int         cetcd_auth_set_token_spec(cetcd_auth_store *s, const char *spec);
 
 /* Issue a unique opaque token for `username`. Caller frees the returned

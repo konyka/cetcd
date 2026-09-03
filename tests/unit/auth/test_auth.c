@@ -201,10 +201,63 @@ CETCD_TEST_CASE(auth_jwt_hs256_roundtrip_and_tamper) {
     free(tok);
 
     CETCD_ASSERT_EQ_INT(cetcd_auth_set_token_spec(s, "jwt"), CETCD_ERR_INVAL);
-    CETCD_ASSERT_EQ_INT(cetcd_auth_set_token_spec(s, "jwt,sign-method=RS256,priv-key=/dev/null"),
+    CETCD_ASSERT_EQ_INT(cetcd_auth_set_token_spec(s, "jwt,sign-method=PS256,priv-key=/dev/null"),
                         CETCD_ERR_UNSUPPORT);
     cetcd_auth_store_free(s);
     cleanup_hmac_key_(dir);
+}
+
+static int write_pem_key_(char *dir, size_t dirsz, char *spec, size_t specsz,
+                          const char *alg, const char *openssl_args) {
+    char tmpl[] = "/tmp/cetcd-jwt-XXXXXX";
+    if (!mkdtemp(tmpl)) return -1;
+    snprintf(dir, dirsz, "%s", tmpl);
+    char path[300], cmd[640];
+    snprintf(path, sizeof(path), "%s/key.pem", tmpl);
+    snprintf(cmd, sizeof(cmd),
+             "openssl genpkey %s -out '%s' >/dev/null 2>&1", openssl_args, path);
+    if (system(cmd) != 0) return -1;
+    snprintf(spec, specsz, "jwt,sign-method=%s,priv-key=%s,ttl=5m", alg, path);
+    return 0;
+}
+
+static void cleanup_pem_key_(const char *dir) {
+    char path[300];
+    snprintf(path, sizeof(path), "%s/key.pem", dir);
+    unlink(path);
+    rmdir(dir);
+}
+
+CETCD_TEST_CASE(auth_jwt_rs256_es256_roundtrip) {
+    char dir[128], spec[400];
+    CETCD_ASSERT_EQ_INT(write_pem_key_(dir, sizeof(dir), spec, sizeof(spec),
+        "RS256", "-algorithm RSA -pkeyopt rsa_keygen_bits:2048"), 0);
+    cetcd_auth_store *s = cetcd_auth_store_new();
+    CETCD_ASSERT_EQ_INT(cetcd_auth_add_user(s, "alice", "secret"), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_auth_set_token_spec(s, spec), CETCD_OK);
+    char *tok = cetcd_auth_issue_token(s, "alice");
+    CETCD_ASSERT_NOT_NULL(tok);
+    uint64_t now = cetcd_clock_realtime_ns();
+    CETCD_ASSERT_TRUE(strcmp(cetcd_auth_user_for_token(s, tok, now), "alice") == 0);
+    size_t n = strlen(tok);
+    tok[n - 1] = (char)(tok[n - 1] == 'A' ? 'B' : 'A');
+    CETCD_ASSERT_NULL(cetcd_auth_user_for_token(s, tok, now));
+    free(tok);
+    cetcd_auth_store_free(s);
+    cleanup_pem_key_(dir);
+
+    CETCD_ASSERT_EQ_INT(write_pem_key_(dir, sizeof(dir), spec, sizeof(spec),
+        "ES256", "-algorithm EC -pkeyopt ec_paramgen_curve:P-256"), 0);
+    s = cetcd_auth_store_new();
+    CETCD_ASSERT_EQ_INT(cetcd_auth_add_user(s, "alice", "secret"), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_auth_set_token_spec(s, spec), CETCD_OK);
+    tok = cetcd_auth_issue_token(s, "alice");
+    CETCD_ASSERT_NOT_NULL(tok);
+    now = cetcd_clock_realtime_ns();
+    CETCD_ASSERT_TRUE(strcmp(cetcd_auth_user_for_token(s, tok, now), "alice") == 0);
+    free(tok);
+    cetcd_auth_store_free(s);
+    cleanup_pem_key_(dir);
 }
 
 CETCD_TEST_CASE(auth_jwt_expiry_and_stateless_password_change) {
@@ -346,6 +399,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auth_token_expiry_fail_closed),
     CETCD_TEST_ENTRY(auth_revoke_tokens_on_password_change),
     CETCD_TEST_ENTRY(auth_jwt_hs256_roundtrip_and_tamper),
+    CETCD_TEST_ENTRY(auth_jwt_rs256_es256_roundtrip),
     CETCD_TEST_ENTRY(auth_jwt_expiry_and_stateless_password_change),
     CETCD_TEST_ENTRY(auth_admin_and_key_perm),
     CETCD_TEST_ENTRY(auth_persist_roundtrip),

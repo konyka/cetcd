@@ -654,14 +654,14 @@ CETCD_TEST_CASE(server_start_rejects_jwt_without_key) {
     cetcd_server_free(srv);
 }
 
-CETCD_TEST_CASE(server_start_rejects_jwt_rs256) {
+CETCD_TEST_CASE(server_start_rejects_jwt_ps256) {
     cetcd_server_config cfg;
     memset(&cfg, 0, sizeof(cfg));
     cfg.node_id = 1;
     cfg.listen_port = 2379;
     cfg.election_tick = 10;
     cfg.heartbeat_tick = 1;
-    strncpy(cfg.auth_token, "jwt,sign-method=RS256,priv-key=/dev/null",
+    strncpy(cfg.auth_token, "jwt,sign-method=PS256,priv-key=/dev/null",
             sizeof(cfg.auth_token) - 1);
 
     cetcd_server *srv = cetcd_server_new(&cfg);
@@ -689,6 +689,33 @@ CETCD_TEST_CASE(server_start_accepts_jwt_hs256) {
     cfg.heartbeat_tick = 1;
     snprintf(cfg.auth_token, sizeof(cfg.auth_token),
              "jwt,sign-method=HS256,priv-key=%s,ttl=5m", path);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+    cetcd_server_free(srv);
+    unlink(path);
+    rmdir(tmpl);
+}
+
+CETCD_TEST_CASE(server_start_accepts_jwt_rs256) {
+    char tmpl[] = "/tmp/cetcd-srv-jwt-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(tmpl));
+    char path[300], cmd[640];
+    snprintf(path, sizeof(path), "%s/key.pem", tmpl);
+    snprintf(cmd, sizeof(cmd),
+             "openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 "
+             "-out '%s' >/dev/null 2>&1", path);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    snprintf(cfg.auth_token, sizeof(cfg.auth_token),
+             "jwt,sign-method=RS256,priv-key=%s,ttl=5m", path);
 
     cetcd_server *srv = cetcd_server_new(&cfg);
     CETCD_ASSERT_NOT_NULL(srv);
@@ -774,8 +801,9 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_start_rejects_client_auth_without_ca),
     CETCD_TEST_ENTRY(server_start_loads_peer_tls),
     CETCD_TEST_ENTRY(server_start_rejects_jwt_without_key),
-    CETCD_TEST_ENTRY(server_start_rejects_jwt_rs256),
+    CETCD_TEST_ENTRY(server_start_rejects_jwt_ps256),
     CETCD_TEST_ENTRY(server_start_accepts_jwt_hs256),
+    CETCD_TEST_ENTRY(server_start_accepts_jwt_rs256),
     CETCD_TEST_ENTRY(server_start_rejects_bad_bcrypt_cost),
     CETCD_TEST_ENTRY(server_start_accepts_simple_auth_token),
     CETCD_TEST_ENTRY(server_start_small_max_request_bytes),

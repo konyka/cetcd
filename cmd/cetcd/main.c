@@ -46,7 +46,7 @@ static void print_usage(const char *prog) {
     printf("  --max-txn-ops N     Accepted but no-op\n");
     printf("  --max-request-bytes N  Max client frame (default 1572864); oversized closes\n");
     printf("  --grpc-keepalive-*  Accepted but no-op (plain TCP)\n");
-    printf("  --auth-token TYPE   simple (default) or jwt,sign-method=HS256,priv-key=PATH[,ttl=5m]\n");
+    printf("  --auth-token TYPE   simple (default) or jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]\n");
     printf("  --bcrypt-cost N     Hash new passwords with bcrypt (4..31; default SHA-256)\n");
     printf("  --cert-file FILE    Client TLS certificate (requires --key-file)\n");
     printf("  --key-file FILE     Client TLS private key\n");
