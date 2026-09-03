@@ -35,12 +35,14 @@ CETCD_API int cetcd_pprof_heap_render(cetcd_buf_t *buf);
  * Format: plain-text table of ID, state, function name. */
 CETCD_API int cetcd_pprof_coroutines_render(cetcd_buf_t *buf);
 
-/* Collect a CPU profile for the given number of seconds (default 5).
- * Uses a sampling timer at 10ms intervals. Captures call stacks using
- * platform-specific APIs (backtrace on Linux, CaptureStackBackTrace on Windows).
- * Returns folded-stack text format suitable for flamegraph.pl.
- * This function blocks the caller for the duration of profiling. */
+/* Collect a CPU profile for `seconds` (default 30, matching etcd).
+ * SIGPROF samples the on-CPU thread (typically the reactor), not the
+ * sleeper. The HTTP handler must run this off the uv loop (uv_queue_work).
+ * Concurrent collections fail with CETCD_ERR_EXISTS. */
 CETCD_API int cetcd_pprof_profile_render(cetcd_buf_t *buf, int seconds);
+
+/* Same collector with millisecond duration (unit tests). */
+CETCD_API int cetcd_pprof_profile_render_ms(cetcd_buf_t *buf, int duration_ms);
 
 #ifdef __cplusplus
 }

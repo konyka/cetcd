@@ -639,12 +639,18 @@ typedef struct metrics_conn_ctx_ {
     cetcd_buf_t   resp;
     uv_write_t    write_req;
     int           pprof_seconds;  /* for /debug/pprof/profile?seconds=N */
+    uv_work_t     pprof_work;
+    cetcd_buf_t   pprof_body;
+    int           pprof_rc;
+    int           pprof_pending;
+    int           pprof_abandoned;
 } metrics_conn_ctx_;
 
 static void on_metrics_close_(uv_handle_t *handle) {
     metrics_conn_ctx_ *ctx = (metrics_conn_ctx_ *)handle->data;
     if (!ctx) return;
     cetcd_buf_free(&ctx->resp);
+    cetcd_buf_free(&ctx->pprof_body);
     free(ctx);
 }
 
@@ -674,6 +680,43 @@ static void metrics_send_response_(metrics_conn_ctx_ *ctx, int code,
     ctx->write_req.data = ctx;
     uv_buf_t wbuf = uv_buf_init((char *)ctx->resp.data, (unsigned int)ctx->resp.len);
     uv_write(&ctx->write_req, (uv_stream_t *)&ctx->client, &wbuf, 1, on_metrics_write_);
+}
+
+static void metrics_pprof_work_(uv_work_t *req) {
+    metrics_conn_ctx_ *ctx = (metrics_conn_ctx_ *)req->data;
+    if (!ctx) return;
+    cetcd_buf_init(&ctx->pprof_body);
+    ctx->pprof_rc = cetcd_pprof_profile_render(&ctx->pprof_body, ctx->pprof_seconds);
+}
+
+static void metrics_pprof_after_(uv_work_t *req, int status) {
+    metrics_conn_ctx_ *ctx = (metrics_conn_ctx_ *)req->data;
+    if (!ctx) return;
+    ctx->pprof_pending = 0;
+    if (status == UV_ECANCELED || ctx->pprof_abandoned) {
+        cetcd_buf_free(&ctx->pprof_body);
+        uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
+        return;
+    }
+    if (ctx->pprof_rc == CETCD_ERR_EXISTS) {
+        cetcd_buf_free(&ctx->pprof_body);
+        const char *msg = "Conflict\n";
+        metrics_send_response_(ctx, 409, "Conflict",
+                               "text/plain",
+                               (const uint8_t *)msg, strlen(msg));
+        return;
+    }
+    if (ctx->pprof_rc != 0) {
+        cetcd_buf_free(&ctx->pprof_body);
+        const char *msg = "Internal Server Error\n";
+        metrics_send_response_(ctx, 500, "Internal Server Error",
+                               "text/plain",
+                               (const uint8_t *)msg, strlen(msg));
+        return;
+    }
+    metrics_send_response_(ctx, 200, "OK", "text/plain",
+                           ctx->pprof_body.data, ctx->pprof_body.len);
+    cetcd_buf_free(&ctx->pprof_body);
 }
 
 static void metrics_serve_metrics_(metrics_conn_ctx_ *ctx) {
@@ -724,7 +767,7 @@ static int metrics_parse_request_(metrics_conn_ctx_ *ctx) {
     }
     if (path_len >= 20 && memcmp(path, "/debug/pprof/profile", 20) == 0) {
         /* Parse ?seconds=N query parameter */
-        ctx->pprof_seconds = 5;  /* default */
+        ctx->pprof_seconds = 30;  /* etcd default */
         if (path_len > 20 && path[20] == '?') {
             const char *qs = path + 21;
             size_t qs_len = path_len - 21;
@@ -754,6 +797,11 @@ static void on_metrics_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t 
     if (nread <= 0) {
         if (buf->base) free(buf->base);
         if (nread < 0) {
+            if (ctx->pprof_pending) {
+                ctx->pprof_abandoned = 1;
+                (void)uv_cancel((uv_req_t *)&ctx->pprof_work);
+                return;
+            }
             uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
         }
         return;
@@ -783,20 +831,18 @@ static void on_metrics_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t 
     if (parsed == 1) {
         metrics_serve_metrics_(ctx);
     } else if (parsed == 3) {
-        /* /debug/pprof/profile — CPU profiling (blocks for N seconds) */
-        cetcd_buf_t body;
-        cetcd_buf_init(&body);
-        int rc = cetcd_pprof_profile_render(&body, ctx->pprof_seconds);
-        if (rc != 0) {
-            cetcd_buf_free(&body);
+        /* /debug/pprof/profile — collect off the uv loop so Raft is not stalled. */
+        uv_read_stop(stream);
+        ctx->pprof_work.data = ctx;
+        ctx->pprof_pending = 1;
+        ctx->pprof_abandoned = 0;
+        if (uv_queue_work(cetcd_loop_uv(ctx->srv->loop), &ctx->pprof_work,
+                          metrics_pprof_work_, metrics_pprof_after_) != 0) {
+            ctx->pprof_pending = 0;
             const char *msg = "Internal Server Error\n";
             metrics_send_response_(ctx, 500, "Internal Server Error",
                                    "text/plain",
                                    (const uint8_t *)msg, strlen(msg));
-        } else {
-            metrics_send_response_(ctx, 200, "OK", "text/plain",
-                                   body.data, body.len);
-            cetcd_buf_free(&body);
         }
     } else if (parsed == 4) {
         /* /debug/pprof/heap */

@@ -25,7 +25,7 @@ internals are organised. For deeper rationale on individual decisions, see
 | WAL replay | Restart restuffs the Raft log and applies NORMAL entries past `applied_index` |
 | TLS | Memory-BIO termination on client/peer listen and on outbound `peer_tx_`. Cert without key, missing files, or `--client-cert-auth` without CA fail closed. Plaintext remains the default. |
 
-Remaining work (HTTP/2 gRPC, pprof quality, …)
+Remaining work (HTTP/2 gRPC, fuzz, TSan, …)
 is tracked in [`docs/roadmap.md`](./roadmap.md).
 
 ### Hardening pass (2026-07)
@@ -830,8 +830,11 @@ Key metric families:
 
 The same port exposes pprof-compatible endpoints under `/debug/pprof/`:
 
-- `/debug/pprof/profile?seconds=N` — CPU profile sampled for `N` seconds.
-- `/debug/pprof/heap` — heap profile in pprof protobuf format.
+- `/debug/pprof/profile?seconds=N` — CPU profile for `N` seconds (default 30).
+  Collection runs on a libuv worker thread; `SIGPROF` samples whichever thread
+  is on-CPU (typically the reactor). Concurrent profiles fail with HTTP 409.
+  Output is folded-stack text (`--- profile`), not protobuf.
+- `/debug/pprof/heap` — heap dump in text form (`--- heap`).
 - `/debug/pprof/coroutines` — snapshot of active coroutines (libco) and their
   scheduling state.
 

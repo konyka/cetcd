@@ -68,6 +68,11 @@ Performance-first, fail-closed design:
   than the cap closes the connection. Puts fail closed with NOSPACE when
   LMDB size is at or above `quota-backend-bytes` (0 = unlimited). Deletes
   and compact Delete batches still apply so operators can recover space.
+- **pprof CPU profile** — `/debug/pprof/profile` collects on a libuv worker
+  (`uv_queue_work`) so the Raft reactor is not stalled. Linux samples
+  on-CPU RIP/PC via `ITIMER_PROF`/`SIGPROF`; concurrent collections return
+  409. Output is folded-stack text (not protobuf). Heap and coroutine
+  endpoints stay instant.
 
 ## Previously done (auth data plane)
 
@@ -82,9 +87,7 @@ None remaining in this pass.
 
 ### Security / ops
 
-| Gap | Why it matters | Suggested approach |
-|-----|----------------|--------------------|
-| pprof CPU profile quality | `/debug/pprof/profile` is coarse | Keep off the Raft/reactor hot path; sample in a worker. |
+None remaining in this pass.
 
 ### Wire compatibility
 

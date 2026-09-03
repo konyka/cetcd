@@ -8,7 +8,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <time.h>
+#include <stdatomic.h>
 
 #ifdef _WIN32
 #  define WIN32_LEAN_AND_MEAN
@@ -16,6 +18,9 @@
 #else
 #  include <execinfo.h>
 #  include <dlfcn.h>
+#  include <signal.h>
+#  include <sys/time.h>
+#  include <ucontext.h>
 #endif
 
 typedef enum metric_kind_ {
@@ -342,37 +347,112 @@ static void pprof_sleep_ms_(unsigned int ms) {
 #endif
 }
 
-int cetcd_pprof_profile_render(cetcd_buf_t *buf, int seconds) {
+#ifndef _WIN32
+#define PPROF_MAX_PCS 32768
+static void               *g_pprof_pcs[PPROF_MAX_PCS];
+static volatile sig_atomic_t g_pprof_n;
+static volatile sig_atomic_t g_pprof_on;
+
+static void *pprof_pc_from_ucontext_(void *uc) {
+    ucontext_t *u = (ucontext_t *)uc;
+    if (!u) return NULL;
+#if defined(__x86_64__) && defined(REG_RIP)
+    return (void *)(uintptr_t)u->uc_mcontext.gregs[REG_RIP];
+#elif defined(__i386__) && defined(REG_EIP)
+    return (void *)(uintptr_t)u->uc_mcontext.gregs[REG_EIP];
+#elif defined(__aarch64__)
+    return (void *)(uintptr_t)u->uc_mcontext.pc;
+#else
+    (void)u;
+    return NULL;
+#endif
+}
+
+static void pprof_sigprof_(int sig, siginfo_t *si, void *uc) {
+    (void)sig;
+    (void)si;
+    if (!g_pprof_on) return;
+    int n = g_pprof_n;
+    if (n < 0 || n >= PPROF_MAX_PCS) return;
+    void *pc = pprof_pc_from_ucontext_(uc);
+    if (!pc) return;
+    g_pprof_pcs[n] = pc;
+    g_pprof_n = (sig_atomic_t)(n + 1);
+}
+#endif
+
+static atomic_int g_pprof_busy;
+
+int cetcd_pprof_profile_render_ms(cetcd_buf_t *buf, int duration_ms) {
     if (!buf) return CETCD_ERR_INVAL;
-    if (seconds <= 0) seconds = 5;
+    if (duration_ms <= 0) duration_ms = 50;
+    if (atomic_exchange(&g_pprof_busy, 1))
+        return CETCD_ERR_EXISTS;
 
     pprof_profile_ctx_ ctx;
     memset(&ctx, 0, sizeof(ctx));
 
-    int total_ticks = seconds * 100;  /* 10ms per tick = 100 ticks/sec */
-    CETCD_INFO("pprof: starting CPU profile for %d seconds (%d samples)",
-               seconds, total_ticks);
+    /* Always keep one collector-thread stack so a short/idle window is not empty. */
+    {
+        void *frames[PPROF_MAX_FRAMES];
+        int n = capture_stack_(frames, PPROF_MAX_FRAMES);
+        if (n > 0) profile_add_sample_(&ctx, frames, n);
+    }
 
+#ifndef _WIN32
+    g_pprof_n = 0;
+    g_pprof_on = 0;
+    struct sigaction sa, old_sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = pprof_sigprof_;
+    sa.sa_flags = SA_SIGINFO | SA_RESTART;
+    sigemptyset(&sa.sa_mask);
+    struct itimerval it, old_it;
+    memset(&it, 0, sizeof(it));
+    it.it_interval.tv_usec = 10000; /* 100 Hz */
+    it.it_value = it.it_interval;
+    int sa_ok = sigaction(SIGPROF, &sa, &old_sa) == 0;
+    int armed = 0;
+    if (sa_ok) {
+        armed = setitimer(ITIMER_PROF, &it, &old_it) == 0;
+        if (!armed)
+            sigaction(SIGPROF, &old_sa, NULL);
+        else
+            g_pprof_on = 1;
+    }
+
+    pprof_sleep_ms_((unsigned int)duration_ms);
+
+    g_pprof_on = 0;
+    if (armed)
+        setitimer(ITIMER_PROF, &old_it, NULL);
+    if (sa_ok && armed)
+        sigaction(SIGPROF, &old_sa, NULL);
+    int n = g_pprof_n;
+    if (n > PPROF_MAX_PCS) n = PPROF_MAX_PCS;
+    for (int i = 0; i < n; i++) {
+        void *pc = g_pprof_pcs[i];
+        if (pc) profile_add_sample_(&ctx, &pc, 1);
+    }
+#else
+    int total_ticks = duration_ms / 10;
+    if (total_ticks < 1) total_ticks = 1;
     for (int tick = 0; tick < total_ticks; tick++) {
         void *frames[PPROF_MAX_FRAMES];
         int n = capture_stack_(frames, PPROF_MAX_FRAMES);
-        if (n > 0) {
-            profile_add_sample_(&ctx, frames, n);
-        }
+        if (n > 0) profile_add_sample_(&ctx, frames, n);
         pprof_sleep_ms_(10);
     }
+#endif
 
-    CETCD_INFO("pprof: CPU profile complete, %d samples, %d unique stacks",
-               ctx.total_samples, ctx.n_stacks);
+    atomic_store(&g_pprof_busy, 0);
 
-    /* Format as folded stacks (flamegraph.pl compatible) */
     cetcd_buf_printf(buf, "--- profile\n");
     cetcd_buf_printf(buf, "Total samples: %d\n", ctx.total_samples);
     cetcd_buf_printf(buf, "\n");
 
     for (int i = 0; i < ctx.n_stacks; i++) {
         const pprof_stack_entry_ *e = &ctx.stacks[i];
-        /* Folded stack format: frame1;frame2;frame3 count */
         for (int f = e->n_frames - 1; f >= 0; f--) {
             fmt_symbol_(buf, e->frames[f]);
             if (f > 0) cetcd_buf_append_cstr(buf, ";");
@@ -381,4 +461,10 @@ int cetcd_pprof_profile_render(cetcd_buf_t *buf, int seconds) {
     }
 
     return 0;
+}
+
+int cetcd_pprof_profile_render(cetcd_buf_t *buf, int seconds) {
+    if (seconds <= 0) seconds = 30;
+    if (seconds > 300) seconds = 300;
+    return cetcd_pprof_profile_render_ms(buf, seconds * 1000);
 }

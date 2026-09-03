@@ -626,8 +626,9 @@ curl -o heap.prof http://127.0.0.1:2381/debug/pprof/heap
 curl http://127.0.0.1:2381/debug/pprof/coroutines
 ```
 
-Profiles are returned in pprof protocol buffer format and can be visualised with
-`go tool pprof` or compatible tools.
+Profiles are folded-stack text (CPU) or text dumps (heap / coroutines), not
+protobuf. Collection for `/debug/pprof/profile` runs off the Raft reactor
+(`uv_queue_work`); a second concurrent profile returns HTTP 409.
 
 ---
 

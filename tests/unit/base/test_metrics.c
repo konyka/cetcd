@@ -236,6 +236,29 @@ CETCD_TEST_CASE(test_pprof_coroutines_render) {
     cetcd_loop_free(loop);
 }
 
+CETCD_TEST_CASE(test_pprof_profile_render_ms) {
+    CETCD_ASSERT_EQ_INT(cetcd_pprof_profile_render_ms(NULL, 20), CETCD_ERR_INVAL);
+
+    cetcd_buf_t buf;
+    cetcd_buf_init(&buf);
+    CETCD_ASSERT_EQ_INT(cetcd_pprof_profile_render_ms(&buf, 20), 0);
+    CETCD_ASSERT_TRUE(buf.len > 0);
+
+    char *out = (char *)buf.data;
+    CETCD_ASSERT_TRUE(strstr(out, "--- profile") != NULL);
+    const char *ts = strstr(out, "Total samples:");
+    CETCD_ASSERT_NOT_NULL(ts);
+    int n = 0;
+    const char *p = ts;
+    while (*p && (*p < '0' || *p > '9')) p++;
+    while (*p >= '0' && *p <= '9') {
+        n = n * 10 + (*p - '0');
+        p++;
+    }
+    CETCD_ASSERT_TRUE(n >= 1);
+    cetcd_buf_free(&buf);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(metrics_counter_basic),
     CETCD_TEST_ENTRY(metrics_gauge_basic),
@@ -247,6 +270,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(test_metrics_render_empty),
     CETCD_TEST_ENTRY(test_pprof_heap_render),
     CETCD_TEST_ENTRY(test_pprof_coroutines_render),
+    CETCD_TEST_ENTRY(test_pprof_profile_render_ms),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()
