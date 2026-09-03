@@ -362,10 +362,14 @@ campaigns on `server_new` so the first Put does not wait for election ticks.
   so restarts restore remaining TTL. Lease expiry deletes are still local.
 - **Learners** are non-voting: they are excluded from quorum and vote counts.
   `MemberPromote` flips a learner to a voter (fail-closed if missing or already
-  voting). Membership changes are compact apply tags (5–8) proposed like KV
+  voting). Membership changes are compact apply tags (5–9) proposed like KV
   writes, persisted to an LMDB `members` bucket, then applied to the cluster
   and Raft peer list. Restart loads that bucket before campaign.
-  Joint-consensus ConfChange V2 is still pending.
+  Voter add/promote/remove enter a joint config (majority of C_old **and**
+  C_new) until incoming voters have the joint-index entry; the leader then
+  proposes `LEAVE_JOINT`. Overlapping voter changes fail closed. Joint C_old
+  is persisted in the `members` bucket (id 0) so restart mid-transition
+  restores both quorums.
 - **WAL truncation** — after `snapshot-count` applies (config `0` means 10000),
   and only once `last_index == applied` (so an uncommitted suffix is not dropped),
   `process_ready_` rewrites `{data_dir}/wal/0000000000000000.wal` to a durable

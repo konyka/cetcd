@@ -51,6 +51,14 @@ struct cetcd_raft {
     uint32_t              n_peers;
     uint32_t              peers_cap;
 
+    /* Joint consensus: n_outgoing > 0 means C_old,new. Incoming voters are
+     * the current non-learner peer list; outgoing is the frozen C_old. */
+    uint64_t              outgoing[MAX_PEERS_];
+    uint32_t              n_outgoing;
+    uint64_t              joint_index;
+    uint64_t              applying_index;
+    int                   leave_pending;
+
     /* Vote tracking (candidate) */
     uint64_t             *votes_granted;
     uint32_t              n_votes_granted;
@@ -147,6 +155,66 @@ static uint32_t quorum_(uint32_t n) {
     return n / 2 + 1;
 }
 
+static int peer_is_learner_(const cetcd_raft *r, uint32_t i);
+
+static int peer_slot_(const cetcd_raft *r, uint64_t id) {
+    for (uint32_t i = 0; i < r->n_peers && i < MAX_PEERS_; i++) {
+        if (r->peers[i] == id) return (int)i;
+    }
+    return -1;
+}
+
+static uint64_t match_of_(const cetcd_raft *r, uint64_t id) {
+    if (id == r->id) return r->log_last_index;
+    int slot = peer_slot_(r, id);
+    if (slot < 0) return 0;
+    return r->progress[slot].match_idx;
+}
+
+static uint64_t majority_match_ids_(const cetcd_raft *r, const uint64_t *ids, uint32_t n) {
+    if (!ids || n == 0) return 0;
+    uint64_t sorted[MAX_PEERS_];
+    uint32_t m = 0;
+    for (uint32_t i = 0; i < n && m < MAX_PEERS_; i++)
+        sorted[m++] = match_of_(r, ids[i]);
+    for (uint32_t i = 0; i < m; i++) {
+        for (uint32_t j = i + 1; j < m; j++) {
+            if (sorted[j] > sorted[i]) {
+                uint64_t tmp = sorted[i];
+                sorted[i] = sorted[j];
+                sorted[j] = tmp;
+            }
+        }
+    }
+    return sorted[quorum_(m) - 1];
+}
+
+static int vote_from_(const cetcd_raft *r, uint64_t id) {
+    for (uint32_t v = 0; v < r->n_votes_granted; v++) {
+        if (r->votes_granted[v] == id) return 1;
+    }
+    return 0;
+}
+
+static int vote_quorum_ok_(const cetcd_raft *r) {
+    uint32_t inc_n = 0, inc_v = 0;
+    uint64_t incoming[MAX_PEERS_];
+    for (uint32_t i = 0; i < r->n_peers && inc_n < MAX_PEERS_; i++) {
+        if (peer_is_learner_(r, i)) continue;
+        incoming[inc_n++] = r->peers[i];
+    }
+    for (uint32_t i = 0; i < inc_n; i++) {
+        if (vote_from_(r, incoming[i])) inc_v++;
+    }
+    if (inc_n == 0 || inc_v < quorum_(inc_n)) return 0;
+    if (r->n_outgoing == 0) return 1;
+    uint32_t out_v = 0;
+    for (uint32_t i = 0; i < r->n_outgoing; i++) {
+        if (vote_from_(r, r->outgoing[i])) out_v++;
+    }
+    return out_v >= quorum_(r->n_outgoing);
+}
+
 static int peer_is_learner_(const cetcd_raft *r, uint32_t i) {
     return r->peer_learner && i < r->n_peers && r->peer_learner[i];
 }
@@ -185,14 +253,6 @@ static void add_peer_(cetcd_raft *r, uint64_t id, int is_learner) {
         r->progress[r->n_peers].match_idx = 0;
     }
     r->n_peers++;
-}
-
-static uint32_t cluster_size_(cetcd_raft *r) {
-    uint32_t n = 0;
-    for (uint32_t i = 0; i < r->n_peers; i++) {
-        if (!peer_is_learner_(r, i)) n++;
-    }
-    return n;
 }
 
 /* ── Pending state helpers ──────────────────────────────────────── */
@@ -240,32 +300,22 @@ static void queue_msg_(cetcd_raft *r, const cetcd_msg *m) {
 static void maybe_advance_commit_(cetcd_raft *r) {
     if (r->role != ROLE_LEADER) return;
 
-    /* Majority of voter match indices. The leader's match is last_index
-     * (it has the entry); followers use progress[]. Do not also push
-     * last_index as a separate voter — that inflated N and blocked
-     * single-node commit. */
-    uint64_t sorted[MAX_PEERS_];
+    /* Majority of incoming voter match indices. During joint consensus
+     * also require a majority of C_old (outgoing). The leader's match is
+     * last_index. */
+    uint64_t incoming[MAX_PEERS_];
     uint32_t n = 0;
-    for (uint32_t i = 0; i < r->n_peers && i < MAX_PEERS_; i++) {
+    for (uint32_t i = 0; i < r->n_peers && n < MAX_PEERS_; i++) {
         if (peer_is_learner_(r, i)) continue;
-        if (r->peers[i] == r->id)
-            sorted[n++] = r->log_last_index;
-        else
-            sorted[n++] = r->progress[i].match_idx;
+        incoming[n++] = r->peers[i];
     }
     if (n == 0) return;
 
-    for (uint32_t i = 0; i < n - 1; i++) {
-        for (uint32_t j = i + 1; j < n; j++) {
-            if (sorted[j] > sorted[i]) {
-                uint64_t tmp = sorted[i];
-                sorted[i] = sorted[j];
-                sorted[j] = tmp;
-            }
-        }
+    uint64_t new_commit = majority_match_ids_(r, incoming, n);
+    if (r->n_outgoing > 0) {
+        uint64_t old_commit = majority_match_ids_(r, r->outgoing, r->n_outgoing);
+        if (old_commit < new_commit) new_commit = old_commit;
     }
-
-    uint64_t new_commit = sorted[quorum_(n) - 1];
 
     if (new_commit > r->commit && log_term_at_(r, new_commit) == r->term) {
         r->commit = new_commit;
@@ -359,7 +409,7 @@ static void become_candidate_(cetcd_raft *r) {
     r->n_votes_granted = 0;
     r->votes_granted[r->n_votes_granted++] = r->id;
 
-    if (cluster_size_(r) == 1) {
+    if (vote_quorum_ok_(r)) {
         become_leader_(r);
         return;
     }
@@ -449,7 +499,7 @@ static int handle_vote_resp_(cetcd_raft *r, cetcd_msg *msg) {
         if (from_learner) return 0;
         if (r->n_votes_granted < r->peers_cap)
             r->votes_granted[r->n_votes_granted++] = msg->from;
-        if (r->n_votes_granted >= quorum_(cluster_size_(r))) {
+        if (vote_quorum_ok_(r)) {
             become_leader_(r);
             queue_hard_state_(r);
             for (uint32_t i = 0; i < r->n_peers; i++) {
@@ -868,6 +918,77 @@ int cetcd_raft_remove_peer(cetcd_raft *r, uint64_t id) {
         return 0;
     }
     return -1;
+}
+
+int cetcd_raft_enter_joint(cetcd_raft *r) {
+    if (!r) return -1;
+    if (r->n_outgoing > 0) return -1;
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < r->n_peers && n < MAX_PEERS_; i++) {
+        if (peer_is_learner_(r, i)) continue;
+        r->outgoing[n++] = r->peers[i];
+    }
+    if (n == 0) return -1;
+    r->n_outgoing = n;
+    r->joint_index = r->applying_index ? r->applying_index : r->log_last_index;
+    r->leave_pending = 0;
+    return 0;
+}
+
+int cetcd_raft_leave_joint(cetcd_raft *r) {
+    if (!r) return -1;
+    if (r->n_outgoing == 0) return 0;
+    r->n_outgoing = 0;
+    r->joint_index = 0;
+    r->leave_pending = 0;
+    return 0;
+}
+
+int cetcd_raft_restore_joint(cetcd_raft *r, const uint64_t *ids,
+                             uint32_t n, uint64_t joint_index) {
+    if (!r || !ids || n == 0 || n > MAX_PEERS_) return -1;
+    memcpy(r->outgoing, ids, n * sizeof(uint64_t));
+    r->n_outgoing = n;
+    r->joint_index = joint_index;
+    r->leave_pending = 0;
+    return 0;
+}
+
+int cetcd_raft_in_joint(const cetcd_raft *r) {
+    return r && r->n_outgoing > 0;
+}
+
+int cetcd_raft_joint_caught_up(const cetcd_raft *r) {
+    if (!r || r->n_outgoing == 0) return 0;
+    for (uint32_t i = 0; i < r->n_peers; i++) {
+        if (peer_is_learner_(r, i)) continue;
+        if (match_of_(r, r->peers[i]) < r->joint_index) return 0;
+    }
+    return 1;
+}
+
+uint64_t cetcd_raft_joint_index(const cetcd_raft *r) {
+    return r ? r->joint_index : 0;
+}
+
+uint32_t cetcd_raft_copy_outgoing(const cetcd_raft *r, uint64_t *ids, uint32_t cap) {
+    if (!r || !ids || cap == 0) return r ? r->n_outgoing : 0;
+    uint32_t n = r->n_outgoing;
+    if (n > cap) n = cap;
+    if (n) memcpy(ids, r->outgoing, n * sizeof(uint64_t));
+    return r->n_outgoing;
+}
+
+void cetcd_raft_set_applying(cetcd_raft *r, uint64_t index) {
+    if (r) r->applying_index = index;
+}
+
+int cetcd_raft_leave_pending(const cetcd_raft *r) {
+    return r && r->leave_pending;
+}
+
+void cetcd_raft_set_leave_pending(cetcd_raft *r, int pending) {
+    if (r) r->leave_pending = pending ? 1 : 0;
 }
 
 cetcd_ready cetcd_raft_ready(cetcd_raft *r) {

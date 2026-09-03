@@ -298,6 +298,20 @@ static int apply_delete_range_(const uint8_t *key, size_t klen,
     return 0;
 }
 
+static int begin_voter_joint_(void) {
+    if (!g_rpc_raft) return 0;
+    if (cetcd_raft_enter_joint(g_rpc_raft) != 0) return -1;
+    if (!g_rpc_cluster) return 0;
+    uint64_t ids[16];
+    uint32_t n = cetcd_raft_copy_outgoing(g_rpc_raft, ids, 16);
+    uint64_t jidx = cetcd_raft_joint_index(g_rpc_raft);
+    if (cetcd_cluster_persist_joint(g_rpc_cluster, ids, n, jidx) != CETCD_OK) {
+        (void)cetcd_raft_leave_joint(g_rpc_raft);
+        return -1;
+    }
+    return 0;
+}
+
 static int apply_member_(uint8_t op, const uint8_t *data, size_t len) {
     if (!g_rpc_cluster) return -1;
     size_t pos = 1;
@@ -305,6 +319,11 @@ static int apply_member_(uint8_t op, const uint8_t *data, size_t len) {
     if (read_varint_(data, len, &pos, &id) != 0 || id == 0) return -1;
 
     if (op == CETCD_APPLY_MEMBER_REMOVE) {
+        const cetcd_peer_info *cur = cetcd_cluster_get_peer(g_rpc_cluster, id);
+        int was_voter = cur && !cur->is_learner;
+        if (was_voter && (!g_rpc_raft || !cetcd_raft_in_joint(g_rpc_raft))) {
+            if (begin_voter_joint_() != 0) return -1;
+        }
         if (cetcd_cluster_persist_del(g_rpc_cluster, id) != CETCD_OK) return -1;
         (void)cetcd_cluster_remove_peer(g_rpc_cluster, id);
         if (g_rpc_raft) (void)cetcd_raft_remove_peer(g_rpc_raft, id);
@@ -315,6 +334,9 @@ static int apply_member_(uint8_t op, const uint8_t *data, size_t len) {
         if (!cur) return -1;
         cetcd_peer_info next = *cur;
         if (!next.is_learner) return 0; /* idempotent replay */
+        if (!g_rpc_raft || !cetcd_raft_in_joint(g_rpc_raft)) {
+            if (begin_voter_joint_() != 0) return -1;
+        }
         next.is_learner = 0;
         if (cetcd_cluster_persist_peer(g_rpc_cluster, &next) != CETCD_OK) return -1;
         if (cetcd_cluster_promote(g_rpc_cluster, id) != CETCD_OK) return -1;
@@ -351,6 +373,9 @@ static int apply_member_(uint8_t op, const uint8_t *data, size_t len) {
         return cetcd_cluster_update_peer(g_rpc_cluster, id, &info) == CETCD_OK ? 0 : -1;
     }
 
+    if (!info.is_learner && (!g_rpc_raft || !cetcd_raft_in_joint(g_rpc_raft))) {
+        if (begin_voter_joint_() != 0) return -1;
+    }
     if (cetcd_cluster_persist_peer(g_rpc_cluster, &info) != CETCD_OK) return -1;
     int rc = cetcd_cluster_add_peer(g_rpc_cluster, &info);
     if (rc != CETCD_OK && rc != CETCD_ERR_EXISTS) return -1;
@@ -363,6 +388,12 @@ int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len) {
     if (!data || len < 1) return -1;
     uint8_t op = data[0];
     size_t pos = 1;
+
+    if (op == CETCD_APPLY_LEAVE_JOINT) {
+        if (g_rpc_raft) (void)cetcd_raft_leave_joint(g_rpc_raft);
+        if (g_rpc_cluster) (void)cetcd_cluster_persist_clear_joint(g_rpc_cluster);
+        return 0;
+    }
 
     if (op == CETCD_APPLY_MEMBER_ADD || op == CETCD_APPLY_MEMBER_REMOVE
         || op == CETCD_APPLY_MEMBER_PROMOTE || op == CETCD_APPLY_MEMBER_UPDATE) {

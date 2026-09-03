@@ -164,6 +164,11 @@ CETCD_TEST_CASE(apply_member_add_remove) {
     g_rpc_cluster = saved;
 }
 
+CETCD_TEST_CASE(apply_leave_joint) {
+    uint8_t tag = CETCD_APPLY_LEAVE_JOINT;
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(&tag, 1), 0);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(apply_put_delete_roundtrip),
     CETCD_TEST_ENTRY(apply_rejects_truncated),
@@ -172,6 +177,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(apply_batch_two_puts),
     CETCD_TEST_ENTRY(apply_batch_rejects_nesting),
     CETCD_TEST_ENTRY(apply_member_add_remove),
+    CETCD_TEST_ENTRY(apply_leave_joint),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

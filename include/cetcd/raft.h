@@ -164,11 +164,24 @@ int            cetcd_raft_propose(cetcd_raft *r, const uint8_t *data, size_t len
 int            cetcd_raft_propose_conf_change(cetcd_raft *r, const uint8_t *data, size_t len);
 void           cetcd_raft_apply_conf_change(cetcd_raft *r, const cetcd_conf_state *cs);
 
-/* Local membership (log-based ConfChange V2 is still pending). Learners
- * receive logs but do not vote or count toward quorum. */
+/* Local membership. Learners receive logs but do not vote or count toward
+ * quorum. Voter add/promote/remove must call enter_joint first (C_old is
+ * snapshotted); leave_joint drops C_old once the new quorum has the
+ * joint-index entry. Overlapping voter changes fail closed. */
 int            cetcd_raft_add_peer(cetcd_raft *r, uint64_t id, int is_learner);
 int            cetcd_raft_promote(cetcd_raft *r, uint64_t id);
 int            cetcd_raft_remove_peer(cetcd_raft *r, uint64_t id);
+int            cetcd_raft_enter_joint(cetcd_raft *r);
+int            cetcd_raft_leave_joint(cetcd_raft *r);
+int            cetcd_raft_restore_joint(cetcd_raft *r, const uint64_t *ids,
+                                        uint32_t n, uint64_t joint_index);
+int            cetcd_raft_in_joint(const cetcd_raft *r);
+int            cetcd_raft_joint_caught_up(const cetcd_raft *r);
+uint64_t       cetcd_raft_joint_index(const cetcd_raft *r);
+uint32_t       cetcd_raft_copy_outgoing(const cetcd_raft *r, uint64_t *ids, uint32_t cap);
+void           cetcd_raft_set_applying(cetcd_raft *r, uint64_t index);
+int            cetcd_raft_leave_pending(const cetcd_raft *r);
+void           cetcd_raft_set_leave_pending(cetcd_raft *r, int pending);
 
 /* Queries */
 cetcd_node_state  cetcd_raft_state(cetcd_raft *r);

@@ -274,6 +274,10 @@ cetcd_rpc_bytes cluster_handle_member_add(cetcd_v3rpc *rpc,
     /* If we have a cluster, add the peer through Raft (or locally). */
     uint64_t new_id = 0;
     if (g_rpc_cluster && peer_url) {
+        if (g_rpc_raft && cetcd_raft_in_joint(g_rpc_raft)) {
+            free(peer_url);
+            return (cetcd_rpc_bytes){NULL, 0};
+        }
         cetcd_peer_info info = {0};
         info.id = cetcd_cluster_alloc_id(g_rpc_cluster);
         info.is_learner = is_learner;
@@ -350,6 +354,8 @@ cetcd_rpc_bytes cluster_handle_member_remove(cetcd_v3rpc *rpc,
     }
 
     if (g_rpc_cluster && member_id > 0) {
+        if (g_rpc_raft && cetcd_raft_in_joint(g_rpc_raft))
+            return (cetcd_rpc_bytes){NULL, 0};
         uint8_t *entry = NULL;
         size_t elen = 0;
         if (cetcd_apply_encode_member_remove(&entry, &elen, member_id) != 0)
@@ -444,6 +450,8 @@ cetcd_rpc_bytes cluster_handle_member_promote(cetcd_v3rpc *rpc,
 
     /* Fail-closed: missing or already-voting member is an error. */
     if (g_rpc_cluster && member_id > 0) {
+        if (g_rpc_raft && cetcd_raft_in_joint(g_rpc_raft))
+            return (cetcd_rpc_bytes){NULL, 0};
         const cetcd_peer_info *cur = cetcd_cluster_get_peer(g_rpc_cluster, member_id);
         if (!cur || !cur->is_learner)
             return (cetcd_rpc_bytes){NULL, 0};

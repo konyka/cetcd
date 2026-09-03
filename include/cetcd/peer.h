@@ -62,6 +62,12 @@ int cetcd_cluster_persist_peer(cetcd_cluster *c, const cetcd_peer_info *info);
 int cetcd_cluster_persist_del(cetcd_cluster *c, uint64_t id);
 /* Restore peers from the `members` bucket (does not touch Raft). */
 int cetcd_cluster_load(cetcd_cluster *c, struct cetcd_backend *be);
+/* Persist / clear joint C_old (members key id=0). No-op without a backend. */
+int cetcd_cluster_persist_joint(cetcd_cluster *c, const uint64_t *ids,
+                                uint32_t n, uint64_t joint_index);
+int cetcd_cluster_persist_clear_joint(cetcd_cluster *c);
+uint32_t cetcd_cluster_loaded_joint(const cetcd_cluster *c, uint64_t *ids,
+                                    uint32_t cap, uint64_t *joint_index);
 
 #ifdef __cplusplus
 }

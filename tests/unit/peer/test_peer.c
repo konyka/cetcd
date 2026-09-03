@@ -198,6 +198,40 @@ CETCD_TEST_CASE(cluster_members_persist_roundtrip) {
     cetcd_backend_close(be);
 }
 
+CETCD_TEST_CASE(cluster_joint_persist_roundtrip) {
+    char dir[] = "/tmp/cetcd-test-joint-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(dir));
+    cetcd_backend_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.path = dir;
+    cfg.map_size = 1024 * 1024;
+    cfg.max_dbs = 8;
+    cetcd_backend *be = cetcd_backend_open(&cfg);
+    CETCD_ASSERT_NOT_NULL(be);
+
+    cetcd_cluster *c = cetcd_cluster_new(1);
+    cetcd_cluster_set_backend(c, be);
+    uint64_t ids[2] = {1, 2};
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_persist_joint(c, ids, 2, 7), CETCD_OK);
+    cetcd_cluster_free(c);
+
+    c = cetcd_cluster_new(1);
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_load(c, be), CETCD_OK);
+    uint64_t got[4];
+    uint64_t jidx = 0;
+    CETCD_ASSERT_EQ_INT((int)cetcd_cluster_loaded_joint(c, got, 4, &jidx), 2);
+    CETCD_ASSERT_TRUE(jidx == 7);
+    CETCD_ASSERT_TRUE(got[0] == 1 && got[1] == 2);
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_persist_clear_joint(c), CETCD_OK);
+    cetcd_cluster_free(c);
+
+    c = cetcd_cluster_new(1);
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_load(c, be), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)cetcd_cluster_loaded_joint(c, got, 4, &jidx), 0);
+    cetcd_cluster_free(c);
+    cetcd_backend_close(be);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(peer_create_destroy),
     CETCD_TEST_ENTRY(cluster_create_add_remove),
@@ -210,6 +244,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(cluster_update_peer),
     CETCD_TEST_ENTRY(cluster_promote_learner),
     CETCD_TEST_ENTRY(cluster_members_persist_roundtrip),
+    CETCD_TEST_ENTRY(cluster_joint_persist_roundtrip),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

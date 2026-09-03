@@ -100,8 +100,10 @@ static void apply_committed_(cetcd_server *srv) {
     for (uint64_t i = from; i <= to; i++) {
         const cetcd_entry *e = cetcd_raft_entry_at(srv->raft, i);
         if (!e || e->type != CETCD_ENTRY_NORMAL) continue;
+        cetcd_raft_set_applying(srv->raft, i);
         if (e->data.data && e->data.len > 0)
             cetcd_v3rpc_apply_entry(e->data.data, e->data.len);
+        cetcd_raft_set_applying(srv->raft, 0);
     }
     persist_applied_(srv->backend, to);
 }
@@ -1071,6 +1073,11 @@ int cetcd_server_start(cetcd_server *srv) {
                         cetcd_peer_info copy = *pi;
                         (void)cetcd_raft_add_peer(srv->raft, copy.id, copy.is_learner);
                     }
+                    uint64_t jids[16];
+                    uint64_t jidx = 0;
+                    uint32_t jn = cetcd_cluster_loaded_joint(srv->cluster, jids, 16, &jidx);
+                    if (jn > 0)
+                        (void)cetcd_raft_restore_joint(srv->raft, jids, jn, jidx);
                 }
             }
         }
@@ -1353,7 +1360,21 @@ static void raft_tick_cb_(void *arg) {
     process_ready_(srv);
 }
 
+static int maybe_propose_leave_joint_(cetcd_server *srv) {
+    if (!srv || !srv->raft) return 0;
+    if (cetcd_raft_state(srv->raft) != CETCD_NODE_LEADER) return 0;
+    if (!cetcd_raft_in_joint(srv->raft)) return 0;
+    if (cetcd_raft_leave_pending(srv->raft)) return 0;
+    if (!cetcd_raft_joint_caught_up(srv->raft)) return 0;
+    uint8_t tag = CETCD_APPLY_LEAVE_JOINT;
+    if (cetcd_raft_propose(srv->raft, &tag, 1) != 0) return 0;
+    cetcd_raft_set_leave_pending(srv->raft, 1);
+    return 1;
+}
+
 static void process_ready_(cetcd_server *srv) {
+    static _Thread_local int ready_depth;
+    ready_depth++;
     cetcd_ready rd = cetcd_raft_ready(srv->raft);
 
     /* Persist new entries and HardState BEFORE sending any messages or
@@ -1411,4 +1432,7 @@ static void process_ready_(cetcd_server *srv) {
     }
 
     cetcd_ready_free(&rd);
+    if (ready_depth == 1 && maybe_propose_leave_joint_(srv))
+        process_ready_(srv);
+    ready_depth--;
 }

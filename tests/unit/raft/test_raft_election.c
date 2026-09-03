@@ -213,10 +213,67 @@ CETCD_TEST_CASE(learner_does_not_block_single_node_commit) {
     CETCD_ASSERT_TRUE(cetcd_raft_state(r) == CETCD_NODE_LEADER);
     CETCD_ASSERT_EQ_INT(cetcd_raft_add_peer(r, 2, 1), 0);
     CETCD_ASSERT_EQ_INT(cetcd_raft_propose(r, (const uint8_t *)"x", 1), 0);
+    {
+        cetcd_ready rd = cetcd_raft_ready(r);
+        cetcd_ready_free(&rd);
+    }
     CETCD_ASSERT_TRUE(cetcd_raft_committed(r) >= 1);
     CETCD_ASSERT_EQ_INT(cetcd_raft_promote(r, 2), 0);
     CETCD_ASSERT_EQ_INT(cetcd_raft_promote(r, 2), -1);
     CETCD_ASSERT_EQ_INT(cetcd_raft_promote(r, 99), -1);
+    cetcd_raft_free(r);
+}
+
+CETCD_TEST_CASE(joint_add_voter_blocks_commit_until_ack) {
+    cetcd_raft_config cfg = single_node_cfg(1);
+    cetcd_raft *r = cetcd_raft_new(&cfg);
+    for (int i = 0; i < 10; i++) cetcd_raft_tick(r);
+    CETCD_ASSERT_TRUE(cetcd_raft_state(r) == CETCD_NODE_LEADER);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_propose(r, (const uint8_t *)"a", 1), 0);
+    uint64_t committed = cetcd_raft_committed(r);
+    CETCD_ASSERT_TRUE(committed >= 1);
+
+    CETCD_ASSERT_EQ_INT(cetcd_raft_enter_joint(r), 0);
+    CETCD_ASSERT_TRUE(cetcd_raft_in_joint(r));
+    CETCD_ASSERT_EQ_INT(cetcd_raft_enter_joint(r), -1);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_add_peer(r, 2, 0), 0);
+
+    CETCD_ASSERT_EQ_INT(cetcd_raft_propose(r, (const uint8_t *)"b", 1), 0);
+    CETCD_ASSERT_TRUE(cetcd_raft_committed(r) == committed);
+
+    cetcd_msg ack;
+    memset(&ack, 0, sizeof(ack));
+    ack.type = CETCD_MSG_APP_RESP;
+    ack.from = 2;
+    ack.to = 1;
+    ack.term = cetcd_raft_term(r);
+    ack.index = cetcd_raft_last_index(r);
+    ack.reject = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_raft_step(r, &ack), 0);
+    CETCD_ASSERT_TRUE(cetcd_raft_committed(r) > committed);
+    CETCD_ASSERT_TRUE(cetcd_raft_joint_caught_up(r));
+    CETCD_ASSERT_EQ_INT(cetcd_raft_leave_joint(r), 0);
+    CETCD_ASSERT_TRUE(!cetcd_raft_in_joint(r));
+    {
+        cetcd_ready rd = cetcd_raft_ready(r);
+        cetcd_ready_free(&rd);
+    }
+    cetcd_raft_free(r);
+}
+
+CETCD_TEST_CASE(joint_restore_and_leave) {
+    cetcd_raft_config cfg = single_node_cfg(1);
+    cetcd_raft *r = cetcd_raft_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_add_peer(r, 2, 0), 0);
+    uint64_t ids[1] = {1};
+    CETCD_ASSERT_EQ_INT(cetcd_raft_restore_joint(r, ids, 1, 3), 0);
+    CETCD_ASSERT_TRUE(cetcd_raft_in_joint(r));
+    CETCD_ASSERT_TRUE(cetcd_raft_joint_index(r) == 3);
+    uint64_t out[4];
+    CETCD_ASSERT_EQ_INT((int)cetcd_raft_copy_outgoing(r, out, 4), 1);
+    CETCD_ASSERT_TRUE(out[0] == 1);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_leave_joint(r), 0);
+    CETCD_ASSERT_TRUE(!cetcd_raft_in_joint(r));
     cetcd_raft_free(r);
 }
 
@@ -254,6 +311,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(config_null_storage_ok),
     CETCD_TEST_ENTRY(free_null_is_safe),
     CETCD_TEST_ENTRY(learner_does_not_block_single_node_commit),
+    CETCD_TEST_ENTRY(joint_add_voter_blocks_commit_until_ack),
+    CETCD_TEST_ENTRY(joint_restore_and_leave),
     CETCD_TEST_ENTRY(compact_drops_prefix_keeps_dummy),
 CETCD_TEST_LIST_END
 

@@ -36,7 +36,12 @@ Performance-first, fail-closed design:
 - **Member persistence** — MemberAdd/Remove/Promote/Update encode compact apply
   tags, go through Raft, and persist the LMDB `members` bucket before mutating
   memory. Restart loads peers (and Raft ids) before campaign so a MemberAdd
-  survives process restart. Joint-consensus ConfChange V2 is still pending.
+  survives process restart.
+- **Joint-consensus ConfChange V2** — voter add/promote/remove snapshots C_old
+  and requires a majority of both C_old and C_new until incoming voters have
+  the joint-index entry; the leader then proposes `LEAVE_JOINT`. Overlapping
+  voter changes fail closed. Joint C_old is persisted (members key 0) so a
+  restart mid-transition keeps both quorums.
 - **Nested Txn** — `RequestTxn` executes recursively (each level still
   `max(compare,success,failure) ≤ 128`). Depth is capped at 16 to bound C
   stack. Unknown RequestOp tags stay fail-closed.
@@ -52,7 +57,6 @@ Performance-first, fail-closed design:
 
 | Gap | Why it matters | Suggested approach |
 |-----|----------------|--------------------|
-| Joint-consensus ConfChange V2 | Membership apply is one-phase; adding a voter does not use a joint quorum | Propose ConfChange V2, keep both configs until the new quorum is caught up |
 | Lease expiry / revoke still local deletes | Followers do not see expiry deletes via raft | Propose DeleteRange (or per-key Delete) from the expire callback |
 
 ### Security / ops

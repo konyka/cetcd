@@ -88,6 +88,7 @@ CETCD_API void cetcd_v3rpc_watch_flush_replay(void);
 #define CETCD_APPLY_MEMBER_REMOVE  6
 #define CETCD_APPLY_MEMBER_PROMOTE 7
 #define CETCD_APPLY_MEMBER_UPDATE  8
+#define CETCD_APPLY_LEAVE_JOINT    9
 
 CETCD_API int cetcd_apply_encode_put(uint8_t **out, size_t *out_len,
                                      const uint8_t *key, size_t key_len,

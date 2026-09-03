@@ -23,6 +23,9 @@ struct cetcd_cluster {
     cetcd_peer_send_fn send_fn;
     void              *send_udata;
     struct cetcd_backend *backend;
+    uint64_t           loaded_joint_ids[16];
+    uint32_t           loaded_joint_n;
+    uint64_t           loaded_joint_index;
 };
 
 /* cetcd_peer API */
@@ -55,6 +58,9 @@ cetcd_cluster *cetcd_cluster_new(uint64_t self_id) {
     c->send_fn = NULL;
     c->send_udata = NULL;
     c->backend = NULL;
+    c->loaded_joint_n = 0;
+    c->loaded_joint_index = 0;
+    memset(c->loaded_joint_ids, 0, sizeof(c->loaded_joint_ids));
     /* Start with a small capacity to avoid many reallocs */
     c->peer_cap = 4;
     c->peers = (cetcd_peer **)malloc(c->peer_cap * sizeof(cetcd_peer *));
@@ -299,10 +305,21 @@ typedef struct {
 static bool load_cb_(const uint8_t *key, size_t key_len,
                      const uint8_t *val, size_t val_len, void *udata) {
     load_ctx_ *ctx = (load_ctx_ *)udata;
-    if (key_len != 8 || val_len < 3) return true;
+    if (key_len != 8) return true;
+    uint64_t id = read_le64_(key);
+    if (id == 0) {
+        if (val_len < 8) return true;
+        ctx->c->loaded_joint_index = read_le64_(val);
+        uint32_t n = 0;
+        for (size_t off = 8; off + 8 <= val_len && n < 16; off += 8)
+            ctx->c->loaded_joint_ids[n++] = read_le64_(val + off);
+        ctx->c->loaded_joint_n = n;
+        return true;
+    }
+    if (val_len < 3) return true;
     cetcd_peer_info info;
     memset(&info, 0, sizeof(info));
-    info.id = read_le64_(key);
+    info.id = id;
     info.is_learner = val[0] ? 1 : 0;
     info.port = (uint16_t)val[1] | ((uint16_t)val[2] << 8);
     size_t alen = val_len - 3;
@@ -322,4 +339,41 @@ int cetcd_cluster_load(cetcd_cluster *c, struct cetcd_backend *be) {
     int rc = cetcd_backend_foreach(be, MEMBERS_BUCKET, load_cb_, &ctx);
     if (rc != CETCD_OK && rc != CETCD_ERR_NOTFOUND) return rc;
     return ctx.rc;
+}
+
+int cetcd_cluster_persist_joint(cetcd_cluster *c, const uint64_t *ids,
+                                uint32_t n, uint64_t joint_index) {
+    if (!c || (n > 0 && !ids)) return CETCD_ERR_INVAL;
+    if (!c->backend) return CETCD_OK;
+    uint8_t key[8];
+    memset(key, 0, sizeof(key));
+    uint8_t val[8 + 16 * 8];
+    write_le64_(val, joint_index);
+    if (n > 16) n = 16;
+    for (uint32_t i = 0; i < n; i++)
+        write_le64_(val + 8 + i * 8, ids[i]);
+    return cetcd_backend_put(c->backend, MEMBERS_BUCKET, key, sizeof(key),
+                             val, 8 + n * 8);
+}
+
+int cetcd_cluster_persist_clear_joint(cetcd_cluster *c) {
+    if (!c) return CETCD_ERR_INVAL;
+    if (!c->backend) return CETCD_OK;
+    uint8_t key[8];
+    memset(key, 0, sizeof(key));
+    int rc = cetcd_backend_del(c->backend, MEMBERS_BUCKET, key, sizeof(key));
+    if (rc == CETCD_ERR_NOTFOUND) return CETCD_OK;
+    return rc;
+}
+
+uint32_t cetcd_cluster_loaded_joint(const cetcd_cluster *c, uint64_t *ids,
+                                    uint32_t cap, uint64_t *joint_index) {
+    if (!c) return 0;
+    if (joint_index) *joint_index = c->loaded_joint_index;
+    uint32_t n = c->loaded_joint_n;
+    if (ids && cap > 0 && n > 0) {
+        if (n > cap) n = cap;
+        memcpy(ids, c->loaded_joint_ids, n * sizeof(uint64_t));
+    }
+    return c->loaded_joint_n;
 }
