@@ -3,8 +3,8 @@
 > **Status**: actively developed. cetcd implements the etcd v3.5 RPC catalogue (protobuf
 > semantics) and speaks a **custom framed TCP protocol** via `cetcdctl`. Official
 > `etcdctl` / HTTP/2 gRPC clients are **partially supported**: unary RPCs and
-> Watch streams (HTTP/2 preface on the client port; TLS selects ALPN `h2`).
-> `cetcdctl` still uses custom frames. LeaseKeepAlive / Snapshot / RangeStream
+> Watch and LeaseKeepAlive streams (HTTP/2 preface on the client port; TLS selects ALPN `h2`).
+> `cetcdctl` still uses custom frames. Snapshot / RangeStream
 > over HTTP/2 stay unary-shaped — see
 > [architecture.md §Wire protocol](./architecture.md#6-wire-protocol).
 

@@ -1023,6 +1023,11 @@ static int client_h2_is_watch_(const client_ctx_ *ctx) {
     return ctx && strcmp(ctx->h2_path, "/etcdserverpb.Watch/Watch") == 0;
 }
 
+static int client_h2_is_bidi_(const client_ctx_ *ctx) {
+    return client_h2_is_watch_(ctx) ||
+           (ctx && strcmp(ctx->h2_path, "/etcdserverpb.Lease/LeaseKeepAlive") == 0);
+}
+
 static void client_h2_send_headers_(client_ctx_ *ctx) {
     if (!ctx || ctx->h2_hdrs_sent || !ctx->h2) return;
     const char *hdrs[] = {
@@ -1086,7 +1091,7 @@ static void client_h2_watch_pump_(client_ctx_ *ctx) {
             client_h2_watch_error_(ctx, "12");
             return;
         }
-        if (ctx->h2_stream)
+        if (client_h2_is_watch_(ctx) && ctx->h2_stream)
             cetcd_v3rpc_set_stream_writer(ctx->srv->rpc, client_h2_stream_write_,
                                           ctx->h2_stream);
         static const uint8_t empty_req = 0;
@@ -1114,7 +1119,8 @@ static void client_h2_watch_pump_(client_ctx_ *ctx) {
         free(grpc);
         if (ctx->h2_stream)
             (void)cetcd_h2_send_pending(ctx->h2, h2_write_uv_, ctx->h2_stream);
-        cetcd_v3rpc_watch_flush_replay();
+        if (client_h2_is_watch_(ctx))
+            cetcd_v3rpc_watch_flush_replay();
     }
 }
 
@@ -1150,7 +1156,7 @@ static void client_h2_on_data_(cetcd_h2_session *sess, int32_t stream_id,
         ctx->h2_fail = 1;
         return;
     }
-    if (client_h2_is_watch_(ctx)) {
+    if (client_h2_is_bidi_(ctx)) {
         client_h2_watch_pump_(ctx);
         /* Client END_STREAM is a send half-close; keep the response open. */
         if (end_stream && !ctx->h2_done && ctx->h2_body_len > 0)

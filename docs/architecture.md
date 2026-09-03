@@ -17,7 +17,7 @@ internals are organised. For deeper rationale on individual decisions, see
 |------|--------|
 | KV / Watch / Lease / Cluster / Auth / Maintenance handlers | Implemented (protobuf wire format) |
 | Client transport | **Custom length-prefixed TCP** (`cetcdctl`) **and** HTTP/2 gRPC (preface detect). Optional TLS on accept (`--cert-file` / `--key-file`) negotiates ALPN `h2`; plaintext remains the default. |
-| Official `etcdctl` / Go clients | **Partial** — unary HTTP/2 gRPC plus Watch streams (plaintext or TLS+ALPN `h2`); LeaseKeepAlive / Snapshot / RangeStream are still unary-shaped |
+| Official `etcdctl` / Go clients | **Partial** — unary HTTP/2 gRPC plus Watch and LeaseKeepAlive streams (plaintext or TLS+ALPN `h2`); Snapshot / RangeStream are still unary-shaped |
 | MVCC persistence | LMDB mirror of current key generations + revision; restart reload works |
 | Raft | State machine + peer TCP framing; Put/DeleteRange propose, apply after WAL sync |
 | Lease expiry | Server tick advances leases and deletes attached keys |
@@ -407,8 +407,8 @@ etcd v3.5 protobuf messages. Domain/RPC errors from handlers (`{NULL,0}`) are
 returned as a frame with `payload_len=0` so clients do not block on `recv`;
 `cetcdctl` treats zero-length unary responses as failure. Official `etcdctl`
 can speak unary plaintext HTTP/2 gRPC on the same port (`PRI * HTTP/2` preface);
-custom frames remain for `cetcdctl`. Watch over HTTP/2 is a bidi stream;
-LeaseKeepAlive / Snapshot / RangeStream stay unary-shaped. TLS on the client
+custom frames remain for `cetcdctl`. Watch and LeaseKeepAlive over HTTP/2 are
+bidi streams; Snapshot / RangeStream stay unary-shaped. TLS on the client
 port selects ALPN `h2` when the client offers it; omitting ALPN still
 handshakes (so custom-frame TLS keeps working). A non-`h2` offer is fail-closed.
 
@@ -419,14 +419,14 @@ multiplexing). After TCP accept, the first bytes are classified with
 `cetcd_h2_detect`: the 24-byte client preface selects HTTP/2, anything else
 stays on the custom frame parser. Unary `:path` + DATA are dispatched through
 `cetcd_v3rpc_dispatch_ex`; the `authorization` header is the bearer token.
-Responses are `:status 200` + gRPC DATA + `grpc-status` trailers. Watch
-keeps the response stream open: headers once, then `cetcd_h2_submit_data`
-for create-ack and later events. When nghttp2 is absent, stubs compile so
-the rest of the tree builds.
+Responses are `:status 200` + gRPC DATA + `grpc-status` trailers. Watch and
+LeaseKeepAlive keep the response stream open: headers once, then
+`cetcd_h2_submit_data` per message (Watch also pushes later MVCC events).
+When nghttp2 is absent, stubs compile so the rest of the tree builds.
 
 - 6 services: `KV`, `Watch`, `Lease`, `Cluster`, `Maintenance`, `Auth`.
 - 41 RPCs (catalogue in [`docs/wiki/Home.md`](./wiki/Home.md)); `RangeStream` not yet dispatched.
-- Streaming: Watch (bidi over custom frames and HTTP/2). LeaseKeepAlive / Snapshot / RangeStream are unary-shaped on HTTP/2 today.
+- Streaming: Watch and LeaseKeepAlive (bidi over custom frames and HTTP/2). Snapshot / RangeStream are unary-shaped on HTTP/2 today.
 - Protobuf types come from etcd v3.5 `.proto` files under `proto/v3.5/`.
 
 ### Peer transport (current)
