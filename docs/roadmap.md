@@ -73,6 +73,12 @@ Performance-first, fail-closed design:
   on-CPU RIP/PC via `ITIMER_PROF`/`SIGPROF`; concurrent collections return
   409. Output is folded-stack text (not protobuf). Heap and coroutine
   endpoints stay instant.
+- **HTTP/2 gRPC accept** — client connections that send the `PRI * HTTP/2`
+  preface are demuxed from `cetcdctl` frames and fed to nghttp2. Unary
+  `:path` + DATA map to `cetcd_v3rpc_dispatch_ex`; `authorization` is the
+  bearer token. Responses use gRPC trailers (`grpc-status`). Watch and
+  other streams stay unary-shaped on this path. ALPN `h2` is not advertised
+  yet, so TLS gRPC clients may still fail protocol selection.
 
 ## Previously done (auth data plane)
 
@@ -93,7 +99,6 @@ None remaining in this pass.
 
 | Gap | Why it matters | Suggested approach |
 |-----|----------------|--------------------|
-| HTTP/2 gRPC accept path | Official `etcdctl` / Go clients cannot connect | After TCP accept, detect preface `PRI * HTTP/2`; feed `libcetcd_http2`; map `:path` + data frames to `cetcd_v3rpc_dispatch_ex` with `authorization` metadata as token. Keep custom frames for `cetcdctl`. |
 | `rafthttp` over HTTP/2 | Peer protocol is length-prefixed TCP | Second listener; not required for correctness of in-house Raft. |
 | LeaseKeepAlive / Snapshot / RangeStream as true streams | Unary-shaped today | Same Watch writer callback model; no extra coroutines. |
 

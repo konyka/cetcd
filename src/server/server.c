@@ -12,6 +12,7 @@
 #include "cetcd/metrics.h"
 #include "cetcd/log.h"
 #include "cetcd/tls.h"
+#include "cetcd/http2.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -567,6 +568,16 @@ typedef struct client_ctx_ {
     uint8_t          *buf;
     size_t            buf_cap;
     size_t            buf_pos;
+    int               proto; /* 0 unknown, 1 custom TCP, 2 HTTP/2 */
+    cetcd_h2_session *h2;
+    uv_stream_t      *h2_stream;
+    int32_t           h2_sid;
+    char              h2_path[256];
+    uint8_t          *h2_body;
+    size_t            h2_body_len;
+    size_t            h2_body_cap;
+    int               h2_done;
+    int               h2_fail;
 } client_ctx_;
 
 static uint64_t client_max_bytes_(const client_ctx_ *ctx) {
@@ -626,6 +637,8 @@ static void client_close_cb_(uv_handle_t *handle) {
     client_ctx_ *ctx = (client_ctx_ *)handle->data;
     if (ctx) {
         cetcd_tls_conn_free(ctx->tls);
+        cetcd_h2_session_free(ctx->h2);
+        free(ctx->h2_body);
         free(ctx->buf);
         free(ctx);
     }
@@ -916,6 +929,139 @@ static void on_metrics_connection_(uv_stream_t *server, int status) {
     uv_read_start((uv_stream_t *)&ctx->client, on_metrics_alloc_, on_metrics_read_);
 }
 
+static int h2_write_uv_(const uint8_t *buf, size_t len, void *arg) {
+    uv_stream_t *stream = (uv_stream_t *)arg;
+    if (!stream || !buf || len == 0) return 0;
+    uint8_t *copy = (uint8_t *)malloc(len);
+    if (!copy) return -1;
+    memcpy(copy, buf, len);
+    client_uv_send_(stream, copy, len);
+    return 0;
+}
+
+static int client_h2_body_append_(client_ctx_ *ctx, const uint8_t *data, size_t len) {
+    if (!ctx || len == 0) return 0;
+    uint64_t maxb = client_max_bytes_(ctx);
+    if ((uint64_t)ctx->h2_body_len + len > maxb) return -1;
+    size_t need = ctx->h2_body_len + len;
+    if (need > ctx->h2_body_cap) {
+        size_t cap = ctx->h2_body_cap ? ctx->h2_body_cap : 4096;
+        while (cap < need) {
+            if (cap > SIZE_MAX / 2) return -1;
+            cap *= 2;
+        }
+        uint8_t *nb = (uint8_t *)realloc(ctx->h2_body, cap);
+        if (!nb) return -1;
+        ctx->h2_body = nb;
+        ctx->h2_body_cap = cap;
+    }
+    memcpy(ctx->h2_body + ctx->h2_body_len, data, len);
+    ctx->h2_body_len += len;
+    return 0;
+}
+
+static void client_h2_finish_(client_ctx_ *ctx) {
+    if (!ctx || ctx->h2_done || !ctx->h2) return;
+    ctx->h2_done = 1;
+
+    const char *grpc_status = "0";
+    uint8_t *grpc_out = NULL;
+    size_t grpc_out_len = 0;
+    uint8_t *msg = NULL;
+    size_t msg_len = 0;
+
+    if (ctx->h2_path[0] == '\0') {
+        grpc_status = "3";
+    } else if (ctx->h2_body_len > 0) {
+        bool compressed = false;
+        if (cetcd_grpc_decode(ctx->h2_body, ctx->h2_body_len,
+                              &compressed, &msg, &msg_len) != CETCD_OK) {
+            grpc_status = "3";
+        } else if (compressed) {
+            free(msg);
+            msg = NULL;
+            msg_len = 0;
+            grpc_status = "12";
+        }
+    }
+
+    if (grpc_status[0] == '0') {
+        const char *token = cetcd_h2_req_authorization(ctx->h2);
+        if (token && token[0] == '\0') token = NULL;
+        /* dispatch_ex rejects NULL req_data; empty gRPC messages decode to NULL. */
+        static const uint8_t empty_req = 0;
+        const uint8_t *req = msg ? msg : &empty_req;
+        cetcd_server_rpc_result resp = cetcd_server_handle_rpc_ex(
+            ctx->srv, ctx->h2_path, req, msg_len, token);
+        if (!resp.data || resp.len == 0) {
+            grpc_status = "2";
+        } else if (cetcd_grpc_encode(resp.data, resp.len, false,
+                                     &grpc_out, &grpc_out_len) != CETCD_OK) {
+            grpc_status = "2";
+        }
+        cetcd_server_rpc_result_free(&resp);
+    }
+    free(msg);
+
+    const char *hdrs[] = {
+        ":status", "200",
+        "content-type", "application/grpc",
+    };
+    cetcd_h2_submit_response(ctx->h2, ctx->h2_sid, hdrs, 4,
+                             grpc_out, grpc_out_len, false);
+    /* Flush DATA before trailers; nghttp2 will not emit both if queued together. */
+    if (ctx->h2_stream)
+        (void)cetcd_h2_send_pending(ctx->h2, h2_write_uv_, ctx->h2_stream);
+    const char *tr[] = { "grpc-status", grpc_status, "grpc-message", "" };
+    cetcd_h2_submit_trailers(ctx->h2, ctx->h2_sid, tr, 4);
+    free(grpc_out);
+    ctx->h2_body_len = 0;
+}
+
+static void client_h2_on_request_(cetcd_h2_session *sess, int32_t stream_id,
+                                  const char *method, const char *path,
+                                  const char *content_type, void *udata) {
+    (void)sess;
+    (void)method;
+    (void)content_type;
+    client_ctx_ *ctx = (client_ctx_ *)udata;
+    if (!ctx) return;
+    ctx->h2_sid = stream_id;
+    ctx->h2_path[0] = '\0';
+    if (path) {
+        size_t n = strlen(path);
+        if (n >= sizeof(ctx->h2_path)) n = sizeof(ctx->h2_path) - 1;
+        memcpy(ctx->h2_path, path, n);
+        ctx->h2_path[n] = '\0';
+    }
+    ctx->h2_body_len = 0;
+    ctx->h2_done = 0;
+}
+
+static void client_h2_on_data_(cetcd_h2_session *sess, int32_t stream_id,
+                               const uint8_t *data, size_t len,
+                               bool end_stream, void *udata) {
+    (void)sess;
+    (void)stream_id;
+    client_ctx_ *ctx = (client_ctx_ *)udata;
+    if (!ctx) return;
+    if (data && len > 0 && client_h2_body_append_(ctx, data, len) != 0) {
+        ctx->h2_fail = 1;
+        return;
+    }
+    if (end_stream) client_h2_finish_(ctx);
+}
+
+static int client_h2_start_(client_ctx_ *ctx) {
+    cetcd_h2_callbacks cbs;
+    memset(&cbs, 0, sizeof(cbs));
+    cbs.on_request = client_h2_on_request_;
+    cbs.on_data = client_h2_on_data_;
+    cbs.udata = ctx;
+    ctx->h2 = cetcd_h2_session_new(&cbs);
+    return ctx->h2 ? 0 : -1;
+}
+
 static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
     client_ctx_ *ctx = (client_ctx_ *)stream->data;
     if (!ctx) return;
@@ -960,6 +1106,32 @@ static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *
             return;
         }
         if (buf->base) free(buf->base);
+    }
+
+    if (ctx->proto == 0) {
+        int d = cetcd_h2_detect(ctx->buf, ctx->buf_pos);
+        if (d < 0) return;
+        if (d == 1) {
+            if (client_h2_start_(ctx) != 0) {
+                uv_close((uv_handle_t *)stream, client_close_cb_);
+                return;
+            }
+            ctx->proto = 2;
+        } else {
+            ctx->proto = 1;
+        }
+    }
+    if (ctx->proto == 2) {
+        if (cetcd_h2_feed(ctx->h2, ctx->buf, ctx->buf_pos) != 0 || ctx->h2_fail) {
+            ctx->buf_pos = 0;
+            uv_close((uv_handle_t *)stream, client_close_cb_);
+            return;
+        }
+        ctx->buf_pos = 0;
+        if (cetcd_h2_send_pending(ctx->h2, h2_write_uv_, stream) != 0) {
+            uv_close((uv_handle_t *)stream, client_close_cb_);
+        }
+        return;
     }
 
     while (ctx->buf_pos >= 2) {
@@ -1089,6 +1261,7 @@ static void on_client_conn_(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
             }
         }
         stream->data = ctx;
+        ctx->h2_stream = stream;
         uv_read_start(stream, alloc_cb_, on_client_read_);
     }
 }

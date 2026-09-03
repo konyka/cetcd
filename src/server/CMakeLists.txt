@@ -15,6 +15,7 @@ cetcd_add_module(server
         cetcd_backend
         cetcd_io
         cetcd_tls
+        cetcd_http2
 )
 
 target_compile_definitions(cetcd_server PRIVATE _POSIX_C_SOURCE=200809L)

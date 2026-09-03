@@ -57,6 +57,16 @@ int cetcd_grpc_decode(const uint8_t *frame, size_t frame_len,
     return CETCD_OK;
 }
 
+static const char CETCD_H2_PREFACE_[] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+
+int cetcd_h2_detect(const uint8_t *data, size_t len) {
+    if (!data || len == 0) return -1;
+    size_t n = len < 24 ? len : 24;
+    if (memcmp(data, CETCD_H2_PREFACE_, n) != 0) return 0;
+    if (len < 24) return -1;
+    return 1;
+}
+
 /* ============================================================================ */
 /*  HTTP/2 session management                                                   */
 /* ============================================================================ */
@@ -72,6 +82,7 @@ typedef struct {
     char    method[16];
     char    path[256];
     char    content_type[64];
+    char    authorization[2048];
     bool    request_notified;
 } h2_req_state_;
 
@@ -129,6 +140,11 @@ h2_on_header_(nghttp2_session *session,
                        ? valuelen : sizeof(s->cur.content_type) - 1;
         memcpy(s->cur.content_type, value, n);
         s->cur.content_type[n] = '\0';
+    } else if (namelen == 13 && memcmp(name, "authorization", 13) == 0) {
+        size_t n = valuelen < sizeof(s->cur.authorization) - 1
+                       ? valuelen : sizeof(s->cur.authorization) - 1;
+        memcpy(s->cur.authorization, value, n);
+        s->cur.authorization[n] = '\0';
     }
     return 0;
 }
@@ -166,8 +182,16 @@ h2_on_frame_recv_(nghttp2_session *session,
                               s->cbs.udata);
             s->cur.request_notified = true;
         }
+        if ((frame->hd.flags & NGHTTP2_FLAG_END_STREAM) && s->cbs.on_data) {
+            s->cbs.on_data(s, frame->hd.stream_id, NULL, 0, true, s->cbs.udata);
+        }
     }
     return 0;
+}
+
+const char *cetcd_h2_req_authorization(const cetcd_h2_session *s) {
+    if (!s) return "";
+    return s->cur.authorization[0] ? s->cur.authorization : "";
 }
 
 /* -- Data-provider read callback for submit_response ------------------------ */
@@ -427,6 +451,11 @@ cetcd_h2_submit_trailers(cetcd_h2_session *s, int32_t stream_id,
 void
 cetcd_h2_session_terminate(cetcd_h2_session *s, uint32_t error_code) {
     (void)s; (void)error_code;
+}
+
+const char *cetcd_h2_req_authorization(const cetcd_h2_session *s) {
+    (void)s;
+    return "";
 }
 
 #endif /* CETCD_HAS_NGHTTP2 */

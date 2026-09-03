@@ -87,6 +87,15 @@ CETCD_TEST_CASE(grpc_encode_rejects_huge_message) {
     CETCD_ASSERT_TRUE(frame == NULL);
 }
 
+CETCD_TEST_CASE(h2_detect_preface_vs_custom) {
+    const uint8_t *pre = (const uint8_t *)"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+    CETCD_ASSERT_EQ_INT(cetcd_h2_detect(pre, 24), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_h2_detect(pre, 5), -1);
+    CETCD_ASSERT_EQ_INT(cetcd_h2_detect(NULL, 0), -1);
+    const uint8_t custom[] = {0x00, 0x15, '/', 'e', 't'};
+    CETCD_ASSERT_EQ_INT(cetcd_h2_detect(custom, sizeof(custom)), 0);
+}
+
 CETCD_TEST_CASE(h2_session_create_destroy) {
     cetcd_h2_callbacks cbs = {0};
     cetcd_h2_session *s = cetcd_h2_session_new(&cbs);
@@ -345,12 +354,13 @@ CETCD_TEST_CASE(h2_server_receives_request) {
         NGHTTP2_NV_MAKE(":path",         "/etcdserverpb.KV/Put"),
         NGHTTP2_NV_MAKE(":scheme",       "http"),
         NGHTTP2_NV_MAKE("content-type",  "application/grpc"),
+        NGHTTP2_NV_MAKE("authorization", "test-token"),
     };
     nghttp2_data_provider2 dp;
     dp.read_callback = client_body_read_cb_;
     dp.source.ptr    = NULL;
 
-    int32_t sid = nghttp2_submit_request2(client, NULL, hdrs, 4, &dp, NULL);
+    int32_t sid = nghttp2_submit_request2(client, NULL, hdrs, 5, &dp, NULL);
     CETCD_ASSERT_TRUE(sid > 0);
 
     pump_sessions_(server, client);
@@ -360,6 +370,7 @@ CETCD_TEST_CASE(h2_server_receives_request) {
     CETCD_ASSERT_EQ_STR(tc.method, "POST");
     CETCD_ASSERT_EQ_STR(tc.path, "/etcdserverpb.KV/Put");
     CETCD_ASSERT_EQ_STR(tc.content_type, "application/grpc");
+    CETCD_ASSERT_EQ_STR(cetcd_h2_req_authorization(server), "test-token");
 
     /* Verify server received request body */
     CETCD_ASSERT_TRUE(tc.got_data);
@@ -473,6 +484,7 @@ CETCD_TEST_CASE(h2_submit_response_with_trailers) {
 
     pump_sessions_(server, client);
     CETCD_ASSERT_TRUE(tc.got_request);
+    CETCD_ASSERT_TRUE(tc.got_end_stream);
 
     /* Submit response with body but NOT end_stream (trailers will follow) */
     const char *resp_hdrs[] = {
@@ -529,6 +541,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(grpc_decode_too_short),
     CETCD_TEST_ENTRY(grpc_encode_empty_message),
     CETCD_TEST_ENTRY(grpc_encode_rejects_huge_message),
+    CETCD_TEST_ENTRY(h2_detect_preface_vs_custom),
     CETCD_TEST_ENTRY(h2_session_create_destroy),
     CETCD_TEST_ENTRY(h2_session_null_safety),
     CETCD_TEST_ENTRY(h2_client_preface_and_request),

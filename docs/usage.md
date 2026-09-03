@@ -2,7 +2,9 @@
 
 > **Status**: actively developed. cetcd implements the etcd v3.5 RPC catalogue (protobuf
 > semantics) and speaks a **custom framed TCP protocol** via `cetcdctl`. Official
-> `etcdctl` / HTTP/2 gRPC clients are **not yet supported** — see
+> `etcdctl` / HTTP/2 gRPC clients are **partially supported** on plaintext unary
+> RPCs (HTTP/2 preface on the client port). `cetcdctl` still uses custom frames.
+> Watch/streams and TLS ALPN `h2` are not complete — see
 > [architecture.md §Wire protocol](./architecture.md#6-wire-protocol).
 
 ## 1. Building from source

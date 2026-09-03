@@ -54,6 +54,13 @@ int cetcd_h2_submit_trailers(cetcd_h2_session *s, int32_t stream_id,
 
 void cetcd_h2_session_terminate(cetcd_h2_session *s, uint32_t error_code);
 
+/* 1 if `data` is the HTTP/2 client preface, 0 if it cannot be, -1 if more bytes
+ * are required. Used to demux gRPC from cetcdctl's length-prefixed frames. */
+int cetcd_h2_detect(const uint8_t *data, size_t len);
+
+/* Authorization header of the current request, or "" if none. */
+const char *cetcd_h2_req_authorization(const cetcd_h2_session *s);
+
 /* gRPC framing helpers */
 int  cetcd_grpc_encode(const uint8_t *msg, size_t msg_len,
                         bool compressed, uint8_t **out, size_t *out_len);

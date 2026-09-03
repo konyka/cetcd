@@ -36,14 +36,14 @@
 
 ## 项目概述
 
-cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使用纯 C 语言编写，目标是与 etcd v3.5 的 gRPC API **语义兼容**（protobuf 消息与 RPC 目录）。当前客户端传输为 `cetcdctl` 使用的自定义 TCP 帧协议；**官方 `etcdctl` / Go 客户端尚不能直连**（HTTP/2 gRPC 服务端路径待接入）。
+cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使用纯 C 语言编写，目标是与 etcd v3.5 的 gRPC API **语义兼容**（protobuf 消息与 RPC 目录）。当前客户端传输为 `cetcdctl` 使用的自定义 TCP 帧协议，以及明文 HTTP/2 gRPC（连接前奏检测）。Watch/流式 RPC 与 TLS ALPN `h2` 尚未完整。
 
 ### 核心目标
 
 | 目标 | 说明 |
 |------|------|
 | **API 兼容** | 支持 etcd v3.5 全部 41 个 RPC 的处理与 protobuf 编解码（KV、Watch、Lease、Cluster、Auth、Maintenance） |
-| **线兼容（进行中）** | HTTP/2 + gRPC（nghttp2）库已就绪，服务端 accept 路径尚未切换 |
+| **线兼容（进行中）** | 明文 HTTP/2 一元 gRPC 已接入 accept；Watch/流式与 TLS ALPN 仍待完成 |
 | **跨平台** | Linux（主要）、macOS、FreeBSD、Windows（MSVC + MinGW-w64） |
 | **性能对等** | 3 节点 70/30 Put/Range 工作负载下达到或超过 Go 版 etcd |
 | **纯 C** | C99 基准，需要 C11 原子操作，公共头文件无 GNU/MSVC 扩展 |
@@ -68,6 +68,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **JWT**：`--auth-token jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]` 签发带 `username`/`revision`/`exp` 的 JWT；密码变更不撤销已签发 JWT（与 etcd 一致）。其它 sign-method 启动失败。
 - **Peer 发送**：复用 TCP 连接，避免每条 Raft 消息新建短连接。
 - **历史 Range**：`cetcd_mvcc_range(rev>0)` 按 history 回放；重启后对当前世代有 synthetic history。
+- **HTTP/2 一元 gRPC**：client 端口识别 `PRI * HTTP/2` preface，与 `cetcdctl` 自定义帧分流；`authorization` 作为 token。Watch/流式与 TLS ALPN 仍待完成。
 
 ### 版本信息
 
@@ -724,9 +725,13 @@ int cetcd_grpc_decode(const uint8_t *frame, size_t frame_len, bool *compressed, 
 
 回调模型：
 - `on_request`：收到 HTTP/2 请求头时触发
-- `on_data`：收到请求体数据时触发
+- `on_data`：收到请求体数据时触发；HEADERS 带 `END_STREAM` 也会通知（空 body）
+- `cetcd_h2_detect`：根据 24 字节 client preface 与自定义帧分流
+- `cetcd_h2_req_authorization`：当前请求的 `authorization` 头
 
-测试覆盖 11 个测试用例：gRPC 帧编解码往返、压缩标志、空消息、空指针安全、连接前奏处理、服务器接收请求、完整往返、带 trailers 响应、会话终止。
+服务端在 client accept 上检测 preface：HTTP/2 一元 RPC 经 `dispatch_ex`，`cetcdctl` 仍走自定义帧。响应带 `grpc-status` trailer。
+
+测试覆盖 preface 检测、authorization、空 body END_STREAM、以及 live `Maintenance/Status` HTTP/2 往返。
 
 ---
 

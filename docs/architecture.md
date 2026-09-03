@@ -16,8 +16,8 @@ internals are organised. For deeper rationale on individual decisions, see
 | Area | Status |
 |------|--------|
 | KV / Watch / Lease / Cluster / Auth / Maintenance handlers | Implemented (protobuf wire format) |
-| Client transport | **Custom length-prefixed TCP frames** used by `cetcdctl` (not yet HTTP/2 gRPC). Optional TLS on accept (`--cert-file` / `--key-file`); plaintext remains the default. |
-| Official `etcdctl` / Go clients | **Not yet compatible** — requires nghttp2 server path |
+| Client transport | **Custom length-prefixed TCP** (`cetcdctl`) **and** plaintext HTTP/2 gRPC (preface detect). Optional TLS on accept (`--cert-file` / `--key-file`); plaintext remains the default. ALPN `h2` is not advertised yet. |
+| Official `etcdctl` / Go clients | **Partial** — unary plaintext HTTP/2 gRPC is accepted; Watch/streams and TLS+ALPN are not complete |
 | MVCC persistence | LMDB mirror of current key generations + revision; restart reload works |
 | Raft | State machine + peer TCP framing; Put/DeleteRange propose, apply after WAL sync |
 | Lease expiry | Server tick advances leases and deletes attached keys |
@@ -25,7 +25,7 @@ internals are organised. For deeper rationale on individual decisions, see
 | WAL replay | Restart restuffs the Raft log and applies NORMAL entries past `applied_index` |
 | TLS | Memory-BIO termination on client/peer listen and on outbound `peer_tx_`. Cert without key, missing files, or `--client-cert-auth` without CA fail closed. Plaintext remains the default. |
 
-Remaining work (HTTP/2 gRPC, fuzz, TSan, …)
+Remaining work (TLS ALPN, true gRPC streams, fuzz, TSan, …)
 is tracked in [`docs/roadmap.md`](./roadmap.md).
 
 ### Hardening pass (2026-07)
@@ -405,15 +405,21 @@ once, then attaches the token to every subsequent RPC.
 RPC path strings match etcd (`/etcdserverpb.KV/Put`, …). Request/response bodies are
 etcd v3.5 protobuf messages. Domain/RPC errors from handlers (`{NULL,0}`) are
 returned as a frame with `payload_len=0` so clients do not block on `recv`;
-`cetcdctl` treats zero-length unary responses as failure. This is **not** HTTP/2
-gRPC; official `etcdctl` cannot connect until the nghttp2 server path is wired
-into `cetcd_server_serve`.
+`cetcdctl` treats zero-length unary responses as failure. Official `etcdctl`
+can speak unary plaintext HTTP/2 gRPC on the same port (`PRI * HTTP/2` preface);
+custom frames remain for `cetcdctl`. Watch and other streams are still
+unary-shaped on the HTTP/2 path. TLS clients need ALPN `h2`, which is not
+advertised yet.
 
-### HTTP/2 / gRPC (library ready, server not yet)
+### HTTP/2 / gRPC (unary accept)
 
 `libcetcd_http2` uses nghttp2 for session management (preface, SETTINGS, HPACK,
-multiplexing). When nghttp2 is absent, stubs compile so the rest of the tree builds.
-Integrating this into the accept path is the remaining step for true wire compatibility.
+multiplexing). After TCP accept, the first bytes are classified with
+`cetcd_h2_detect`: the 24-byte client preface selects HTTP/2, anything else
+stays on the custom frame parser. Unary `:path` + DATA are dispatched through
+`cetcd_v3rpc_dispatch_ex`; the `authorization` header is the bearer token.
+Responses are `:status 200` + gRPC DATA + `grpc-status` trailers. When nghttp2
+is absent, stubs compile so the rest of the tree builds.
 
 - 6 services: `KV`, `Watch`, `Lease`, `Cluster`, `Maintenance`, `Auth`.
 - 41 RPCs (catalogue in [`docs/wiki/Home.md`](./wiki/Home.md)); `RangeStream` not yet dispatched.
