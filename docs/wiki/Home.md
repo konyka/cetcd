@@ -757,8 +757,8 @@ Server `--cert-file`/`--key-file` (and `--peer-cert-file`/`--peer-key-file`) loa
 contexts at start. Plaintext remains the default. Cert without key, missing files, or
 `--client-cert-auth` without `--trusted-ca-file` fail closed. Handshake runs on memory
 BIOs so libuv keeps the socket; blocking `SSL_accept` is not used on the reactor.
-Outbound `peer_tx_` is still plaintext. `cetcdctl` is still a plaintext client.
-`--auto-tls` stays a no-op.
+`--peer-cert-file` also wraps outbound `peer_tx_` (client handshake after TCP connect).
+`cetcdctl` is still a plaintext client. `--auto-tls` stays a no-op.
 
 ---
 

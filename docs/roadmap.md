@@ -52,8 +52,12 @@ Performance-first, fail-closed design:
   equivalents) load OpenSSL server contexts at start. Traffic stays plaintext
   when omitted. Cert without key, missing files, or `--client-cert-auth`
   without a CA fail closed (no silent plaintext). Handshake uses memory BIOs
-  so libuv keeps the fd; `cetcdctl` is still a plaintext client. Outbound
-  `peer_tx_` remains plaintext this pass. ALPN `h2` is not advertised yet.
+  so libuv keeps the fd; `cetcdctl` is still a plaintext client.
+- **Peer TLS on outbound `peer_tx_`** — when `--peer-cert-file` is set, Raft
+  send does a client-method memory-BIO handshake after TCP connect, then
+  `SSL_write` before `uv_write`. Missing CA skips verification (self-signed
+  clusters); a configured `--peer-trusted-ca-file` verifies the remote.
+  ALPN `h2` is not advertised yet.
 
 ## Previously done (auth data plane)
 
@@ -73,7 +77,6 @@ None remaining in this pass.
 | bcrypt / JWT `--auth-token` | SHA-256 is fast but not password-hashing; JWT unused | Keep simple tokens as default (hot-path cheap). Optional bcrypt at Authenticate only. |
 | `--max-request-bytes` / `--quota-backend-bytes` | DoS / disk fill. Client buffer is currently 64 KiB | Growable read buffer capped at `max_request_bytes` (etcd default 1.5 MiB); NOSPACE alarm when LMDB size exceeds quota. |
 | pprof CPU profile quality | `/debug/pprof/profile` is coarse | Keep off the Raft/reactor hot path; sample in a worker. |
-| Peer TLS on outbound `peer_tx_` | Accept path encrypts inbound; Raft send is still plaintext | Client-method memory-BIO handshake on `peer_tx_connect_`, then `SSL_write` before `uv_write`. |
 
 ### Wire compatibility
 

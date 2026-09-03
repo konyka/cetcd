@@ -15,6 +15,29 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+static int make_selfsigned_(char *dir, size_t dirsz) {
+    char tmpl[] = "/tmp/cetcd-srv-tls-XXXXXX";
+    if (!mkdtemp(tmpl)) return -1;
+    snprintf(dir, dirsz, "%s", tmpl);
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 "
+             "-days 1 -nodes -subj /CN=localhost "
+             "-keyout '%s/key.pem' -out '%s/cert.pem' >/dev/null 2>&1",
+             dir, dir);
+    return system(cmd) == 0 ? 0 : -1;
+}
+
+static void cleanup_selfsigned_(const char *dir) {
+    char path[300];
+    snprintf(path, sizeof(path), "%s/cert.pem", dir);
+    unlink(path);
+    snprintf(path, sizeof(path), "%s/key.pem", dir);
+    unlink(path);
+    rmdir(dir);
+}
 
 CETCD_TEST_CASE(server_create_destroy) {
     cetcd_server_config cfg;
@@ -593,6 +616,29 @@ CETCD_TEST_CASE(server_start_rejects_client_auth_without_ca) {
     cetcd_server_free(srv);
 }
 
+CETCD_TEST_CASE(server_start_loads_peer_tls) {
+    char dir[128];
+    CETCD_ASSERT_EQ_INT(make_selfsigned_(dir, sizeof(dir)), 0);
+    char cert[300], key[300];
+    snprintf(cert, sizeof(cert), "%s/cert.pem", dir);
+    snprintf(key, sizeof(key), "%s/key.pem", dir);
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.peer_cert_file, cert, sizeof(cfg.peer_cert_file) - 1);
+    strncpy(cfg.peer_key_file, key, sizeof(cfg.peer_key_file) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+    cetcd_server_free(srv);
+    cleanup_selfsigned_(dir);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_create_destroy),
     CETCD_TEST_ENTRY(server_handle_rpc_put_range),
@@ -609,6 +655,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_start_rejects_cert_without_key),
     CETCD_TEST_ENTRY(server_start_rejects_missing_tls_files),
     CETCD_TEST_ENTRY(server_start_rejects_client_auth_without_ca),
+    CETCD_TEST_ENTRY(server_start_loads_peer_tls),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()
