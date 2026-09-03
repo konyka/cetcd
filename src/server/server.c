@@ -1583,14 +1583,14 @@ static int load_tls_ctx_(cetcd_tls_ctx **out,
             return CETCD_ERR_IO;
         }
     }
-    if (client_cert_auth) {
-        if (cetcd_tls_set_verify_peer(ctx, 1) != CETCD_OK) {
-            cetcd_tls_ctx_free(ctx);
-            return CETCD_ERR_IO;
+        if (client_cert_auth) {
+            if (cetcd_tls_set_verify_peer(ctx, 1) != CETCD_OK) {
+                cetcd_tls_ctx_free(ctx);
+                return CETCD_ERR_IO;
+            }
         }
-    }
-    *out = ctx;
-    return CETCD_OK;
+        *out = ctx;
+        return CETCD_OK;
 }
 
 int cetcd_server_start(cetcd_server *srv) {
@@ -1617,6 +1617,14 @@ int cetcd_server_start(cetcd_server *srv) {
                                 srv->cfg.cert_file, srv->cfg.key_file,
                                 srv->cfg.trusted_ca_file, srv->cfg.client_cert_auth, 0);
         if (trc != CETCD_OK) return trc;
+        if (srv->tls_client) {
+            const char *alpn[] = { "h2" };
+            if (cetcd_tls_set_alpn(srv->tls_client, alpn, 1) != CETCD_OK) {
+                cetcd_tls_ctx_free(srv->tls_client);
+                srv->tls_client = NULL;
+                return CETCD_ERR_INTERNAL;
+            }
+        }
         trc = load_tls_ctx_(&srv->tls_peer,
                             srv->cfg.peer_cert_file, srv->cfg.peer_key_file,
                             srv->cfg.peer_trusted_ca_file, srv->cfg.peer_client_cert_auth, 0);

@@ -144,6 +144,121 @@ CETCD_TEST_CASE(tls_membio_handshake_roundtrip) {
     cleanup_selfsigned_(dir);
 }
 
+static int handshake_pump_(cetcd_tls_conn *cli, cetcd_tls_conn *srv) {
+    for (int i = 0; i < 64; i++) {
+        int hs = cetcd_tls_handshake(cli);
+        if (hs < 0) return -1;
+        if (pump_all_(cli, srv) < 0) return -1;
+        hs = cetcd_tls_handshake(srv);
+        if (hs < 0) return -1;
+        if (pump_all_(srv, cli) < 0) return -1;
+        if (cetcd_tls_handshake(cli) == 1 && cetcd_tls_handshake(srv) == 1)
+            return 1;
+    }
+    return 0;
+}
+
+CETCD_TEST_CASE(tls_alpn_h2_negotiated) {
+    char dir[128];
+    CETCD_ASSERT_EQ_INT(make_selfsigned_(dir, sizeof(dir)), 0);
+    char cert[300], key[300];
+    snprintf(cert, sizeof(cert), "%s/cert.pem", dir);
+    snprintf(key, sizeof(key), "%s/key.pem", dir);
+
+    cetcd_tls_ctx *sctx = cetcd_tls_ctx_new();
+    cetcd_tls_ctx *cctx = cetcd_tls_ctx_new_client();
+    CETCD_ASSERT_NOT_NULL(sctx);
+    CETCD_ASSERT_NOT_NULL(cctx);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_cert(sctx, cert, key), CETCD_OK);
+    const char *h2[] = { "h2" };
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_alpn(sctx, h2, 1), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_alpn(cctx, h2, 1), CETCD_OK);
+
+    cetcd_tls_conn *srv = cetcd_tls_conn_accept(sctx);
+    cetcd_tls_conn *cli = cetcd_tls_conn_connect(cctx);
+    CETCD_ASSERT_EQ_INT(handshake_pump_(cli, srv), 1);
+
+    const uint8_t *proto = NULL;
+    unsigned int plen = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_tls_alpn_selected(srv, &proto, &plen), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)plen, 2);
+    CETCD_ASSERT_EQ_INT(memcmp(proto, "h2", 2), 0);
+    proto = NULL;
+    plen = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_tls_alpn_selected(cli, &proto, &plen), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)plen, 2);
+    CETCD_ASSERT_EQ_INT(memcmp(proto, "h2", 2), 0);
+
+    cetcd_tls_conn_free(cli);
+    cetcd_tls_conn_free(srv);
+    cetcd_tls_ctx_free(cctx);
+    cetcd_tls_ctx_free(sctx);
+    cleanup_selfsigned_(dir);
+}
+
+CETCD_TEST_CASE(tls_alpn_omitted_by_client_still_handshakes) {
+    char dir[128];
+    CETCD_ASSERT_EQ_INT(make_selfsigned_(dir, sizeof(dir)), 0);
+    char cert[300], key[300];
+    snprintf(cert, sizeof(cert), "%s/cert.pem", dir);
+    snprintf(key, sizeof(key), "%s/key.pem", dir);
+
+    cetcd_tls_ctx *sctx = cetcd_tls_ctx_new();
+    cetcd_tls_ctx *cctx = cetcd_tls_ctx_new_client();
+    CETCD_ASSERT_NOT_NULL(sctx);
+    CETCD_ASSERT_NOT_NULL(cctx);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_cert(sctx, cert, key), CETCD_OK);
+    const char *h2[] = { "h2" };
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_alpn(sctx, h2, 1), CETCD_OK);
+
+    cetcd_tls_conn *srv = cetcd_tls_conn_accept(sctx);
+    cetcd_tls_conn *cli = cetcd_tls_conn_connect(cctx);
+    CETCD_ASSERT_EQ_INT(handshake_pump_(cli, srv), 1);
+
+    const uint8_t *proto = (const uint8_t *)"x";
+    unsigned int plen = 99;
+    CETCD_ASSERT_EQ_INT(cetcd_tls_alpn_selected(srv, &proto, &plen), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)plen, 0);
+
+    cetcd_tls_conn_free(cli);
+    cetcd_tls_conn_free(srv);
+    cetcd_tls_ctx_free(cctx);
+    cetcd_tls_ctx_free(sctx);
+    cleanup_selfsigned_(dir);
+}
+
+CETCD_TEST_CASE(tls_alpn_mismatch_fail_closed) {
+    char dir[128];
+    CETCD_ASSERT_EQ_INT(make_selfsigned_(dir, sizeof(dir)), 0);
+    char cert[300], key[300];
+    snprintf(cert, sizeof(cert), "%s/cert.pem", dir);
+    snprintf(key, sizeof(key), "%s/key.pem", dir);
+
+    cetcd_tls_ctx *sctx = cetcd_tls_ctx_new();
+    cetcd_tls_ctx *cctx = cetcd_tls_ctx_new_client();
+    CETCD_ASSERT_NOT_NULL(sctx);
+    CETCD_ASSERT_NOT_NULL(cctx);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_cert(sctx, cert, key), CETCD_OK);
+    const char *h2[] = { "h2" };
+    const char *h1[] = { "http/1.1" };
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_alpn(sctx, h2, 1), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_alpn(cctx, h1, 1), CETCD_OK);
+
+    cetcd_tls_conn *srv = cetcd_tls_conn_accept(sctx);
+    cetcd_tls_conn *cli = cetcd_tls_conn_connect(cctx);
+    CETCD_ASSERT_EQ_INT(handshake_pump_(cli, srv), -1);
+
+    cetcd_tls_conn_free(cli);
+    cetcd_tls_conn_free(srv);
+    cetcd_tls_ctx_free(cctx);
+    cetcd_tls_ctx_free(sctx);
+    cleanup_selfsigned_(dir);
+}
+
+CETCD_TEST_CASE(tls_alpn_selected_null_safety) {
+    CETCD_ASSERT_EQ_INT(cetcd_tls_alpn_selected(NULL, NULL, NULL), CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(tls_ctx_create_destroy),
     CETCD_TEST_ENTRY(tls_ctx_set_alpn),
@@ -151,6 +266,10 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(tls_ctx_set_nonexistent_cert),
     CETCD_TEST_ENTRY(tls_membio_handshake_wants_read),
     CETCD_TEST_ENTRY(tls_membio_handshake_roundtrip),
+    CETCD_TEST_ENTRY(tls_alpn_h2_negotiated),
+    CETCD_TEST_ENTRY(tls_alpn_omitted_by_client_still_handshakes),
+    CETCD_TEST_ENTRY(tls_alpn_mismatch_fail_closed),
+    CETCD_TEST_ENTRY(tls_alpn_selected_null_safety),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

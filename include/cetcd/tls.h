@@ -19,6 +19,9 @@ void           cetcd_tls_ctx_free(cetcd_tls_ctx *ctx);
 int cetcd_tls_set_cert(cetcd_tls_ctx *ctx, const char *cert_path, const char *key_path);
 int cetcd_tls_set_ca(cetcd_tls_ctx *ctx, const char *ca_path);
 int cetcd_tls_set_alpn(cetcd_tls_ctx *ctx, const char **protocols, size_t count);
+/* After handshake: negotiated ALPN id (not NUL-terminated). *len == 0 if none. */
+int cetcd_tls_alpn_selected(const cetcd_tls_conn *conn,
+                            const uint8_t **proto, unsigned int *len);
 /* require_cert: SSL_VERIFY_PEER | FAIL_IF_NO_PEER_CERT. Needs a CA. */
 int cetcd_tls_set_verify_peer(cetcd_tls_ctx *ctx, int require_cert);
 

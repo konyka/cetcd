@@ -16,16 +16,16 @@ internals are organised. For deeper rationale on individual decisions, see
 | Area | Status |
 |------|--------|
 | KV / Watch / Lease / Cluster / Auth / Maintenance handlers | Implemented (protobuf wire format) |
-| Client transport | **Custom length-prefixed TCP** (`cetcdctl`) **and** plaintext HTTP/2 gRPC (preface detect). Optional TLS on accept (`--cert-file` / `--key-file`); plaintext remains the default. ALPN `h2` is not advertised yet. |
-| Official `etcdctl` / Go clients | **Partial** — unary plaintext HTTP/2 gRPC is accepted; Watch/streams and TLS+ALPN are not complete |
+| Client transport | **Custom length-prefixed TCP** (`cetcdctl`) **and** HTTP/2 gRPC (preface detect). Optional TLS on accept (`--cert-file` / `--key-file`) negotiates ALPN `h2`; plaintext remains the default. |
+| Official `etcdctl` / Go clients | **Partial** — unary HTTP/2 gRPC (plaintext or TLS+ALPN `h2`); Watch/streams are not complete |
 | MVCC persistence | LMDB mirror of current key generations + revision; restart reload works |
 | Raft | State machine + peer TCP framing; Put/DeleteRange propose, apply after WAL sync |
 | Lease expiry | Server tick advances leases and deletes attached keys |
 | Auth data-plane enforcement | Implemented: opaque tokens, RBAC prefix perms, fail-closed, LMDB persist |
 | WAL replay | Restart restuffs the Raft log and applies NORMAL entries past `applied_index` |
-| TLS | Memory-BIO termination on client/peer listen and on outbound `peer_tx_`. Cert without key, missing files, or `--client-cert-auth` without CA fail closed. Plaintext remains the default. |
+| TLS | Memory-BIO termination on client/peer listen and on outbound `peer_tx_`. Client listen selects ALPN `h2` when offered. Cert without key, missing files, or `--client-cert-auth` without CA fail closed. Plaintext remains the default. |
 
-Remaining work (TLS ALPN, true gRPC streams, fuzz, TSan, …)
+Remaining work (true gRPC streams, fuzz, TSan, …)
 is tracked in [`docs/roadmap.md`](./roadmap.md).
 
 ### Hardening pass (2026-07)
@@ -408,8 +408,9 @@ returned as a frame with `payload_len=0` so clients do not block on `recv`;
 `cetcdctl` treats zero-length unary responses as failure. Official `etcdctl`
 can speak unary plaintext HTTP/2 gRPC on the same port (`PRI * HTTP/2` preface);
 custom frames remain for `cetcdctl`. Watch and other streams are still
-unary-shaped on the HTTP/2 path. TLS clients need ALPN `h2`, which is not
-advertised yet.
+unary-shaped on the HTTP/2 path. TLS on the client port selects ALPN `h2`
+when the client offers it; omitting ALPN still handshakes (so custom-frame
+TLS keeps working). A non-`h2` offer is fail-closed.
 
 ### HTTP/2 / gRPC (unary accept)
 

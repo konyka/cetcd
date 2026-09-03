@@ -77,8 +77,10 @@ Performance-first, fail-closed design:
   preface are demuxed from `cetcdctl` frames and fed to nghttp2. Unary
   `:path` + DATA map to `cetcd_v3rpc_dispatch_ex`; `authorization` is the
   bearer token. Responses use gRPC trailers (`grpc-status`). Watch and
-  other streams stay unary-shaped on this path. ALPN `h2` is not advertised
-  yet, so TLS gRPC clients may still fail protocol selection.
+  other streams stay unary-shaped on this path. Client TLS (`--cert-file`)
+  selects ALPN `h2` when the peer offers it; clients that omit ALPN still
+  handshake (custom-frame TLS). A non-`h2` ALPN offer is fail-closed. Peer
+  TLS does not advertise `h2`.
 
 ## Previously done (auth data plane)
 

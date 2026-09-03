@@ -36,14 +36,14 @@
 
 ## 项目概述
 
-cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使用纯 C 语言编写，目标是与 etcd v3.5 的 gRPC API **语义兼容**（protobuf 消息与 RPC 目录）。当前客户端传输为 `cetcdctl` 使用的自定义 TCP 帧协议，以及明文 HTTP/2 gRPC（连接前奏检测）。Watch/流式 RPC 与 TLS ALPN `h2` 尚未完整。
+cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使用纯 C 语言编写，目标是与 etcd v3.5 的 gRPC API **语义兼容**（protobuf 消息与 RPC 目录）。当前客户端传输为 `cetcdctl` 使用的自定义 TCP 帧协议，以及 HTTP/2 gRPC（连接前奏检测；TLS 协商 ALPN `h2`）。Watch/流式 RPC 尚未完整。
 
 ### 核心目标
 
 | 目标 | 说明 |
 |------|------|
 | **API 兼容** | 支持 etcd v3.5 全部 41 个 RPC 的处理与 protobuf 编解码（KV、Watch、Lease、Cluster、Auth、Maintenance） |
-| **线兼容（进行中）** | 明文 HTTP/2 一元 gRPC 已接入 accept；Watch/流式与 TLS ALPN 仍待完成 |
+| **线兼容（进行中）** | HTTP/2 一元 gRPC（明文或 TLS+ALPN `h2`）已接入 accept；Watch/流式仍待完成 |
 | **跨平台** | Linux（主要）、macOS、FreeBSD、Windows（MSVC + MinGW-w64） |
 | **性能对等** | 3 节点 70/30 Put/Range 工作负载下达到或超过 Go 版 etcd |
 | **纯 C** | C99 基准，需要 C11 原子操作，公共头文件无 GNU/MSVC 扩展 |
@@ -68,7 +68,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **JWT**：`--auth-token jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]` 签发带 `username`/`revision`/`exp` 的 JWT；密码变更不撤销已签发 JWT（与 etcd 一致）。其它 sign-method 启动失败。
 - **Peer 发送**：复用 TCP 连接，避免每条 Raft 消息新建短连接。
 - **历史 Range**：`cetcd_mvcc_range(rev>0)` 按 history 回放；重启后对当前世代有 synthetic history。
-- **HTTP/2 一元 gRPC**：client 端口识别 `PRI * HTTP/2` preface，与 `cetcdctl` 自定义帧分流；`authorization` 作为 token。Watch/流式与 TLS ALPN 仍待完成。
+- **HTTP/2 一元 gRPC**：client 端口识别 `PRI * HTTP/2` preface，与 `cetcdctl` 自定义帧分流；`authorization` 作为 token。TLS（`--cert-file`）协商 ALPN `h2`；客户端不发 ALPN 仍可握手。Watch/流式仍待完成。
 
 ### 版本信息
 
@@ -748,6 +748,7 @@ cetcd_tls_ctx *cetcd_tls_ctx_new_client(void);
 int cetcd_tls_set_cert(cetcd_tls_ctx *ctx, const char *cert_path, const char *key_path);
 int cetcd_tls_set_ca(cetcd_tls_ctx *ctx, const char *ca_path);
 int cetcd_tls_set_alpn(cetcd_tls_ctx *ctx, const char **protocols, size_t count);
+int cetcd_tls_alpn_selected(const cetcd_tls_conn *conn, const uint8_t **proto, unsigned int *len);
 int cetcd_tls_set_verify_peer(cetcd_tls_ctx *ctx, int require_cert);
 
 cetcd_tls_conn *cetcd_tls_accept(cetcd_tls_ctx *ctx, int fd); /* blocking */

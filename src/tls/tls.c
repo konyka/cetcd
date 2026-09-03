@@ -13,7 +13,9 @@
 #include <openssl/bio.h>
 
 struct cetcd_tls_ctx {
-    SSL_CTX *ssl_ctx;
+    SSL_CTX        *ssl_ctx;
+    unsigned char  *alpn;
+    unsigned int    alpn_len;
 };
 
 struct cetcd_tls_conn {
@@ -51,6 +53,7 @@ cetcd_tls_ctx *cetcd_tls_ctx_new_client(void) {
 void cetcd_tls_ctx_free(cetcd_tls_ctx *ctx) {
     if (ctx == NULL) return;
     if (ctx->ssl_ctx) SSL_CTX_free(ctx->ssl_ctx);
+    free(ctx->alpn);
     free(ctx);
 }
 
@@ -87,6 +90,23 @@ int cetcd_tls_set_verify_peer(cetcd_tls_ctx *ctx, int require_cert) {
     return CETCD_OK;
 }
 
+static int alpn_select_(SSL *ssl, const unsigned char **out, unsigned char *outlen,
+                        const unsigned char *in, unsigned int inlen, void *arg) {
+    (void)ssl;
+    cetcd_tls_ctx *ctx = (cetcd_tls_ctx *)arg;
+    if (!ctx || !ctx->alpn || ctx->alpn_len == 0 || !in || inlen == 0)
+        return SSL_TLSEXT_ERR_NOACK;
+    unsigned char *sel = NULL;
+    unsigned char sel_len = 0;
+    int st = SSL_select_next_proto(&sel, &sel_len,
+                                   ctx->alpn, ctx->alpn_len, in, inlen);
+    if (st != OPENSSL_NPN_NEGOTIATED || !sel || sel_len == 0)
+        return SSL_TLSEXT_ERR_ALERT_FATAL;
+    *out = sel;
+    *outlen = sel_len;
+    return SSL_TLSEXT_ERR_OK;
+}
+
 int cetcd_tls_set_alpn(cetcd_tls_ctx *ctx, const char **protocols, size_t count) {
     if (ctx == NULL || ctx->ssl_ctx == NULL) return CETCD_ERR_INVAL;
     if (protocols == NULL || count == 0) {
@@ -113,12 +133,29 @@ int cetcd_tls_set_alpn(cetcd_tls_ctx *ctx, const char **protocols, size_t count)
         p += len;
     }
 
+    /* ClientHello offer (client ctx) and server selection list. */
     int r = SSL_CTX_set_alpn_protos(ctx->ssl_ctx, buf, (unsigned int)total);
-    free(buf);
-    if (r == 0) {
-        return CETCD_OK;
+    if (r != 0) {
+        free(buf);
+        return CETCD_ERR_INTERNAL;
     }
-    return CETCD_ERR_INTERNAL;
+    free(ctx->alpn);
+    ctx->alpn = buf;
+    ctx->alpn_len = (unsigned int)total;
+    SSL_CTX_set_alpn_select_cb(ctx->ssl_ctx, alpn_select_, ctx);
+    return CETCD_OK;
+}
+
+int cetcd_tls_alpn_selected(const cetcd_tls_conn *conn,
+                            const uint8_t **proto, unsigned int *len) {
+    if (conn == NULL || conn->ssl == NULL || proto == NULL || len == NULL)
+        return CETCD_ERR_INVAL;
+    const unsigned char *p = NULL;
+    unsigned int n = 0;
+    SSL_get0_alpn_selected(conn->ssl, &p, &n);
+    *proto = p;
+    *len = n;
+    return CETCD_OK;
 }
 
 cetcd_tls_conn *cetcd_tls_accept(cetcd_tls_ctx *ctx, int fd) {
@@ -277,6 +314,10 @@ int cetcd_tls_set_ca(cetcd_tls_ctx *ctx, const char *ca_path) {
 }
 int cetcd_tls_set_alpn(cetcd_tls_ctx *ctx, const char **protocols, size_t count) {
     (void)ctx; (void)protocols; (void)count; return CETCD_ERR_UNSUPPORT;
+}
+int cetcd_tls_alpn_selected(const cetcd_tls_conn *conn,
+                            const uint8_t **proto, unsigned int *len) {
+    (void)conn; (void)proto; (void)len; return CETCD_ERR_UNSUPPORT;
 }
 int cetcd_tls_set_verify_peer(cetcd_tls_ctx *ctx, int require_cert) {
     (void)ctx; (void)require_cert; return CETCD_ERR_UNSUPPORT;
