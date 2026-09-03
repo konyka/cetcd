@@ -2,6 +2,7 @@ cetcd_add_module(v3rpc
     SOURCES
         v3rpc.c
         kv_handler.c
+        apply.c
         watch_handler.c
         lease_handler.c
         auth_handler.c
@@ -16,4 +17,5 @@ cetcd_add_module(v3rpc
         cetcd_auth
         cetcd_peer
         cetcd_backend
+        cetcd_raft
 )

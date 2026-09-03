@@ -2,25 +2,28 @@
 
 > Living list of gaps versus etcd v3.5. Items are ordered by
 > **security → reliability → wire compatibility → performance extras**.
-> This pass implemented data-plane auth (tokens, RBAC, persist).
+> This pass implemented Raft-applied Put/DeleteRange and WAL replay.
 
-## Done in this pass (auth data plane)
+## Done in this pass (Raft KV + WAL replay)
 
 Performance-first, fail-closed design:
 
-- **Opaque simple tokens** — 16 random bytes as 32 hex chars, O(1) hashmap
-  lookup, 5-minute TTL, lazy expiry. No JWT parse on the hot path.
-- **Per-request token** on the custom TCP frame (`flags & 0x02`), so the
-  reactor stays single-threaded and does not bind identity to a connection.
-- **RBAC prefix match** — username `root` (or role `root`) is superuser;
-  otherwise the key must start with a granted role prefix.
-- **Fail-closed** — missing/expired token, unknown user, or failed prefix
-  match returns an empty RPC frame (same as other domain errors).
-- **Constant-time password compare** — XOR-accumulate, no early exit.
-- **AuthEnable requires `root`** (etcd). Password change / AuthDisable
-  revokes tokens.
-- **LMDB persist** of users/roles/enabled in one txn (`auth` bucket),
-  loaded on `cetcd_server_start`.
+- **Compact apply entries** — `tag + varint lengths + bytes` (Put/Delete/DeleteRange),
+  not protobuf on the raft hot path. Apply is a linear scan of `applied+1..commit`
+  from the in-memory log after one WAL `fsync` per Ready.
+- **Single-node commit** — voter quorum is one match index per peer (leader = last_index).
+  Log entries own a copy of the payload so RPC buffers are freed immediately.
+- **Per-request propose** — Put/DeleteRange propose then `process_ready_` on the
+  reactor thread. Not-leader or persist failure is fail-closed (empty frame).
+- **WAL segment** — `{data_dir}/wal/0000000000000000.wal`, append on restart
+  (`fopen` no longer truncates; a directory path resolves to that segment).
+- **Replay** — restore log + HardState, skip entries at or below LMDB
+  `meta.applied_index`, apply the gap so a crash between WAL sync and MVCC is repaired.
+
+## Previously done (auth data plane)
+
+- Opaque simple tokens, per-request TCP token, RBAC prefix match, fail-closed,
+  constant-time password compare, AuthEnable requires `root`, LMDB `auth` bucket.
 
 ## Still unimplemented
 
@@ -28,12 +31,12 @@ Performance-first, fail-closed design:
 
 | Gap | Why it matters | Suggested approach |
 |-----|----------------|--------------------|
-| KV writes apply directly to MVCC, not via Raft propose/commit | Multi-node puts diverge; leader crash can lose acked writes | Propose a compact entry (tag+key+val) from Put/Delete/Txn; apply only in `process_ready_` after WAL sync. Keep linearizable reads as leader-only. |
-| WAL replay of applied entries on restart | Intermediate revisions are lost; only LMDB live keys reload | On start, decode WAL from snapshot index and re-apply NORMAL entries that are ahead of MVCC revision. |
-| Lease persistence | Restarts drop TTLs; `reindex_from_store` uses a default TTL | Persist lease id/ttl/remaining/keys in an LMDB `lease` bucket; restore before accepting traffic. |
-| Joint-consensus membership + learner promote | `MemberPromote` is a no-op | Raft ConfChange V2; persist members bucket. |
-| Snapshot → WAL truncation | Unbounded WAL growth | After `snapshot-count` applies, write snap, `wal.Release`, drop old segments. |
-| Nested Txn (`RequestTxn`) | etcd allows nested transactions | Fail-closed today; execute recursively with the same `MaxTxnOps` budget. |
+| Txn still mutates MVCC locally | Multi-node txn diverges; restart drops un-logged txn ops | Encode the chosen branch as one apply batch (tag=3); re-use Put/Delete apply |
+| Lease persistence | Restarts drop TTLs; `reindex_from_store` uses a default TTL | Persist lease id/ttl/remaining/keys in an LMDB `lease` bucket; restore before accepting traffic |
+| Joint-consensus membership + learner promote | `MemberPromote` is a no-op | Raft ConfChange V2; persist members bucket |
+| Snapshot → WAL truncation | Unbounded WAL growth | After `snapshot-count` applies, write snap, `wal.Release`, drop old segments |
+| Nested Txn (`RequestTxn`) | etcd allows nested transactions | Fail-closed today; execute recursively with the same `MaxTxnOps` budget |
+| Lease expiry / revoke still local deletes | Followers do not see expiry deletes via raft | Propose DeleteRange (or per-key Delete) from the expire callback |
 
 ### Security / ops
 

@@ -172,6 +172,13 @@ uint64_t          cetcd_raft_term(cetcd_raft *r);
 /* Status / info */
 uint64_t          cetcd_raft_committed(cetcd_raft *r);
 uint64_t          cetcd_raft_applied(cetcd_raft *r);
+uint64_t          cetcd_raft_last_index(cetcd_raft *r);
+const cetcd_entry *cetcd_raft_entry_at(const cetcd_raft *r, uint64_t index);
+
+/* Restart: restuff the in-memory log / HardState from WAL without Ready. */
+int  cetcd_raft_restore_entry(cetcd_raft *r, const cetcd_entry *e);
+void cetcd_raft_restore_hard_state(cetcd_raft *r, const cetcd_hard_state *hs);
+void cetcd_raft_set_applied(cetcd_raft *r, uint64_t applied);
 
 /* Memory management for Ready */
 void              cetcd_ready_free(cetcd_ready *rd);

@@ -52,7 +52,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 
 ### 当前实现要点（v0.3.x）
 
-- **持久化**：配置 `--data-dir` 时，MVCC 当前键世代写入 LMDB（单事务写 key+revision），重启后自动加载。
+- **持久化**：配置 `--data-dir` 时，Put/DeleteRange 经 Raft propose，WAL fsync 后再应用到 MVCC（LMDB）。重启加载 live keys，并重放 `applied_index` 之后的 WAL 条目。
 - **租约过期 / Revoke**：server tick 过期与 `LeaseRevoke` 均会删除关联键；Delete/Put(lease=0) 会从 lease 索引解绑。
 - **Delete**：对不存在键为 no-op（不递增 revision）；成功删除从 treap 硬移除。
 - **Watch 多连接**：每个 watcher 绑定创建时的 stream writer；连接关闭时 `detach` 清理；`progress_notify` / `WatchProgressRequest` 已接线。
@@ -890,23 +890,22 @@ struct cetcd_server {
 cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_server_stop() → cetcd_server_free()
 ```
 
-1. **new**：初始化 v3rpc、raft、cluster、metrics；设置全局 `g_rpc_cluster` / `g_rpc_node_id`
-2. **start**：打开 backend（LMDB）、创建 WAL 编码器、添加初始对等节点、设置集群消息发送回调
+1. **new**：初始化 v3rpc、raft、cluster、metrics；单节点立即 campaign；设置 Ready flush
+2. **start**：打开 backend（LMDB）、重放 WAL 到 Raft log、应用 `applied_index` 之后的条目、以追加模式打开 WAL 编码器、添加初始对等节点
 3. **serve**：创建事件循环、绑定客户端/对等端口、启动 Raft tick 定时器、运行事件循环
 4. **stop**：设置 `started = false`
 5. **free**：逆序释放所有资源
 
 #### Raft 驱动 (process_ready_)
 
-- 100ms 定时器触发 `raft_tick_cb_` → `cetcd_raft_tick` + `process_ready_`
-- **WAL 持久化**：将 `rd.entries` 中的新条目写入 WAL，刷新到磁盘
+- 100ms 定时器触发 `raft_tick_cb_` → `cetcd_raft_tick` + `process_ready_`；Put 在 propose 后同步 flush
+- **WAL 持久化**：将 `rd.entries` 中的新条目写入 `{data_dir}/wal/0000000000000000.wal` 并 `fsync`
 - **HardState 持久化**：如果 `rd.hard_state` 非空，编码并写入 WAL
-- **消息发送**：将 `rd.messages` 编码为线路格式，通过 `cetcd_cluster_send_msg` 发送给对等节点
-- **已提交条目应用**：将 `rd.committed` 之前的 NORMAL 条目应用到 MVCC 存储：
-  - 条目数据格式：`tag(1B) + key_len(varint) + key + val_len(varint) + val`
-  - tag=1: Put（`cetcd_mvcc_put`），tag=2: Delete（`cetcd_mvcc_delete`）
-- 更新 metrics（`raft_committed_index`、`mvcc_revision`）
-- 调用 `cetcd_raft_advance` 确认处理完成
+- **消息发送**：将 `rd.messages` 编码为线路格式，通过 `cetcd_cluster_send_msg` 发送给对等节点（仅在 fsync 成功后）
+- **已提交条目应用**：从内存 log 应用 `applied+1 … commit`（不是 Ready.entries）：
+  - 条目数据格式：`tag(1B) + key_len(varint) + key + val_len(varint) + val [+ lease]`
+  - tag=1 Put，tag=2 Delete，tag=4 DeleteRange
+- 将 `applied_index` 写入 LMDB `meta`；调用 `cetcd_raft_advance`（persist 失败则不 advance）
 
 #### 对等节点消息接收
 

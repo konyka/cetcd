@@ -19,11 +19,12 @@ internals are organised. For deeper rationale on individual decisions, see
 | Client transport | **Custom length-prefixed TCP frames** used by `cetcdctl` (not yet HTTP/2 gRPC) |
 | Official `etcdctl` / Go clients | **Not yet compatible** — requires nghttp2 server path |
 | MVCC persistence | LMDB mirror of current key generations + revision; restart reload works |
-| Raft | State machine + peer TCP framing; KV writes currently apply directly to MVCC |
+| Raft | State machine + peer TCP framing; Put/DeleteRange propose, apply after WAL sync |
 | Lease expiry | Server tick advances leases and deletes attached keys |
 | Auth data-plane enforcement | Implemented: opaque tokens, RBAC prefix perms, fail-closed, LMDB persist |
+| WAL replay | Restart restuffs the Raft log and applies NORMAL entries past `applied_index` |
 
-Remaining work (HTTP/2 gRPC, Raft-applied writes, lease/WAL replay, TLS wiring, …)
+Remaining work (HTTP/2 gRPC, Txn-via-Raft, lease persistence, TLS wiring, …)
 is tracked in [`docs/roadmap.md`](./roadmap.md).
 
 ### Hardening pass (2026-07)
@@ -234,7 +235,8 @@ The backend uses **LMDB** (single-writer / many-reader memory-mapped B+tree). On
 per cetcd instance. Current buckets used by the live server:
 
 - `key` — current MVCC key generations (value blob: create/mod rev, version, lease, value).
-- `meta` — store revision (`revision` key).
+- `meta` — store revision (`revision`), compaction watermark (`compacted`),
+  and raft apply cursor (`applied_index`).
 - `auth` — RBAC snapshot (`enabled`, `users`, `roles` blobs).
 
 Additional buckets (`lease`, `members`, …) are reserved for upcoming persistence
@@ -243,8 +245,9 @@ to convert an etcd data directory. See [ADR 0002](./adr/0002-lmdb-backend.md).
 
 On `cetcd_server_start` with a configured `data_dir`, the server opens LMDB, calls
 `cetcd_mvcc_load`, rebuilds the in-memory lease index from live key `lease_id`s via
-`cetcd_lease_reindex_from_store` (default TTL until a `lease` bucket exists), and
-attaches the backend so subsequent put/delete are mirrored.
+`cetcd_lease_reindex_from_store` (default TTL until a `lease` bucket exists),
+replays `{data_dir}/wal/0000000000000000.wal` into the Raft log, applies any
+entries ahead of `applied_index`, then opens the WAL encoder in append mode.
 Each mutation writes the key blob and store revision in a **single LMDB transaction**
 (`cetcd_backend_put2`) to avoid double begin/commit on the hot path. Multi-key deletes
 (lease expire/revoke, `DeleteRange` / Txn range delete) use `cetcd_mvcc_delete_keys` →
@@ -276,8 +279,10 @@ put/delete also updates LMDB so a process restart restores the latest key set an
 Mutations are **fail-closed**: LMDB is written first; on persist failure the in-memory store,
 revision, and watchers are left unchanged and the API returns revision `{0,0}`.
 Load seeds a synthetic history entry per live key so `rev>0` get/range against the current
-generation works after restart; intermediate revisions from before the crash are not recovered
-(WAL replay of applied entries is the next step). After load, synthetic history is sorted by
+generation works after restart. WAL replay then applies any NORMAL entries whose raft index
+is strictly greater than the persisted `meta.applied_index`, so a crash between WAL sync and
+the MVCC write is repaired on the next start. Intermediate compacted history from before a
+clean restart is still not reconstructed from LMDB alone. After load, synthetic history is sorted by
 `(rev.main, rev.sub)` so Watch replay delivers events in revision order (LMDB foreach is
 key-ordered).
 
@@ -334,6 +339,25 @@ void              cetcd_raft_advance(cetcd_raft_node *n, cetcd_raft_ready *r);
 
 The Raft module **does no I/O and spawns no threads**. The embedder owns persistence
 (WAL/Snapshot) and transport (`libcetcd_peer`).
+
+### KV apply path (v0.3)
+
+Put and DeleteRange encode a compact entry (`tag + varints + bytes`, not protobuf) and
+call `cetcd_raft_propose`. `process_ready_` fsyncs the WAL, then applies
+`applied+1 … commit` from the in-memory log (Ready.entries is only the newly persisted
+suffix). Linearizable writes therefore wait for a local commit; a single-node cluster
+campaigns on `server_new` so the first Put does not wait for election ticks.
+
+- **Fail-closed**: not-leader or persist failure returns an empty RPC frame; `applied`
+  is not advanced if WAL sync failed.
+- **Log owns entry bytes**: propose copies the payload so the RPC buffer can be freed
+  immediately.
+- **Txn** still mutates MVCC locally (not yet a raft batch). Lease expiry deletes are
+  still local.
+
+Quorum uses one match index per voter (the leader's match is `last_index`). The previous
+implementation also pushed `last_index` as an extra voter, which blocked single-node
+commit.
 
 ---
 

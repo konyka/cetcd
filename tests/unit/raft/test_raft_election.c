@@ -87,8 +87,61 @@ CETCD_TEST_CASE(leader_can_propose_entries) {
     CETCD_ASSERT_TRUE(rd.n_entries >= 1);
     CETCD_ASSERT_TRUE(rd.entries != NULL);
     CETCD_ASSERT_TRUE(rd.entries[0].type == CETCD_ENTRY_NORMAL);
+    CETCD_ASSERT_TRUE(rd.committed >= 1);
 
     cetcd_ready_free(&rd);
+    cetcd_raft_free(r);
+}
+
+CETCD_TEST_CASE(single_node_propose_commits) {
+    cetcd_raft_config cfg = single_node_cfg(1);
+    cetcd_raft *r = cetcd_raft_new(&cfg);
+    for (int i = 0; i < 10; i++) cetcd_raft_tick(r);
+    CETCD_ASSERT_TRUE(cetcd_raft_state(r) == CETCD_NODE_LEADER);
+
+    CETCD_ASSERT_EQ_INT(cetcd_raft_propose(r, (const uint8_t *)"a", 1), 0);
+    CETCD_ASSERT_TRUE(cetcd_raft_committed(r) >= 1);
+    CETCD_ASSERT_TRUE(cetcd_raft_last_index(r) >= 1);
+    const cetcd_entry *e = cetcd_raft_entry_at(r, 1);
+    CETCD_ASSERT_NOT_NULL(e);
+    CETCD_ASSERT_EQ_INT((int)e->data.len, 1);
+    CETCD_ASSERT_EQ_INT((int)e->data.data[0], (int)'a');
+
+    /* Owned copy: caller buffer can go away. */
+    uint8_t tmp[3] = {'x', 'y', 'z'};
+    CETCD_ASSERT_EQ_INT(cetcd_raft_propose(r, tmp, 3), 0);
+    tmp[0] = 0;
+    const cetcd_entry *e2 = cetcd_raft_entry_at(r, 2);
+    CETCD_ASSERT_NOT_NULL(e2);
+    CETCD_ASSERT_EQ_INT((int)e2->data.len, 3);
+    CETCD_ASSERT_EQ_INT((int)e2->data.data[0], (int)'x');
+
+    cetcd_raft_free(r);
+}
+
+CETCD_TEST_CASE(restore_entry_and_hard_state) {
+    cetcd_raft_config cfg = single_node_cfg(1);
+    cetcd_raft *r = cetcd_raft_new(&cfg);
+    cetcd_entry e;
+    memset(&e, 0, sizeof(e));
+    e.term = 3;
+    e.index = 1;
+    e.type = CETCD_ENTRY_NORMAL;
+    uint8_t payload[] = {1, 2, 3};
+    e.data = cetcd_slice_make(payload, 3);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_restore_entry(r, &e), 0);
+    payload[0] = 9;
+    const cetcd_entry *got = cetcd_raft_entry_at(r, 1);
+    CETCD_ASSERT_NOT_NULL(got);
+    CETCD_ASSERT_EQ_INT((int)got->data.data[0], 1);
+
+    cetcd_hard_state hs = {.term = 3, .vote = 1, .commit = 1};
+    cetcd_raft_restore_hard_state(r, &hs);
+    CETCD_ASSERT_TRUE(cetcd_raft_term(r) == 3);
+    CETCD_ASSERT_TRUE(cetcd_raft_committed(r) == 1);
+    cetcd_raft_set_applied(r, 1);
+    CETCD_ASSERT_TRUE(cetcd_raft_applied(r) == 1);
+
     cetcd_raft_free(r);
 }
 
@@ -158,6 +211,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(single_node_becomes_leader_after_election_timeout),
     CETCD_TEST_ENTRY(term_increases_on_election),
     CETCD_TEST_ENTRY(leader_can_propose_entries),
+    CETCD_TEST_ENTRY(single_node_propose_commits),
+    CETCD_TEST_ENTRY(restore_entry_and_hard_state),
     CETCD_TEST_ENTRY(advance_clears_ready),
     CETCD_TEST_ENTRY(step_with_hup_triggers_election),
     CETCD_TEST_ENTRY(config_null_storage_ok),

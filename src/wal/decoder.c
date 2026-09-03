@@ -1,6 +1,7 @@
 #include "cetcd/wal.h"
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 /* CRC32C helper (same as encoder) */
 static uint32_t crc32c(uint32_t crc, const uint8_t *buf, size_t len) {
@@ -24,9 +25,11 @@ struct cetcd_wal_decoder {
 
 cetcd_wal_decoder *cetcd_wal_decoder_open(const char *path) {
     if (!path) return NULL;
+    char resolved[1024];
+    if (cetcd_wal_resolve_path(path, resolved, sizeof(resolved)) != 0) return NULL;
     cetcd_wal_decoder *d = (cetcd_wal_decoder*)calloc(1, sizeof(*d));
     if (!d) return NULL;
-    d->fp = fopen(path, "rb");
+    d->fp = fopen(resolved, "rb");
     if (!d->fp) { free(d); return NULL; }
     d->running_crc = 0;
     return d;

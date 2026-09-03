@@ -48,6 +48,14 @@ int cetcd_wal_encoder_flush(cetcd_wal_encoder *enc);
  * Raft messages or applying entries that depend on the persisted records. */
 int cetcd_wal_encoder_sync(cetcd_wal_encoder *enc);
 
+/* If `path` is a directory, write `{path}/0000000000000000.wal` into `out`.
+ * Otherwise copy `path`. Returns 0 on success. */
+int cetcd_wal_resolve_path(const char *path, char *out, size_t cap);
+
+/* Decode a WAL_ENTRY record payload into `out`. `out->data` is malloc'd. */
+int cetcd_wal_decode_entry(const uint8_t *data, size_t len, cetcd_entry *out);
+int cetcd_wal_decode_hard_state(const uint8_t *data, size_t len, cetcd_hard_state *out);
+
 /* ── WAL decoder ─────────────────────────────────────────────────── */
 
 typedef struct cetcd_wal_decoder cetcd_wal_decoder;

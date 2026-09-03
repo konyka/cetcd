@@ -78,8 +78,9 @@ cmake --build build-werror
 This starts a single-node cetcd server listening on port 2379 for client
 requests and port 2380 for peer-to-peer (Raft) communication.
 
-With `--data-dir` set, KV put/delete are mirrored into LMDB under that directory.
-Stopping and restarting the same `data-dir` reloads keys and the store revision.
+With `--data-dir` set, Put/DeleteRange are proposed through Raft, fsynced to
+`{data-dir}/wal/0000000000000000.wal`, then applied to MVCC (LMDB). Restart
+reloads live keys from LMDB and replays any WAL entries ahead of `applied_index`.
 
 ### Three-node static cluster
 

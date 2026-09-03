@@ -64,6 +64,91 @@ struct cetcd_server {
 
 static void raft_tick_cb_(void *arg);
 static void process_ready_(cetcd_server *srv);
+static void persist_applied_(cetcd_backend *be, uint64_t idx) {
+    if (!be) return;
+    uint8_t buf[8];
+    for (int i = 0; i < 8; i++)
+        buf[i] = (uint8_t)((idx >> (8 * i)) & 0xFF);
+    cetcd_backend_put(be, "meta",
+                      (const uint8_t *)"applied_index", 13,
+                      buf, 8);
+}
+
+static uint64_t load_applied_(cetcd_backend *be) {
+    if (!be) return 0;
+    uint8_t *val = NULL;
+    size_t vlen = 0;
+    if (cetcd_backend_get(be, "meta",
+                          (const uint8_t *)"applied_index", 13,
+                          &val, &vlen) != 0 || vlen != 8) {
+        free(val);
+        return 0;
+    }
+    uint64_t idx = 0;
+    for (int i = 0; i < 8; i++)
+        idx |= (uint64_t)val[i] << (8 * i);
+    free(val);
+    return idx;
+}
+
+static void apply_committed_(cetcd_server *srv) {
+    if (!srv || !srv->raft) return;
+    uint64_t from = cetcd_raft_applied(srv->raft) + 1;
+    uint64_t to = cetcd_raft_committed(srv->raft);
+    if (to < from) return;
+    for (uint64_t i = from; i <= to; i++) {
+        const cetcd_entry *e = cetcd_raft_entry_at(srv->raft, i);
+        if (!e || e->type != CETCD_ENTRY_NORMAL) continue;
+        if (e->data.data && e->data.len > 0)
+            cetcd_v3rpc_apply_entry(e->data.data, e->data.len);
+    }
+    persist_applied_(srv->backend, to);
+}
+
+static void replay_wal_(cetcd_server *srv, const char *wal_path) {
+    if (!srv || !srv->raft || !wal_path) return;
+    cetcd_wal_decoder *dec = cetcd_wal_decoder_open(wal_path);
+    if (!dec) return;
+    cetcd_hard_state last_hs;
+    memset(&last_hs, 0, sizeof(last_hs));
+    int have_hs = 0;
+    cetcd_wal_record rec;
+    cetcd_wal_record_init(&rec);
+    while (cetcd_wal_decode(dec, &rec) == 0) {
+        if (rec.type == CETCD_WAL_ENTRY && rec.data && rec.data_len > 0) {
+            cetcd_entry e;
+            if (cetcd_wal_decode_entry(rec.data, rec.data_len, &e) == 0) {
+                cetcd_raft_restore_entry(srv->raft, &e);
+                free((void *)(uintptr_t)e.data.data);
+            }
+        } else if (rec.type == CETCD_WAL_STATE && rec.data && rec.data_len > 0) {
+            if (cetcd_wal_decode_hard_state(rec.data, rec.data_len, &last_hs) == 0)
+                have_hs = 1;
+        }
+        cetcd_wal_record_free(&rec);
+        cetcd_wal_record_init(&rec);
+    }
+    cetcd_wal_record_free(&rec);
+    cetcd_wal_decoder_free(dec);
+    if (have_hs)
+        cetcd_raft_restore_hard_state(srv->raft, &last_hs);
+}
+
+static void ready_flush_cb_(void *arg) {
+    process_ready_((cetcd_server *)arg);
+}
+
+static void maybe_campaign_single_(cetcd_server *srv) {
+    if (!srv || !srv->raft) return;
+    if (srv->cfg.n_initial_peers != 0) return;
+    if (cetcd_raft_state(srv->raft) == CETCD_NODE_LEADER) return;
+    cetcd_msg hup;
+    memset(&hup, 0, sizeof(hup));
+    hup.type = CETCD_MSG_HUP;
+    hup.from = srv->cfg.node_id;
+    cetcd_raft_step(srv->raft, &hup);
+}
+
 static void peer_send_cb_(uint64_t to_id, const uint8_t *data, size_t len, void *udata);
 static void on_peer_incoming_(cetcd_tcp *server, cetcd_tcp *client, void *arg);
 static void on_client_conn_(cetcd_tcp *server, cetcd_tcp *client, void *arg);
@@ -890,6 +975,9 @@ cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
     g_rpc_node_id = cfg->node_id;
     g_rpc_raft = srv->raft;
 
+    cetcd_v3rpc_set_ready_flush(ready_flush_cb_, srv);
+    maybe_campaign_single_(srv);
+
     srv->metrics = cetcd_metrics_new();
     if (srv->metrics) {
         cetcd_metrics_gauge_set(srv->metrics, "cetcd_server_info", 1);
@@ -906,6 +994,11 @@ cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
 
 void cetcd_server_free(cetcd_server *srv) {
     if (!srv) return;
+    cetcd_v3rpc_set_ready_flush(NULL, NULL);
+    {
+        extern cetcd_raft *g_rpc_raft;
+        if (g_rpc_raft == srv->raft) g_rpc_raft = NULL;
+    }
     peer_tx_shutdown_all_(srv);
     if (srv->tick_timer) { cetcd_timer_stop(srv->tick_timer); cetcd_timer_free(srv->tick_timer); }
     if (srv->peer_listener) { cetcd_tcp_free(srv->peer_listener); srv->peer_listener = NULL; }
@@ -956,13 +1049,23 @@ int cetcd_server_start(cetcd_server *srv) {
                 (void)cetcd_auth_load(g_rpc_auth, srv->backend);
         }
 
+        uint64_t applied = load_applied_(srv->backend);
         if (!srv->wal_enc) {
-            char wal_path[600];
-            snprintf(wal_path, sizeof(wal_path), "%s/wal", srv->cfg.data_dir);
-            ensure_dir(wal_path);
-            srv->wal_enc = cetcd_wal_encoder_create(wal_path);
+            char wal_dir[600];
+            snprintf(wal_dir, sizeof(wal_dir), "%s/wal", srv->cfg.data_dir);
+            ensure_dir(wal_dir);
+            replay_wal_(srv, wal_dir);
+            if (srv->raft) {
+                cetcd_raft_set_applied(srv->raft, applied);
+                apply_committed_(srv);
+                cetcd_raft_set_applied(srv->raft, cetcd_raft_committed(srv->raft));
+            }
+            srv->wal_enc = cetcd_wal_encoder_create(wal_dir);
         }
     }
+
+    maybe_campaign_single_(srv);
+    if (srv->raft) process_ready_(srv);
 
     /* Wire lease expiry → MVCC key deletion. */
     if (srv->rpc) {
@@ -1023,6 +1126,7 @@ void cetcd_server_tick(cetcd_server *srv) {
     if (!srv || !srv->raft) return;
     cetcd_raft_tick(srv->raft);
     if (srv->metrics) cetcd_metrics_counter(srv->metrics, "raft_ticks_total", 1);
+    process_ready_(srv);
 }
 
 int cetcd_server_compact(cetcd_server *srv, int64_t rev) {
@@ -1244,65 +1348,22 @@ static void process_ready_(cetcd_server *srv) {
         }
     }
 
-    /* Apply committed entries to the MVCC store */
-    if (rd.committed > 0) {
+    /* Apply committed entries from the in-memory log (Ready.entries are
+     * only the newly persisted suffix; commit may advance without new
+     * entries, e.g. after a follower AppResp). */
+    if (persisted) {
+        apply_committed_(srv);
         if (srv->metrics) {
-            cetcd_metrics_gauge_set(srv->metrics, "raft_committed_index", (double)rd.committed);
-        }
-        /* Apply entries: decode NORMAL entries as KV operations.
-         * Entry data format: tag(1 byte) + key_len(varint) + key + val_len(varint) + val
-         * tag: 1=Put, 2=Delete
-         * This is a simplified apply — in production, entries would go through Raft consensus
-         * and be applied in order. */
-        extern cetcd_mvcc_store *g_rpc_store;
-        if (persisted && g_rpc_store && rd.entries) {
-            for (uint32_t i = 0; i < rd.n_entries; i++) {
-                if (rd.entries[i].type != CETCD_ENTRY_NORMAL) continue;
-                if (rd.entries[i].index > rd.committed) break;
-                const uint8_t *data = rd.entries[i].data.data;
-                size_t len = rd.entries[i].data.len;
-                if (!data || len < 2) continue;
-                /* Simple apply: data is raw KV operation */
-                uint8_t op = data[0];
-                size_t pos = 1;
-                /* read key */
-                uint64_t klen = 0; int shift = 0;
-                while (pos < len) {
-                    uint8_t b = data[pos++];
-                    klen |= (uint64_t)(b & 0x7F) << shift;
-                    if (!(b & 0x80)) break;
-                    shift += 7;
-                }
-                if (pos + klen > len) continue;
-                const uint8_t *key = data + pos;
-                pos += klen;
-                if (op == 1) {
-                    /* Put: read value */
-                    uint64_t vlen = 0; shift = 0;
-                    while (pos < len) {
-                        uint8_t b = data[pos++];
-                        vlen |= (uint64_t)(b & 0x7F) << shift;
-                        if (!(b & 0x80)) break;
-                        shift += 7;
-                    }
-                    if (pos + vlen > len) continue;
-                    cetcd_mvcc_put(g_rpc_store, key, (size_t)klen,
-                                   data + pos, (size_t)vlen, 0);
-                } else if (op == 2) {
-                    /* Delete */
-                    cetcd_mvcc_delete(g_rpc_store, key, (size_t)klen);
-                }
-            }
-        }
-        if (srv->metrics) {
+            cetcd_metrics_gauge_set(srv->metrics, "raft_committed_index",
+                                    (double)cetcd_raft_committed(srv->raft));
             extern cetcd_mvcc_store *g_rpc_store;
             if (g_rpc_store) {
                 cetcd_metrics_gauge_set(srv->metrics, "mvcc_revision",
                                        (double)cetcd_mvcc_revision(g_rpc_store));
             }
         }
+        cetcd_raft_advance(srv->raft, &rd);
     }
 
-    cetcd_raft_advance(srv->raft, &rd);
     cetcd_ready_free(&rd);
 }

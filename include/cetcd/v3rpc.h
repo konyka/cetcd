@@ -78,6 +78,34 @@ CETCD_API void cetcd_v3rpc_watch_cancel_compacted(int64_t compact_rev);
 /* Flush deferred Watch history replay (wake notify after create-ack). */
 CETCD_API void cetcd_v3rpc_watch_flush_replay(void);
 
+/* Compact raft-log KV ops (not protobuf). Performance-first: one byte tag
+ * plus varints, applied only after WAL sync. */
+#define CETCD_APPLY_PUT          1
+#define CETCD_APPLY_DELETE       2
+#define CETCD_APPLY_DELETE_RANGE 4
+
+CETCD_API int cetcd_apply_encode_put(uint8_t **out, size_t *out_len,
+                                     const uint8_t *key, size_t key_len,
+                                     const uint8_t *val, size_t val_len,
+                                     int64_t lease_id);
+CETCD_API int cetcd_apply_encode_delete(uint8_t **out, size_t *out_len,
+                                        const uint8_t *key, size_t key_len);
+CETCD_API int cetcd_apply_encode_delete_range(uint8_t **out, size_t *out_len,
+                                              const uint8_t *key, size_t key_len,
+                                              const uint8_t *range_end, size_t end_len);
+
+/* Apply a committed NORMAL entry to MVCC (+ lease index). 0 on success. */
+CETCD_API int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len);
+
+/* Flush Ready (persist WAL + apply). Set by the server reactor. */
+typedef void (*cetcd_ready_flush_fn)(void *ctx);
+CETCD_API void cetcd_v3rpc_set_ready_flush(cetcd_ready_flush_fn fn, void *ctx);
+
+/* Propose `data` if Raft is attached and this node is leader, then flush.
+ * Returns 0 if the entry is applied, 1 if the caller should apply locally
+ * (no Raft), -1 on not-leader / propose / apply failure. */
+CETCD_API int cetcd_v3rpc_propose_or_apply(const uint8_t *data, size_t len);
+
 /* Accessors for server wiring (persistence, lease tick). */
 CETCD_API struct cetcd_mvcc_store *cetcd_v3rpc_store(cetcd_v3rpc *rpc);
 CETCD_API struct cetcd_lease_mgr  *cetcd_v3rpc_leases(cetcd_v3rpc *rpc);

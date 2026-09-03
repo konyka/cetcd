@@ -7,8 +7,10 @@
 #include <stdint.h>
 #if defined(_WIN32)
 #  include <io.h>
+#  include <sys/stat.h>
 #else
 #  include <unistd.h>
+#  include <sys/stat.h>
 #endif
 
 struct cetcd_wal_encoder {
@@ -108,12 +110,35 @@ static int cetcd_wal_write_frame(FILE *fp, const uint8_t *buf, size_t len, int p
     return 0;
 }
 
+int cetcd_wal_resolve_path(const char *path, char *out, size_t cap) {
+    if (!path || !out || cap < 2) return -1;
+    struct stat st;
+    if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+        int n = snprintf(out, cap, "%s/0000000000000000.wal", path);
+        if (n < 0 || (size_t)n >= cap) return -1;
+        return 0;
+    }
+    size_t n = strlen(path);
+    if (n >= cap) return -1;
+    memcpy(out, path, n + 1);
+    return 0;
+}
+
+static int path_is_regular_(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) return 0;
+    return S_ISREG(st.st_mode);
+}
+
 /* Public API */
 cetcd_wal_encoder *cetcd_wal_encoder_create(const char *path) {
     if (!path) return NULL;
+    char resolved[1024];
+    if (cetcd_wal_resolve_path(path, resolved, sizeof(resolved)) != 0) return NULL;
     cetcd_wal_encoder *enc = (cetcd_wal_encoder*)calloc(1, sizeof(*enc));
     if (!enc) return NULL;
-    enc->fp = fopen(path, "wb");
+    const char *mode = path_is_regular_(resolved) ? "ab" : "wb";
+    enc->fp = fopen(resolved, mode);
     if (!enc->fp) { free(enc); return NULL; }
     enc->running_crc = 0;
     return enc;
@@ -225,4 +250,83 @@ void cetcd_wal_record_free(cetcd_wal_record *rec) {
     if (!rec) return;
     if (rec->data) free(rec->data);
     rec->data = NULL; rec->data_len = 0; rec->data_cap = 0; rec->crc = 0;
+}
+
+static int read_varint_local_(const uint8_t *buf, size_t *pos, size_t end, uint64_t *out) {
+    uint64_t v = 0; int shift = 0; size_t i = *pos;
+    while (i < end) {
+        uint8_t b = buf[i++];
+        if (shift >= 64) return -1;
+        v |= (uint64_t)(b & 0x7F) << shift;
+        if (!(b & 0x80)) { *pos = i; *out = v; return 0; }
+        shift += 7;
+    }
+    return -1;
+}
+
+int cetcd_wal_decode_entry(const uint8_t *data, size_t len, cetcd_entry *out) {
+    if (!data || !out) return -1;
+    memset(out, 0, sizeof(*out));
+    size_t pos = 0;
+    while (pos < len) {
+        uint64_t tag = 0;
+        if (read_varint_local_(data, &pos, len, &tag) != 0) return -1;
+        uint64_t field = tag >> 3;
+        uint64_t wire = tag & 0x07;
+        if (field == 1 && wire == 0) {
+            uint64_t v = 0;
+            if (read_varint_local_(data, &pos, len, &v) != 0) return -1;
+            out->term = v;
+        } else if (field == 2 && wire == 0) {
+            uint64_t v = 0;
+            if (read_varint_local_(data, &pos, len, &v) != 0) return -1;
+            out->index = v;
+        } else if (field == 3 && wire == 0) {
+            uint64_t v = 0;
+            if (read_varint_local_(data, &pos, len, &v) != 0) return -1;
+            out->type = (cetcd_entry_type)v;
+        } else if (field == 4 && wire == 2) {
+            uint64_t l = 0;
+            if (read_varint_local_(data, &pos, len, &l) != 0) return -1;
+            if (l > len - pos) return -1;
+            if (l > 0) {
+                uint8_t *p = (uint8_t *)malloc((size_t)l);
+                if (!p) return -1;
+                memcpy(p, data + pos, (size_t)l);
+                out->data.data = p;
+                out->data.len = (size_t)l;
+            }
+            pos += (size_t)l;
+        } else if (wire == 0) {
+            uint64_t v = 0;
+            if (read_varint_local_(data, &pos, len, &v) != 0) return -1;
+        } else if (wire == 2) {
+            uint64_t l = 0;
+            if (read_varint_local_(data, &pos, len, &l) != 0) return -1;
+            if (l > len - pos) return -1;
+            pos += (size_t)l;
+        } else {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int cetcd_wal_decode_hard_state(const uint8_t *data, size_t len, cetcd_hard_state *out) {
+    if (!data || !out) return -1;
+    memset(out, 0, sizeof(*out));
+    size_t pos = 0;
+    while (pos < len) {
+        uint64_t tag = 0;
+        if (read_varint_local_(data, &pos, len, &tag) != 0) return -1;
+        uint64_t field = tag >> 3;
+        uint64_t wire = tag & 0x07;
+        if (wire != 0) return -1;
+        uint64_t v = 0;
+        if (read_varint_local_(data, &pos, len, &v) != 0) return -1;
+        if (field == 1) out->term = v;
+        else if (field == 2) out->vote = v;
+        else if (field == 3) out->commit = v;
+    }
+    return 0;
 }

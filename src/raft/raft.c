@@ -87,6 +87,15 @@ static uint64_t log_term_at_(cetcd_raft *r, uint64_t index) {
     return e ? e->term : 0;
 }
 
+static void entry_clear_data_(cetcd_entry *e) {
+    if (!e) return;
+    if (e->data.data) {
+        free((void *)(uintptr_t)e->data.data);
+        e->data.data = NULL;
+        e->data.len = 0;
+    }
+}
+
 static void log_append_(cetcd_raft *r, const cetcd_entry *e) {
     uint64_t needed = e->index + 1;
     if (needed > r->log_cap) {
@@ -101,7 +110,18 @@ static void log_append_(cetcd_raft *r, const cetcd_entry *e) {
         r->log = new_log;
         r->log_cap = new_cap;
     }
+    if (r->log[e->index].data.data)
+        entry_clear_data_(&r->log[e->index]);
     r->log[e->index] = *e;
+    r->log[e->index].data.data = NULL;
+    r->log[e->index].data.len = 0;
+    if (e->data.len > 0 && e->data.data) {
+        uint8_t *owned = (uint8_t *)malloc(e->data.len);
+        if (!owned) return;
+        memcpy(owned, e->data.data, e->data.len);
+        r->log[e->index].data.data = owned;
+        r->log[e->index].data.len = e->data.len;
+    }
     if (e->index > r->log_last_index) {
         r->log_last_index = e->index;
         r->log_last_term = e->term;
@@ -111,6 +131,7 @@ static void log_append_(cetcd_raft *r, const cetcd_entry *e) {
 static void log_truncate_after_(cetcd_raft *r, uint64_t index) {
     if (index >= r->log_last_index) return;
     for (uint64_t i = index + 1; i <= r->log_last_index && i < r->log_cap; i++) {
+        entry_clear_data_(&r->log[i]);
         memset(&r->log[i], 0, sizeof(cetcd_entry));
     }
     r->log_last_index = index;
@@ -194,13 +215,19 @@ static void queue_msg_(cetcd_raft *r, const cetcd_msg *m) {
 static void maybe_advance_commit_(cetcd_raft *r) {
     if (r->role != ROLE_LEADER) return;
 
-    uint64_t sorted[MAX_PEERS_ + 1];
+    /* Majority of voter match indices. The leader's match is last_index
+     * (it has the entry); followers use progress[]. Do not also push
+     * last_index as a separate voter — that inflated N and blocked
+     * single-node commit. */
+    uint64_t sorted[MAX_PEERS_];
     uint32_t n = 0;
-
-    sorted[n++] = r->log_last_index;
     for (uint32_t i = 0; i < r->n_peers && i < MAX_PEERS_; i++) {
-        sorted[n++] = r->progress[i].match_idx;
+        if (r->peers[i] == r->id)
+            sorted[n++] = r->log_last_index;
+        else
+            sorted[n++] = r->progress[i].match_idx;
     }
+    if (n == 0) return;
 
     for (uint32_t i = 0; i < n - 1; i++) {
         for (uint32_t j = i + 1; j < n; j++) {
@@ -273,7 +300,11 @@ void cetcd_raft_free(cetcd_raft *r) {
     free(r->pending_msgs);
     free(r->peers);
     free(r->votes_granted);
-    free(r->log);
+    if (r->log) {
+        for (uint64_t i = 1; i <= r->log_last_index && i < r->log_cap; i++)
+            entry_clear_data_(&r->log[i]);
+        free(r->log);
+    }
     free(r);
 }
 
@@ -470,7 +501,10 @@ static int handle_app_(cetcd_raft *r, cetcd_msg *msg) {
             cetcd_entry e = msg->entries[i];
             e.index = idx;
             log_append_(r, &e);
-            queue_entry_(r, &e);
+            {
+                cetcd_entry *stored = log_at_(r, e.index);
+                if (stored) queue_entry_(r, stored);
+            }
         }
     }
 
@@ -599,7 +633,10 @@ int cetcd_raft_step(cetcd_raft *r, cetcd_msg *msg) {
                                      .len  = msg->context_len};
             r->log_last_term = r->term;
             log_append_(r, &e);
-            queue_entry_(r, &e);
+            {
+                cetcd_entry *stored = log_at_(r, e.index);
+                if (stored) queue_entry_(r, stored);
+            }
             queue_hard_state_(r);
 
             for (uint32_t i = 0; i < r->n_peers; i++) {
@@ -615,7 +652,11 @@ int cetcd_raft_step(cetcd_raft *r, cetcd_msg *msg) {
                 app.index     = r->log_last_index - 1;
                 app.commit    = r->commit;
                 cetcd_entry *ecopy = (cetcd_entry *)malloc(sizeof(cetcd_entry));
-                if (ecopy) { *ecopy = e; }
+                if (ecopy) {
+                    cetcd_entry *stored = log_at_(r, e.index);
+                    if (stored) *ecopy = *stored;
+                    else *ecopy = e;
+                }
                 app.entries   = ecopy;
                 app.n_entries = 1;
                 queue_msg_(r, &app);
@@ -718,7 +759,10 @@ int cetcd_raft_propose_conf_change(cetcd_raft *r, const uint8_t *data, size_t le
     e.data.len  = len;
     r->log_last_term = r->term;
     log_append_(r, &e);
-    queue_entry_(r, &e);
+    {
+        cetcd_entry *stored = log_at_(r, e.index);
+        if (stored) queue_entry_(r, stored);
+    }
     queue_hard_state_(r);
 
     /* Broadcast to followers */
@@ -735,7 +779,11 @@ int cetcd_raft_propose_conf_change(cetcd_raft *r, const uint8_t *data, size_t le
         app.index     = r->log_last_index - 1;
         app.commit    = r->commit;
         cetcd_entry *ecopy = (cetcd_entry *)malloc(sizeof(cetcd_entry));
-        if (ecopy) { *ecopy = e; }
+        if (ecopy) {
+            cetcd_entry *stored = log_at_(r, e.index);
+            if (stored) *ecopy = *stored;
+            else *ecopy = e;
+        }
         app.entries   = ecopy;
         app.n_entries = 1;
         queue_msg_(r, &app);
@@ -815,6 +863,35 @@ uint64_t cetcd_raft_committed(cetcd_raft *r) {
 uint64_t cetcd_raft_applied(cetcd_raft *r) {
     if (!r) return 0;
     return r->applied;
+}
+
+uint64_t cetcd_raft_last_index(cetcd_raft *r) {
+    if (!r) return 0;
+    return r->log_last_index;
+}
+
+const cetcd_entry *cetcd_raft_entry_at(const cetcd_raft *r, uint64_t index) {
+    if (!r || index == 0 || index > r->log_last_index) return NULL;
+    return &r->log[index];
+}
+
+int cetcd_raft_restore_entry(cetcd_raft *r, const cetcd_entry *e) {
+    if (!r || !e || e->index == 0) return -1;
+    log_append_(r, e);
+    if (e->index > r->log_last_index) return -1; /* append failed */
+    return 0;
+}
+
+void cetcd_raft_restore_hard_state(cetcd_raft *r, const cetcd_hard_state *hs) {
+    if (!r || !hs) return;
+    r->term = hs->term;
+    r->vote = hs->vote;
+    r->commit = hs->commit;
+}
+
+void cetcd_raft_set_applied(cetcd_raft *r, uint64_t applied) {
+    if (!r) return;
+    r->applied = applied;
 }
 
 /* ── Ready memory management ────────────────────────────────────── */

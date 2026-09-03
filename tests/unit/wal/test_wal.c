@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 CETCD_TEST_CASE(wal_roundtrip_basic) {
     char path_template[] = "/tmp/cetcd-test-wal-XXXXXX";
@@ -167,11 +168,120 @@ CETCD_TEST_CASE(wal_decode_rejects_bad_crc) {
     remove(path_template);
 }
 
+CETCD_TEST_CASE(wal_decode_entry_roundtrip) {
+    char path_template[] = "/tmp/cetcd-test-wal-ent-XXXXXX";
+    int fd = mkstemp(path_template);
+    CETCD_ASSERT(fd >= 0);
+    close(fd);
+
+    cetcd_wal_encoder *enc = cetcd_wal_encoder_create(path_template);
+    CETCD_ASSERT_NOT_NULL(enc);
+    cetcd_entry ent;
+    memset(&ent, 0, sizeof(ent));
+    ent.term = 7;
+    ent.index = 9;
+    ent.type = CETCD_ENTRY_NORMAL;
+    uint8_t payload[] = {1, 'k', 1, 'v', 0};
+    ent.data = cetcd_slice_make(payload, sizeof(payload));
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encode_entry(enc, &ent), 0);
+    cetcd_wal_encoder_sync(enc);
+    cetcd_wal_encoder_free(enc);
+
+    cetcd_wal_decoder *dec = cetcd_wal_decoder_open(path_template);
+    CETCD_ASSERT_NOT_NULL(dec);
+    cetcd_wal_record rec;
+    cetcd_wal_record_init(&rec);
+    CETCD_ASSERT_EQ_INT(cetcd_wal_decode(dec, &rec), 0);
+    CETCD_ASSERT_EQ_INT(rec.type, CETCD_WAL_ENTRY);
+    cetcd_entry out;
+    CETCD_ASSERT_EQ_INT(cetcd_wal_decode_entry(rec.data, rec.data_len, &out), 0);
+    CETCD_ASSERT_TRUE(out.term == 7);
+    CETCD_ASSERT_TRUE(out.index == 9);
+    CETCD_ASSERT_EQ_INT((int)out.type, CETCD_ENTRY_NORMAL);
+    CETCD_ASSERT_EQ_INT((int)out.data.len, (int)sizeof(payload));
+    CETCD_ASSERT_EQ_INT(memcmp(out.data.data, payload, sizeof(payload)), 0);
+    free((void *)(uintptr_t)out.data.data);
+    cetcd_wal_record_free(&rec);
+    cetcd_wal_decoder_free(dec);
+    remove(path_template);
+}
+
+CETCD_TEST_CASE(wal_append_does_not_truncate) {
+    char path_template[] = "/tmp/cetcd-test-wal-ap-XXXXXX";
+    int fd = mkstemp(path_template);
+    CETCD_ASSERT(fd >= 0);
+    close(fd);
+
+    cetcd_wal_encoder *enc = cetcd_wal_encoder_create(path_template);
+    const uint8_t meta[] = {'m'};
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encode_metadata(enc, meta, 1), 0);
+    cetcd_wal_encoder_free(enc);
+
+    enc = cetcd_wal_encoder_create(path_template);
+    CETCD_ASSERT_NOT_NULL(enc);
+    cetcd_hard_state hs = {1, 1, 1};
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encode_hard_state(enc, &hs), 0);
+    cetcd_wal_encoder_free(enc);
+
+    cetcd_wal_decoder *dec = cetcd_wal_decoder_open(path_template);
+    cetcd_wal_record rec;
+    int n = 0;
+    while (cetcd_wal_decode(dec, &rec) == 0) {
+        n++;
+        cetcd_wal_record_free(&rec);
+    }
+    cetcd_wal_decoder_free(dec);
+    remove(path_template);
+    CETCD_ASSERT_EQ_INT(n, 2);
+}
+
+CETCD_TEST_CASE(wal_directory_segment_path) {
+    char dir[] = "/tmp/cetcd-test-waldir-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(dir));
+    cetcd_wal_encoder *enc = cetcd_wal_encoder_create(dir);
+    CETCD_ASSERT_NOT_NULL(enc);
+    const uint8_t meta[] = {'d'};
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encode_metadata(enc, meta, 1), 0);
+    cetcd_wal_encoder_free(enc);
+
+    cetcd_wal_decoder *dec = cetcd_wal_decoder_open(dir);
+    CETCD_ASSERT_NOT_NULL(dec);
+    cetcd_wal_record rec;
+    CETCD_ASSERT_EQ_INT(cetcd_wal_decode(dec, &rec), 0);
+    CETCD_ASSERT_EQ_INT(rec.type, CETCD_WAL_METADATA);
+    cetcd_wal_record_free(&rec);
+    cetcd_wal_decoder_free(dec);
+}
+
+CETCD_TEST_CASE(wal_decode_hard_state) {
+    char path_template[] = "/tmp/cetcd-test-wal-hs-XXXXXX";
+    int fd = mkstemp(path_template);
+    CETCD_ASSERT(fd >= 0);
+    close(fd);
+    cetcd_wal_encoder *enc = cetcd_wal_encoder_create(path_template);
+    cetcd_hard_state hs = {4, 5, 6};
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encode_hard_state(enc, &hs), 0);
+    cetcd_wal_encoder_free(enc);
+    cetcd_wal_decoder *dec = cetcd_wal_decoder_open(path_template);
+    cetcd_wal_record rec;
+    CETCD_ASSERT_EQ_INT(cetcd_wal_decode(dec, &rec), 0);
+    cetcd_hard_state out;
+    CETCD_ASSERT_EQ_INT(cetcd_wal_decode_hard_state(rec.data, rec.data_len, &out), 0);
+    CETCD_ASSERT_TRUE(out.term == 4 && out.vote == 5 && out.commit == 6);
+    cetcd_wal_record_free(&rec);
+    cetcd_wal_decoder_free(dec);
+    remove(path_template);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(wal_roundtrip_basic),
     CETCD_TEST_ENTRY(wal_decode_rejects_malformed),
     CETCD_TEST_ENTRY(wal_decode_rejects_len_overrun),
     CETCD_TEST_ENTRY(wal_decode_rejects_bad_crc),
+    CETCD_TEST_ENTRY(wal_decode_entry_roundtrip),
+    CETCD_TEST_ENTRY(wal_append_does_not_truncate),
+    CETCD_TEST_ENTRY(wal_directory_segment_path),
+    CETCD_TEST_ENTRY(wal_decode_hard_state),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

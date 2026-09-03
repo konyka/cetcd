@@ -227,22 +227,31 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
     int64_t rev = 0;
     /* etcd proto3: omitted value is empty bytes — still put. */
     if (key && g_rpc_store) {
-        cetcd_revision r = cetcd_mvcc_put(g_rpc_store, key, key_len,
-                                           val ? val : (const uint8_t*)"", val ? val_len : 0,
-                                           lease_id);
-        rev = r.main;
-        /* Lease index updates only after a successful (fail-closed) put. */
-        if (r.main > 0 && g_rpc_lease_mgr) {
-            if (has_old && old_kv.lease_id > 0 && old_kv.lease_id != lease_id) {
-                cetcd_lease_detach_key(g_rpc_lease_mgr,
-                                        (cetcd_lease_id)old_kv.lease_id,
-                                        key, key_len);
+        uint8_t *entry = NULL;
+        size_t entry_len = 0;
+        if (cetcd_apply_encode_put(&entry, &entry_len, key, key_len,
+                                   val ? val : (const uint8_t *)"",
+                                   val ? val_len : 0, lease_id) != 0) {
+            if (has_old) {
+                free((void *)(uintptr_t)old_kv.key.data);
+                free((void *)(uintptr_t)old_kv.value.data);
             }
-            if (lease_id > 0) {
-                cetcd_lease_attach_key(g_rpc_lease_mgr, (cetcd_lease_id)lease_id,
-                                        key, key_len);
-            }
+            free(key);
+            if (val) free(val);
+            return (cetcd_rpc_bytes){NULL, 0};
         }
+        int rc = cetcd_v3rpc_propose_or_apply(entry, entry_len);
+        free(entry);
+        if (rc < 0) {
+            if (has_old) {
+                free((void *)(uintptr_t)old_kv.key.data);
+                free((void *)(uintptr_t)old_kv.value.data);
+            }
+            free(key);
+            if (val) free(val);
+            return (cetcd_rpc_bytes){NULL, 0};
+        }
+        rev = cetcd_mvcc_revision(g_rpc_store);
     }
     if (key) free(key);
     if (val) free(val);
@@ -673,6 +682,7 @@ cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, siz
      */
     int64_t rev = 0;
     int64_t deleted_count = 0;
+    int64_t before_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
 
     /* We'll collect prev_kv data here */
     uint8_t *prev_kvs_buf = NULL;
@@ -717,9 +727,21 @@ cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, siz
                     free((void *)(uintptr_t)old_kv.value.data);
                 }
             }
-            cetcd_revision r = delete_and_detach_(key, key_len);
-            rev = r.main;
-            if (!prev_kv_flag && rev > 0) deleted_count = 1;
+            {
+                uint8_t *entry = NULL;
+                size_t elen = 0;
+                if (cetcd_apply_encode_delete(&entry, &elen, key, key_len) != 0 ||
+                    cetcd_v3rpc_propose_or_apply(entry, elen) < 0) {
+                    free(entry);
+                    if (prev_kvs_buf) free(prev_kvs_buf);
+                    free(key);
+                    if (range_end) free(range_end);
+                    return (cetcd_rpc_bytes){NULL, 0};
+                }
+                free(entry);
+            }
+            rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+            if (!prev_kv_flag && rev > before_rev) deleted_count = 1;
         } else {
             /* Range delete: snapshot keys, then one batch LMDB delete. */
             cetcd_kv *kvs = NULL; size_t n = 0;
@@ -765,9 +787,23 @@ cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, siz
                 }
             }
 
-            cetcd_revision r = delete_kvs_and_detach_(kvs, n);
-            rev = r.main;
-            if (r.main > 0) {
+            {
+                uint8_t *entry = NULL;
+                size_t elen = 0;
+                if (cetcd_apply_encode_delete_range(&entry, &elen, key, key_len,
+                                                    range_end, range_end_len) != 0 ||
+                    cetcd_v3rpc_propose_or_apply(entry, elen) < 0) {
+                    free(entry);
+                    if (prev_kvs_buf) free(prev_kvs_buf);
+                    if (kvs) cetcd_kv_free_contents(kvs, n);
+                    free(key);
+                    if (range_end) free(range_end);
+                    return (cetcd_rpc_bytes){NULL, 0};
+                }
+                free(entry);
+            }
+            rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+            if (rev > before_rev && n > 0) {
                 deleted_count = (int64_t)n;
             } else {
                 deleted_count = 0;
