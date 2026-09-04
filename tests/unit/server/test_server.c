@@ -1939,6 +1939,49 @@ CETCD_TEST_CASE(server_start_member_list_uses_name) {
     cetcd_server_free(srv);
 }
 
+CETCD_TEST_CASE(server_start_persists_cluster_token) {
+    char data_dir[] = "/tmp/cetcd-test-token-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+    strncpy(cfg.initial_cluster_token, "etcd-cluster",
+            sizeof(cfg.initial_cluster_token) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+    cetcd_server_free(srv);
+
+    char path[300];
+    snprintf(path, sizeof(path), "%s/cluster_token", data_dir);
+    FILE *f = fopen(path, "r");
+    CETCD_ASSERT_NOT_NULL(f);
+    char got[128];
+    CETCD_ASSERT_NOT_NULL(fgets(got, sizeof(got), f));
+    fclose(f);
+    CETCD_ASSERT_TRUE(strncmp(got, "etcd-cluster", 12) == 0);
+
+    strncpy(cfg.initial_cluster_token, "other-cluster",
+            sizeof(cfg.initial_cluster_token) - 1);
+    srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), CETCD_ERR_INVAL);
+    cetcd_server_free(srv);
+
+    strncpy(cfg.initial_cluster_token, "etcd-cluster",
+            sizeof(cfg.initial_cluster_token) - 1);
+    srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_CASE(server_start_rejects_jwt_without_key) {
     cetcd_server_config cfg;
     memset(&cfg, 0, sizeof(cfg));
@@ -2184,6 +2227,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_start_rejects_https_peer_advertise_without_tls),
     CETCD_TEST_ENTRY(server_start_member_list_uses_advertise_urls),
     CETCD_TEST_ENTRY(server_start_member_list_uses_name),
+    CETCD_TEST_ENTRY(server_start_persists_cluster_token),
     CETCD_TEST_ENTRY(server_start_rejects_jwt_without_key),
     CETCD_TEST_ENTRY(server_start_rejects_jwt_ps256),
     CETCD_TEST_ENTRY(server_start_accepts_jwt_hs256),

@@ -65,6 +65,7 @@ typedef struct cetcd_server_config {
     char            advertise_client_urls[512]; /* MemberList clientURLs; empty → listen */
     char            advertise_peer_urls[512];   /* MemberList self peerURLs; empty → peer listen */
     char            name[128];                  /* MemberList self name; empty → "default" */
+    char            initial_cluster_token[128]; /* persisted; mismatch fail-closes */
 } cetcd_server_config;
 
 cetcd_server *cetcd_server_new(const cetcd_server_config *cfg);

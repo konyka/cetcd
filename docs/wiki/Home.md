@@ -809,6 +809,7 @@ oversized recv is not truncated).
 `--advertise-client-urls` / `--initial-advertise-peer-urls` fill MemberList self
 URLs (empty defaults from listen; `https://` requires the matching cert file).
 `--name` fills MemberList self name (empty → `default`).
+`--initial-cluster-token` is persisted in `data-dir`; a mismatch fail-closes.
 
 ---
 

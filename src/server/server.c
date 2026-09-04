@@ -1941,6 +1941,37 @@ static void on_peer_incoming_(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
     }
 }
 
+static int cluster_token_check_(cetcd_server *srv) {
+    if (!srv->cfg.initial_cluster_token[0] || !srv->cfg.data_dir[0])
+        return CETCD_OK;
+    char path[768];
+    int n = snprintf(path, sizeof(path), "%s/cluster_token", srv->cfg.data_dir);
+    if (n < 0 || (size_t)n >= sizeof(path)) return CETCD_ERR_INVAL;
+    FILE *f = fopen(path, "r");
+    if (f) {
+        char got[128];
+        if (!fgets(got, sizeof(got), f)) {
+            fclose(f);
+            return CETCD_ERR_INVAL;
+        }
+        fclose(f);
+        size_t gl = strlen(got);
+        while (gl > 0 && (got[gl - 1] == '\n' || got[gl - 1] == '\r'))
+            got[--gl] = '\0';
+        if (strcmp(got, srv->cfg.initial_cluster_token) != 0)
+            return CETCD_ERR_INVAL;
+        return CETCD_OK;
+    }
+    f = fopen(path, "w");
+    if (!f) return CETCD_ERR_IO;
+    if (fprintf(f, "%s\n", srv->cfg.initial_cluster_token) < 0) {
+        fclose(f);
+        return CETCD_ERR_IO;
+    }
+    if (fclose(f) != 0) return CETCD_ERR_IO;
+    return CETCD_OK;
+}
+
 static int ensure_dir(const char *path) {
 #if defined(_WIN32)
     struct _stat st;
@@ -2220,6 +2251,10 @@ int cetcd_server_start(cetcd_server *srv) {
 
     if (srv->cfg.data_dir[0]) {
         ensure_dir(srv->cfg.data_dir);
+        {
+            int tok = cluster_token_check_(srv);
+            if (tok != CETCD_OK) return tok;
+        }
 
         if (!srv->backend) {
             cetcd_backend_config be_cfg;

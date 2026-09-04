@@ -138,6 +138,7 @@ cetcd accepts several etcd server flags for migration compatibility:
   --listen-peer-urls http://127.0.0.1:2380 --data-dir ./data
 
 # Advertise URLs go into MemberList (https requires matching cert files)
+# --initial-cluster-token is persisted; a later mismatch fail-closes
 ./build/bin/cetcd --advertise-client-urls http://127.0.0.1:2379 \
   --initial-advertise-peer-urls http://127.0.0.1:2380 \
   --initial-cluster-state new --initial-cluster-token etcd-cluster \
