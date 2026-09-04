@@ -44,7 +44,7 @@ static void print_usage(const char *prog) {
     printf("  --snapshot-count N   Rewrite WAL after N applies (default: 10000; must be > 0)\n");
     printf("  --quota-backend-bytes N  NOSPACE when LMDB size >= N (0 = unlimited; invalid fails)\n");
     printf("  --force-new-cluster  Not implemented (fail-closed; would wipe data_dir)\n");
-    printf("  --max-txn-ops N     Max compare/success/failure ops per Txn (default 128, max 128)\n");
+    printf("  --max-txn-ops N     Max compare/success/failure ops per Txn (default 128; 1..128)\n");
     printf("  --max-request-bytes N  Max client frame (default 1572864); oversized closes\n");
     printf("  --grpc-keepalive-time SEC   TCP keepalive idle on client and peer sockets (0 disables)\n");
     printf("  --grpc-keepalive-timeout SEC  TCP keepalive interval (requires --grpc-keepalive-time)\n");
@@ -315,7 +315,15 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--force-new-cluster") == 0) {
             cfg.force_new_cluster = true;
         } else if (strcmp(argv[i], "--max-txn-ops") == 0 && i + 1 < argc) {
-            cfg.max_txn_ops = (uint64_t)strtoull(argv[++i], NULL, 10);
+            const char *s = argv[++i];
+            char *end = NULL;
+            errno = 0;
+            unsigned long long v = strtoull(s, &end, 10);
+            if (errno == ERANGE || !end || end == s || *end || v < 1 || v > 128) {
+                fprintf(stderr, "--max-txn-ops must be 1..128\n");
+                return 1;
+            }
+            cfg.max_txn_ops = (uint64_t)v;
         } else if (strcmp(argv[i], "--max-request-bytes") == 0 && i + 1 < argc) {
             cfg.max_request_bytes = (uint64_t)strtoull(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--auth-token") == 0 && i + 1 < argc) {
