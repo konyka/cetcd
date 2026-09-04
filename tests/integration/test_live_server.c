@@ -16,6 +16,7 @@
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static bool try_connect(const char *addr, uint16_t port) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -1866,6 +1867,53 @@ CETCD_TEST_CASE(live_cetcdctl_https_endpoint_requires_tls) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcdctl_restore_cluster_token) {
+    char snap[128], dir[128], tok[200], snapkv[200], cmd[1024];
+    snprintf(snap, sizeof(snap), "/tmp/cetcd-snap-%d", (int)getpid());
+    snprintf(dir, sizeof(dir), "/tmp/cetcd-restore-%d", (int)getpid());
+    snprintf(tok, sizeof(tok), "%s/cluster_token", dir);
+    snprintf(snapkv, sizeof(snapkv), "%s/snapshot.kv", dir);
+
+    FILE *sf = fopen(snap, "wb");
+    CETCD_ASSERT_NOT_NULL(sf);
+    uint8_t kv[] = {0x01, 'a', 0x01, 'b'};
+    CETCD_ASSERT_TRUE(fwrite(kv, 1, sizeof(kv), sf) == sizeof(kv));
+    fclose(sf);
+
+    snprintf(cmd, sizeof(cmd), "mkdir -p '%s'", dir);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' snapshot restore '%s' --data-dir '%s' --initial-cluster-token etcd-cluster >/dev/null",
+             CETCDCTL_BIN, snap, dir);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    FILE *tf = fopen(tok, "r");
+    CETCD_ASSERT_NOT_NULL(tf);
+    char got[128];
+    CETCD_ASSERT_NOT_NULL(fgets(got, sizeof(got), tf));
+    fclose(tf);
+    CETCD_ASSERT_TRUE(strncmp(got, "etcd-cluster", 12) == 0);
+
+    unlink(snapkv);
+    snprintf(cmd, sizeof(cmd),
+             "'%s' snapshot restore '%s' --data-dir '%s' --initial-cluster-token other >/dev/null 2>&1",
+             CETCDCTL_BIN, snap, dir);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' snapshot restore '%s' --data-dir '%s' --initial-cluster-token other --force >/dev/null",
+             CETCDCTL_BIN, snap, dir);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+    tf = fopen(tok, "r");
+    CETCD_ASSERT_NOT_NULL(tf);
+    CETCD_ASSERT_NOT_NULL(fgets(got, sizeof(got), tf));
+    fclose(tf);
+    CETCD_ASSERT_TRUE(strncmp(got, "other", 5) == 0);
+
+    unlink(snap);
+}
+
 CETCD_TEST_CASE(live_cetcdctl_discovery_srv_not_implemented) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -1965,6 +2013,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_auto_tls_requires_certs),
     CETCD_TEST_ENTRY(live_cetcd_advertise_https_requires_certs),
     CETCD_TEST_ENTRY(live_cetcdctl_https_endpoint_requires_tls),
+    CETCD_TEST_ENTRY(live_cetcdctl_restore_cluster_token),
     CETCD_TEST_ENTRY(live_cetcdctl_discovery_srv_not_implemented),
     CETCD_TEST_ENTRY(live_cetcdctl_tcp_keepalive),
     CETCD_TEST_ENTRY(live_cetcdctl_max_call_msg_size),

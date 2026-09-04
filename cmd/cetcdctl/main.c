@@ -3933,6 +3933,7 @@ static int cmd_snapshot(int argc, char **argv) {
          * that can be loaded by cetcd on startup. */
         const char *snap_file = NULL;
         const char *data_dir = NULL;
+        const char *cluster_token = NULL;
         int force = 0;
         int want_json = 0, want_fields = 0;
         for (int i = 3; i < argc; i++) {
@@ -3953,7 +3954,7 @@ static int cmd_snapshot(int argc, char **argv) {
             } else if (strcmp(argv[i], "--name") == 0 && i + 1 < argc) {
                 i++; /* no-op, accepted for compatibility */
             } else if (strcmp(argv[i], "--initial-cluster-token") == 0 && i + 1 < argc) {
-                i++; /* no-op, accepted for compatibility */
+                cluster_token = argv[++i];
             } else if (strcmp(argv[i], "--initial-cluster-state") == 0 && i + 1 < argc) {
                 i++; /* no-op, accepted for compatibility */
             } else if (!snap_file && argv[i][0] != '-') {
@@ -3961,7 +3962,7 @@ static int cmd_snapshot(int argc, char **argv) {
             }
         }
         if (!snap_file) {
-            fprintf(stderr, "usage: cetcdctl snapshot restore FILE --data-dir DIR [--force] [--skip-hash-check] [-w json|fields]\n");
+            fprintf(stderr, "usage: cetcdctl snapshot restore FILE --data-dir DIR [--force] [--skip-hash-check] [--initial-cluster-token TOKEN] [-w json|fields]\n");
             return 1;
         }
         if (!data_dir) {
@@ -4016,12 +4017,47 @@ static int cmd_snapshot(int argc, char **argv) {
         char mkdir_cmd[512];
         snprintf(mkdir_cmd, sizeof(mkdir_cmd), "mkdir -p %s", data_dir);
         system(mkdir_cmd);
+        if (cluster_token && cluster_token[0]) {
+            char tok_path[600];
+            snprintf(tok_path, sizeof(tok_path), "%s/cluster_token", data_dir);
+            FILE *tf = fopen(tok_path, "r");
+            if (tf) {
+                char got[128];
+                if (!fgets(got, sizeof(got), tf)) {
+                    fclose(tf);
+                    free(snap_data);
+                    fprintf(stderr, "failed to read cluster token\n");
+                    return 1;
+                }
+                fclose(tf);
+                size_t gl = strlen(got);
+                while (gl > 0 && (got[gl - 1] == '\n' || got[gl - 1] == '\r'))
+                    got[--gl] = '\0';
+                if (strcmp(got, cluster_token) != 0 && !force) {
+                    free(snap_data);
+                    fprintf(stderr, "cluster token mismatch, use --force to overwrite\n");
+                    return 1;
+                }
+            }
+        }
         /* Write the snapshot KV data to the data directory as snapshot.kv */
         FILE *df = fopen(check_path, "wb");
         if (!df) { perror("fopen data dir"); free(snap_data); return 1; }
         /* Write KV data only (skip header if present) */
         fwrite(snap_data + kv_offset, 1, kv_size, df);
         fclose(df);
+        if (cluster_token && cluster_token[0]) {
+            char tok_path[600];
+            snprintf(tok_path, sizeof(tok_path), "%s/cluster_token", data_dir);
+            FILE *tf = fopen(tok_path, "w");
+            if (!tf) {
+                perror("fopen cluster_token");
+                free(snap_data);
+                return 1;
+            }
+            fprintf(tf, "%s\n", cluster_token);
+            fclose(tf);
+        }
         free(snap_data);
         if (want_json) {
             printf("{\"snapshot\":\"%s\",\"data_dir\":\"%s\",\"size\":%ld,\"keys\":%d,\"revision\":%llu}\n",
@@ -5575,7 +5611,7 @@ static void print_usage(void) {
     printf("                         Revoke permission (all or specific key) from role\n");
     printf("  snapshot save [FILE] [--compaction-periodical] [-w json|fields|table]   Save a snapshot to file\n");
     printf("  snapshot status FILE [-w json|fields|table]  Show snapshot file info\n");
-    printf("  snapshot restore FILE --data-dir DIR [--force] [--skip-hash-check] [-w json|fields]  Restore snapshot to data dir\n");
+    printf("  snapshot restore FILE --data-dir DIR [--force] [--skip-hash-check] [--initial-cluster-token TOKEN] [-w json|fields]  Restore snapshot to data dir\n");
     printf("  downgrade enable [-w json|fields] VER   Enable cluster downgrade\n");
     printf("  downgrade cancel [-w json|fields]       Cancel cluster downgrade\n");
     printf("  downgrade validate [-w json|fields] VER Validate downgrade version\n");

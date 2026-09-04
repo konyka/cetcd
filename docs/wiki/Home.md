@@ -810,6 +810,7 @@ oversized recv is not truncated).
 URLs (empty defaults from listen; `https://` requires the matching cert file).
 `--name` fills MemberList self name (empty → `default`).
 `--initial-cluster-token` is persisted in `data-dir`; a mismatch fail-closes.
+`cetcdctl snapshot restore --initial-cluster-token` writes the same file (mismatch without `--force` fail-closes).
 
 ---
 

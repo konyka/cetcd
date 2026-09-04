@@ -949,7 +949,7 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 
 `cetcdctl global flags` (`--cacert`/`--cert`/`--key` enable TLS; `--insecure-skip-tls-verify` skips verify; `--insecure-transport` mixed with cert flags fail-closes; `https://` endpoints require `--cacert` or `--insecure` and reject `--insecure-transport`; `--max-call-send-msg-size` / `--max-call-recv-msg-size` cap the custom-frame payload and fail closed on `0` or overflow; `--discovery-srv` is not implemented and fail-closes rather than looking like DNS discovery; `--password` can be used with `--user USER` to provide the password separately),
 `get --count-only -w fields` (fields output now includes ResponseHeader fields and `"count" : N` line, matching etcdctl fields format),
-`snapshot restore` etcd-compatible flags (now accepts `--skip-hash-check`, `--initial-cluster`, `--initial-advertise-peer-urls`, `--name`, `--initial-cluster-token`, `--initial-cluster-state` as no-op flags for etcdctl compatibility),
+`snapshot restore` etcd-compatible flags (`--initial-cluster-token` writes `{data-dir}/cluster_token` and a mismatch without `--force` fail-closes; `--skip-hash-check`, `--initial-cluster`, `--initial-advertise-peer-urls`, `--name`, `--initial-cluster-state` stay no-op),
 `get --count-only -w json` format fix (now outputs `{"header":{...},"count":N}` without `kvs` or `more` fields, matching etcdctl output format),
 `cetcdctl --prefix PrefixEnd` (keys ending in `0xFF` now carry correctly via `cetcd_key_prefix_end`; all-`0xFF` / empty prefixes use `\0` FromKey instead of wrapping the last byte),
 `DeleteRange single revision` (`cetcd_mvcc_delete_keys` bumps `main_rev` once for N keys; delete events share `rev.main` with distinct `rev.sub`, matching etcd),

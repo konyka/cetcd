@@ -200,6 +200,8 @@ Performance-first, fail-closed design:
 - **`--initial-cluster-token`** — written to `{data-dir}/cluster_token` on first
   start. A later start with a different token fail-closes so a data dir is not
   reused as a different cluster. Omitted flag stays a no-op.
+  `cetcdctl snapshot restore --initial-cluster-token` writes the same file;
+  a mismatch without `--force` fail-closes.
 
 ## Previously done (auth data plane)
 
