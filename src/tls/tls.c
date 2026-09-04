@@ -190,6 +190,15 @@ int cetcd_tls_set_ciphers(cetcd_tls_ctx *ctx, const char *list) {
         return CETCD_ERR_INVAL;
     if (p12 > 0 && SSL_CTX_set_cipher_list(ctx->ssl_ctx, tls12) != 1)
         return CETCD_ERR_INVAL;
+#if defined(SSL_CTX_set_min_proto_version)
+    if (p13 > 0 && p12 == 0) {
+        if (SSL_CTX_set_min_proto_version(ctx->ssl_ctx, TLS1_3_VERSION) != 1)
+            return CETCD_ERR_INVAL;
+    } else if (p12 > 0 && p13 == 0) {
+        if (SSL_CTX_set_max_proto_version(ctx->ssl_ctx, TLS1_2_VERSION) != 1)
+            return CETCD_ERR_INVAL;
+    }
+#endif
     return CETCD_OK;
 }
 

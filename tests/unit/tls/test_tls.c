@@ -427,6 +427,62 @@ CETCD_TEST_CASE(tls_set_ciphers_tls13_handshake) {
     cleanup_selfsigned_(dir);
 }
 
+CETCD_TEST_CASE(tls_set_ciphers_tls13_only_rejects_tls12) {
+    char dir[128];
+    CETCD_ASSERT_EQ_INT(make_selfsigned_(dir, sizeof(dir)), 0);
+    char cert[300], key[300];
+    snprintf(cert, sizeof(cert), "%s/cert.pem", dir);
+    snprintf(key, sizeof(key), "%s/key.pem", dir);
+
+    cetcd_tls_ctx *sctx = cetcd_tls_ctx_new();
+    cetcd_tls_ctx *cctx = cetcd_tls_ctx_new_client();
+    CETCD_ASSERT_NOT_NULL(sctx);
+    CETCD_ASSERT_NOT_NULL(cctx);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_cert(sctx, cert, key), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_ciphers(sctx, "TLS_AES_256_GCM_SHA384"),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_ciphers(cctx,
+        "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"), CETCD_OK);
+
+    cetcd_tls_conn *srv = cetcd_tls_conn_accept(sctx);
+    cetcd_tls_conn *cli = cetcd_tls_conn_connect(cctx);
+    CETCD_ASSERT_TRUE(handshake_pump_(cli, srv) != 1);
+
+    cetcd_tls_conn_free(cli);
+    cetcd_tls_conn_free(srv);
+    cetcd_tls_ctx_free(cctx);
+    cetcd_tls_ctx_free(sctx);
+    cleanup_selfsigned_(dir);
+}
+
+CETCD_TEST_CASE(tls_set_ciphers_tls12_only_rejects_tls13) {
+    char dir[128];
+    CETCD_ASSERT_EQ_INT(make_selfsigned_(dir, sizeof(dir)), 0);
+    char cert[300], key[300];
+    snprintf(cert, sizeof(cert), "%s/cert.pem", dir);
+    snprintf(key, sizeof(key), "%s/key.pem", dir);
+
+    cetcd_tls_ctx *sctx = cetcd_tls_ctx_new();
+    cetcd_tls_ctx *cctx = cetcd_tls_ctx_new_client();
+    CETCD_ASSERT_NOT_NULL(sctx);
+    CETCD_ASSERT_NOT_NULL(cctx);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_cert(sctx, cert, key), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_ciphers(sctx,
+        "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_ciphers(cctx, "TLS_AES_256_GCM_SHA384"),
+                        CETCD_OK);
+
+    cetcd_tls_conn *srv = cetcd_tls_conn_accept(sctx);
+    cetcd_tls_conn *cli = cetcd_tls_conn_connect(cctx);
+    CETCD_ASSERT_TRUE(handshake_pump_(cli, srv) != 1);
+
+    cetcd_tls_conn_free(cli);
+    cetcd_tls_conn_free(srv);
+    cetcd_tls_ctx_free(cctx);
+    cetcd_tls_ctx_free(sctx);
+    cleanup_selfsigned_(dir);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(tls_ctx_create_destroy),
     CETCD_TEST_ENTRY(tls_ctx_set_alpn),
@@ -445,6 +501,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(tls_set_ciphers_iana_handshake),
     CETCD_TEST_ENTRY(tls_set_ciphers_tls13_iana),
     CETCD_TEST_ENTRY(tls_set_ciphers_tls13_handshake),
+    CETCD_TEST_ENTRY(tls_set_ciphers_tls13_only_rejects_tls12),
+    CETCD_TEST_ENTRY(tls_set_ciphers_tls12_only_rejects_tls13),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

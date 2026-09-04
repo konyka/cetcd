@@ -155,7 +155,9 @@ Performance-first, fail-closed design:
   client and peer TLS contexts. TLS 1.3 IANA names (`TLS_AES_*`,
   `TLS_CHACHA20_*`) go to `SSL_CTX_set_ciphersuites`; TLS 1.2 names stay on
   `SSL_CTX_set_cipher_list`. An unknown suite, an empty list, or the flag
-  without `--cert-file`/`--peer-cert-file` fail-closes at start.
+  without `--cert-file`/`--peer-cert-file` fail-closes at start. A TLS 1.3-only
+  list raises the min protocol to TLS 1.3 so TLS 1.2 is not left at the OpenSSL
+  default; a TLS 1.2-only list caps the max protocol at TLS 1.2.
 - **`--max-call-send-msg-size` / `--max-call-recv-msg-size`** — cap the custom-frame
   payload (not the path header). `0` or a non-integer fail-closes at parse.
   An oversized send is not written; an oversized recv is not truncated.

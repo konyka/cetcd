@@ -788,6 +788,8 @@ or `--insecure-transport` mixed with cert flags fail closed. `--auto-tls` /
 `--peer-auto-tls` without matching cert files fail closed (cetcd does not mint).
 `--cipher-suites` restricts TLS (IANA or OpenSSL names; TLS 1.3 IANA names use
 `SSL_CTX_set_ciphersuites`); unknown names or the flag without certs fail closed.
+A TLS 1.3-only list disables TLS 1.2 (and a TLS 1.2-only list disables TLS 1.3)
+so the unused protocol is not left at the OpenSSL default.
 `https://` on `--listen-client-urls` / `--listen-peer-urls` requires the matching
 cert files; `https://` in `--initial-cluster` requires `--peer-cert-file`;
 `--listen-client-urls` / `--listen-peer-urls` / `--initial-cluster` peer URL port must be `1..65535` (a typo fail-closes instead of binding `0`).
