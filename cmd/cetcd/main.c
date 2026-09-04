@@ -51,7 +51,7 @@ static void print_usage(const char *prog) {
     printf("  --grpc-keepalive-min-time SEC  Accepted duration (not applied; 0..86400)\n");
     printf("  --grpc-keepalive-*  Other grpc-keepalive flags accepted as no-op\n");
     printf("  --auth-token TYPE   simple (default) or jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]\n");
-    printf("  --bcrypt-cost N     Hash new passwords with bcrypt (4..31; default SHA-256)\n");
+    printf("  --bcrypt-cost N     Hash new passwords with bcrypt (4..31; 0 = SHA-256; invalid fails)\n");
     printf("  --cert-file FILE    Client TLS certificate (requires --key-file)\n");
     printf("  --key-file FILE     Client TLS private key\n");
     printf("  --trusted-ca-file FILE  Client TLS CA (required with --client-cert-auth)\n");
@@ -337,7 +337,16 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--auth-token") == 0 && i + 1 < argc) {
             strncpy(cfg.auth_token, argv[++i], sizeof(cfg.auth_token) - 1);
         } else if (strcmp(argv[i], "--bcrypt-cost") == 0 && i + 1 < argc) {
-            cfg.bcrypt_cost = atoi(argv[++i]);
+            const char *s = argv[++i];
+            char *end = NULL;
+            errno = 0;
+            long v = strtol(s, &end, 10);
+            if (errno == ERANGE || !end || end == s || *end ||
+                (v != 0 && (v < 4 || v > 31))) {
+                fprintf(stderr, "--bcrypt-cost must be 0 or 4..31\n");
+                return 1;
+            }
+            cfg.bcrypt_cost = (int)v;
         } else if (strcmp(argv[i], "--cert-file") == 0 && i + 1 < argc) {
             strncpy(cfg.cert_file, argv[++i], sizeof(cfg.cert_file) - 1);
         } else if (strcmp(argv[i], "--key-file") == 0 && i + 1 < argc) {

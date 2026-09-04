@@ -1931,6 +1931,24 @@ CETCD_TEST_CASE(live_cetcd_max_request_bytes) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_bcrypt_cost) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --bcrypt-cost 10 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --bcrypt-cost 0 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --bcrypt-cost abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_log_level) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -2313,6 +2331,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_quota_backend_bytes),
     CETCD_TEST_ENTRY(live_cetcd_max_txn_ops),
     CETCD_TEST_ENTRY(live_cetcd_max_request_bytes),
+    CETCD_TEST_ENTRY(live_cetcd_bcrypt_cost),
     CETCD_TEST_ENTRY(live_cetcd_log_level),
     CETCD_TEST_ENTRY(live_cetcd_log_format),
     CETCD_TEST_ENTRY(live_cetcd_logger),

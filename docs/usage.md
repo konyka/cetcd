@@ -179,6 +179,7 @@ cetcd accepts several etcd server flags for migration compatibility:
 # --max-request-bytes must be > 0; a typo or 0 is not the silent default 1.5 MiB
 ./build/bin/cetcd --max-txn-ops 128 --max-request-bytes 1572864 \
   --auth-token 'jwt,sign-method=RS256,priv-key=./jwt.pem,ttl=5m' --bcrypt-cost 10
+# --bcrypt-cost is 0 or 4..31; a typo is not silent SHA-256
 
 # gRPC keepalive applies TCP keepalive on client and peer sockets; min-time is validated but not applied
 # --logger zap|capnslog is accepted; other types fail at parse
