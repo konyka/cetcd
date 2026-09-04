@@ -229,6 +229,7 @@ It mirrors `etcdctl` command structure for familiarity.
 ./build/bin/cetcdctl get --keys-only foo         # Get keys without values
 ./build/bin/cetcdctl get --print-value-only foo  # Print only the value
 ./build/bin/cetcdctl get --hex foo               # Output in hex format
+# --rev / --limit / --min-mod-rev and related flags must be integers >= 0; leftover text is not a truncated revision
 ./build/bin/cetcdctl get --range-end zzz foo     # Get keys from foo to zzz
 ./build/bin/cetcdctl del foo
 ./build/bin/cetcdctl del --prefix foo            # Delete all keys with prefix

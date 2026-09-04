@@ -218,6 +218,9 @@ Performance-first, fail-closed design:
   take a decimal prefix or id `0`; that now fails at parse.
 - **`cetcdctl compact REV`** — must be `> 0`. Leftover text such as `10foo`
   used to compact to revision `10` via `strtoll`; that now fails at parse.
+- **`cetcdctl get --rev` / `--limit` / `--*-mod-rev` / `--*-create-rev`** —
+  integer `>= 0`. Leftover text used to query a truncated revision via `atol`;
+  that now fails at parse. `0` stays current / unlimited.
 - **`--grpc-keepalive-time` / `--grpc-keepalive-timeout`** — TCP keepalive on
   accepted client sockets, accepted peer sockets, and outbound Raft dials
   (`uv_tcp_keepalive_ex`). Timeout without time, or a non-duration value, fail

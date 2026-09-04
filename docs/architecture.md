@@ -516,7 +516,7 @@ and `MemberPromote` returns a proper `ResponseHeader` with the current revision.
 
 The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/keepalive`,
 `member add/remove/update/promote`, `user delete/change-password/grant-role/revoke-role`,
-`role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix/--keys-only/--rev`,
+`role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix/--keys-only/--rev` (`--rev`/`--limit`/`--*-mod-rev`/`--*-create-rev` must be integers `>= 0`; leftover text fail-closes),
 `del --prefix/--prev-kv`, `put --prev-kv`, `watch --prefix/--prev-kv/--start-rev`, `txn cas` (compare-and-swap),
 `auth login` (token-based authentication), `get --count-only/--limit N/--sort-by/--sort-order/--print-value-only`,
 `put --ignore-value/--ignore-lease`, `get/del KEY RANGE_END` (positional range_end argument),

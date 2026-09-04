@@ -831,6 +831,7 @@ the flag and still use 127.0.0.1:2379).
 `cetcdctl member remove` / `update` / `promote` ID must be hex `> 0`; leftover text fail-closes instead of a truncated decimal id.
 `cetcdctl move-leader TARGET_ID` must be hex `> 0`; leftover text fail-closes instead of transferring to a truncated id.
 `cetcdctl compact REV` must be `> 0`; leftover text fail-closes instead of compacting to a truncated revision.
+`cetcdctl get --rev` / `--limit` / `--min-mod-rev` and related flags must be integers `>= 0`; leftover text fail-closes instead of a truncated revision.
 `--grpc-keepalive-time` / `--grpc-keepalive-timeout` set TCP keepalive on accepted
 client sockets, accepted peer sockets, and outbound Raft dials
 (`--grpc-keepalive-min-time` is not applied; a non-duration value fail-closes).

@@ -1186,6 +1186,17 @@ static int cmd_put(int argc, char **argv) {
     return 0;
 }
 
+static int parse_i64_(const char *s, int64_t *out) {
+    if (!s || !out) return -1;
+    char *end = NULL;
+    errno = 0;
+    long long v = strtoll(s, &end, 10);
+    if (errno == ERANGE || !end || end == s || *end)
+        return -1;
+    *out = (int64_t)v;
+    return 0;
+}
+
 static int cmd_get(int argc, char **argv) {
     if (argc < 3) { fprintf(stderr, "usage: cetcdctl get [--prefix] [--from-key] [--range-end KEY] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields|table] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n"); return 1; }
     bool prefix = false;
@@ -1234,22 +1245,40 @@ static int cmd_get(int argc, char **argv) {
             count_only = true;
         } else if (strcmp(argv[i], "--rev") == 0) {
             if (i + 1 >= argc) { fprintf(stderr, "--rev requires a revision number\n"); return 1; }
-            rev = atol(argv[++i]);
+            if (parse_i64_(argv[++i], &rev) != 0 || rev < 0) {
+                fprintf(stderr, "--rev must be >= 0\n");
+                return 1;
+            }
         } else if (strcmp(argv[i], "--limit") == 0) {
             if (i + 1 >= argc) { fprintf(stderr, "--limit requires a number\n"); return 1; }
-            limit = atol(argv[++i]);
+            if (parse_i64_(argv[++i], &limit) != 0 || limit < 0) {
+                fprintf(stderr, "--limit must be >= 0\n");
+                return 1;
+            }
         } else if (strcmp(argv[i], "--min-mod-rev") == 0) {
             if (i + 1 >= argc) { fprintf(stderr, "--min-mod-rev requires a revision number\n"); return 1; }
-            min_mod_rev = atol(argv[++i]);
+            if (parse_i64_(argv[++i], &min_mod_rev) != 0 || min_mod_rev < 0) {
+                fprintf(stderr, "--min-mod-rev must be >= 0\n");
+                return 1;
+            }
         } else if (strcmp(argv[i], "--max-mod-rev") == 0) {
             if (i + 1 >= argc) { fprintf(stderr, "--max-mod-rev requires a revision number\n"); return 1; }
-            max_mod_rev = atol(argv[++i]);
+            if (parse_i64_(argv[++i], &max_mod_rev) != 0 || max_mod_rev < 0) {
+                fprintf(stderr, "--max-mod-rev must be >= 0\n");
+                return 1;
+            }
         } else if (strcmp(argv[i], "--min-create-rev") == 0) {
             if (i + 1 >= argc) { fprintf(stderr, "--min-create-rev requires a revision number\n"); return 1; }
-            min_create_rev = atol(argv[++i]);
+            if (parse_i64_(argv[++i], &min_create_rev) != 0 || min_create_rev < 0) {
+                fprintf(stderr, "--min-create-rev must be >= 0\n");
+                return 1;
+            }
         } else if (strcmp(argv[i], "--max-create-rev") == 0) {
             if (i + 1 >= argc) { fprintf(stderr, "--max-create-rev requires a revision number\n"); return 1; }
-            max_create_rev = atol(argv[++i]);
+            if (parse_i64_(argv[++i], &max_create_rev) != 0 || max_create_rev < 0) {
+                fprintf(stderr, "--max-create-rev must be >= 0\n");
+                return 1;
+            }
         } else if (strcmp(argv[i], "--sort-by") == 0) {
             if (i + 1 >= argc) { fprintf(stderr, "--sort-by requires a field name (key|version|create|mod|value)\n"); return 1; }
             const char *s = argv[++i];
