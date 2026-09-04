@@ -36,14 +36,14 @@
 
 ## 项目概述
 
-cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使用纯 C 语言编写，目标是与 etcd v3.5 的 gRPC API **语义兼容**（protobuf 消息与 RPC 目录）。当前客户端传输为 `cetcdctl` 使用的自定义 TCP 帧协议，以及 HTTP/2 gRPC（连接前奏检测；TLS 协商 ALPN `h2`）。Watch 与 LeaseKeepAlive 为 HTTP/2 双向流，Snapshot 与 RangeStream 为服务端流。
+cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使用纯 C 语言编写，目标是与 etcd v3.5 的 gRPC API **语义兼容**（protobuf 消息与 RPC 目录）。当前客户端传输为 `cetcdctl` 使用的自定义 TCP 帧协议，以及 HTTP/2 gRPC（连接前奏检测；TLS 协商 ALPN `h2`）。Watch 与 LeaseKeepAlive 为 HTTP/2 双向流，Snapshot 与 RangeStream 为服务端流。对等端口另接受 HTTP/2 `POST /raft`。
 
 ### 核心目标
 
 | 目标 | 说明 |
 |------|------|
 | **API 兼容** | 支持 etcd v3.5 全部 41 个 RPC 的处理与 protobuf 编解码（KV、Watch、Lease、Cluster、Auth、Maintenance） |
-| **线兼容（进行中）** | HTTP/2 一元 gRPC + Watch / LeaseKeepAlive / Snapshot / RangeStream（明文或 TLS+ALPN `h2`）已接入 accept |
+| **线兼容（进行中）** | HTTP/2 一元 gRPC + Watch / LeaseKeepAlive / Snapshot / RangeStream（明文或 TLS+ALPN `h2`）已接入 accept；peer 端口接受 `POST /raft` |
 | **跨平台** | Linux（主要）、macOS、FreeBSD、Windows（MSVC + MinGW-w64） |
 | **性能对等** | 3 节点 70/30 Put/Range 工作负载下达到或超过 Go 版 etcd |
 | **纯 C** | C99 基准，需要 C11 原子操作，公共头文件无 GNU/MSVC 扩展 |
@@ -66,9 +66,9 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **WAL 截断**：`--snapshot-count` 次 apply（默认 10000）后，将 WAL 段改写为 `SNAPSHOT` + HardState 并压缩内存 log；写失败则保留原段。
 - **请求上限 / 后端配额**：`--max-request-bytes`（默认 1.5 MiB）限制客户端读缓冲，超限关连接；`--quota-backend-bytes` 在 LMDB 体积达到上限时对 Put 返回空帧并激活 NOSPACE，Delete 仍可执行以便回收空间。
 - **JWT**：`--auth-token jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]` 签发带 `username`/`revision`/`exp` 的 JWT；密码变更不撤销已签发 JWT（与 etcd 一致）。其它 sign-method 启动失败。
-- **Peer 发送**：复用 TCP 连接，避免每条 Raft 消息新建短连接。
+- **Peer 发送**：复用 TCP 连接，避免每条 Raft 消息新建短连接。入站可走 HTTP/2 `POST /raft`；出站仍为 4 字节长度前缀。
 - **历史 Range**：`cetcd_mvcc_range(rev>0)` 按 history 回放；重启后对当前世代有 synthetic history。
-- **HTTP/2 gRPC**：client 端口识别 `PRI * HTTP/2` preface，与 `cetcdctl` 自定义帧分流；`authorization` 作为 token。TLS（`--cert-file`）协商 ALPN `h2`；客户端不发 ALPN 仍可握手。Watch 与 LeaseKeepAlive 为双向流；Snapshot 与 RangeStream 为服务端流。
+- **HTTP/2 gRPC**：client 端口识别 `PRI * HTTP/2` preface，与 `cetcdctl` 自定义帧分流；`authorization` 作为 token。TLS（`--cert-file`）协商 ALPN `h2`；客户端不发 ALPN 仍可握手。Watch 与 LeaseKeepAlive 为双向流；Snapshot 与 RangeStream 为服务端流。peer 端口同样识别 preface：`POST /raft` 将 `cetcd_msg_encode` 体交给 Raft 并回 204；`--peer-cert-file` 协商 ALPN `h2`。
 
 ### 版本信息
 
@@ -731,7 +731,7 @@ int cetcd_grpc_decode(const uint8_t *frame, size_t frame_len, bool *compressed, 
 
 服务端在 client accept 上检测 preface：HTTP/2 一元 RPC 经 `dispatch_ex`，`cetcdctl` 仍走自定义帧。响应带 `grpc-status` trailer。Watch 与 LeaseKeepAlive 保持响应流打开：先发 HEADERS，再用 `cetcd_h2_submit_data` 推送每条响应（Watch 另推后续事件）；客户端 END_STREAM 只半关闭发送侧。Snapshot 为服务端流：先 remaining>0 头，再 remaining=0 blob，然后 trailer。
 
-测试覆盖 preface 检测、authorization、空 body END_STREAM、`submit_data` 多块 DATA 不关流、以及 live `Maintenance/Status`、`Watch/Watch`、`Lease/LeaseKeepAlive`、`Maintenance/Snapshot` 与 `KV/RangeStream` HTTP/2 往返。
+测试覆盖 preface 检测、authorization、空 body END_STREAM、`submit_data` 多块 DATA 不关流、以及 live `Maintenance/Status`、`Watch/Watch`、`Lease/LeaseKeepAlive`、`Maintenance/Snapshot`、`KV/RangeStream` 与 peer `POST /raft` HTTP/2 往返。
 
 ---
 
@@ -800,7 +800,10 @@ int cetcd_cluster_send_msg(cetcd_cluster *c, const uint8_t *serialized_msg, size
 // 消息编解码
 size_t cetcd_msg_encode(const uint8_t *raft_msg_raw, size_t msg_len, uint8_t **out);
 int    cetcd_msg_decode(const uint8_t *data, size_t len, uint8_t **raft_msg_out, size_t *raft_msg_len);
+int    cetcd_peer_is_rafthttp_path(const char *path); /* `/raft` */
 ```
+
+peer 端口在 4 字节帧之外识别 HTTP/2 preface：`POST /raft` 将请求体当作 `cetcd_msg_encode` 载荷步进 Raft，成功回 204。出站仍走长度前缀。
 
 ---
 

@@ -178,6 +178,10 @@ int cetcd_msg_decode(const uint8_t *data, size_t len, uint8_t **raft_msg_out, si
     return CETCD_OK;
 }
 
+int cetcd_peer_is_rafthttp_path(const char *path) {
+    return path && strcmp(path, "/raft") == 0;
+}
+
 size_t cetcd_cluster_peer_count(const cetcd_cluster *c) {
     if (!c) return 0;
     return c->peer_count;

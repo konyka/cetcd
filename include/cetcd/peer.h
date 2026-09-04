@@ -42,6 +42,9 @@ size_t cetcd_msg_encode(const uint8_t *raft_msg_raw, size_t msg_len,
 int cetcd_msg_decode(const uint8_t *data, size_t len,
                       uint8_t **raft_msg_out, size_t *raft_msg_len);
 
+/* 1 if `path` is the etcd rafthttp pipeline (`/raft`). */
+int cetcd_peer_is_rafthttp_path(const char *path);
+
 size_t cetcd_cluster_peer_count(const cetcd_cluster *c);
 
 const cetcd_peer_info *cetcd_cluster_get_peer(const cetcd_cluster *c, uint64_t id);

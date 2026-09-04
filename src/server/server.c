@@ -1455,12 +1455,24 @@ typedef struct peer_ctx_ {
     uint8_t          *buf;
     size_t            buf_pos;
     size_t            buf_cap;
+    int               proto; /* 0 unknown, 1 framed TCP, 2 HTTP/2 */
+    cetcd_h2_session *h2;
+    int32_t           h2_sid;
+    char              h2_path[256];
+    char              h2_method[16];
+    uint8_t          *h2_body;
+    size_t            h2_body_len;
+    size_t            h2_body_cap;
+    int               h2_fail;
+    int               h2_replied;
 } peer_ctx_;
 
 static void on_peer_close_(uv_handle_t *handle) {
     peer_ctx_ *ctx = (peer_ctx_ *)handle->data;
     if (ctx) {
         cetcd_tls_conn_free(ctx->tls);
+        cetcd_h2_session_free(ctx->h2);
+        if (ctx->h2_body) free(ctx->h2_body);
         if (ctx->buf) free(ctx->buf);
         free(ctx);
     }
@@ -1470,6 +1482,143 @@ static void on_peer_alloc_(uv_handle_t *handle, size_t suggested_size, uv_buf_t 
     (void)handle; (void)suggested_size;
     buf->base = (char *)malloc(65536);
     buf->len = 65536;
+}
+
+static int peer_apply_encoded_(cetcd_server *srv, const uint8_t *encoded, size_t len) {
+    if (!srv || !srv->raft || !encoded || len == 0) return -1;
+    uint8_t *raft_wire = NULL;
+    size_t raft_wire_len = 0;
+    if (cetcd_msg_decode(encoded, len, &raft_wire, &raft_wire_len) != 0 ||
+        !raft_wire || raft_wire_len == 0) {
+        free(raft_wire);
+        return -1;
+    }
+    cetcd_msg *rmsg = cetcd_msg_decode_wire(raft_wire, raft_wire_len);
+    free(raft_wire);
+    if (!rmsg) return -1;
+    cetcd_raft_step(srv->raft, rmsg);
+    cetcd_msg_free(rmsg);
+    process_ready_(srv);
+    return 0;
+}
+
+static int peer_h2_write_uv_(const uint8_t *buf, size_t len, void *arg) {
+    uv_stream_t *stream = (uv_stream_t *)arg;
+    peer_ctx_ *ctx = stream ? (peer_ctx_ *)stream->data : NULL;
+    if (!stream || !buf || len == 0) return 0;
+    uint8_t *copy = (uint8_t *)malloc(len);
+    if (!copy) return -1;
+    memcpy(copy, buf, len);
+    if (ctx && ctx->tls) {
+        int w = cetcd_tls_write(ctx->tls, copy, len);
+        free(copy);
+        if (w < 0 || (size_t)w != len) return -1;
+        return tls_flush_uv_(stream, ctx->tls);
+    }
+    uv_write_t *wr = (uv_write_t *)calloc(1, sizeof(uv_write_t));
+    if (!wr) { free(copy); return -1; }
+    wr->data = copy;
+    uv_buf_t wbuf = uv_buf_init((char *)copy, (unsigned int)len);
+    if (uv_write(wr, stream, &wbuf, 1, stream_write_cleanup_) != 0) {
+        free(copy);
+        free(wr);
+        return -1;
+    }
+    return 0;
+}
+
+static int peer_h2_body_append_(peer_ctx_ *ctx, const uint8_t *data, size_t len) {
+    if (!ctx || !data || len == 0) return 0;
+    if (ctx->h2_body_len + len > 16 * 1024 * 1024) return -1;
+    size_t need = ctx->h2_body_len + len;
+    if (need > ctx->h2_body_cap) {
+        size_t cap = ctx->h2_body_cap ? ctx->h2_body_cap : 4096;
+        while (cap < need) {
+            if (cap > SIZE_MAX / 2) return -1;
+            cap *= 2;
+        }
+        uint8_t *nb = (uint8_t *)realloc(ctx->h2_body, cap);
+        if (!nb) return -1;
+        ctx->h2_body = nb;
+        ctx->h2_body_cap = cap;
+    }
+    memcpy(ctx->h2_body + ctx->h2_body_len, data, len);
+    ctx->h2_body_len += len;
+    return 0;
+}
+
+static void peer_h2_reply_(peer_ctx_ *ctx, const char *status) {
+    if (!ctx || !ctx->h2 || ctx->h2_replied) return;
+    const char *hdrs[] = { ":status", status };
+    cetcd_h2_submit_response(ctx->h2, ctx->h2_sid, hdrs, 2, NULL, 0, true);
+    ctx->h2_replied = 1;
+}
+
+static void peer_h2_on_request_(cetcd_h2_session *sess, int32_t stream_id,
+                                const char *method, const char *path,
+                                const char *content_type, void *udata) {
+    (void)sess;
+    (void)content_type;
+    peer_ctx_ *ctx = (peer_ctx_ *)udata;
+    if (!ctx) return;
+    ctx->h2_sid = stream_id;
+    ctx->h2_replied = 0;
+    ctx->h2_body_len = 0;
+    ctx->h2_method[0] = '\0';
+    ctx->h2_path[0] = '\0';
+    if (method) {
+        size_t n = strlen(method);
+        if (n >= sizeof(ctx->h2_method)) n = sizeof(ctx->h2_method) - 1;
+        memcpy(ctx->h2_method, method, n);
+        ctx->h2_method[n] = '\0';
+    }
+    if (path) {
+        size_t n = strlen(path);
+        if (n >= sizeof(ctx->h2_path)) n = sizeof(ctx->h2_path) - 1;
+        memcpy(ctx->h2_path, path, n);
+        ctx->h2_path[n] = '\0';
+    }
+}
+
+static void peer_h2_finish_(peer_ctx_ *ctx) {
+    if (!ctx || ctx->h2_replied) return;
+    if (strcmp(ctx->h2_method, "POST") != 0) {
+        peer_h2_reply_(ctx, "405");
+        return;
+    }
+    if (!cetcd_peer_is_rafthttp_path(ctx->h2_path)) {
+        peer_h2_reply_(ctx, "404");
+        return;
+    }
+    if (peer_apply_encoded_(ctx->srv, ctx->h2_body, ctx->h2_body_len) != 0) {
+        ctx->h2_fail = 1;
+        return;
+    }
+    peer_h2_reply_(ctx, "204");
+}
+
+static void peer_h2_on_data_(cetcd_h2_session *sess, int32_t stream_id,
+                             const uint8_t *data, size_t len,
+                             bool end_stream, void *udata) {
+    (void)sess;
+    (void)stream_id;
+    peer_ctx_ *ctx = (peer_ctx_ *)udata;
+    if (!ctx) return;
+    if (data && len > 0 && peer_h2_body_append_(ctx, data, len) != 0) {
+        ctx->h2_fail = 1;
+        return;
+    }
+    if (end_stream) peer_h2_finish_(ctx);
+}
+
+static int peer_h2_start_(peer_ctx_ *ctx) {
+    cetcd_h2_callbacks cbs;
+    memset(&cbs, 0, sizeof(cbs));
+    cbs.on_request = peer_h2_on_request_;
+    cbs.on_data = peer_h2_on_data_;
+    cbs.udata = ctx;
+    ctx->h2 = cetcd_h2_session_new(&cbs);
+    return ctx->h2 ? 0 : -1;
 }
 
 static void on_peer_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
@@ -1534,9 +1683,35 @@ static void on_peer_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *bu
         if (buf->base) free(buf->base);
     }
 
-    /* Decode and feed raft messages */
     cetcd_server *srv = ctx->srv;
     if (!srv || !srv->raft) return;
+    ctx->stream = stream;
+
+    if (ctx->proto == 0) {
+        int d = cetcd_h2_detect(ctx->buf, ctx->buf_pos);
+        if (d < 0) return;
+        if (d == 1) {
+            if (peer_h2_start_(ctx) != 0) {
+                uv_close((uv_handle_t *)stream, on_peer_close_);
+                return;
+            }
+            ctx->proto = 2;
+        } else {
+            ctx->proto = 1;
+        }
+    }
+    if (ctx->proto == 2) {
+        if (cetcd_h2_feed(ctx->h2, ctx->buf, ctx->buf_pos) != 0 || ctx->h2_fail) {
+            ctx->buf_pos = 0;
+            uv_close((uv_handle_t *)stream, on_peer_close_);
+            return;
+        }
+        ctx->buf_pos = 0;
+        if (cetcd_h2_send_pending(ctx->h2, peer_h2_write_uv_, stream) != 0) {
+            uv_close((uv_handle_t *)stream, on_peer_close_);
+        }
+        return;
+    }
 
     /* Peer messages are framed: 4-byte big-endian length prefix + payload.
      * The payload is a peer-framed raft message (from cetcd_msg_encode). */
@@ -1547,29 +1722,12 @@ static void on_peer_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *bu
                            ((uint32_t)ctx->buf[consumed + 2] << 8) |
                            ((uint32_t)ctx->buf[consumed + 3]);
         if (msg_len == 0 || msg_len > 16 * 1024 * 1024) {
-            /* Invalid frame size; close connection */
             uv_close((uv_handle_t *)stream, on_peer_close_);
             return;
         }
-        if (ctx->buf_pos - consumed < 4 + msg_len) break; /* need more data */
+        if (ctx->buf_pos - consumed < 4 + msg_len) break;
 
-        const uint8_t *payload = ctx->buf + consumed + 4;
-        /* Decode peer framing (cetcd_msg_decode) to get raw raft wire bytes */
-        uint8_t *raft_wire = NULL;
-        size_t raft_wire_len = 0;
-        int rc = cetcd_msg_decode(payload, msg_len, &raft_wire, &raft_wire_len);
-        if (rc == 0 && raft_wire && raft_wire_len > 0) {
-            /* Decode raft wire format to cetcd_msg */
-            cetcd_msg *rmsg = cetcd_msg_decode_wire(raft_wire, raft_wire_len);
-            if (rmsg) {
-                /* Feed to raft state machine */
-                cetcd_raft_step(srv->raft, rmsg);
-                cetcd_msg_free(rmsg);
-                /* Process any ready state from this step */
-                process_ready_(srv);
-            }
-            free(raft_wire);
-        }
+        (void)peer_apply_encoded_(srv, ctx->buf + consumed + 4, msg_len);
         consumed += 4 + msg_len;
     }
 
@@ -1601,6 +1759,7 @@ static void on_peer_incoming_(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
             }
         }
         stream->data = ctx;
+        ctx->stream = stream;
         uv_read_start(stream, on_peer_alloc_, on_peer_read_);
     } else {
         free(ctx);
@@ -1780,6 +1939,14 @@ int cetcd_server_start(cetcd_server *srv) {
             return trc;
         }
         if (srv->tls_peer) {
+            const char *peer_alpn[] = { "h2" };
+            if (cetcd_tls_set_alpn(srv->tls_peer, peer_alpn, 1) != CETCD_OK) {
+                cetcd_tls_ctx_free(srv->tls_client);
+                cetcd_tls_ctx_free(srv->tls_peer);
+                srv->tls_client = NULL;
+                srv->tls_peer = NULL;
+                return CETCD_ERR_INTERNAL;
+            }
             trc = load_tls_ctx_(&srv->tls_peer_out,
                                 srv->cfg.peer_cert_file, srv->cfg.peer_key_file,
                                 srv->cfg.peer_trusted_ca_file, 0, 1);

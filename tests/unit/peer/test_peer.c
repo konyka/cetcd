@@ -232,6 +232,14 @@ CETCD_TEST_CASE(cluster_joint_persist_roundtrip) {
     cetcd_backend_close(be);
 }
 
+CETCD_TEST_CASE(peer_rafthttp_path) {
+    CETCD_ASSERT_EQ_INT(cetcd_peer_is_rafthttp_path("/raft"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_peer_is_rafthttp_path("/raft/stream/message"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_peer_is_rafthttp_path("/etcdserverpb.KV/Range"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_peer_is_rafthttp_path(""), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_peer_is_rafthttp_path(NULL), 0);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(peer_create_destroy),
     CETCD_TEST_ENTRY(cluster_create_add_remove),
@@ -245,6 +253,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(cluster_promote_learner),
     CETCD_TEST_ENTRY(cluster_members_persist_roundtrip),
     CETCD_TEST_ENTRY(cluster_joint_persist_roundtrip),
+    CETCD_TEST_ENTRY(peer_rafthttp_path),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

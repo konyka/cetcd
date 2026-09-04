@@ -82,10 +82,14 @@ Performance-first, fail-closed design:
   pattern (one DATA response per keepalive). Snapshot is a server stream
   (remaining>0 header DATA, then remaining=0 blob, then trailers).
   RangeStream is a server stream (`more=true` prelude, then the Range
-  payload, then trailers). Client TLS (`--cert-file`) selects ALPN
+  payload, then trailers). Peer listen demuxes the HTTP/2 preface and
+  accepts `POST /raft` (one `cetcd_msg_encode` body → Raft step → 204).
+  Client TLS (`--cert-file`) selects ALPN
   `h2` when the peer offers it; clients that omit ALPN still handshake
-  (custom-frame TLS). A non-`h2` ALPN offer is fail-closed. Peer TLS does
-  not advertise `h2`.
+  (custom-frame TLS). A non-`h2` ALPN offer is fail-closed. Peer TLS
+  advertises ALPN `h2`; inbound HTTP/2 POST `/raft` steps a framed raft
+  message and replies 204. Outbound `peer_tx_` is still length-prefixed
+  (no ALPN offer), so in-house clusters stay on the existing framing.
 
 ## Previously done (auth data plane)
 
@@ -106,7 +110,7 @@ None remaining in this pass.
 
 | Gap | Why it matters | Suggested approach |
 |-----|----------------|--------------------|
-| `rafthttp` over HTTP/2 | Peer protocol is length-prefixed TCP | Second listener; not required for correctness of in-house Raft. |
+| `rafthttp` outbound over HTTP/2 | Inbound POST `/raft` is accepted; send still uses 4-byte framing | Offer ALPN `h2` on `peer_tx_` and POST `/raft` when negotiated. |
 
 ### Tests / tooling
 

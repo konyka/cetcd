@@ -23,9 +23,9 @@ internals are organised. For deeper rationale on individual decisions, see
 | Lease expiry | Server tick advances leases and deletes attached keys |
 | Auth data-plane enforcement | Implemented: opaque tokens, RBAC prefix perms, fail-closed, LMDB persist |
 | WAL replay | Restart restuffs the Raft log and applies NORMAL entries past `applied_index` |
-| TLS | Memory-BIO termination on client/peer listen and on outbound `peer_tx_`. Client listen selects ALPN `h2` when offered. Cert without key, missing files, or `--client-cert-auth` without CA fail closed. Plaintext remains the default. |
+| TLS | Memory-BIO termination on client/peer listen and on outbound `peer_tx_`. Client and peer listen select ALPN `h2` when offered. Cert without key, missing files, or `--client-cert-auth` without CA fail closed. Plaintext remains the default. |
 
-Remaining work (rafthttp, fuzz, TSan, …)
+Remaining work (rafthttp outbound, fuzz, TSan, …)
 is tracked in [`docs/roadmap.md`](./roadmap.md).
 
 ### Hardening pass (2026-07)
@@ -436,7 +436,11 @@ the rest of the tree builds.
 ### Peer transport (current)
 
 Peer messages use a **4-byte BE length prefix + raft wire payload** over TCP, with
-**connection reuse** across sends. This is not yet etcd `rafthttp` over HTTP/2.
+**connection reuse** across sends. The peer port also accepts HTTP/2: a `PRI * HTTP/2`
+preface is demuxed from the length-prefixed frames, and `POST /raft` applies one
+`cetcd_msg_encode` body (204 on success; unknown path 404; empty/corrupt fail-closed).
+Peer TLS advertises ALPN `h2`; outbound `peer_tx_` does not offer it yet, so two
+cetcd nodes keep the length-prefixed send path.
 The cluster management API supports peer enumeration (`cetcd_cluster_get_peer_by_index`),
 updates (`cetcd_cluster_update_peer`), and self-ID queries. `MemberList` / `MemberUpdate`,
 `Maintenance.Status` (leader/term), and `MoveLeader` (`CETCD_MSG_TRANSFER_LEADER`) are wired.
