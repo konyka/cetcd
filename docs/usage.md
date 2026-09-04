@@ -136,7 +136,7 @@ cetcd accepts several etcd server flags for migration compatibility:
 ./build/bin/cetcd --listen-client-urls http://127.0.0.1:2379 \
   --listen-peer-urls http://127.0.0.1:2380 --data-dir ./data
 
-# etcd flags accepted as no-op for compatibility
+# etcd flags: advertise/token stay no-op; cluster-state existing and --force-new-cluster fail
 ./build/bin/cetcd --advertise-client-urls http://127.0.0.1:2379 \
   --initial-advertise-peer-urls http://127.0.0.1:2380 \
   --initial-cluster-state new --initial-cluster-token etcd-cluster \

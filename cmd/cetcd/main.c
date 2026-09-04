@@ -38,11 +38,11 @@ static void print_usage(const char *prog) {
     printf("  --listen-peer-urls URL      Peer listen URL (https requires --peer-cert-file)\n");
     printf("  --advertise-client-urls URL  Accepted but no-op (single-node)\n");
     printf("  --initial-advertise-peer-urls URL  Accepted but no-op (single-node)\n");
-    printf("  --initial-cluster-state STATE  Accepted (always 'new' in cetcd)\n");
+    printf("  --initial-cluster-state STATE  new (default); existing is not implemented\n");
     printf("  --initial-cluster-token TOKEN  Accepted but no-op\n");
     printf("  --snapshot-count N   Rewrite WAL after N applies (default: 10000)\n");
     printf("  --quota-backend-bytes N  NOSPACE when LMDB size >= N (0 = unlimited)\n");
-    printf("  --force-new-cluster  Accepted but no-op\n");
+    printf("  --force-new-cluster  Not implemented (fail-closed; would wipe data_dir)\n");
     printf("  --max-txn-ops N     Max compare/success/failure ops per Txn (default 128, max 128)\n");
     printf("  --max-request-bytes N  Max client frame (default 1572864); oversized closes\n");
     printf("  --grpc-keepalive-*  Accepted but no-op (plain TCP)\n");
@@ -194,7 +194,8 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--initial-advertise-peer-urls") == 0 && i + 1 < argc) {
             i++; /* no-op, accepted for etcd compatibility */
         } else if (strcmp(argv[i], "--initial-cluster-state") == 0 && i + 1 < argc) {
-            i++; /* no-op, always 'new' in cetcd */
+            strncpy(cfg.initial_cluster_state, argv[++i],
+                    sizeof(cfg.initial_cluster_state) - 1);
         } else if (strcmp(argv[i], "--initial-cluster-token") == 0 && i + 1 < argc) {
             i++; /* no-op, accepted for etcd compatibility */
         } else if (strcmp(argv[i], "--snapshot-count") == 0 && i + 1 < argc) {
@@ -202,7 +203,7 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--quota-backend-bytes") == 0 && i + 1 < argc) {
             cfg.quota_backend_bytes = (uint64_t)strtoull(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--force-new-cluster") == 0) {
-            /* no-op, accepted for etcd compatibility */
+            cfg.force_new_cluster = true;
         } else if (strcmp(argv[i], "--max-txn-ops") == 0 && i + 1 < argc) {
             cfg.max_txn_ops = (uint64_t)strtoull(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--max-request-bytes") == 0 && i + 1 < argc) {

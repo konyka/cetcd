@@ -162,6 +162,10 @@ Performance-first, fail-closed design:
   or `cetcdctl --endpoints https://...` without `--cacert`/`--insecure` fail
   closed instead of speaking plaintext. `--insecure-transport` mixed with
   an https endpoint also fails.
+- **`--initial-cluster-state` / `--force-new-cluster`** — `new` (or omitted) is
+  the only cluster bootstrap. `existing` would look like a join while still
+  forming a new cluster; `--force-new-cluster` would look like a wipe. Both
+  fail-close at start instead of no-op.
 
 ## Previously done (auth data plane)
 

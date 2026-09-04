@@ -2083,6 +2083,11 @@ int cetcd_server_start(cetcd_server *srv) {
         return CETCD_ERR_INVAL;
     if (srv->cfg.peer_listen_https && !srv->cfg.peer_cert_file[0])
         return CETCD_ERR_INVAL;
+    if (srv->cfg.force_new_cluster)
+        return CETCD_ERR_INVAL;
+    if (srv->cfg.initial_cluster_state[0] &&
+        strcmp(srv->cfg.initial_cluster_state, "new") != 0)
+        return CETCD_ERR_INVAL;
 
     if (!srv->tls_client && !srv->tls_peer && !srv->tls_peer_out) {
         int trc = load_tls_ctx_(&srv->tls_client,

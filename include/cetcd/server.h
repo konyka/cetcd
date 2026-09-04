@@ -54,6 +54,8 @@ typedef struct cetcd_server_config {
     char            cipher_suites[512];   /* empty = OpenSSL default; requires TLS */
     bool            listen_https;         /* https:// client URL requires cert_file */
     bool            peer_listen_https;    /* https:// peer URL requires peer_cert_file */
+    char            initial_cluster_state[16]; /* empty or "new"; others fail-closed */
+    bool            force_new_cluster;    /* not implemented; start fails if set */
 } cetcd_server_config;
 
 cetcd_server *cetcd_server_new(const cetcd_server_config *cfg);
