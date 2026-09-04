@@ -191,6 +191,8 @@ Performance-first, fail-closed design:
   Peers omit `clientURLs` rather than advertising a hardcoded 2379.
 - **`--name`** — MemberList self `name`. Omitted or empty stays `default`.
   The flag used to be logged only while every member was named `default`.
+- **`--logger`** — `zap` or `capnslog` are accepted (built-in logger). Any
+  other type used to be ignored while still starting; that now fails at parse.
 
 ## Previously done (auth data plane)
 

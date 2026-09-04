@@ -62,7 +62,7 @@ static void print_usage(const char *prog) {
     printf("  --peer-client-cert-auth  Require a peer certificate on accept (fail-closed)\n");
     printf("  --peer-auto-tls      Not implemented (fail-closed without --peer-cert-file)\n");
     printf("  --cipher-suites LIST  TLS cipher list (IANA or OpenSSL names; requires TLS)\n");
-    printf("  --logger TYPE       Accepted but no-op (uses built-in logger)\n");
+    printf("  --logger TYPE       zap or capnslog (built-in logger; others fail)\n");
     printf("  --log-outputs LIST   stderr or stdout; a file path fail-closes\n");
     printf("  --experimental-*    Accepted but no-op\n");
     printf("  --help           Show this help\n");
@@ -270,7 +270,12 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--cipher-suites") == 0 && i + 1 < argc) {
             strncpy(cfg.cipher_suites, argv[++i], sizeof(cfg.cipher_suites) - 1);
         } else if (strcmp(argv[i], "--logger") == 0 && i + 1 < argc) {
-            i++; /* no-op, uses built-in logger */
+            const char *lg = argv[++i];
+            if (strcmp(lg, "zap") != 0 && strcmp(lg, "capnslog") != 0) {
+                fprintf(stderr, "--logger %s is not supported (zap or capnslog)\n",
+                        lg);
+                return 1;
+            }
         } else if (strcmp(argv[i], "--log-outputs") == 0 && i + 1 < argc) {
             const char *out = argv[++i];
             if (strcmp(out, "stderr") == 0 || strcmp(out, "/dev/stderr") == 0) {
