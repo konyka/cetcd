@@ -91,6 +91,9 @@ Performance-first, fail-closed design:
   message and replies 204. Outbound `peer_tx_` offers ALPN `h2` and, when
   negotiated, POSTs each queued frame to `/raft` instead of the 4-byte
   prefix. A handshake without `h2` keeps the length-prefixed send path.
+- **libFuzzer harnesses** — `tests/fuzz/` covers WAL record decode, Range/Put/KV
+  protobuf unpack, and `--auth-token` spec plus bearer lookup. CTest runs a
+  smoke driver; `CETCD_BUILD_FUZZ=ON` (clang) builds the fuzzer binaries.
 
 ## Previously done (auth data plane)
 
@@ -115,7 +118,6 @@ None remaining in this pass.
 
 | Gap | Notes |
 |-----|-------|
-| `tests/fuzz/` empty | Add libFuzzer targets for WAL decode, protobuf RPC parse, auth token parse. |
 | ThreadSanitizer in CI | `libtsan` not installed in some environments. |
 
 ## Non-goals (unchanged)

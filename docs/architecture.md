@@ -25,7 +25,7 @@ internals are organised. For deeper rationale on individual decisions, see
 | WAL replay | Restart restuffs the Raft log and applies NORMAL entries past `applied_index` |
 | TLS | Memory-BIO termination on client/peer listen and on outbound `peer_tx_`. Client and peer listen select ALPN `h2` when offered. Cert without key, missing files, or `--client-cert-auth` without CA fail closed. Plaintext remains the default. |
 
-Remaining work (fuzz, TSan, …)
+Remaining work (TSan, …)
 is tracked in [`docs/roadmap.md`](./roadmap.md).
 
 ### Hardening pass (2026-07)
@@ -880,7 +880,7 @@ ctest --test-dir build --output-on-failure
 - Unit tests: custom harness (`tests/harness/cetcd_test.h`), one binary per module via `ctest`.
 - Integration: in-process + forked `cetcd_server_serve` TCP tests (`tests/integration/`).
 - Persistence: MVCC LMDB round-trip unit test + live-server restart verification.
-- Fuzzing: `CETCD_BUILD_FUZZ` option exists; harnesses under `tests/fuzz/` are not yet populated.
+- Fuzzing: `tests/fuzz/` has libFuzzer harnesses for WAL decode, protobuf RPC unpack, and auth token/spec parse. CTest runs a smoke driver on each; `CETCD_BUILD_FUZZ=ON` (clang) builds the real fuzzer binaries.
 - Sanitizers: ASan/UBSan enabled on Linux/macOS CI Debug builds.
 
 ### CI

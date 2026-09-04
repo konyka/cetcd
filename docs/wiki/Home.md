@@ -1106,7 +1106,7 @@ GCC/Clang 下启用严格警告：`-Wall -Wextra -Wpedantic -Wshadow -Wpointer-a
 |------|------|------|------|
 | 单元测试 | Unity + CMock | `tests/unit/<module>/` | 每个模块一个二进制 |
 | 集成测试 | 自定义 harness | `tests/integration/` | 启动真实 cetcd 进程 |
-| 模糊测试 | libFuzzer | `tests/fuzz/` | proto/WAL/Raft 步进函数 |
+| 模糊测试 | libFuzzer | `tests/fuzz/` | WAL decode、protobuf RPC unpack、auth token/spec；CTest 跑 smoke，`CETCD_BUILD_FUZZ` 出 fuzzer 二进制 |
 | 性能测试 | 自定义 | `bench/` | 微基准测试 |
 
 ### CI 矩阵

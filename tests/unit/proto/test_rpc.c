@@ -28,6 +28,14 @@ CETCD_TEST_CASE(range_request_pack_unpack) {
     free(buf);
 }
 
+CETCD_TEST_CASE(range_request_unpack_rejects_overlong_key) {
+    /* Little-endian key_len = 0x7f7f7f7f with only 8 payload bytes. */
+    uint8_t junk[8] = { 0x7f, 0x7f, 0x7f, 0x7f, 1, 2, 3, 4 };
+    ProtobufCMessage *un = cetcd_proto_unpack(&Etcd__RangeRequest__descriptor,
+                                               sizeof(junk), junk);
+    CETCD_ASSERT_NULL(un);
+}
+
 CETCD_TEST_CASE(put_request_pack_unpack) {
     Etcd__PutRequest req;
     memset(&req, 0, sizeof(req));
@@ -73,6 +81,7 @@ CETCD_TEST_CASE(range_response_with_kvs) {
 
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(range_request_pack_unpack),
+    CETCD_TEST_ENTRY(range_request_unpack_rejects_overlong_key),
     CETCD_TEST_ENTRY(put_request_pack_unpack),
     CETCD_TEST_ENTRY(range_response_with_kvs),
 CETCD_TEST_LIST_END

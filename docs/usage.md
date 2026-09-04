@@ -42,7 +42,7 @@ cmake --build build
 | Option                       | Default | Description                                            |
 | ---------------------------- | ------- | ------------------------------------------------------ |
 | `CETCD_BUILD_TESTS`          | `ON`    | Build unit + integration tests                         |
-| `CETCD_BUILD_FUZZ`           | `OFF`   | Build libFuzzer fuzz targets (requires clang)          |
+| `CETCD_BUILD_FUZZ`           | `OFF`   | Build libFuzzer binaries (clang). Smoke drivers always run in CTest. |
 | `CETCD_BUILD_BENCH`          | `OFF`   | Build benchmark suite                                  |
 | `CETCD_SANITIZERS`           | (empty) | Comma-separated: `address,undefined,thread,memory`     |
 | `CETCD_USE_SYSTEM_OPENSSL`   | `ON`    | Use `find_package(OpenSSL)`; otherwise vendor          |
@@ -59,6 +59,15 @@ cmake -B build -G Ninja \
   -DCETCD_SANITIZERS=address,undefined
 cmake --build build
 ctest --test-dir build --output-on-failure
+```
+
+CTest always runs the `fuzz_*_smoke` drivers (empty, one-byte, and 128-byte junk).
+To build the libFuzzer binaries (`fuzz_wal_decode`, `fuzz_proto_rpc`, `fuzz_auth_token`):
+
+```sh
+cmake -B build-fuzz -G Ninja -DCMAKE_C_COMPILER=clang -DCETCD_BUILD_FUZZ=ON
+cmake --build build-fuzz --target fuzz_wal_decode
+./build-fuzz/fuzz_wal_decode
 ```
 
 ### Warning-clean review build
