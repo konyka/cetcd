@@ -104,6 +104,7 @@ CETCD_API void cetcd_v3rpc_watch_flush_replay(void);
 #define CETCD_APPLY_AUTH_ROLE_GRANT_PERM 21
 #define CETCD_APPLY_AUTH_ROLE_REVOKE_PERM 22
 #define CETCD_APPLY_AUTH_USER_CHANGE_PASS 23
+#define CETCD_APPLY_ALARM 24
 
 CETCD_API int cetcd_apply_encode_put(uint8_t **out, size_t *out_len,
                                      const uint8_t *key, size_t key_len,
@@ -178,6 +179,9 @@ CETCD_API int cetcd_apply_encode_auth_user_change_pass(uint8_t **out, size_t *ou
                                                        size_t name_len,
                                                        const uint8_t *hash,
                                                        size_t hash_len);
+CETCD_API int cetcd_apply_encode_alarm(uint8_t **out, size_t *out_len,
+                                       int action, int alarm_type,
+                                       uint64_t member_id);
 
 /* Propose compact Delete ops for `n` keys (chunks of 128). 0 on success. */
 CETCD_API int cetcd_v3rpc_propose_deletes(const uint8_t *const *keys,
@@ -203,6 +207,7 @@ CETCD_API struct cetcd_lease_mgr  *cetcd_v3rpc_leases(cetcd_v3rpc *rpc);
 CETCD_API void cetcd_v3rpc_set_quota(uint64_t bytes);
 CETCD_API void cetcd_v3rpc_set_max_txn_ops(uint64_t n);
 CETCD_API void cetcd_v3rpc_alarm_activate(int alarm_type, uint64_t member_id);
+CETCD_API void cetcd_v3rpc_alarm_deactivate(int alarm_type, uint64_t member_id);
 CETCD_API int  cetcd_v3rpc_alarm_is_active(int alarm_type);
 /* Clear the in-memory table; if `be` is set, overlay persisted NOSPACE/CORRUPT. */
 CETCD_API void cetcd_v3rpc_alarm_load(struct cetcd_backend *be);

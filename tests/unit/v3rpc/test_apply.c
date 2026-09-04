@@ -841,6 +841,34 @@ CETCD_TEST_CASE(quota_blocks_put_not_delete) {
     rmdir(path);
 }
 
+CETCD_TEST_CASE(apply_alarm_activate_then_deactivate) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    CETCD_ASSERT_NOT_NULL(rpc);
+
+    CETCD_ASSERT_TRUE(cetcd_apply_encode_alarm(NULL, NULL, 1, 1, 1) != 0);
+    uint8_t *buf = NULL;
+    size_t len = 0;
+    CETCD_ASSERT_TRUE(cetcd_apply_encode_alarm(&buf, &len, 0, 1, 1) != 0);
+    CETCD_ASSERT_TRUE(cetcd_apply_encode_alarm(&buf, &len, 1, 0, 1) != 0);
+    CETCD_ASSERT_TRUE(cetcd_apply_encode_alarm(&buf, &len, 1, 3, 1) != 0);
+    uint8_t trunc[] = { CETCD_APPLY_ALARM, 0x01 };
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_apply_entry(trunc, sizeof(trunc)) != 0);
+
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_alarm(&buf, &len, 1, 1, 7), 0);
+    CETCD_ASSERT_EQ_INT((int)buf[0], CETCD_APPLY_ALARM);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_alarm_is_active(1));
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_alarm(&buf, &len, 2, 1, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    CETCD_ASSERT_TRUE(!cetcd_v3rpc_alarm_is_active(1));
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(apply_alarm_reload_from_backend) {
     char tmpl[] = "/tmp/cetcd-alarm-XXXXXX";
     char *path = mkdtemp(tmpl);
@@ -914,6 +942,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(apply_auth_enabled_requires_root),
     CETCD_TEST_ENTRY(apply_compact_sets_revision),
     CETCD_TEST_ENTRY(quota_blocks_put_not_delete),
+    CETCD_TEST_ENTRY(apply_alarm_activate_then_deactivate),
     CETCD_TEST_ENTRY(apply_alarm_reload_from_backend),
 CETCD_TEST_LIST_END
 

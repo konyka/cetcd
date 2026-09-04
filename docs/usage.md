@@ -290,9 +290,9 @@ to cancel the watch and close the stream.
 ```sh
 ./build/bin/cetcdctl status                # Server status (version, raft index, etc.)
 ./build/bin/cetcdctl alarm list                       # List alarms (persisted across restart)
-./build/bin/cetcdctl alarm activate NOSPACE           # Activate NOSPACE alarm
-./build/bin/cetcdctl alarm activate CORRUPT           # Activate CORRUPT alarm
-./build/bin/cetcdctl alarm disarm                    # Disarm alarms
+./build/bin/cetcdctl alarm activate NOSPACE           # Activate NOSPACE via Raft
+./build/bin/cetcdctl alarm activate CORRUPT           # Activate CORRUPT via Raft
+./build/bin/cetcdctl alarm disarm                    # Disarm via Raft (followers drop the flag)
 ./build/bin/cetcdctl member list                     # List cluster members
 ./build/bin/cetcdctl member add --peer-urls http://localhost:2380 --name node2  # Add member with name
 ./build/bin/cetcdctl member remove 1234567890         # Remove member by ID

@@ -498,10 +498,12 @@ current head; `revision < compacted_rev` or `revision > current` fails at the RP
 (matching etcd `HashByRev` ErrCompacted / ErrFutureRev) instead of ignoring the field.
 The `DowngradeResponse` now correctly returns only a header
 (field 1) instead of a version string. The `Alarm` handler processes three actions: GET (list current alarms), ACTIVATE (add an
-alarm), and DEACTIVATE (remove an alarm). It supports both NOSPACE and CORRUPT alarm types
+alarm), and DEACTIVATE (remove an alarm). ACTIVATE/DEACTIVATE encode apply tag 24 and
+go through Raft so followers share the flags; GET is a local read. Not-leader or an
+unknown type (not NOSPACE/CORRUPT) fail-closes. It supports both NOSPACE and CORRUPT alarm types
 simultaneously, with an in-memory table (up to 8 entries) persisted to the LMDB `alarm`
 bucket so a restart keeps the flags. A truncated persist blob is ignored (empty table).
-Quota-triggered NOSPACE writes the same table. Independent
+Quota-triggered NOSPACE proposes the same apply entry. Independent
 activation/deactivation of each alarm type is allowed. It returns an `AlarmResponse` with the current
 alarm list (field 2, repeated AlarmMember with memberID and alarm type). The
 `make_simple_response()` helper used by `Defragment` and `MoveLeader` returns a proper

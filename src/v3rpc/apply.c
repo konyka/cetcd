@@ -353,6 +353,23 @@ int cetcd_apply_encode_auth_user_change_pass(uint8_t **out, size_t *out_len,
                           hash, hash_len, 0, 0, out, out_len);
 }
 
+int cetcd_apply_encode_alarm(uint8_t **out, size_t *out_len,
+                             int action, int alarm_type, uint64_t member_id) {
+    if (!out || !out_len) return -1;
+    if (action != 1 && action != 2) return -1;
+    if (alarm_type != 1 && alarm_type != 2) return -1;
+    uint8_t *buf = (uint8_t *)malloc(32);
+    if (!buf) return -1;
+    size_t pos = 0;
+    buf[pos++] = CETCD_APPLY_ALARM;
+    if (write_varint_(buf, 32, &pos, (uint64_t)action) != 0) { free(buf); return -1; }
+    if (write_varint_(buf, 32, &pos, (uint64_t)alarm_type) != 0) { free(buf); return -1; }
+    if (write_varint_(buf, 32, &pos, member_id) != 0) { free(buf); return -1; }
+    *out = buf;
+    *out_len = pos;
+    return 0;
+}
+
 static void lease_after_put_(const uint8_t *key, size_t key_len,
                              int64_t old_lease, int64_t new_lease) {
     if (!g_rpc_lease_mgr) return;
@@ -587,6 +604,20 @@ int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len) {
         if (cetcd_lease_keep_alive(g_rpc_lease_mgr, (cetcd_lease_id)id,
                                    (int64_t)ttl) != CETCD_OK)
             return -1;
+        return 0;
+    }
+
+    if (op == CETCD_APPLY_ALARM) {
+        if (len < 4) return -1;
+        uint64_t action = 0, typ = 0, member = 0;
+        if (read_varint_(data, len, &pos, &action) != 0) return -1;
+        if (read_varint_(data, len, &pos, &typ) != 0) return -1;
+        if (read_varint_(data, len, &pos, &member) != 0) return -1;
+        if ((action != 1 && action != 2) || (typ != 1 && typ != 2)) return -1;
+        if (action == 1)
+            cetcd_v3rpc_alarm_activate((int)typ, member);
+        else
+            cetcd_v3rpc_alarm_deactivate((int)typ, member);
         return 0;
     }
 
@@ -831,7 +862,13 @@ int cetcd_v3rpc_propose_or_apply(const uint8_t *data, size_t len) {
     if (!data || len == 0) return -1;
     if (data[0] == CETCD_APPLY_PUT && g_rpc_quota_bytes && g_rpc_auth_backend) {
         if (cetcd_backend_size(g_rpc_auth_backend) >= g_rpc_quota_bytes) {
-            cetcd_v3rpc_alarm_activate(1, g_rpc_node_id ? g_rpc_node_id : 1);
+            uint8_t *ae = NULL;
+            size_t alen = 0;
+            uint64_t mid = g_rpc_node_id ? g_rpc_node_id : 1;
+            if (cetcd_apply_encode_alarm(&ae, &alen, 1, 1, mid) == 0) {
+                (void)cetcd_v3rpc_propose_or_apply(ae, alen);
+                free(ae);
+            }
             return -1;
         }
     }

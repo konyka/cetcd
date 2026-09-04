@@ -1108,6 +1108,46 @@ CETCD_TEST_CASE(server_wal_replay_auth_role_revoke_perm) {
     cetcd_server_free(srv);
 }
 
+CETCD_TEST_CASE(server_wal_replay_alarm) {
+    char data_dir[] = "/tmp/cetcd-test-walalarm-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
+    char wal_dir[600];
+    snprintf(wal_dir, sizeof(wal_dir), "%s/wal", data_dir);
+    CETCD_ASSERT_EQ_INT(mkdir(wal_dir, 0755), 0);
+
+    uint8_t *payload = NULL;
+    size_t plen = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_alarm(&payload, &plen, 1, 2, 9), 0);
+    cetcd_entry e;
+    memset(&e, 0, sizeof(e));
+    e.term = 1;
+    e.index = 1;
+    e.type = CETCD_ENTRY_NORMAL;
+    e.data = cetcd_slice_make(payload, plen);
+
+    cetcd_wal_encoder *enc = cetcd_wal_encoder_create(wal_dir);
+    CETCD_ASSERT_NOT_NULL(enc);
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encode_entry(enc, &e), 0);
+    cetcd_hard_state hs = {1, 1, 1};
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encode_hard_state(enc, &hs), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encoder_sync(enc), 0);
+    cetcd_wal_encoder_free(enc);
+    free(payload);
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_alarm_is_active(2));
+    CETCD_ASSERT_TRUE(!cetcd_v3rpc_alarm_is_active(1));
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_CASE(server_alarm_survives_restart) {
     char data_dir[] = "/tmp/cetcd-test-alarm-XXXXXX";
     CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
@@ -1709,6 +1749,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_wal_replay_auth_user_revoke_role),
     CETCD_TEST_ENTRY(server_wal_replay_auth_role_grant_perm),
     CETCD_TEST_ENTRY(server_wal_replay_auth_role_revoke_perm),
+    CETCD_TEST_ENTRY(server_wal_replay_alarm),
     CETCD_TEST_ENTRY(server_alarm_survives_restart),
     CETCD_TEST_ENTRY(server_txn_put_survives_restart),
     CETCD_TEST_ENTRY(server_lease_survives_restart),

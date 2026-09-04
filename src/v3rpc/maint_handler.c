@@ -115,6 +115,22 @@ void cetcd_v3rpc_alarm_activate(int alarm_type, uint64_t member_id) {
     }
 }
 
+void cetcd_v3rpc_alarm_deactivate(int alarm_type, uint64_t member_id) {
+    if (alarm_type <= 0) return;
+    int changed = 0;
+    for (int i = 0; i < MAX_ALARMS; i++) {
+        if (g_alarms[i].active && g_alarms[i].alarm_type == alarm_type) {
+            if (member_id == 0 || g_alarms[i].member_id == member_id) {
+                g_alarms[i].active = 0;
+                g_alarms[i].alarm_type = 0;
+                g_alarms[i].member_id = 0;
+                changed = 1;
+            }
+        }
+    }
+    if (changed) alarm_persist_();
+}
+
 int cetcd_v3rpc_alarm_is_active(int alarm_type) {
     for (int i = 0; i < MAX_ALARMS; i++) {
         if (g_alarms[i].active && g_alarms[i].alarm_type == alarm_type)
@@ -369,23 +385,22 @@ cetcd_rpc_bytes maint_handle_alarm(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
 
     /* Static alarm storage: supports NOSPACE(1) and CORRUPT(2) simultaneously */
 
-    if (action == 1 && alarm_type > 0) { /* ACTIVATE */
-        cetcd_v3rpc_alarm_activate(alarm_type, member_id);
-    } else if (action == 2 && alarm_type > 0) { /* DEACTIVATE */
-        int changed = 0;
-        for (int i = 0; i < MAX_ALARMS; i++) {
-            if (g_alarms[i].active && g_alarms[i].alarm_type == alarm_type) {
-                if (member_id == 0 || g_alarms[i].member_id == member_id) {
-                    g_alarms[i].active = 0;
-                    g_alarms[i].alarm_type = 0;
-                    g_alarms[i].member_id = 0;
-                    changed = 1;
-                }
-            }
+    if (action == 1 || action == 2) {
+        if (alarm_type != 1 && alarm_type != 2) {
+            if (alarm_type != 0)
+                return (cetcd_rpc_bytes){NULL, 0};
+        } else {
+            uint8_t *entry = NULL;
+            size_t elen = 0;
+            if (cetcd_apply_encode_alarm(&entry, &elen, action, alarm_type, member_id) != 0)
+                return (cetcd_rpc_bytes){NULL, 0};
+            int rc = cetcd_v3rpc_propose_or_apply(entry, elen);
+            free(entry);
+            if (rc < 0)
+                return (cetcd_rpc_bytes){NULL, 0};
         }
-        if (changed) alarm_persist_();
     }
-    /* action == 0 (GET) just returns current state */
+    /* GET and type NONE return current state without a proposal. */
 
     /* Build AlarmResponse */
     int64_t rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;

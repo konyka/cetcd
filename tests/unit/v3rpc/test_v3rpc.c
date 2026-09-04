@@ -1200,6 +1200,13 @@ CETCD_TEST_CASE(v3rpc_alarm_activate_disarm) {
     CETCD_ASSERT_FALSE(found_alarm);
     cetcd_rpc_bytes_free(&resp);
 
+    /* Unknown alarm type fail-closes (empty frame) instead of a silent GET. */
+    uint8_t bad_type[] = {0x08, 0x01, 0x10, 0x00, 0x18, 0x03};
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Alarm", bad_type, sizeof(bad_type));
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
     cetcd_v3rpc_free(rpc);
 }
 
