@@ -1032,6 +1032,11 @@ static int client_h2_is_snapshot_(const client_ctx_ *ctx) {
     return ctx && strcmp(ctx->h2_path, "/etcdserverpb.Maintenance/Snapshot") == 0;
 }
 
+static int client_h2_is_server_stream_(const client_ctx_ *ctx) {
+    return client_h2_is_snapshot_(ctx) ||
+           (ctx && strcmp(ctx->h2_path, "/etcdserverpb.KV/RangeStream") == 0);
+}
+
 static void client_h2_send_headers_(client_ctx_ *ctx) {
     if (!ctx || ctx->h2_hdrs_sent || !ctx->h2) return;
     const char *hdrs[] = {
@@ -1099,7 +1104,7 @@ static void client_h2_watch_pump_(client_ctx_ *ctx) {
             client_h2_watch_error_(ctx, "12");
             return;
         }
-        if ((client_h2_is_watch_(ctx) || client_h2_is_snapshot_(ctx)) &&
+        if ((client_h2_is_watch_(ctx) || client_h2_is_server_stream_(ctx)) &&
             ctx->h2_stream)
             cetcd_v3rpc_set_stream_writer(ctx->srv->rpc, client_h2_stream_write_,
                                           ctx->h2_stream);
@@ -1172,8 +1177,9 @@ static void client_h2_on_data_(cetcd_h2_session *sess, int32_t stream_id,
             client_h2_watch_error_(ctx, "3");
         return;
     }
-    if (client_h2_is_snapshot_(ctx)) {
-        if (end_stream && ctx->h2_body_len == 0 && !ctx->h2_done) {
+    if (client_h2_is_server_stream_(ctx)) {
+        if (end_stream && ctx->h2_body_len == 0 && !ctx->h2_done &&
+            client_h2_is_snapshot_(ctx)) {
             static const uint8_t empty_grpc[5] = {0, 0, 0, 0, 0};
             if (client_h2_body_append_(ctx, empty_grpc, 5) != 0) {
                 ctx->h2_fail = 1;

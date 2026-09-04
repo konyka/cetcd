@@ -13,6 +13,7 @@
 /* Forward declarations for per RPC handlers (defined in separate files) */
 cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+cetcd_rpc_bytes kv_handle_range_stream(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes lease_handle_grant(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
@@ -121,6 +122,9 @@ static cetcd_rpc_bytes cetcd_v3rpc_dispatch_inner_(cetcd_v3rpc *rpc,
     }
     if (strcmp(path, "/etcdserverpb.KV/Range") == 0) {
         return kv_handle_range(rpc, req_data, req_len);
+    }
+    if (strcmp(path, "/etcdserverpb.KV/RangeStream") == 0) {
+        return kv_handle_range_stream(rpc, req_data, req_len);
     }
     if (strcmp(path, "/etcdserverpb.KV/DeleteRange") == 0) {
         return kv_handle_delete_range(rpc, req_data, req_len);

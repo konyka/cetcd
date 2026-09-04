@@ -1623,6 +1623,65 @@ CETCD_TEST_CASE(v3rpc_maintenance_snapshot_streams) {
     cetcd_v3rpc_free(rpc);
 }
 
+static int g_range_stream_n = 0;
+static void range_stream_write_(const uint8_t *data, size_t len, void *ctx) {
+    (void)data; (void)len; (void)ctx;
+    g_range_stream_n++;
+}
+
+CETCD_TEST_CASE(v3rpc_range_stream_matches_range) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    uint8_t put_buf[32];
+    size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x03;
+    memcpy(put_buf + pos, "foo", 3); pos += 3;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x03;
+    memcpy(put_buf + pos, "bar", 3); pos += 3;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&resp);
+
+    uint8_t range_buf[16];
+    pos = 0;
+    range_buf[pos++] = 0x0a;
+    range_buf[pos++] = 0x03;
+    memcpy(range_buf + pos, "foo", 3); pos += 3;
+    cetcd_rpc_bytes a = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_buf, pos);
+    cetcd_rpc_bytes b = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/RangeStream", range_buf, pos);
+    CETCD_ASSERT_NOT_NULL(a.data);
+    CETCD_ASSERT_NOT_NULL(b.data);
+    CETCD_ASSERT_EQ_INT((int)a.len, (int)b.len);
+    CETCD_ASSERT_TRUE(memcmp(a.data, b.data, a.len) == 0);
+    cetcd_rpc_bytes_free(&a);
+    cetcd_rpc_bytes_free(&b);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_range_stream_streams) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    uint8_t put_buf[32];
+    size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x03;
+    memcpy(put_buf + pos, "foo", 3); pos += 3;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x03;
+    memcpy(put_buf + pos, "bar", 3); pos += 3;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&resp);
+
+    g_range_stream_n = 0;
+    cetcd_v3rpc_set_stream_writer(rpc, range_stream_write_, NULL);
+    uint8_t range_buf[16];
+    pos = 0;
+    range_buf[pos++] = 0x0a;
+    range_buf[pos++] = 0x03;
+    memcpy(range_buf + pos, "foo", 3); pos += 3;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/RangeStream", range_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_EQ_INT(g_range_stream_n, 1);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_set_stream_writer(rpc, NULL, NULL);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_maintenance_downgrade) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -5750,6 +5809,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_maintenance_snapshot),
     CETCD_TEST_ENTRY(v3rpc_maintenance_snapshot_empty),
     CETCD_TEST_ENTRY(v3rpc_maintenance_snapshot_streams),
+    CETCD_TEST_ENTRY(v3rpc_range_stream_matches_range),
+    CETCD_TEST_ENTRY(v3rpc_range_stream_streams),
     CETCD_TEST_ENTRY(v3rpc_maintenance_downgrade),
     CETCD_TEST_ENTRY(v3rpc_auth_user_get),
     CETCD_TEST_ENTRY(v3rpc_auth_role_get),

@@ -36,14 +36,14 @@
 
 ## 项目概述
 
-cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使用纯 C 语言编写，目标是与 etcd v3.5 的 gRPC API **语义兼容**（protobuf 消息与 RPC 目录）。当前客户端传输为 `cetcdctl` 使用的自定义 TCP 帧协议，以及 HTTP/2 gRPC（连接前奏检测；TLS 协商 ALPN `h2`）。Watch 与 LeaseKeepAlive 为 HTTP/2 双向流，Snapshot 为服务端流；RangeStream 尚未分发。
+cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使用纯 C 语言编写，目标是与 etcd v3.5 的 gRPC API **语义兼容**（protobuf 消息与 RPC 目录）。当前客户端传输为 `cetcdctl` 使用的自定义 TCP 帧协议，以及 HTTP/2 gRPC（连接前奏检测；TLS 协商 ALPN `h2`）。Watch 与 LeaseKeepAlive 为 HTTP/2 双向流，Snapshot 与 RangeStream 为服务端流。
 
 ### 核心目标
 
 | 目标 | 说明 |
 |------|------|
 | **API 兼容** | 支持 etcd v3.5 全部 41 个 RPC 的处理与 protobuf 编解码（KV、Watch、Lease、Cluster、Auth、Maintenance） |
-| **线兼容（进行中）** | HTTP/2 一元 gRPC + Watch / LeaseKeepAlive / Snapshot 流（明文或 TLS+ALPN `h2`）已接入 accept；RangeStream 尚未分发 |
+| **线兼容（进行中）** | HTTP/2 一元 gRPC + Watch / LeaseKeepAlive / Snapshot / RangeStream（明文或 TLS+ALPN `h2`）已接入 accept |
 | **跨平台** | Linux（主要）、macOS、FreeBSD、Windows（MSVC + MinGW-w64） |
 | **性能对等** | 3 节点 70/30 Put/Range 工作负载下达到或超过 Go 版 etcd |
 | **纯 C** | C99 基准，需要 C11 原子操作，公共头文件无 GNU/MSVC 扩展 |
@@ -68,7 +68,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **JWT**：`--auth-token jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]` 签发带 `username`/`revision`/`exp` 的 JWT；密码变更不撤销已签发 JWT（与 etcd 一致）。其它 sign-method 启动失败。
 - **Peer 发送**：复用 TCP 连接，避免每条 Raft 消息新建短连接。
 - **历史 Range**：`cetcd_mvcc_range(rev>0)` 按 history 回放；重启后对当前世代有 synthetic history。
-- **HTTP/2 gRPC**：client 端口识别 `PRI * HTTP/2` preface，与 `cetcdctl` 自定义帧分流；`authorization` 作为 token。TLS（`--cert-file`）协商 ALPN `h2`；客户端不发 ALPN 仍可握手。Watch 与 LeaseKeepAlive 为双向流；Snapshot 为服务端流（先 remaining>0 再 remaining=0，然后 trailer）；RangeStream 尚未分发。
+- **HTTP/2 gRPC**：client 端口识别 `PRI * HTTP/2` preface，与 `cetcdctl` 自定义帧分流；`authorization` 作为 token。TLS（`--cert-file`）协商 ALPN `h2`；客户端不发 ALPN 仍可握手。Watch 与 LeaseKeepAlive 为双向流；Snapshot 与 RangeStream 为服务端流。
 
 ### 版本信息
 
@@ -120,7 +120,7 @@ src/
 ├── auth/        libcetcd_auth       RBAC、SHA-256（默认）或 bcrypt 密码哈希
 ├── peer/        libcetcd_peer       Raft 传输层（rafthttp 等价）
 ├── snap/        libcetcd_snap       快照文件读写和流式传输
-├── v3rpc/       libcetcd_v3rpc      全部 41 个 RPC 的 gRPC 处理器
+├── v3rpc/       libcetcd_v3rpc      全部 41 个 v3.5 RPC + RangeStream 的 gRPC 处理器
 └── server/      libcetcd_server     主循环、应用管线、配置、生命周期
 
 cmd/
@@ -731,7 +731,7 @@ int cetcd_grpc_decode(const uint8_t *frame, size_t frame_len, bool *compressed, 
 
 服务端在 client accept 上检测 preface：HTTP/2 一元 RPC 经 `dispatch_ex`，`cetcdctl` 仍走自定义帧。响应带 `grpc-status` trailer。Watch 与 LeaseKeepAlive 保持响应流打开：先发 HEADERS，再用 `cetcd_h2_submit_data` 推送每条响应（Watch 另推后续事件）；客户端 END_STREAM 只半关闭发送侧。Snapshot 为服务端流：先 remaining>0 头，再 remaining=0 blob，然后 trailer。
 
-测试覆盖 preface 检测、authorization、空 body END_STREAM、`submit_data` 多块 DATA 不关流、以及 live `Maintenance/Status`、`Watch/Watch`、`Lease/LeaseKeepAlive` 与 `Maintenance/Snapshot` HTTP/2 往返。
+测试覆盖 preface 检测、authorization、空 body END_STREAM、`submit_data` 多块 DATA 不关流、以及 live `Maintenance/Status`、`Watch/Watch`、`Lease/LeaseKeepAlive`、`Maintenance/Snapshot` 与 `KV/RangeStream` HTTP/2 往返。
 
 ---
 
@@ -842,12 +842,13 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
                                       size_t req_len);
 ```
 
-#### 已实现的 RPC 路径（41 个）
+#### 已实现的 RPC 路径（42 个）
 
 | 服务 | RPC | 处理器文件 | 说明 |
 |------|-----|-----------|------|
 | KV | `/etcdserverpb.KV/Put` | `kv_handler.c` | 写入键值对，推进 MVCC 修订号，返回含 revision 的 PutResponse |
 | KV | `/etcdserverpb.KV/Range` | `kv_handler.c` | 范围查询，实际查询 MVCC 存储并返回匹配的 KeyValue 列表 |
+| KV | `/etcdserverpb.KV/RangeStream` | `kv_handler.c` | 服务端流：先 `more=true` 头，再完整 RangeResponse |
 | KV | `/etcdserverpb.KV/DeleteRange` | `kv_handler.c` | 删除键，推进 MVCC 修订号，返回删除计数 |
 | KV | `/etcdserverpb.KV/Txn` | `kv_handler.c` | 事务：解析 compare/success/failure，评估 Compare 条件（VALUE/VERSION/CREATE/MOD/LEASE），执行 success 或 failure 操作，返回含 ResponseHeader + succeeded + ResponseOps 的完整响应 |
 | KV | `/etcdserverpb.KV/Compact` | `kv_handler.c` | 压缩 MVCC 历史到指定修订号，返回含 revision 的 ResponseHeader |

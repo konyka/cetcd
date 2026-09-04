@@ -9,9 +9,12 @@
 /* Externs pointing to the live store/lease mgr (set by v3rpc_new) */
 extern cetcd_mvcc_store *g_rpc_store;
 extern cetcd_lease_mgr  *g_rpc_lease_mgr;
+extern cetcd_stream_write_fn g_rpc_stream_write_fn;
+extern void             *g_rpc_stream_write_ctx;
 
 cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
+cetcd_rpc_bytes kv_handle_range_stream(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 
@@ -582,6 +585,39 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
     if (key) free(key);
     if (range_end) free(range_end);
     return (cetcd_rpc_bytes){resp, rpos};
+}
+
+/* RangeStream: same RangeRequest. With a stream writer, emit more=true first
+ * so HTTP/2 clients see a server stream; the returned message is the Range. */
+static cetcd_rpc_bytes encode_range_more_prelude_(int64_t rev) {
+    uint8_t hdr[16];
+    size_t hp = 0;
+    hdr[hp++] = 0x18;
+    write_varint_local(hdr, sizeof(hdr), &hp, (uint64_t)(rev > 0 ? rev : 1));
+    uint8_t buf[32];
+    size_t pos = 0;
+    buf[pos++] = 0x0a;
+    write_varint_local(buf, sizeof(buf), &pos, (uint64_t)hp);
+    memcpy(buf + pos, hdr, hp);
+    pos += hp;
+    buf[pos++] = 0x18;
+    buf[pos++] = 0x01;
+    uint8_t *out = (uint8_t *)malloc(pos);
+    if (!out) return (cetcd_rpc_bytes){NULL, 0};
+    memcpy(out, buf, pos);
+    return (cetcd_rpc_bytes){out, pos};
+}
+
+cetcd_rpc_bytes kv_handle_range_stream(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
+    cetcd_rpc_bytes out = kv_handle_range(rpc, req, req_len);
+    if (g_rpc_stream_write_fn && out.data && out.len > 0) {
+        int64_t rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+        cetcd_rpc_bytes pre = encode_range_more_prelude_(rev);
+        if (pre.data)
+            g_rpc_stream_write_fn(pre.data, pre.len, g_rpc_stream_write_ctx);
+        free(pre.data);
+    }
+    return out;
 }
 
 cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {

@@ -17,7 +17,7 @@ internals are organised. For deeper rationale on individual decisions, see
 |------|--------|
 | KV / Watch / Lease / Cluster / Auth / Maintenance handlers | Implemented (protobuf wire format) |
 | Client transport | **Custom length-prefixed TCP** (`cetcdctl`) **and** HTTP/2 gRPC (preface detect). Optional TLS on accept (`--cert-file` / `--key-file`) negotiates ALPN `h2`; plaintext remains the default. |
-| Official `etcdctl` / Go clients | **Partial** — unary HTTP/2 gRPC plus Watch, LeaseKeepAlive, and Snapshot streams (plaintext or TLS+ALPN `h2`); RangeStream is still undispatched |
+| Official `etcdctl` / Go clients | **Partial** — unary HTTP/2 gRPC plus Watch, LeaseKeepAlive, Snapshot, and RangeStream (plaintext or TLS+ALPN `h2`) |
 | MVCC persistence | LMDB mirror of current key generations + revision; restart reload works |
 | Raft | State machine + peer TCP framing; Put/DeleteRange propose, apply after WAL sync |
 | Lease expiry | Server tick advances leases and deletes attached keys |
@@ -25,7 +25,7 @@ internals are organised. For deeper rationale on individual decisions, see
 | WAL replay | Restart restuffs the Raft log and applies NORMAL entries past `applied_index` |
 | TLS | Memory-BIO termination on client/peer listen and on outbound `peer_tx_`. Client listen selects ALPN `h2` when offered. Cert without key, missing files, or `--client-cert-auth` without CA fail closed. Plaintext remains the default. |
 
-Remaining work (RangeStream, rafthttp, fuzz, TSan, …)
+Remaining work (rafthttp, fuzz, TSan, …)
 is tracked in [`docs/roadmap.md`](./roadmap.md).
 
 ### Hardening pass (2026-07)
@@ -408,7 +408,7 @@ returned as a frame with `payload_len=0` so clients do not block on `recv`;
 `cetcdctl` treats zero-length unary responses as failure. Official `etcdctl`
 can speak unary plaintext HTTP/2 gRPC on the same port (`PRI * HTTP/2` preface);
 custom frames remain for `cetcdctl`. Watch and LeaseKeepAlive over HTTP/2 are
-bidi streams; Snapshot is a server stream. RangeStream is not dispatched.
+bidi streams; Snapshot and RangeStream are server streams.
 TLS on the client
 port selects ALPN `h2` when the client offers it; omitting ALPN still
 handshakes (so custom-frame TLS keeps working). A non-`h2` offer is fail-closed.
@@ -424,12 +424,13 @@ Responses are `:status 200` + gRPC DATA + `grpc-status` trailers. Watch and
 LeaseKeepAlive keep the response stream open: headers once, then
 `cetcd_h2_submit_data` per message (Watch also pushes later MVCC events).
 Snapshot writes a remaining>0 header via the stream writer, then the
-remaining=0 blob, then trailers. When nghttp2 is absent, stubs compile so
+remaining=0 blob, then trailers. RangeStream writes a `more=true` prelude,
+then the Range payload, then trailers. When nghttp2 is absent, stubs compile so
 the rest of the tree builds.
 
 - 6 services: `KV`, `Watch`, `Lease`, `Cluster`, `Maintenance`, `Auth`.
-- 41 RPCs (catalogue in [`docs/wiki/Home.md`](./wiki/Home.md)); `RangeStream` not yet dispatched.
-- Streaming: Watch and LeaseKeepAlive (bidi), Snapshot (server stream). RangeStream is not dispatched.
+- 42 RPCs (catalogue in [`docs/wiki/Home.md`](./wiki/Home.md)), including `RangeStream`.
+- Streaming: Watch and LeaseKeepAlive (bidi); Snapshot and RangeStream (server streams).
 - Protobuf types come from etcd v3.5 `.proto` files under `proto/v3.5/`.
 
 ### Peer transport (current)
