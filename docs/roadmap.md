@@ -203,6 +203,9 @@ Performance-first, fail-closed design:
 - **`cetcdctl lock --ttl` / `elect --ttl`** — must be `> 0`. A leftover such as
   `60foo` used to become `60` via `atoi`; that now fails at parse. Omitted
   still defaults to 60.
+- **`cetcdctl lease keepalive --interval`** — must be `> 0`. Leftover text such
+  as `5foo` used to become `5` via `atoi`; that now fails at parse. Omitted
+  still uses ttl/2.
 - **`--grpc-keepalive-time` / `--grpc-keepalive-timeout`** — TCP keepalive on
   accepted client sockets, accepted peer sockets, and outbound Raft dials
   (`uv_tcp_keepalive_ex`). Timeout without time, or a non-duration value, fail

@@ -1890,8 +1890,16 @@ static int cmd_lease(int argc, char **argv) {
             if (strcmp(argv[i], "--once") == 0) {
                 once = 1;
             } else if (strcmp(argv[i], "--interval") == 0 && i + 1 < argc) {
-                interval_sec = atoi(argv[++i]);
-                if (interval_sec <= 0) { fprintf(stderr, "--interval must be a positive number\n"); return 1; }
+                const char *s = argv[++i];
+                char *end = NULL;
+                errno = 0;
+                long v = strtol(s, &end, 10);
+                if (errno == ERANGE || !end || end == s || *end ||
+                    v < 1 || v > 0x7fffffffL) {
+                    fprintf(stderr, "--interval must be > 0\n");
+                    return 1;
+                }
+                interval_sec = (int)v;
             } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
                 if (strcmp(argv[i + 1], "json") == 0) want_json = true;
                 else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
@@ -5600,7 +5608,7 @@ static void print_usage(void) {
     printf("  lease revoke [-w json|fields] ID  Revoke a lease by ID\n");
     printf("  lease timetolive [--keys] [-w json|fields] ID  Query remaining TTL\n");
     printf("  lease list [-w table|json|fields]  List all active leases\n");
-    printf("  lease keepalive [--once] [--interval SEC] [-w json|fields] ID  Keep a lease alive (loop by default, --once for single, --interval for custom interval)\n");
+    printf("  lease keepalive [--once] [--interval SEC] [-w json|fields] ID  Keep a lease alive (loop by default, --once for single, --interval > 0)\n");
     printf("  txn -i [-w json|fields]  Interactive transaction (read from stdin: cmp/put/get/del/then/else)\n");
     printf("  txn put [-w json|fields] KEY VALUE  Execute a transaction (Put)\n");
     printf("  txn cas [-w json|fields] KEY EXP NEW  Compare-and-swap (if KEY==EXP then KEY=NEW)\n");

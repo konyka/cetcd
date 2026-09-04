@@ -655,7 +655,7 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `put --print-value-only` (output only the previous value when used with `--prev-kv`, implies `--prev-kv` if not explicitly set),
 `del --print-value-only` (output only the deleted values when used with `--prev-kv`, implies `--prev-kv` if not explicitly set),
 `check perf --load S|M|L` (workload size: s=10, m=100, l=1000 keys; runs multiple put/get operations and reports average latency) and `--prefix PREFIX` (key prefix for test keys),
-`lease keepalive --interval SEC` (custom keepalive interval instead of default ttl/2),
+`lease keepalive --interval SEC` (custom keepalive interval instead of default ttl/2; `--interval` must be `> 0`; leftover text fail-closes),
 `member add --peer-urls url1,url2` (comma-separated multiple peer URLs for cluster member addition; `member update` also supports comma-separated URLs),
 `txn -i` (interactive transaction mode: reads a transaction definition from stdin with `cmp`/`cmp_create`/`cmp_mod`/`cmp_ver` compare conditions, `then`/`else` sections, and `put`/`get`/`del` operations; builds a full TxnRequest with compare, success, and failure op lists and sends it as a single atomic Txn RPC; supports `-w json|fields` output),
 `endpoint health --cluster` (checks the health of all cluster members by first calling MemberList to discover all member client URLs, then connecting to each endpoint individually and sending a Status RPC; supports `-w json|fields` output),
