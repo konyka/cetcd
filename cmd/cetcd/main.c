@@ -29,7 +29,7 @@ static void print_usage(const char *prog) {
     printf("  --peer-port PORT Peer listen port (default: 2380; 1..65535)\n");
     printf("  --metrics-port PORT Metrics listen port (default: 2381; 0 disables; 0..65535)\n");
     printf("  --node-id ID     Node ID (default: 1; must be > 0)\n");
-    printf("  --initial-cluster NODE1=ADDR:PORT,NODE2=...  Initial cluster (https requires --peer-cert-file; port 1..65535)\n");
+    printf("  --initial-cluster ID=ADDR:PORT,...  Initial cluster (https requires --peer-cert-file; id > 0; port 1..65535)\n");
     printf("  --election-tick N   Raft election tick (default: 10; must be > 0)\n");
     printf("  --heartbeat-tick N  Raft heartbeat tick (default: 1; must be > 0)\n");
     printf("  --log-level LVL  Log level: trace,debug,info,warn,error (default: info)\n");
@@ -153,9 +153,16 @@ int main(int argc, char **argv) {
                 if (eq) {
                     *eq = '\0';
                     char *addr_part = eq + 1;
-                    uint64_t nid = (uint64_t)atol(tok);
+                    char *id_end = NULL;
+                    errno = 0;
+                    unsigned long long nid = strtoull(tok, &id_end, 10);
+                    if (errno == ERANGE || !id_end || id_end == tok || *id_end ||
+                        nid < 1) {
+                        fprintf(stderr, "--initial-cluster member id must be > 0\n");
+                        return 1;
+                    }
                     cetcd_peer_info *pi = &cfg.initial_peers[cfg.n_initial_peers];
-                    pi->id = nid;
+                    pi->id = (uint64_t)nid;
                     char *colon = strrchr(addr_part, ':');
                     if (colon) {
                         *colon = '\0';

@@ -793,6 +793,7 @@ so the unused protocol is not left at the OpenSSL default.
 `https://` on `--listen-client-urls` / `--listen-peer-urls` requires the matching
 cert files; `https://` in `--initial-cluster` requires `--peer-cert-file`;
 `--listen-client-urls` / `--listen-peer-urls` / `--initial-cluster` peer URL port must be `1..65535` (a typo fail-closes instead of binding `0`).
+`--initial-cluster` member ids must be `> 0`; an etcd-style name is not Raft id `0`.
 `cetcdctl --endpoints https://...` requires `--cacert` or `--insecure`
 (and rejects `--insecure-transport`). Plaintext is not a silent fallback.
 `--initial-cluster-state existing` and `--force-new-cluster` fail at start

@@ -111,24 +111,25 @@ reloads live keys from LMDB and replays any WAL entries ahead of `applied_index`
 
 ```sh
 # Node 1
-./build/bin/cetcd --name node1 --data-dir ./data1 \
+./build/bin/cetcd --name node1 --node-id 1 --data-dir ./data1 \
   --listen 127.0.0.1 --port 2379 --peer-port 2380 \
-  --initial-cluster node1=127.0.0.1:2380,node2=127.0.0.1:2382,node3=127.0.0.1:2384
+  --initial-cluster 1=127.0.0.1:2380,2=127.0.0.1:2382,3=127.0.0.1:2384
 
 # Node 2
-./build/bin/cetcd --name node2 --data-dir ./data2 \
+./build/bin/cetcd --name node2 --node-id 2 --data-dir ./data2 \
   --listen 127.0.0.1 --port 2381 --peer-port 2382 \
-  --initial-cluster node1=127.0.0.1:2380,node2=127.0.0.1:2382,node3=127.0.0.1:2384
+  --initial-cluster 1=127.0.0.1:2380,2=127.0.0.1:2382,3=127.0.0.1:2384
 
 # Node 3
-./build/bin/cetcd --name node3 --data-dir ./data3 \
+./build/bin/cetcd --name node3 --node-id 3 --data-dir ./data3 \
   --listen 127.0.0.1 --port 2383 --peer-port 2384 \
-  --initial-cluster node1=127.0.0.1:2380,node2=127.0.0.1:2382,node3=127.0.0.1:2384
+  --initial-cluster 1=127.0.0.1:2380,2=127.0.0.1:2382,3=127.0.0.1:2384
 ```
 
 The cluster uses Raft consensus for replication. Leader election happens
 automatically within ~1 second of startup. `--name` is the MemberList self
-name (`default` if omitted).
+name (`default` if omitted). `--initial-cluster` member ids must be `> 0`
+(etcd-style names are not mapped to Raft ids).
 
 ### etcd-compatible server flags
 

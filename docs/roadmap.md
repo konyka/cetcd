@@ -175,6 +175,8 @@ Performance-first, fail-closed design:
   --initial-cluster-state` other than `new` fail-closes the same way.
 - **`--initial-cluster https://`** — a peer URL with an https scheme requires
   `--peer-cert-file`. Stripping the scheme and dialing plaintext is fail-open.
+  Member ids must be `> 0`; an etcd-style name used to become Raft id `0` via
+  `atol`.
 - **Unknown server flags** — a typo or an unimplemented etcd flag such as
   `--wal-dir` fails at parse instead of starting with the option ignored.
 - **`--log-outputs`** — `stderr`/`stdout` (and `/dev/std{err,out}`) are applied
