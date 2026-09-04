@@ -2121,6 +2121,24 @@ CETCD_TEST_CASE(live_cetcd_listen_client_urls_port) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_listen_peer_urls_port) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --listen-peer-urls http://127.0.0.1:2380 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --listen-peer-urls http://127.0.0.1:abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --listen-peer-urls http://127.0.0.1:0 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcdctl_https_endpoint_requires_tls) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -2374,6 +2392,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_auto_tls_requires_certs),
     CETCD_TEST_ENTRY(live_cetcd_advertise_https_requires_certs),
     CETCD_TEST_ENTRY(live_cetcd_listen_client_urls_port),
+    CETCD_TEST_ENTRY(live_cetcd_listen_peer_urls_port),
     CETCD_TEST_ENTRY(live_cetcdctl_https_endpoint_requires_tls),
     CETCD_TEST_ENTRY(live_cetcdctl_restore_cluster_token),
     CETCD_TEST_ENTRY(live_cetcdctl_restore_cluster_state),

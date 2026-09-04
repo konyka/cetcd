@@ -36,7 +36,7 @@ static void print_usage(const char *prog) {
     printf("  --log-format FMT Log format: text,json (etcd console = text; others fail)\n");
     printf("\n  etcd-compatible flags (accepted for compatibility):\n");
     printf("  --listen-client-urls URL    Client listen URL (https requires --cert-file; port 1..65535)\n");
-    printf("  --listen-peer-urls URL      Peer listen URL (https requires --peer-cert-file)\n");
+    printf("  --listen-peer-urls URL      Peer listen URL (https requires --peer-cert-file; port 1..65535)\n");
     printf("  --advertise-client-urls URL  MemberList clientURLs (https requires --cert-file)\n");
     printf("  --initial-advertise-peer-urls URL  MemberList peerURLs (https requires --peer-cert-file)\n");
     printf("  --initial-cluster-state STATE  new (default); existing is not implemented\n");
@@ -258,7 +258,15 @@ int main(int argc, char **argv) {
                     memcpy(cfg.peer_addr, addr_start, alen);
                     cfg.peer_addr[alen] = '\0';
                 }
-                cfg.peer_port = (uint16_t)atoi(colon + 1);
+                char *end = NULL;
+                errno = 0;
+                long v = strtol(colon + 1, &end, 10);
+                if (errno == ERANGE || !end || end == colon + 1 || *end ||
+                    v < 1 || v > 65535) {
+                    fprintf(stderr, "--listen-peer-urls port must be 1..65535\n");
+                    return 1;
+                }
+                cfg.peer_port = (uint16_t)v;
             } else {
                 strncpy(cfg.peer_addr, addr_start, sizeof(cfg.peer_addr) - 1);
             }

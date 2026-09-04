@@ -790,7 +790,7 @@ or `--insecure-transport` mixed with cert flags fail closed. `--auto-tls` /
 `SSL_CTX_set_ciphersuites`); unknown names or the flag without certs fail closed.
 `https://` on `--listen-client-urls` / `--listen-peer-urls` requires the matching
 cert files; `https://` in `--initial-cluster` requires `--peer-cert-file`;
-`--listen-client-urls` port must be `1..65535` (a typo fail-closes instead of binding `0`).
+`--listen-client-urls` / `--listen-peer-urls` port must be `1..65535` (a typo fail-closes instead of binding `0`).
 `cetcdctl --endpoints https://...` requires `--cacert` or `--insecure`
 (and rejects `--insecure-transport`). Plaintext is not a silent fallback.
 `--initial-cluster-state existing` and `--force-new-cluster` fail at start
