@@ -27,7 +27,7 @@ static void print_usage(const char *prog) {
     printf("  --port PORT      Client listen port (default: 2379; 1..65535)\n");
     printf("  --peer ADDR      Peer listen address (default: 127.0.0.1)\n");
     printf("  --peer-port PORT Peer listen port (default: 2380; 1..65535)\n");
-    printf("  --metrics-port PORT Metrics listen port (default: 2381, 0 to disable)\n");
+    printf("  --metrics-port PORT Metrics listen port (default: 2381; 0 disables; 0..65535)\n");
     printf("  --node-id ID     Node ID (default: 1)\n");
     printf("  --initial-cluster NODE1=ADDR:PORT,NODE2=...  Initial cluster (https requires --peer-cert-file)\n");
     printf("  --election-tick N   Raft election tick (default: 10)\n");
@@ -123,7 +123,14 @@ int main(int argc, char **argv) {
             }
             cfg.peer_port = (uint16_t)v;
         } else if (strcmp(argv[i], "--metrics-port") == 0 && i + 1 < argc) {
-            cfg.metrics_port = (uint16_t)atoi(argv[++i]);
+            char *end = NULL;
+            errno = 0;
+            long v = strtol(argv[++i], &end, 10);
+            if (errno == ERANGE || !end || *end || v < 0 || v > 65535) {
+                fprintf(stderr, "--metrics-port must be 0..65535\n");
+                return 1;
+            }
+            cfg.metrics_port = (uint16_t)v;
         } else if (strcmp(argv[i], "--node-id") == 0 && i + 1 < argc) {
             cfg.node_id = (uint64_t)atol(argv[++i]);
         } else if (strcmp(argv[i], "--initial-cluster") == 0 && i + 1 < argc) {

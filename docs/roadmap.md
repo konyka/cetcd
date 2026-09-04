@@ -212,6 +212,8 @@ Performance-first, fail-closed design:
   now fails at parse.
 - **`--peer-port`** — `1..65535`. A typo used to bind the Raft port on `0`;
   that now fails at parse.
+- **`--metrics-port`** — `0..65535` (`0` disables). A typo used to disable
+  metrics via `atoi`; that now fails at parse.
 - **`--initial-cluster-token`** — written to `{data-dir}/cluster_token` on first
   start. A later start with a different token fail-closes so a data dir is not
   reused as a different cluster. Omitted flag stays a no-op.

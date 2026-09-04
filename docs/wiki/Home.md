@@ -797,6 +797,7 @@ cert files; `https://` in `--initial-cluster` requires `--peer-cert-file`;
 Unknown server flags (for example `--wal-dir`) fail at parse instead of being ignored.
 `--port` is `1..65535`; a typo fail-closes instead of binding port `0`.
 `--peer-port` is `1..65535`; a typo fail-closes instead of binding the Raft port on `0`.
+`--metrics-port` is `0..65535` (`0` disables); a typo fail-closes instead of silently disabling metrics.
 `--log-outputs` is `stderr` or `stdout`; a file path fail-closes.
 `--logger` is `zap` or `capnslog`; any other type fail-closes.
 `--log-level` is `trace`/`debug`/`info`/`warn`/`error` (etcd `warning`/`dpanic`/`panic`/`fatal` aliases); any other level fail-closes.
