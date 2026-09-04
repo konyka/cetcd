@@ -185,6 +185,7 @@ cetcd accepts several etcd server flags for migration compatibility:
 
 # gRPC keepalive applies TCP keepalive on client and peer sockets; min-time is validated but not applied
 # --grpc-keepalive-permit-without-stream is a bool (not applied); a typo fails at parse
+# other --grpc-keepalive-* stay no-op and do not swallow --help
 # --logger zap|capnslog is accepted; other types fail at parse
 # --log-level is trace|debug|info|warn|error (etcd aliases); a typo fails at parse
 # --log-format is json|text (etcd console = text); a typo fails at parse

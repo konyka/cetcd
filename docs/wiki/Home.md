@@ -823,6 +823,7 @@ the flag and still use 127.0.0.1:2379).
 client sockets, accepted peer sockets, and outbound Raft dials
 (`--grpc-keepalive-min-time` is not applied; a non-duration value fail-closes).
 `--grpc-keepalive-permit-without-stream` is not applied; a non-boolean value fail-closes.
+Other `--grpc-keepalive-*` stay no-op and do not swallow a following flag such as `--help`.
 `--max-call-send-msg-size` / `--max-call-recv-msg-size` cap the payload (`0` rejected;
 oversized recv is not truncated).
 `--advertise-client-urls` / `--initial-advertise-peer-urls` fill MemberList self

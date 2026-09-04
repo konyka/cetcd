@@ -200,6 +200,8 @@ Performance-first, fail-closed design:
   non-duration value now fails at parse.
   `--grpc-keepalive-permit-without-stream` stays a no-op (not TCP-mappable) but
   a non-boolean value now fails at parse. A bare flag is accepted.
+  Other `--grpc-keepalive-*` stay a no-op and do not swallow a following flag
+  such as `--help`.
 - **`--auto-tls` / `--peer-auto-tls`** — cetcd does not mint certificates.
   Either flag without the matching `--cert-file` / `--peer-cert-file` fail-closes
   at start instead of listening in plaintext.

@@ -439,8 +439,8 @@ int main(int argc, char **argv) {
                     return 1;
                 }
             }
-        } else if (strncmp(argv[i], "--grpc-keepalive-", 17) == 0 && i + 1 < argc) {
-            i++; /* no-op other grpc-keepalive flags */
+        } else if (strncmp(argv[i], "--grpc-keepalive-", 17) == 0) {
+            if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* no-op other grpc-keepalive flags */
         } else if (strncmp(argv[i], "--experimental-", 15) == 0) {
             /* no-op, accepted for etcd compatibility */
             if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* skip value if present */

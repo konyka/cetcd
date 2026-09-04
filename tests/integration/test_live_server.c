@@ -2070,6 +2070,16 @@ CETCD_TEST_CASE(live_cetcd_grpc_keepalive) {
              "'%s' --grpc-keepalive-permit-without-stream maybe >/dev/null 2>&1",
              CETCD_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --grpc-keepalive-max-connection-idle --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --grpc-keepalive-max-connection-idle 5s --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
 }
 
 CETCD_TEST_CASE(live_cetcd_auto_tls_requires_certs) {
