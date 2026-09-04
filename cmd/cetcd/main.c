@@ -31,7 +31,7 @@ static void print_usage(const char *prog) {
     printf("  --node-id ID     Node ID (default: 1; must be > 0)\n");
     printf("  --initial-cluster NODE1=ADDR:PORT,NODE2=...  Initial cluster (https requires --peer-cert-file)\n");
     printf("  --election-tick N   Raft election tick (default: 10; must be > 0)\n");
-    printf("  --heartbeat-tick N  Raft heartbeat tick (default: 1)\n");
+    printf("  --heartbeat-tick N  Raft heartbeat tick (default: 1; must be > 0)\n");
     printf("  --log-level LVL  Log level: trace,debug,info,warn,error (default: info)\n");
     printf("  --log-format FMT Log format: text,json (etcd console = text; others fail)\n");
     printf("\n  etcd-compatible flags (accepted for compatibility):\n");
@@ -263,8 +263,14 @@ int main(int argc, char **argv) {
             }
             cfg.election_tick = (int)v;
         } else if (strcmp(argv[i], "--heartbeat-tick") == 0 && i + 1 < argc) {
-            cfg.heartbeat_tick = (int)atoi(argv[++i]);
-            if (cfg.heartbeat_tick <= 0) cfg.heartbeat_tick = 1;
+            char *end = NULL;
+            errno = 0;
+            long v = strtol(argv[++i], &end, 10);
+            if (errno == ERANGE || !end || *end || v < 1 || v > 0x7fffffffL) {
+                fprintf(stderr, "--heartbeat-tick must be > 0\n");
+                return 1;
+            }
+            cfg.heartbeat_tick = (int)v;
         } else if (strcmp(argv[i], "--advertise-client-urls") == 0 && i + 1 < argc) {
             const char *url = argv[++i];
             size_t n = 0;

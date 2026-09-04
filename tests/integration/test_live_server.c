@@ -1841,6 +1841,24 @@ CETCD_TEST_CASE(live_cetcd_election_tick) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_heartbeat_tick) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --heartbeat-tick 1 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --heartbeat-tick abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --heartbeat-tick 0 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_log_level) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -2218,6 +2236,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_metrics_port),
     CETCD_TEST_ENTRY(live_cetcd_node_id),
     CETCD_TEST_ENTRY(live_cetcd_election_tick),
+    CETCD_TEST_ENTRY(live_cetcd_heartbeat_tick),
     CETCD_TEST_ENTRY(live_cetcd_log_level),
     CETCD_TEST_ENTRY(live_cetcd_log_format),
     CETCD_TEST_ENTRY(live_cetcd_logger),

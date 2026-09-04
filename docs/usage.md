@@ -192,7 +192,7 @@ cetcd accepts several etcd server flags for migration compatibility:
 # Unknown flags fail at parse (not a silent ignore)
 # ./build/bin/cetcd --wal-dir /var/lib/cetcd/wal  → error: unknown flag
 
-# Raft timing parameters (actually applied; --election-tick must be > 0)
+# Raft timing parameters (actually applied; ticks must be > 0)
 ./build/bin/cetcd --election-tick 10 --heartbeat-tick 1
 ```
 
