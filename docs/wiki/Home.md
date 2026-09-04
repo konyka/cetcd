@@ -1112,7 +1112,7 @@ GCC/Clang 下启用严格警告：`-Wall -Wextra -Wpedantic -Wshadow -Wpointer-a
 ### CI 矩阵
 
 `.github/workflows/ci.yml` 覆盖：
-- Linux (gcc + clang)
+- Linux (gcc + clang；Debug 为 ASan/UBSan，另有 clang TSan)
 - macOS
 - Windows (MSVC + MinGW)
 - FreeBSD

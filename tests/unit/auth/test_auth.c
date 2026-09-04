@@ -195,8 +195,11 @@ CETCD_TEST_CASE(auth_jwt_hs256_roundtrip_and_tamper) {
     uint64_t now = cetcd_clock_realtime_ns();
     CETCD_ASSERT_TRUE(strcmp(cetcd_auth_user_for_token(s, tok, now), "alice") == 0);
 
-    size_t n = strlen(tok);
-    tok[n - 1] = (char)(tok[n - 1] == 'A' ? 'B' : 'A');
+    {
+        char *sig = strrchr(tok, '.');
+        CETCD_ASSERT_TRUE(sig && sig[1]);
+        sig[1] = '\0';
+    }
     CETCD_ASSERT_NULL(cetcd_auth_user_for_token(s, tok, now));
     free(tok);
 
@@ -239,8 +242,11 @@ CETCD_TEST_CASE(auth_jwt_rs256_es256_roundtrip) {
     CETCD_ASSERT_NOT_NULL(tok);
     uint64_t now = cetcd_clock_realtime_ns();
     CETCD_ASSERT_TRUE(strcmp(cetcd_auth_user_for_token(s, tok, now), "alice") == 0);
-    size_t n = strlen(tok);
-    tok[n - 1] = (char)(tok[n - 1] == 'A' ? 'B' : 'A');
+    {
+        char *sig = strrchr(tok, '.');
+        CETCD_ASSERT_TRUE(sig && sig[1]);
+        sig[1] = '\0';
+    }
     CETCD_ASSERT_NULL(cetcd_auth_user_for_token(s, tok, now));
     free(tok);
     cetcd_auth_store_free(s);

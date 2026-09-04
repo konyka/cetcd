@@ -61,6 +61,17 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+ThreadSanitizer (cannot combine with ASan; needs clang compiler-rt or `libtsan1`):
+
+```sh
+cmake -B build-tsan -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_C_COMPILER=clang \
+  -DCETCD_SANITIZERS=thread
+cmake --build build-tsan
+ctest --test-dir build-tsan --output-on-failure -E integration_server
+```
+
 CTest always runs the `fuzz_*_smoke` drivers (empty, one-byte, and 128-byte junk).
 To build the libFuzzer binaries (`fuzz_wal_decode`, `fuzz_proto_rpc`, `fuzz_auth_token`):
 

@@ -42,6 +42,12 @@ jobs:
             cxx: clang++
             build_type: Release
             sanitizer: ""
+          - os: ubuntu-latest
+            compiler: clang
+            cc: clang
+            cxx: clang++
+            build_type: Debug
+            sanitizer: thread
           # macOS: Clang only, Debug+Release with sanitizers on Debug
           - os: macos-latest
             compiler: clang
@@ -72,7 +78,7 @@ jobs:
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build
+          sudo apt-get install -y ninja-build libtsan1
         shell: bash
 
       - name: Install Ninja (macOS)
@@ -113,4 +119,11 @@ jobs:
         run: cmake --build build
 
       - name: Test
+        if: ${{ matrix.sanitizer != 'thread' }}
         run: ctest --test-dir build --output-on-failure
+
+      - name: Test (TSan)
+        if: ${{ matrix.sanitizer == 'thread' }}
+        env:
+          TSAN_OPTIONS: halt_on_error=1:abort_on_error=1
+        run: ctest --test-dir build --output-on-failure -E integration_server

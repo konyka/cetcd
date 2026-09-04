@@ -95,6 +95,9 @@ if(CETCD_SANITIZERS)
         message(FATAL_ERROR "CETCD_SANITIZERS requires gcc or clang")
     endif()
     string(REPLACE "," ";" _san_list "${CETCD_SANITIZERS}")
+    if("thread" IN_LIST _san_list AND "address" IN_LIST _san_list)
+        message(FATAL_ERROR "CETCD_SANITIZERS: thread cannot be combined with address")
+    endif()
     foreach(_san ${_san_list})
         message(STATUS "Enabling sanitizer: ${_san}")
         target_compile_options(cetcd_compile_options INTERFACE
@@ -102,6 +105,21 @@ if(CETCD_SANITIZERS)
         target_link_options(cetcd_compile_options INTERFACE
             -fsanitize=${_san})
     endforeach()
+    if("thread" IN_LIST _san_list)
+        include(CheckCSourceCompiles)
+        set(_cetcd_req_flags "${CMAKE_REQUIRED_FLAGS}")
+        set(_cetcd_req_link "${CMAKE_REQUIRED_LINK_OPTIONS}")
+        set(CMAKE_REQUIRED_FLAGS "-fsanitize=thread")
+        set(CMAKE_REQUIRED_LINK_OPTIONS "-fsanitize=thread")
+        check_c_source_compiles("int main(void) { return 0; }" CETCD_HAVE_TSAN)
+        set(CMAKE_REQUIRED_FLAGS "${_cetcd_req_flags}")
+        set(CMAKE_REQUIRED_LINK_OPTIONS "${_cetcd_req_link}")
+        if(NOT CETCD_HAVE_TSAN)
+            message(FATAL_ERROR
+                "CETCD_SANITIZERS=thread requires libtsan "
+                "(install libtsan1 / compiler-rt, or use clang)")
+        endif()
+    endif()
 endif()
 
 # Coverage

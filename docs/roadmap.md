@@ -94,6 +94,9 @@ Performance-first, fail-closed design:
 - **libFuzzer harnesses** — `tests/fuzz/` covers WAL record decode, Range/Put/KV
   protobuf unpack, and `--auth-token` spec plus bearer lookup. CTest runs a
   smoke driver; `CETCD_BUILD_FUZZ=ON` (clang) builds the fuzzer binaries.
+- **ThreadSanitizer in CI** — Linux clang Debug job uses `-DCETCD_SANITIZERS=thread`.
+  Configure fail-closes if libtsan/compiler-rt cannot link. Forked live tests are
+  excluded (`ctest -E integration_server`); Ubuntu installs `libtsan1`.
 
 ## Previously done (auth data plane)
 
@@ -116,9 +119,7 @@ None remaining in this pass.
 
 ### Tests / tooling
 
-| Gap | Notes |
-|-----|-------|
-| ThreadSanitizer in CI | `libtsan` not installed in some environments. |
+None remaining in this pass.
 
 ## Non-goals (unchanged)
 

@@ -25,8 +25,7 @@ internals are organised. For deeper rationale on individual decisions, see
 | WAL replay | Restart restuffs the Raft log and applies NORMAL entries past `applied_index` |
 | TLS | Memory-BIO termination on client/peer listen and on outbound `peer_tx_`. Client and peer listen select ALPN `h2` when offered. Cert without key, missing files, or `--client-cert-auth` without CA fail closed. Plaintext remains the default. |
 
-Remaining work (TSan, …)
-is tracked in [`docs/roadmap.md`](./roadmap.md).
+Remaining work is tracked in [`docs/roadmap.md`](./roadmap.md).
 
 ### Hardening pass (2026-07)
 
@@ -66,9 +65,8 @@ cmake --build build-asan && ctest --test-dir build-asan --output-on-failure   # 
 
 A two-node smoke (one peer on a dead port) confirms the server keeps serving client RPCs in
 ~7 ms while the nonblocking transport retries the unreachable peer, with no ASan/leak report.
-(ThreadSanitizer cannot run in this environment — `libtsan` is not installed; the resume-queue
-fix is verified by code inspection of the mutex/refcount invariants plus the ASan
-cancel-on-free regression test.)
+ThreadSanitizer is a Linux clang CI job (`-DCETCD_SANITIZERS=thread`). Configure
+fail-closes if TSan cannot link. Forked live-server tests are excluded.
 
 ---
 
@@ -881,7 +879,8 @@ ctest --test-dir build --output-on-failure
 - Integration: in-process + forked `cetcd_server_serve` TCP tests (`tests/integration/`).
 - Persistence: MVCC LMDB round-trip unit test + live-server restart verification.
 - Fuzzing: `tests/fuzz/` has libFuzzer harnesses for WAL decode, protobuf RPC unpack, and auth token/spec parse. CTest runs a smoke driver on each; `CETCD_BUILD_FUZZ=ON` (clang) builds the real fuzzer binaries.
-- Sanitizers: ASan/UBSan enabled on Linux/macOS CI Debug builds.
+- Sanitizers: ASan/UBSan on Linux/macOS CI Debug; TSan on a Linux clang Debug job
+  (`CETCD_SANITIZERS=thread`; configure fail-closes if TSan cannot link).
 
 ### CI
 
