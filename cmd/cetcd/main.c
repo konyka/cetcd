@@ -49,6 +49,7 @@ static void print_usage(const char *prog) {
     printf("  --grpc-keepalive-time SEC   TCP keepalive idle on client and peer sockets (0 disables)\n");
     printf("  --grpc-keepalive-timeout SEC  TCP keepalive interval (requires --grpc-keepalive-time)\n");
     printf("  --grpc-keepalive-min-time SEC  Accepted duration (not applied; 0..86400)\n");
+    printf("  --grpc-keepalive-permit-without-stream  Accepted bool (not applied; true|false)\n");
     printf("  --grpc-keepalive-*  Other grpc-keepalive flags accepted as no-op\n");
     printf("  --auth-token TYPE   simple (default) or jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]\n");
     printf("  --bcrypt-cost N     Hash new passwords with bcrypt (4..31; 0 = SHA-256; invalid fails)\n");
@@ -404,8 +405,18 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "--grpc-keepalive-min-time must be 0..86400 seconds\n");
                 return 1;
             }
+        } else if (strcmp(argv[i], "--grpc-keepalive-permit-without-stream") == 0) {
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                const char *v = argv[++i];
+                if (strcmp(v, "true") != 0 && strcmp(v, "false") != 0 &&
+                    strcmp(v, "1") != 0 && strcmp(v, "0") != 0) {
+                    fprintf(stderr,
+                            "--grpc-keepalive-permit-without-stream must be true or false\n");
+                    return 1;
+                }
+            }
         } else if (strncmp(argv[i], "--grpc-keepalive-", 17) == 0 && i + 1 < argc) {
-            i++; /* no-op, e.g. --grpc-keepalive-permit-without-stream */
+            i++; /* no-op other grpc-keepalive flags */
         } else if (strncmp(argv[i], "--experimental-", 15) == 0) {
             /* no-op, accepted for etcd compatibility */
             if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* skip value if present */
