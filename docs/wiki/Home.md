@@ -799,6 +799,7 @@ Unknown server flags (for example `--wal-dir`) fail at parse instead of being ig
 `--peer-port` is `1..65535`; a typo fail-closes instead of binding the Raft port on `0`.
 `--metrics-port` is `0..65535` (`0` disables); a typo fail-closes instead of silently disabling metrics.
 `--node-id` must be `> 0`; a typo fail-closes instead of becoming Raft id `0`.
+`--election-tick` must be `> 0`; a typo or `0` fail-closes instead of becoming `10`.
 `--log-outputs` is `stderr` or `stdout`; a file path fail-closes.
 `--logger` is `zap` or `capnslog`; any other type fail-closes.
 `--log-level` is `trace`/`debug`/`info`/`warn`/`error` (etcd `warning`/`dpanic`/`panic`/`fatal` aliases); any other level fail-closes.
