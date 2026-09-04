@@ -100,6 +100,9 @@ Performance-first, fail-closed design:
 - **Compact via Raft** — `KV/Compact` encodes apply tag 11 (revision varint).
   Not-leader or a future / already-compacted revision is fail-closed. Apply is
   idempotent so WAL replay after LMDB already compacted that revision succeeds.
+- **LeaseGrant via Raft** — apply tag 12 (`id` + `ttl` varints). The leader
+  reserves an id (or the client-chosen id) and proposes; already-exists and
+  not-leader are fail-closed. Apply is idempotent for WAL replay.
 
 ## Previously done (auth data plane)
 

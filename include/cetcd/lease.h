@@ -42,6 +42,8 @@ cetcd_lease_id cetcd_lease_grant(cetcd_lease_mgr *mgr, int64_t ttl_seconds);
  * id==0, ttl<=0, or the ID already exists. Advances next auto-id past `id`. */
 cetcd_lease_id cetcd_lease_grant_id(cetcd_lease_mgr *mgr, cetcd_lease_id id,
                                     int64_t ttl_seconds);
+/* Next auto-id that Grant(id=0) would use. 0 if mgr is NULL. */
+cetcd_lease_id cetcd_lease_next_id(const cetcd_lease_mgr *mgr);
 int            cetcd_lease_revoke(cetcd_lease_mgr *mgr, cetcd_lease_id id);
 int            cetcd_lease_keep_alive(cetcd_lease_mgr *mgr, cetcd_lease_id id, int64_t ttl_seconds);
 

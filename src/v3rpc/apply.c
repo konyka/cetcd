@@ -237,6 +237,21 @@ int cetcd_apply_encode_compact(uint8_t **out, size_t *out_len, int64_t revision)
     return 0;
 }
 
+int cetcd_apply_encode_lease_grant(uint8_t **out, size_t *out_len,
+                                   uint64_t lease_id, int64_t ttl) {
+    if (!out || !out_len || lease_id == 0 || ttl <= 0 || ttl > CETCD_MAX_LEASE_TTL)
+        return -1;
+    uint8_t *buf = (uint8_t *)malloc(24);
+    if (!buf) return -1;
+    size_t pos = 0;
+    buf[pos++] = CETCD_APPLY_LEASE_GRANT;
+    if (write_varint_(buf, 24, &pos, lease_id) != 0) { free(buf); return -1; }
+    if (write_varint_(buf, 24, &pos, (uint64_t)ttl) != 0) { free(buf); return -1; }
+    *out = buf;
+    *out_len = pos;
+    return 0;
+}
+
 static void lease_after_put_(const uint8_t *key, size_t key_len,
                              int64_t old_lease, int64_t new_lease) {
     if (!g_rpc_lease_mgr) return;
@@ -442,6 +457,21 @@ int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len) {
         uint64_t id = 0;
         if (read_varint_(data, len, &pos, &id) != 0 || id == 0) return -1;
         return apply_lease_revoke_(id);
+    }
+
+    if (op == CETCD_APPLY_LEASE_GRANT) {
+        if (len < 3) return -1;
+        uint64_t id = 0, ttl = 0;
+        if (read_varint_(data, len, &pos, &id) != 0 || id == 0) return -1;
+        if (read_varint_(data, len, &pos, &ttl) != 0 || ttl == 0) return -1;
+        if ((int64_t)ttl > CETCD_MAX_LEASE_TTL) return -1;
+        if (!g_rpc_lease_mgr) return -1;
+        if (cetcd_lease_exists(g_rpc_lease_mgr, (cetcd_lease_id)id))
+            return 0;
+        if (cetcd_lease_grant_id(g_rpc_lease_mgr, (cetcd_lease_id)id,
+                                 (int64_t)ttl) == 0)
+            return -1;
+        return 0;
     }
 
     if (op == CETCD_APPLY_COMPACT) {

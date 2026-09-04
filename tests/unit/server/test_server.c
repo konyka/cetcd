@@ -378,6 +378,58 @@ CETCD_TEST_CASE(server_wal_replay_compact) {
     cetcd_server_free(srv);
 }
 
+CETCD_TEST_CASE(server_wal_replay_lease_grant) {
+    char data_dir[] = "/tmp/cetcd-test-walgrant-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
+    char wal_dir[600];
+    snprintf(wal_dir, sizeof(wal_dir), "%s/wal", data_dir);
+    CETCD_ASSERT_EQ_INT(mkdir(wal_dir, 0755), 0);
+
+    uint8_t *payload = NULL;
+    size_t plen = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_lease_grant(&payload, &plen, 9, 60), 0);
+    cetcd_entry e;
+    memset(&e, 0, sizeof(e));
+    e.term = 1;
+    e.index = 1;
+    e.type = CETCD_ENTRY_NORMAL;
+    e.data = cetcd_slice_make(payload, plen);
+
+    cetcd_wal_encoder *enc = cetcd_wal_encoder_create(wal_dir);
+    CETCD_ASSERT_NOT_NULL(enc);
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encode_entry(enc, &e), 0);
+    cetcd_hard_state hs = {1, 1, 1};
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encode_hard_state(enc, &hs), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encoder_sync(enc), 0);
+    cetcd_wal_encoder_free(enc);
+    free(payload);
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+
+    uint8_t ttl_req[4];
+    size_t tpos = 0;
+    ttl_req[tpos++] = 0x08; ttl_req[tpos++] = 9;
+    cetcd_server_rpc_result resp =
+        cetcd_server_handle_rpc(srv, "/etcdserverpb.Lease/LeaseTimeToLive",
+                                ttl_req, tpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int granted60 = 0;
+    for (size_t i = 0; i + 1 < resp.len; i++) {
+        if (resp.data[i] == 0x20 && resp.data[i + 1] == 60) { granted60 = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(granted60);
+    cetcd_server_rpc_result_free(&resp);
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_CASE(server_txn_put_survives_restart) {
     char data_dir[] = "/tmp/cetcd-test-txnraft-XXXXXX";
     CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
@@ -859,6 +911,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_raft_put_restart_keeps_revision),
     CETCD_TEST_ENTRY(server_wal_replay_when_mvcc_empty),
     CETCD_TEST_ENTRY(server_wal_replay_compact),
+    CETCD_TEST_ENTRY(server_wal_replay_lease_grant),
     CETCD_TEST_ENTRY(server_txn_put_survives_restart),
     CETCD_TEST_ENTRY(server_lease_survives_restart),
     CETCD_TEST_ENTRY(server_snapshot_count_truncates_wal),

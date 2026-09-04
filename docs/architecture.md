@@ -360,7 +360,9 @@ campaigns on `server_new` so the first Put does not wait for election ticks.
 - **Leases** persist to an LMDB `lease` bucket (granted TTL + wall-clock deadline)
   so restarts restore remaining TTL. Lease expiry deletes are proposed by the
   leader as compact Delete entries; `LeaseRevoke` is apply tag 10 so followers
-  drop the same keys and lease record.
+  drop the same keys and lease record. `LeaseGrant` is apply tag 12 (`id` +
+  `ttl`) so followers create the same lease record; a duplicate id is
+  fail-closed before propose.
 - **Compact** proposes apply tag 11 (revision varint) so followers share the same
   compacted revision. A future or already-compacted revision is fail-closed
   before propose. Apply is idempotent for WAL replay.
@@ -458,8 +460,9 @@ boolean field from the request and returns attached keys (field 5) when requeste
 using the new `cetcd_lease_keys()` API; a missing lease returns `TTL=-1` (etcd)
 instead of omitting the field (proto3 default 0). The `LeaseGrant` response also attaches keys
 to leases via `cetcd_lease_attach_key()` when a `Put` request specifies a lease ID.
-`LeaseGrant` honors a non-zero request `ID` via `cetcd_lease_grant_id()` (duplicate
-IDs fail at the RPC layer — matching etcd `lease already exists`); TTL above
+`LeaseGrant` proposes apply tag 12; a non-zero request `ID` is reserved then
+granted on apply (duplicate IDs fail at the RPC layer — matching etcd
+`lease already exists`); TTL above
 `CETCD_MAX_LEASE_TTL` (9000000000, etcd `MaxLeaseTTL`) fails at the RPC layer
 (matching `ErrLeaseTTLTooLarge`). Auto-grant still uses `cetcd_lease_grant()`,
 and `next_id` advances past any custom ID to avoid collisions.

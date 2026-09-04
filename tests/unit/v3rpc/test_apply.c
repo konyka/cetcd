@@ -202,6 +202,26 @@ CETCD_TEST_CASE(apply_lease_revoke_deletes_keys) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(apply_lease_grant_then_exists) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    cetcd_lease_mgr *mgr = cetcd_v3rpc_leases(rpc);
+    CETCD_ASSERT_EQ_INT((int)cetcd_lease_next_id(mgr), 1);
+    uint8_t *buf = NULL;
+    size_t len = 0;
+    CETCD_ASSERT_TRUE(cetcd_apply_encode_lease_grant(&buf, &len, 0, 60) != 0);
+    uint8_t trunc[] = { CETCD_APPLY_LEASE_GRANT, 0x07 };
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_apply_entry(trunc, sizeof(trunc)) != 0);
+
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_lease_grant(&buf, &len, 7, 60), 0);
+    CETCD_ASSERT_EQ_INT((int)buf[0], CETCD_APPLY_LEASE_GRANT);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    CETCD_ASSERT_TRUE(cetcd_lease_exists(mgr, 7));
+    CETCD_ASSERT_EQ_INT((int)cetcd_lease_granted_ttl(mgr, 7), 60);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(apply_compact_sets_revision) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
     uint8_t *buf = NULL;
@@ -308,6 +328,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(apply_member_add_remove),
     CETCD_TEST_ENTRY(apply_leave_joint),
     CETCD_TEST_ENTRY(apply_lease_revoke_deletes_keys),
+    CETCD_TEST_ENTRY(apply_lease_grant_then_exists),
     CETCD_TEST_ENTRY(apply_compact_sets_revision),
     CETCD_TEST_ENTRY(quota_blocks_put_not_delete),
 CETCD_TEST_LIST_END

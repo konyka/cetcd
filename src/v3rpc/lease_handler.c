@@ -91,12 +91,23 @@ cetcd_rpc_bytes lease_handle_grant(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
     if (!g_rpc_lease_mgr)
         return (cetcd_rpc_bytes){NULL, 0};
     cetcd_lease_id lid = 0;
-    if (id > 0)
-        lid = cetcd_lease_grant_id(g_rpc_lease_mgr, (cetcd_lease_id)id, ttl);
-    else
-        lid = cetcd_lease_grant(g_rpc_lease_mgr, ttl);
-    if (lid == 0)
-        return (cetcd_rpc_bytes){NULL, 0}; /* etcd: lease already exists / grant fail */
+    if (id > 0) {
+        if (cetcd_lease_exists(g_rpc_lease_mgr, (cetcd_lease_id)id))
+            return (cetcd_rpc_bytes){NULL, 0}; /* etcd: lease already exists */
+        lid = (cetcd_lease_id)id;
+    } else {
+        lid = cetcd_lease_next_id(g_rpc_lease_mgr);
+        if (lid == 0)
+            return (cetcd_rpc_bytes){NULL, 0};
+    }
+    uint8_t *entry = NULL;
+    size_t elen = 0;
+    if (cetcd_apply_encode_lease_grant(&entry, &elen, (uint64_t)lid, ttl) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
+    int rc = cetcd_v3rpc_propose_or_apply(entry, elen);
+    free(entry);
+    if (rc < 0)
+        return (cetcd_rpc_bytes){NULL, 0};
     return make_lease_response(lid, ttl);
 }
 

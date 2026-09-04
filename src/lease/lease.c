@@ -228,6 +228,10 @@ cetcd_lease_id cetcd_lease_grant_id(cetcd_lease_mgr *mgr, cetcd_lease_id id,
     return l.id;
 }
 
+cetcd_lease_id cetcd_lease_next_id(const cetcd_lease_mgr *mgr) {
+    return mgr ? mgr->next_id : 0;
+}
+
 int cetcd_lease_revoke(cetcd_lease_mgr *mgr, cetcd_lease_id id) {
     if (!mgr) return CETCD_ERR_INVAL;
     if (!cetcd_lease_exists(mgr, id)) return CETCD_ERR_NOTFOUND;
