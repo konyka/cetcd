@@ -5548,7 +5548,7 @@ static void print_usage(void) {
     printf("Usage: cetcdctl [global options] COMMAND [args]\n\n");
     printf("Global options:\n");
     printf("  --host ADDR    Server address (default: 127.0.0.1)\n");
-    printf("  --port PORT    Server port (default: 2379)\n");
+    printf("  --port PORT    Server port (default: 2379; 1..65535)\n");
     printf("  --endpoints EP Server endpoint (https requires --cacert or --insecure)\n");
     printf("  --user USER:PASS  Authenticate with server before executing command\n");
     printf("  --command-timeout SEC  Timeout for commands (duration; 0 = none; invalid fails)\n");
@@ -5641,7 +5641,14 @@ int main(int argc, char **argv) {
             g_host = argv[cmd_start + 1];
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--port") == 0 && cmd_start + 1 < argc) {
-            g_port = (uint16_t)atoi(argv[cmd_start + 1]);
+            char *end = NULL;
+            errno = 0;
+            long v = strtol(argv[cmd_start + 1], &end, 10);
+            if (errno == ERANGE || !end || *end || v < 1 || v > 65535) {
+                fprintf(stderr, "--port must be 1..65535\n");
+                return 1;
+            }
+            g_port = (uint16_t)v;
             cmd_start += 2;
         } else if ((strcmp(argv[cmd_start], "--endpoints") == 0 || strcmp(argv[cmd_start], "--endpoint") == 0) && cmd_start + 1 < argc) {
             /* Parse first endpoint from comma-separated list: host:port or http://host:port format */

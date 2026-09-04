@@ -2093,6 +2093,24 @@ CETCD_TEST_CASE(live_cetcdctl_dial_timeout) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcdctl_port) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --port 2379 version >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --port abc version >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --port 0 version >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcdctl_max_call_msg_size) {
     pid_t pid = fork();
     if (pid == 0) {
@@ -2177,6 +2195,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcdctl_tcp_keepalive),
     CETCD_TEST_ENTRY(live_cetcdctl_command_timeout),
     CETCD_TEST_ENTRY(live_cetcdctl_dial_timeout),
+    CETCD_TEST_ENTRY(live_cetcdctl_port),
     CETCD_TEST_ENTRY(live_cetcdctl_max_call_msg_size),
 #ifdef CETCD_HAS_NGHTTP2
     CETCD_TEST_ENTRY(live_server_http2_status),

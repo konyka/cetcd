@@ -544,7 +544,7 @@ Supported operations (in `then`/`else` sections):
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--host ADDR` | 127.0.0.1 | Server address |
-| `--port PORT` | 2379 | Server port |
+| `--port PORT` | 2379 | Server port (`1..65535`; a typo fail-closes) |
 | `--endpoints EP` | 127.0.0.1:2379 | Server endpoint (host:port; `https://` requires `--cacert` or `--insecure`) |
 | `--command-timeout SEC` | none | Timeout for commands (integer seconds or Go duration: `5s`, `1m`, `1m30s`, `500ms`; `0` = none; invalid fails) |
 | `--user USER:PASS` | none | Authenticate with server before command |
