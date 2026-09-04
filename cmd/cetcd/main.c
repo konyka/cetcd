@@ -45,7 +45,7 @@ static void print_usage(const char *prog) {
     printf("  --quota-backend-bytes N  NOSPACE when LMDB size >= N (0 = unlimited; invalid fails)\n");
     printf("  --force-new-cluster  Not implemented (fail-closed; would wipe data_dir)\n");
     printf("  --max-txn-ops N     Max compare/success/failure ops per Txn (default 128; 1..128)\n");
-    printf("  --max-request-bytes N  Max client frame (default 1572864); oversized closes\n");
+    printf("  --max-request-bytes N  Max client frame (default 1572864; must be > 0)\n");
     printf("  --grpc-keepalive-time SEC   TCP keepalive idle on client and peer sockets (0 disables)\n");
     printf("  --grpc-keepalive-timeout SEC  TCP keepalive interval (requires --grpc-keepalive-time)\n");
     printf("  --grpc-keepalive-min-time SEC  Accepted duration (not applied; 0..86400)\n");
@@ -325,7 +325,15 @@ int main(int argc, char **argv) {
             }
             cfg.max_txn_ops = (uint64_t)v;
         } else if (strcmp(argv[i], "--max-request-bytes") == 0 && i + 1 < argc) {
-            cfg.max_request_bytes = (uint64_t)strtoull(argv[++i], NULL, 10);
+            const char *s = argv[++i];
+            char *end = NULL;
+            errno = 0;
+            unsigned long long v = strtoull(s, &end, 10);
+            if (errno == ERANGE || !end || end == s || *end || v == 0) {
+                fprintf(stderr, "--max-request-bytes must be > 0\n");
+                return 1;
+            }
+            cfg.max_request_bytes = (uint64_t)v;
         } else if (strcmp(argv[i], "--auth-token") == 0 && i + 1 < argc) {
             strncpy(cfg.auth_token, argv[++i], sizeof(cfg.auth_token) - 1);
         } else if (strcmp(argv[i], "--bcrypt-cost") == 0 && i + 1 < argc) {

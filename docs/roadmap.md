@@ -228,6 +228,8 @@ Performance-first, fail-closed design:
   to become unlimited via `strtoull`; that now fails at parse.
 - **`--max-txn-ops`** — `1..128`. A typo or `0` used to become the default
   128; that now fails at parse. Omitted still defaults to 128.
+- **`--max-request-bytes`** — must be `> 0`. A typo or `0` used to become the
+  default 1.5 MiB; that now fails at parse. Omitted still defaults.
 - **`--initial-cluster-token`** — written to `{data-dir}/cluster_token` on first
   start. A later start with a different token fail-closes so a data dir is not
   reused as a different cluster. Omitted flag stays a no-op.

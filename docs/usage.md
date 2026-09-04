@@ -176,6 +176,7 @@ cetcd accepts several etcd server flags for migration compatibility:
 
 # Limit flags: --max-request-bytes and --max-txn-ops are applied
 # --max-txn-ops must be 1..128; a typo or 0 is not the silent default 128
+# --max-request-bytes must be > 0; a typo or 0 is not the silent default 1.5 MiB
 ./build/bin/cetcd --max-txn-ops 128 --max-request-bytes 1572864 \
   --auth-token 'jwt,sign-method=RS256,priv-key=./jwt.pem,ttl=5m' --bcrypt-cost 10
 
