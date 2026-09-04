@@ -1529,6 +1529,19 @@ static void on_client_conn_(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
     cetcd_server *srv = (cetcd_server *)arg;
     if (!client || !srv) return;
 
+    if (srv->cfg.keepalive_set) {
+        uv_stream_t *st = cetcd_tcp_stream(client);
+        int on = srv->cfg.keepalive_time > 0;
+        unsigned idle = on ? (unsigned)srv->cfg.keepalive_time : 0;
+        unsigned intvl = srv->cfg.keepalive_timeout > 0
+            ? (unsigned)srv->cfg.keepalive_timeout : 1u;
+        if (!st ||
+            uv_tcp_keepalive_ex((uv_tcp_t *)st, on, idle, intvl, 10) != 0) {
+            cetcd_tcp_close(client);
+            return;
+        }
+    }
+
     client_ctx_ *ctx = (client_ctx_ *)calloc(1, sizeof(client_ctx_));
     if (!ctx) { cetcd_tcp_close(client); return; }
     ctx->srv = srv;
@@ -2089,6 +2102,8 @@ int cetcd_server_start(cetcd_server *srv) {
         strcmp(srv->cfg.initial_cluster_state, "new") != 0)
         return CETCD_ERR_INVAL;
     if (srv->cfg.initial_cluster_https && !srv->cfg.peer_cert_file[0])
+        return CETCD_ERR_INVAL;
+    if (srv->cfg.keepalive_timeout > 0 && !srv->cfg.keepalive_set)
         return CETCD_ERR_INVAL;
 
     if (!srv->tls_client && !srv->tls_peer && !srv->tls_peer_out) {

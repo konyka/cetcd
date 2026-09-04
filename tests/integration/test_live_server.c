@@ -1732,6 +1732,24 @@ CETCD_TEST_CASE(live_cetcd_log_outputs) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_grpc_keepalive) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --grpc-keepalive-time abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --grpc-keepalive-timeout 5s >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --grpc-keepalive-time 10s --grpc-keepalive-timeout 5s --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+}
+
 CETCD_TEST_CASE(live_cetcdctl_https_endpoint_requires_tls) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -1837,6 +1855,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_client_tls_put),
     CETCD_TEST_ENTRY(live_cetcd_rejects_unknown_flag),
     CETCD_TEST_ENTRY(live_cetcd_log_outputs),
+    CETCD_TEST_ENTRY(live_cetcd_grpc_keepalive),
     CETCD_TEST_ENTRY(live_cetcdctl_https_endpoint_requires_tls),
     CETCD_TEST_ENTRY(live_cetcdctl_discovery_srv_not_implemented),
     CETCD_TEST_ENTRY(live_cetcdctl_tcp_keepalive),

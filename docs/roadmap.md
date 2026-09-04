@@ -179,6 +179,9 @@ Performance-first, fail-closed design:
 - **`cetcdctl --keepalive-time` / `--keepalive-timeout`** — TCP `SO_KEEPALIVE`
   with `TCP_KEEPIDLE` / `TCP_KEEPINTVL`. Invalid durations and timeout without
   time fail at parse. Omitted flags keep the OS default.
+- **`--grpc-keepalive-time` / `--grpc-keepalive-timeout`** — TCP keepalive on
+  accepted client sockets (`uv_tcp_keepalive_ex`). Timeout without time, or a
+  non-duration value, fail at parse. `--grpc-keepalive-min-time` stays a no-op.
 
 ## Previously done (auth data plane)
 

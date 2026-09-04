@@ -57,6 +57,9 @@ typedef struct cetcd_server_config {
     char            initial_cluster_state[16]; /* empty or "new"; others fail-closed */
     bool            force_new_cluster;    /* not implemented; start fails if set */
     bool            initial_cluster_https; /* https:// peer URL requires peer_cert_file */
+    bool            keepalive_set;         /* --grpc-keepalive-time was given */
+    int             keepalive_time;        /* 0 disables; else TCP_KEEPIDLE seconds */
+    int             keepalive_timeout;     /* 0 = libuv default interval; else TCP_KEEPINTVL */
 } cetcd_server_config;
 
 cetcd_server *cetcd_server_new(const cetcd_server_config *cfg);

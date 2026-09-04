@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 static cetcd_server *g_srv = NULL;
 
@@ -45,7 +46,9 @@ static void print_usage(const char *prog) {
     printf("  --force-new-cluster  Not implemented (fail-closed; would wipe data_dir)\n");
     printf("  --max-txn-ops N     Max compare/success/failure ops per Txn (default 128, max 128)\n");
     printf("  --max-request-bytes N  Max client frame (default 1572864); oversized closes\n");
-    printf("  --grpc-keepalive-*  Accepted but no-op (plain TCP)\n");
+    printf("  --grpc-keepalive-time SEC   TCP keepalive idle on client sockets (0 disables)\n");
+    printf("  --grpc-keepalive-timeout SEC  TCP keepalive interval (requires --grpc-keepalive-time)\n");
+    printf("  --grpc-keepalive-*  Other grpc-keepalive flags accepted as no-op\n");
     printf("  --auth-token TYPE   simple (default) or jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]\n");
     printf("  --bcrypt-cost N     Hash new passwords with bcrypt (4..31; default SHA-256)\n");
     printf("  --cert-file FILE    Client TLS certificate (requires --key-file)\n");
@@ -63,6 +66,17 @@ static void print_usage(const char *prog) {
     printf("  --log-outputs LIST   stderr or stdout; a file path fail-closes\n");
     printf("  --experimental-*    Accepted but no-op\n");
     printf("  --help           Show this help\n");
+}
+
+static int parse_keepalive_sec_(const char *s, int min_v, int *out) {
+    char *end = NULL;
+    errno = 0;
+    long v = strtol(s, &end, 10);
+    if (errno == ERANGE || !end || end == s || v < min_v || v > 86400) return -1;
+    if (*end == 's' || *end == 'S') end++;
+    if (*end) return -1;
+    *out = (int)v;
+    return 0;
 }
 
 int main(int argc, char **argv) {
@@ -256,8 +270,19 @@ int main(int argc, char **argv) {
                         out);
                 return 1;
             }
+        } else if (strcmp(argv[i], "--grpc-keepalive-time") == 0 && i + 1 < argc) {
+            if (parse_keepalive_sec_(argv[++i], 0, &cfg.keepalive_time) != 0) {
+                fprintf(stderr, "--grpc-keepalive-time must be 0..86400 seconds\n");
+                return 1;
+            }
+            cfg.keepalive_set = true;
+        } else if (strcmp(argv[i], "--grpc-keepalive-timeout") == 0 && i + 1 < argc) {
+            if (parse_keepalive_sec_(argv[++i], 1, &cfg.keepalive_timeout) != 0) {
+                fprintf(stderr, "--grpc-keepalive-timeout must be 1..86400 seconds\n");
+                return 1;
+            }
         } else if (strncmp(argv[i], "--grpc-keepalive-", 17) == 0 && i + 1 < argc) {
-            i++; /* no-op, plain TCP */
+            i++; /* no-op, e.g. --grpc-keepalive-min-time */
         } else if (strncmp(argv[i], "--experimental-", 15) == 0) {
             /* no-op, accepted for etcd compatibility */
             if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* skip value if present */
@@ -265,6 +290,10 @@ int main(int argc, char **argv) {
             fprintf(stderr, "unknown flag: %s\n", argv[i]);
             return 1;
         }
+    }
+    if (cfg.keepalive_timeout > 0 && !cfg.keepalive_set) {
+        fprintf(stderr, "--grpc-keepalive-timeout requires --grpc-keepalive-time\n");
+        return 1;
     }
     strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
 
