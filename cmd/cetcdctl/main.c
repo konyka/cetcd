@@ -1653,9 +1653,17 @@ static int cmd_lease(int argc, char **argv) {
             }
         }
         if (!ttl_str) { fprintf(stderr, "usage: cetcdctl lease grant [--lease-id ID] [-w json|fields] TTL\n"); return 1; }
+        char *ttl_end = NULL;
+        errno = 0;
+        long ttl_sec = strtol(ttl_str, &ttl_end, 10);
+        if (errno == ERANGE || !ttl_end || ttl_end == ttl_str || *ttl_end ||
+            ttl_sec < 1 || ttl_sec > 0x7fffffffL) {
+            fprintf(stderr, "lease grant TTL must be > 0\n");
+            return 1;
+        }
         uint8_t req[32], resp[256];
         size_t pos = 0;
-        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(ttl_str));
+        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)ttl_sec);
         pos = encode_varint_field(req, sizeof(req), pos, 0x10, has_lease_id ? lease_id : 0);
         int rlen = do_rpc("/etcdserverpb.Lease/LeaseGrant", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
@@ -5604,7 +5612,7 @@ static void print_usage(void) {
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
     printf("  del [--prefix] [--from-key] [--range-end KEY] [--prev-kv] [--hex] [--print-value-only] [-w json|fields] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --range-end, --prev-kv, --hex, --print-value-only)\n");
     printf("  watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--progress-notify] [--start-rev N] [--filter NOPUT|NODELETE] [--hex] [--exec CMD] [-w json|fields] KEY  Watch key changes (-i for interactive mode, --progress-notify for periodic progress updates, --exec runs CMD with ETCD_WATCH_* env vars)\n");
-    printf("  lease grant [--lease-id ID] [-w json|fields] TTL  Grant a lease (TTL in seconds)\n");
+    printf("  lease grant [--lease-id ID] [-w json|fields] TTL  Grant a lease (TTL in seconds; must be > 0)\n");
     printf("  lease revoke [-w json|fields] ID  Revoke a lease by ID\n");
     printf("  lease timetolive [--keys] [-w json|fields] ID  Query remaining TTL\n");
     printf("  lease list [-w table|json|fields]  List all active leases\n");

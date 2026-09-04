@@ -290,6 +290,7 @@ to cancel the watch and close the stream.
 
 ```sh
 ./build/bin/cetcdctl lease grant 60                        # Grant via Raft (followers share the id)
+# TTL must be > 0; a typo is not a silent 0s lease
 ./build/bin/cetcdctl lease grant --lease-id 0x1234abcd 60  # Grant with custom lease ID (hex)
 ./build/bin/cetcdctl lease grant 60 -w fields              # Grant with fields output
 ./build/bin/cetcdctl lease revoke 1                        # Revoke lease ID 1

@@ -626,7 +626,7 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `auth enable/disable/status -w fields` (fields output showing ResponseHeader and enabled status),
 `user list -w fields` (fields output listing each user with label),
 `role list -w fields` (fields output listing each role with label),
-`lease grant --lease-id ID` (custom lease ID in hex format, matching etcdctl behavior),
+`lease grant --lease-id ID` (custom lease ID in hex format, matching etcdctl behavior; grant TTL must be `> 0`; a typo fail-closes),
 `lease grant/revoke/timetolive/keepalive -w fields` (fields output showing ID, TTL, grantedTTL, and keys with --keys),
 `version -w fields` (fields output showing client, server, version, etcd compatibility),
 `endpoint health -w fields` (fields output showing endpoint, ResponseHeader, status, took time),
