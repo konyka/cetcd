@@ -48,6 +48,8 @@
 
 extern cetcd_cluster *g_rpc_cluster;
 extern uint64_t       g_rpc_node_id;
+extern char           g_rpc_advertise_client[512];
+extern char           g_rpc_advertise_peer[512];
 extern cetcd_mvcc_store *g_rpc_store;
 extern cetcd_raft    *g_rpc_raft;
 
@@ -120,7 +122,8 @@ static cetcd_rpc_bytes make_simple_cluster_response(void) {
  *   field 2 (peerURLs) = repeated string, tag = 0x12
  */
 static size_t encode_member(uint8_t *buf, size_t cap, uint64_t id,
-                             const char *peer_addr, int is_learner) {
+                             const char *peer_addr, const char *client_url,
+                             int is_learner) {
     size_t pos = 0;
     buf[pos++] = 0x08; /* field 1 = ID */
     write_varint_c(buf, cap, &pos, id);
@@ -144,9 +147,8 @@ static size_t encode_member(uint8_t *buf, size_t cap, uint64_t id,
             pos += nlen;
         }
     }
-    /* field 4 = clientURLs (string) */
-    {
-        const char *client_url = "http://127.0.0.1:2379";
+    /* field 4 = clientURLs (string); omit when unknown so we do not advertise 2379 */
+    if (client_url && *client_url) {
         size_t clen = strlen(client_url);
         buf[pos++] = 0x22;
         write_varint_c(buf, cap, &pos, (uint64_t)clen);
@@ -186,9 +188,10 @@ cetcd_rpc_bytes cluster_handle_member_list(cetcd_v3rpc *rpc,
 
     /* Encode self as a member */
     if (g_rpc_node_id > 0) {
-        uint8_t member_buf[256];
+        uint8_t member_buf[512];
         size_t mlen = encode_member(member_buf, sizeof(member_buf),
-                                     g_rpc_node_id, "127.0.0.1:2380", 0);
+                                     g_rpc_node_id, g_rpc_advertise_peer,
+                                     g_rpc_advertise_client, 0);
         /* field 2 (members) = repeated Member, tag = 0x12 */
         buf[pos++] = 0x12;
         write_varint_c(buf, sizeof(buf), &pos, (uint64_t)mlen);
@@ -208,7 +211,7 @@ cetcd_rpc_bytes cluster_handle_member_list(cetcd_v3rpc *rpc,
             snprintf(peer_url, sizeof(peer_url), "%s:%u", pi->addr, pi->port);
             uint8_t member_buf[256];
             size_t mlen = encode_member(member_buf, sizeof(member_buf),
-                                         pi->id, peer_url, pi->is_learner);
+                                         pi->id, peer_url, NULL, pi->is_learner);
             if (pos + 2 + mlen < sizeof(buf)) {
                 buf[pos++] = 0x12;
                 write_varint_c(buf, sizeof(buf), &pos, (uint64_t)mlen);
@@ -318,7 +321,8 @@ cetcd_rpc_bytes cluster_handle_member_add(cetcd_v3rpc *rpc,
     }
     if (new_id > 0) {
         uint8_t member_buf[128];
-        size_t mlen = encode_member(member_buf, sizeof(member_buf), new_id, "", is_learner);
+        size_t mlen = encode_member(member_buf, sizeof(member_buf),
+                                     new_id, "", NULL, is_learner);
         buf[bpos++] = 0x12;
         write_varint_c(buf, sizeof(buf), &bpos, (uint64_t)mlen);
         if (bpos + mlen < sizeof(buf)) {

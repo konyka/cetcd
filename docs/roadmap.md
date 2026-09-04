@@ -185,6 +185,10 @@ Performance-first, fail-closed design:
 - **`--auto-tls` / `--peer-auto-tls`** — cetcd does not mint certificates.
   Either flag without the matching `--cert-file` / `--peer-cert-file` fail-closes
   at start instead of listening in plaintext.
+- **`--advertise-client-urls` / `--initial-advertise-peer-urls`** — MemberList
+  self `clientURLs` / `peerURLs`. Omitted flags default from the listen address
+  (scheme follows TLS). `https://` without the matching cert file fail-closes.
+  Peers omit `clientURLs` rather than advertising a hardcoded 2379.
 
 ## Previously done (auth data plane)
 

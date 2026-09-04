@@ -37,8 +37,8 @@ static void print_usage(const char *prog) {
     printf("\n  etcd-compatible flags (accepted for compatibility):\n");
     printf("  --listen-client-urls URL    Client listen URL (https requires --cert-file)\n");
     printf("  --listen-peer-urls URL      Peer listen URL (https requires --peer-cert-file)\n");
-    printf("  --advertise-client-urls URL  Accepted but no-op (single-node)\n");
-    printf("  --initial-advertise-peer-urls URL  Accepted but no-op (single-node)\n");
+    printf("  --advertise-client-urls URL  MemberList clientURLs (https requires --cert-file)\n");
+    printf("  --initial-advertise-peer-urls URL  MemberList peerURLs (https requires --peer-cert-file)\n");
     printf("  --initial-cluster-state STATE  new (default); existing is not implemented\n");
     printf("  --initial-cluster-token TOKEN  Accepted but no-op\n");
     printf("  --snapshot-count N   Rewrite WAL after N applies (default: 10000)\n");
@@ -213,9 +213,21 @@ int main(int argc, char **argv) {
             cfg.heartbeat_tick = (int)atoi(argv[++i]);
             if (cfg.heartbeat_tick <= 0) cfg.heartbeat_tick = 1;
         } else if (strcmp(argv[i], "--advertise-client-urls") == 0 && i + 1 < argc) {
-            i++; /* no-op, accepted for etcd compatibility */
+            const char *url = argv[++i];
+            size_t n = 0;
+            while (url[n] && url[n] != ',' &&
+                   n + 1 < sizeof(cfg.advertise_client_urls))
+                n++;
+            memcpy(cfg.advertise_client_urls, url, n);
+            cfg.advertise_client_urls[n] = '\0';
         } else if (strcmp(argv[i], "--initial-advertise-peer-urls") == 0 && i + 1 < argc) {
-            i++; /* no-op, accepted for etcd compatibility */
+            const char *url = argv[++i];
+            size_t n = 0;
+            while (url[n] && url[n] != ',' &&
+                   n + 1 < sizeof(cfg.advertise_peer_urls))
+                n++;
+            memcpy(cfg.advertise_peer_urls, url, n);
+            cfg.advertise_peer_urls[n] = '\0';
         } else if (strcmp(argv[i], "--initial-cluster-state") == 0 && i + 1 < argc) {
             strncpy(cfg.initial_cluster_state, argv[++i],
                     sizeof(cfg.initial_cluster_state) - 1);

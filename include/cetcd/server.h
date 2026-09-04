@@ -62,6 +62,8 @@ typedef struct cetcd_server_config {
     int             keepalive_timeout;     /* 0 = libuv default interval; else TCP_KEEPINTVL */
     bool            auto_tls;              /* not implemented; requires cert_file */
     bool            peer_auto_tls;         /* not implemented; requires peer_cert_file */
+    char            advertise_client_urls[512]; /* MemberList clientURLs; empty → listen */
+    char            advertise_peer_urls[512];   /* MemberList self peerURLs; empty → peer listen */
 } cetcd_server_config;
 
 cetcd_server *cetcd_server_new(const cetcd_server_config *cfg);

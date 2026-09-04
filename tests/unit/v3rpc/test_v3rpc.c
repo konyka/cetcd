@@ -6,9 +6,13 @@
 #include "cetcd/mvcc.h"
 #include "cetcd_test.h"
 
+#include <string.h>
+
 /* Globals defined in v3rpc.c — we set them to test cluster-aware handlers */
 extern cetcd_cluster *g_rpc_cluster;
 extern uint64_t       g_rpc_node_id;
+extern char           g_rpc_advertise_client[512];
+extern char           g_rpc_advertise_peer[512];
 extern cetcd_loop           *g_rpc_loop;
 extern cetcd_stream_write_fn g_rpc_stream_write_fn;
 extern void                 *g_rpc_stream_write_ctx;
@@ -1367,6 +1371,42 @@ CETCD_TEST_CASE(v3rpc_cluster_member_list) {
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 0);
     cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+static int bytes_contains_(const uint8_t *data, size_t len, const char *s) {
+    size_t n = strlen(s);
+    if (n == 0 || n > len) return 0;
+    for (size_t i = 0; i + n <= len; i++) {
+        if (memcmp(data + i, s, n) == 0) return 1;
+    }
+    return 0;
+}
+
+CETCD_TEST_CASE(v3rpc_member_list_uses_advertise_urls) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    char saved_client[512], saved_peer[512];
+    uint64_t saved_id = g_rpc_node_id;
+    memcpy(saved_client, g_rpc_advertise_client, sizeof(saved_client));
+    memcpy(saved_peer, g_rpc_advertise_peer, sizeof(saved_peer));
+    g_rpc_node_id = 1;
+    strncpy(g_rpc_advertise_client, "https://10.1.2.3:1234",
+            sizeof(g_rpc_advertise_client) - 1);
+    strncpy(g_rpc_advertise_peer, "https://10.1.2.3:1235",
+            sizeof(g_rpc_advertise_peer) - 1);
+
+    uint8_t dummy[] = {0x00};
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Cluster/MemberList", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(bytes_contains_(resp.data, resp.len, "https://10.1.2.3:1234"));
+    CETCD_ASSERT_TRUE(bytes_contains_(resp.data, resp.len, "https://10.1.2.3:1235"));
+    CETCD_ASSERT_TRUE(!bytes_contains_(resp.data, resp.len, "127.0.0.1:2379"));
+
+    cetcd_rpc_bytes_free(&resp);
+    memcpy(g_rpc_advertise_client, saved_client, sizeof(saved_client));
+    memcpy(g_rpc_advertise_peer, saved_peer, sizeof(saved_peer));
+    g_rpc_node_id = saved_id;
     cetcd_v3rpc_free(rpc);
 }
 
@@ -5913,6 +5953,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_compact_zero_revision),
     CETCD_TEST_ENTRY(v3rpc_range_revision_compacted),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_list),
+    CETCD_TEST_ENTRY(v3rpc_member_list_uses_advertise_urls),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_add),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_remove),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_update),

@@ -2109,6 +2109,38 @@ int cetcd_server_start(cetcd_server *srv) {
         return CETCD_ERR_INVAL;
     if (srv->cfg.peer_auto_tls && !srv->cfg.peer_cert_file[0])
         return CETCD_ERR_INVAL;
+    if (strncmp(srv->cfg.advertise_client_urls, "https://", 8) == 0 &&
+        !srv->cfg.cert_file[0])
+        return CETCD_ERR_INVAL;
+    if (strncmp(srv->cfg.advertise_peer_urls, "https://", 8) == 0 &&
+        !srv->cfg.peer_cert_file[0])
+        return CETCD_ERR_INVAL;
+    if (!srv->cfg.advertise_client_urls[0]) {
+        snprintf(srv->cfg.advertise_client_urls,
+                 sizeof(srv->cfg.advertise_client_urls),
+                 "%s://%s:%u",
+                 (srv->cfg.listen_https || srv->cfg.cert_file[0]) ? "https" : "http",
+                 srv->cfg.listen_addr[0] ? srv->cfg.listen_addr : "127.0.0.1",
+                 srv->cfg.listen_port ? srv->cfg.listen_port : 2379);
+    }
+    if (!srv->cfg.advertise_peer_urls[0]) {
+        snprintf(srv->cfg.advertise_peer_urls,
+                 sizeof(srv->cfg.advertise_peer_urls),
+                 "%s://%s:%u",
+                 (srv->cfg.peer_listen_https || srv->cfg.peer_cert_file[0]) ? "https" : "http",
+                 srv->cfg.peer_addr[0] ? srv->cfg.peer_addr : "127.0.0.1",
+                 srv->cfg.peer_port ? srv->cfg.peer_port : 2380);
+    }
+    {
+        extern char g_rpc_advertise_client[512];
+        extern char g_rpc_advertise_peer[512];
+        strncpy(g_rpc_advertise_client, srv->cfg.advertise_client_urls,
+                sizeof(g_rpc_advertise_client) - 1);
+        g_rpc_advertise_client[sizeof(g_rpc_advertise_client) - 1] = '\0';
+        strncpy(g_rpc_advertise_peer, srv->cfg.advertise_peer_urls,
+                sizeof(g_rpc_advertise_peer) - 1);
+        g_rpc_advertise_peer[sizeof(g_rpc_advertise_peer) - 1] = '\0';
+    }
 
     if (!srv->tls_client && !srv->tls_peer && !srv->tls_peer_out) {
         int trc = load_tls_ctx_(&srv->tls_client,

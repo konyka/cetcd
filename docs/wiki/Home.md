@@ -804,6 +804,8 @@ the flag and still use 127.0.0.1:2379).
 client sockets the same way (`--grpc-keepalive-min-time` stays a no-op).
 `--max-call-send-msg-size` / `--max-call-recv-msg-size` cap the payload (`0` rejected;
 oversized recv is not truncated).
+`--advertise-client-urls` / `--initial-advertise-peer-urls` fill MemberList self
+URLs (empty defaults from listen; `https://` requires the matching cert file).
 
 ---
 
@@ -915,7 +917,7 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 | Auth | `/etcdserverpb.Auth/RoleGet` | `auth_handler.c` | 查询单个角色详情（权限信息） |
 | Auth | `/etcdserverpb.Auth/RoleGrantPermission` | `auth_handler.c` | 经 Raft 授予角色权限 |
 | Auth | `/etcdserverpb.Auth/RoleRevokePermission` | `auth_handler.c` | 经 Raft 撤销角色权限 |
-| Cluster | `/etcdserverpb.Cluster/MemberList` | `cluster_handler.c` | 列出集群成员（self + 所有 peer） |
+| Cluster | `/etcdserverpb.Cluster/MemberList` | `cluster_handler.c` | 列出集群成员（self 使用 advertise/listen URL，peer 省略 clientURLs） |
 | Cluster | `/etcdserverpb.Cluster/MemberAdd` | `cluster_handler.c` | 添加集群成员 |
 | Cluster | `/etcdserverpb.Cluster/MemberRemove` | `cluster_handler.c` | 移除集群成员 |
 | Cluster | `/etcdserverpb.Cluster/MemberUpdate` | `cluster_handler.c` | 更新成员地址（实际更新 cluster 中的 peer 信息） |
