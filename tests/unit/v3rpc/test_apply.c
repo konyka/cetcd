@@ -610,12 +610,12 @@ CETCD_TEST_CASE(apply_auth_role_revoke_perm_then_gone) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
     uint8_t *buf = NULL;
     size_t len = 0;
-    CETCD_ASSERT_TRUE(cetcd_apply_encode_auth_role_revoke_perm(&buf, &len, NULL, 0) != 0);
+    CETCD_ASSERT_TRUE(cetcd_apply_encode_auth_role_revoke_perm(&buf, &len, NULL, 0, NULL, 0) != 0);
     uint8_t trunc[] = { CETCD_APPLY_AUTH_ROLE_REVOKE_PERM };
     CETCD_ASSERT_TRUE(cetcd_v3rpc_apply_entry(trunc, sizeof(trunc)) != 0);
 
     CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_role_revoke_perm(&buf, &len,
-        (const uint8_t *)"admin", 5), 0);
+        (const uint8_t *)"admin", 5, NULL, 0), 0);
     CETCD_ASSERT_EQ_INT((int)buf[0], CETCD_APPLY_AUTH_ROLE_REVOKE_PERM);
     CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
     free(buf);
@@ -630,7 +630,7 @@ CETCD_TEST_CASE(apply_auth_role_revoke_perm_then_gone) {
     free(buf);
 
     CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_role_revoke_perm(&buf, &len,
-        (const uint8_t *)"admin", 5), 0);
+        (const uint8_t *)"admin", 5, NULL, 0), 0);
     CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
     CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
     free(buf);
@@ -643,6 +643,53 @@ CETCD_TEST_CASE(apply_auth_role_revoke_perm_then_gone) {
         "/etcdserverpb.Auth/RoleGet", get_buf, pos);
     CETCD_ASSERT_NOT_NULL(resp.data);
     int found = 0;
+    for (size_t i = 0; i + 4 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "/foo", 4) == 0) { found = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(!found);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(apply_auth_role_revoke_perm_key_mismatch_keeps) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    uint8_t *buf = NULL;
+    size_t len = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_role_add(&buf, &len,
+        (const uint8_t *)"admin", 5), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_role_grant_perm(&buf, &len,
+        (const uint8_t *)"admin", 5, (const uint8_t *)"/foo", 4, 2), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_role_revoke_perm(&buf, &len,
+        (const uint8_t *)"admin", 5, (const uint8_t *)"/bar", 4), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+
+    uint8_t get_buf[16];
+    size_t pos = 0;
+    get_buf[pos++] = 0x0a; get_buf[pos++] = 0x05;
+    memcpy(get_buf + pos, "admin", 5); pos += 5;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Auth/RoleGet", get_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found = 0;
+    for (size_t i = 0; i + 4 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "/foo", 4) == 0) { found = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(found);
+    cetcd_rpc_bytes_free(&resp);
+
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_role_revoke_perm(&buf, &len,
+        (const uint8_t *)"admin", 5, (const uint8_t *)"/foo", 4), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleGet", get_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    found = 0;
     for (size_t i = 0; i + 4 <= resp.len; i++) {
         if (memcmp(resp.data + i, "/foo", 4) == 0) { found = 1; break; }
     }
@@ -863,6 +910,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(apply_auth_user_revoke_role_then_gone),
     CETCD_TEST_ENTRY(apply_auth_role_grant_perm_then_get),
     CETCD_TEST_ENTRY(apply_auth_role_revoke_perm_then_gone),
+    CETCD_TEST_ENTRY(apply_auth_role_revoke_perm_key_mismatch_keeps),
     CETCD_TEST_ENTRY(apply_auth_enabled_requires_root),
     CETCD_TEST_ENTRY(apply_compact_sets_revision),
     CETCD_TEST_ENTRY(quota_blocks_put_not_delete),

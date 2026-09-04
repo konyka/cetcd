@@ -91,6 +91,10 @@ int cetcd_auth_grant_permission(cetcd_auth_store *s, const char *role,
 /* Revoke all permissions from a role.
  * Returns CETCD_OK on success, CETCD_ERR_NOTFOUND if role doesn't exist. */
 int cetcd_auth_revoke_permission(cetcd_auth_store *s, const char *role);
+/* Revoke only if `key` matches the role prefix. Empty key revokes all.
+ * Mismatch returns CETCD_ERR_NOTFOUND without clearing. */
+int cetcd_auth_revoke_permission_key(cetcd_auth_store *s, const char *role,
+                                     const uint8_t *key, size_t key_len);
 
 /* ── Data-plane tokens (simple opaque tokens, O(1) hashmap lookup) ── */
 

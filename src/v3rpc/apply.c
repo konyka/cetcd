@@ -337,10 +337,12 @@ int cetcd_apply_encode_auth_role_grant_perm(uint8_t **out, size_t *out_len,
 }
 
 int cetcd_apply_encode_auth_role_revoke_perm(uint8_t **out, size_t *out_len,
-                                             const uint8_t *role, size_t role_len) {
+                                             const uint8_t *role, size_t role_len,
+                                             const uint8_t *key, size_t key_len) {
     if (!role || role_len == 0) return -1;
+    if (key_len > 0 && !key) return -1;
     return encode_tagged_(CETCD_APPLY_AUTH_ROLE_REVOKE_PERM, role, role_len,
-                          NULL, 0, 0, 0, out, out_len);
+                          key, key_len, 0, 0, out, out_len);
 }
 
 int cetcd_apply_encode_auth_user_change_pass(uint8_t **out, size_t *out_len,
@@ -782,7 +784,15 @@ int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len) {
         return 0;
     }
     if (op == CETCD_APPLY_AUTH_ROLE_REVOKE_PERM) {
-        if (!g_rpc_auth || klen >= 128) return -1;
+        uint64_t kplen = 0;
+        const uint8_t *pkey = NULL;
+        if (pos < len) {
+            if (read_varint_(data, len, &pos, &kplen) != 0) return -1;
+            if (kplen > len - pos) return -1;
+            pkey = kplen ? data + pos : NULL;
+            pos += (size_t)kplen;
+        }
+        if (!g_rpc_auth || klen >= 128 || kplen >= 256) return -1;
         char name[128];
         memcpy(name, key, (size_t)klen);
         name[(size_t)klen] = '\0';
@@ -790,7 +800,8 @@ int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len) {
             cetcd_v3rpc_auth_persist();
             return 0;
         }
-        if (cetcd_auth_revoke_permission(g_rpc_auth, name) != CETCD_OK)
+        int rc = cetcd_auth_revoke_permission_key(g_rpc_auth, name, pkey, (size_t)kplen);
+        if (rc != CETCD_OK && rc != CETCD_ERR_NOTFOUND)
             return -1;
         cetcd_v3rpc_auth_persist();
         return 0;

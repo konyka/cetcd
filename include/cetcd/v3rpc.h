@@ -170,7 +170,9 @@ CETCD_API int cetcd_apply_encode_auth_role_grant_perm(uint8_t **out, size_t *out
                                                       int perm_type);
 CETCD_API int cetcd_apply_encode_auth_role_revoke_perm(uint8_t **out, size_t *out_len,
                                                        const uint8_t *role,
-                                                       size_t role_len);
+                                                       size_t role_len,
+                                                       const uint8_t *key,
+                                                       size_t key_len);
 CETCD_API int cetcd_apply_encode_auth_user_change_pass(uint8_t **out, size_t *out_len,
                                                        const uint8_t *name,
                                                        size_t name_len,

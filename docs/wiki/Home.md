@@ -70,7 +70,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **Auth UserGrantRole 经 Raft**：apply tag 19（用户名 + 角色）；缺失用户或角色 fail-closed；已授予则幂等。
 - **Auth UserRevokeRole 经 Raft**：apply tag 20（用户名 + 角色）；缺失绑定 fail-closed；已撤销则幂等。
 - **Auth RoleGrantPermission 经 Raft**：apply tag 21（角色 + key + perm type）；缺失角色 fail-closed；apply 覆盖权限。
-- **Auth RoleRevokePermission 经 Raft**：apply tag 22（角色名）；缺失角色 fail-closed；apply 清空权限。
+- **Auth RoleRevokePermission 经 Raft**：apply tag 22（角色名 + 可选 key）；缺失角色或 key 与前缀不符 fail-closed，不误清其它权限。
 - **Auth ChangePassword 经 Raft**：apply tag 23（用户名 + 密码哈希，WAL 不存明文）；缺失用户 fail-closed；apply 覆盖哈希。
 - **告警持久化**：NOSPACE/CORRUPT 写入 LMDB `alarm` 桶；重启加载；截断记录 fail-closed 为空表。
 - **Compact 经 Raft**：`KV/Compact` 为 apply tag 11（修订号 varint）；未来修订或已压缩修订 fail-closed；WAL 重放对已压缩修订幂等。

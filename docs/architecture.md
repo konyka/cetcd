@@ -382,8 +382,9 @@ campaigns on `server_new` so the first Put does not wait for election ticks.
   binding is fail-closed before propose; apply is idempotent if already revoked.
 - **Auth RoleGrantPermission** proposes apply tag 21 (role + key + perm type).
   A missing role is fail-closed before propose; apply overwrites the permission.
-- **Auth RoleRevokePermission** proposes apply tag 22 (role name). A missing
-  role is fail-closed before propose; apply clears the permission.
+- **Auth RoleRevokePermission** proposes apply tag 22 (role name + optional key).
+  A missing role or a key that does not match the role prefix is fail-closed
+  before propose; apply clears only a matching prefix.
 - **Auth ChangePassword** proposes apply tag 23 (name + password hash). A
   missing user is fail-closed before propose; apply overwrites the hash.
 - **Compact** proposes apply tag 11 (revision varint) so followers share the same

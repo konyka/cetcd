@@ -638,9 +638,19 @@ int cetcd_auth_grant_permission(cetcd_auth_store *s, const char *role,
 }
 
 int cetcd_auth_revoke_permission(cetcd_auth_store *s, const char *role) {
+    return cetcd_auth_revoke_permission_key(s, role, NULL, 0);
+}
+
+int cetcd_auth_revoke_permission_key(cetcd_auth_store *s, const char *role,
+                                     const uint8_t *key, size_t key_len) {
     if (!s || !role) return CETCD_ERR_INVAL;
+    if (key_len > 0 && !key) return CETCD_ERR_INVAL;
     cetcd_role *r = cetcd_find_role(s, role);
     if (!r) return CETCD_ERR_NOTFOUND;
+    if (key_len > 0) {
+        if (r->key_prefix_len != key_len || memcmp(r->key_prefix, key, key_len) != 0)
+            return CETCD_ERR_NOTFOUND;
+    }
     r->perm_read = 0;
     r->perm_write = 0;
     r->key_prefix[0] = '\0';

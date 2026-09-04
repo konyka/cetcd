@@ -129,9 +129,10 @@ Performance-first, fail-closed design:
 - **Auth RoleGrantPermission via Raft** — apply tag 21 (role + key + perm
   type 0/1/2). Missing role fail-closes before propose. Apply overwrites the
   role permission and persists the `auth` bucket.
-- **Auth RoleRevokePermission via Raft** — apply tag 22 (role name). Missing
-  role fail-closes before propose. Apply clears the permission and is
-  idempotent if the role is already gone.
+- **Auth RoleRevokePermission via Raft** — apply tag 22 (role name + optional
+  key). Missing role fail-closes before propose. A key that does not match the
+  role prefix fail-closes without clearing other perms. Apply is idempotent if
+  the role or matching prefix is already gone.
 - **Auth ChangePassword via Raft** — apply tag 23 (name + password hash, never
   plaintext). Missing user fail-closes before propose. Apply overwrites the
   hash, revokes simple tokens, and is idempotent if the user is already gone.

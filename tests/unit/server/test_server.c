@@ -1059,7 +1059,7 @@ CETCD_TEST_CASE(server_wal_replay_auth_role_revoke_perm) {
     CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_role_grant_perm(&gp, &gl,
         (const uint8_t *)"admin", 5, (const uint8_t *)"/foo", 4, 2), 0);
     CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_role_revoke_perm(&vp, &vl,
-        (const uint8_t *)"admin", 5), 0);
+        (const uint8_t *)"admin", 5, NULL, 0), 0);
 
     cetcd_wal_encoder *enc = cetcd_wal_encoder_create(wal_dir);
     CETCD_ASSERT_NOT_NULL(enc);

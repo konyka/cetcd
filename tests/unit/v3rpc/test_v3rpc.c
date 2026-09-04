@@ -1916,6 +1916,75 @@ CETCD_TEST_CASE(v3rpc_auth_role_revoke_permission) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_auth_role_revoke_permission_key) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    uint8_t role_buf[16];
+    size_t pos = 0;
+    role_buf[pos++] = 0x0a; role_buf[pos++] = 0x05;
+    memcpy(role_buf + pos, "admin", 5); pos += 5;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleAdd", role_buf, pos);
+    cetcd_rpc_bytes_free(&resp);
+
+    uint8_t perm[32];
+    size_t ppos = 0;
+    perm[ppos++] = 0x08; perm[ppos++] = 0x02;
+    perm[ppos++] = 0x0a; perm[ppos++] = 0x04;
+    memcpy(perm + ppos, "/foo", 4); ppos += 4;
+    uint8_t grant[64];
+    pos = 0;
+    grant[pos++] = 0x0a; grant[pos++] = 0x05;
+    memcpy(grant + pos, "admin", 5); pos += 5;
+    grant[pos++] = 0x12; grant[pos++] = (uint8_t)ppos;
+    memcpy(grant + pos, perm, ppos); pos += ppos;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleGrantPermission", grant, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+
+    uint8_t bad[16];
+    pos = 0;
+    bad[pos++] = 0x0a; bad[pos++] = 0x05;
+    memcpy(bad + pos, "admin", 5); pos += 5;
+    bad[pos++] = 0x12; bad[pos++] = 0x04;
+    memcpy(bad + pos, "/bar", 4); pos += 4;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleRevokePermission", bad, pos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    uint8_t get_buf[16];
+    pos = 0;
+    get_buf[pos++] = 0x0a; get_buf[pos++] = 0x05;
+    memcpy(get_buf + pos, "admin", 5); pos += 5;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleGet", get_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found = 0;
+    for (size_t i = 0; i + 4 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "/foo", 4) == 0) { found = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(found);
+    cetcd_rpc_bytes_free(&resp);
+
+    uint8_t ok[16];
+    pos = 0;
+    ok[pos++] = 0x0a; ok[pos++] = 0x05;
+    memcpy(ok + pos, "admin", 5); pos += 5;
+    ok[pos++] = 0x12; ok[pos++] = 0x04;
+    memcpy(ok + pos, "/foo", 4); pos += 4;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleRevokePermission", ok, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleGet", get_buf, 7);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    found = 0;
+    for (size_t i = 0; i + 4 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "/foo", 4) == 0) { found = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(!found);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_lease_leases_returns_actual_leases) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -5858,6 +5927,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_auth_role_get),
     CETCD_TEST_ENTRY(v3rpc_auth_role_grant_permission),
     CETCD_TEST_ENTRY(v3rpc_auth_role_revoke_permission),
+    CETCD_TEST_ENTRY(v3rpc_auth_role_revoke_permission_key),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_list_with_peers),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_update_actual),
     CETCD_TEST_ENTRY(v3rpc_lease_leases_returns_actual_leases),
