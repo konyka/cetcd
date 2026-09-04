@@ -29,7 +29,7 @@ static void print_usage(const char *prog) {
     printf("  --peer-port PORT Peer listen port (default: 2380; 1..65535)\n");
     printf("  --metrics-port PORT Metrics listen port (default: 2381; 0 disables; 0..65535)\n");
     printf("  --node-id ID     Node ID (default: 1; must be > 0)\n");
-    printf("  --initial-cluster NODE1=ADDR:PORT,NODE2=...  Initial cluster (https requires --peer-cert-file)\n");
+    printf("  --initial-cluster NODE1=ADDR:PORT,NODE2=...  Initial cluster (https requires --peer-cert-file; port 1..65535)\n");
     printf("  --election-tick N   Raft election tick (default: 10; must be > 0)\n");
     printf("  --heartbeat-tick N  Raft heartbeat tick (default: 1; must be > 0)\n");
     printf("  --log-level LVL  Log level: trace,debug,info,warn,error (default: info)\n");
@@ -166,7 +166,15 @@ int main(int argc, char **argv) {
                             addr_part += 7;
                         }
                         strncpy(pi->addr, addr_part, sizeof(pi->addr) - 1);
-                        pi->port = (uint16_t)atoi(colon + 1);
+                        char *end = NULL;
+                        errno = 0;
+                        long v = strtol(colon + 1, &end, 10);
+                        if (errno == ERANGE || !end || end == colon + 1 || *end ||
+                            v < 1 || v > 65535) {
+                            fprintf(stderr, "--initial-cluster port must be 1..65535\n");
+                            return 1;
+                        }
+                        pi->port = (uint16_t)v;
                     } else {
                         if (strncmp(addr_part, "https://", 8) == 0) {
                             cfg.initial_cluster_https = true;

@@ -165,7 +165,7 @@ Performance-first, fail-closed design:
   closed instead of speaking plaintext. `--insecure-transport` mixed with
   an https endpoint also fails. A non-port in `--listen-client-urls` used to
   bind port `0`; that now fails at parse. The same check applies to
-  `--listen-peer-urls`.
+  `--listen-peer-urls` and to `--initial-cluster` peer URLs.
 - **`--initial-cluster-state` / `--force-new-cluster`** — `new` (or omitted) is
   the only cluster bootstrap. `existing` would look like a join while still
   forming a new cluster; `--force-new-cluster` would look like a wipe. Both

@@ -172,6 +172,7 @@ cetcd accepts several etcd server flags for migration compatibility:
   --peer-cert-file peer.crt --peer-key-file peer.key --data-dir ./data
 
 # https peer URLs in --initial-cluster also require --peer-cert-file
+# --initial-cluster peer URL port must be 1..65535; a typo is not a silent Raft bind on 0
 ./build/bin/cetcd --initial-cluster 1=https://127.0.0.1:2380 \
   --peer-cert-file peer.crt --peer-key-file peer.key --data-dir ./data
 
