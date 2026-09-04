@@ -1636,6 +1636,17 @@ static int parse_positive_u64_(const char *s, uint64_t *out) {
     return 0;
 }
 
+static int parse_positive_hex_u64_(const char *s, uint64_t *out) {
+    if (!s || !out) return -1;
+    char *end = NULL;
+    errno = 0;
+    unsigned long long v = strtoull(s, &end, 16);
+    if (errno == ERANGE || !end || end == s || *end || v < 1)
+        return -1;
+    *out = (uint64_t)v;
+    return 0;
+}
+
 static int cmd_lease(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl lease grant [--lease-id ID] [-w json|fields] TTL\n");
@@ -4318,9 +4329,14 @@ static int cmd_member(int argc, char **argv) {
             if (!id_str) id_str = argv[i];
         }
         if (!id_str) { fprintf(stderr, "usage: cetcdctl member remove [-w json|fields] ID\n"); return 1; }
+        uint64_t mid = 0;
+        if (parse_positive_hex_u64_(id_str, &mid) != 0) {
+            fprintf(stderr, "member remove ID must be a hex integer > 0\n");
+            return 1;
+        }
         uint8_t req[32], resp[256];
         size_t pos = 0;
-        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(id_str));
+        pos = encode_varint_field(req, sizeof(req), pos, 0x08, mid);
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberRemove", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
@@ -4335,9 +4351,14 @@ static int cmd_member(int argc, char **argv) {
             else if (!peer_url) peer_url = argv[i];
         }
         if (!id_str || !peer_url) { fprintf(stderr, "usage: cetcdctl member update [-w json|fields] ID PEER_URLS\n"); return 1; }
+        uint64_t mid = 0;
+        if (parse_positive_hex_u64_(id_str, &mid) != 0) {
+            fprintf(stderr, "member update ID must be a hex integer > 0\n");
+            return 1;
+        }
         uint8_t req[1024], resp[256];
         size_t pos = 0;
-        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(id_str));
+        pos = encode_varint_field(req, sizeof(req), pos, 0x08, mid);
         /* peerURLs = repeated string (field 2, tag 0x12) — split by comma */
         pos = encode_repeated_string_field(req, sizeof(req), pos, 0x12, peer_url);
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberUpdate", req, pos, resp, sizeof(resp));
@@ -4352,9 +4373,14 @@ static int cmd_member(int argc, char **argv) {
             if (!id_str) id_str = argv[i];
         }
         if (!id_str) { fprintf(stderr, "usage: cetcdctl member promote [-w json|fields] ID\n"); return 1; }
+        uint64_t mid = 0;
+        if (parse_positive_hex_u64_(id_str, &mid) != 0) {
+            fprintf(stderr, "member promote ID must be a hex integer > 0\n");
+            return 1;
+        }
         uint8_t req[32], resp[256];
         size_t pos = 0;
-        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(id_str));
+        pos = encode_varint_field(req, sizeof(req), pos, 0x08, mid);
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberPromote", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
@@ -5666,9 +5692,9 @@ static void print_usage(void) {
     printf("  move-leader [-w json|fields] TARGET_ID  Transfer leadership to target node\n");
     printf("  member list [-w json|table|fields]  List cluster members\n");
     printf("  member add [-w json|fields] [--peer-urls URLS] [--name NAME] [--learner] [PEER_URL]  Add a cluster member (comma-separated URLs supported)\n");
-    printf("  member remove [-w json|fields] ID    Remove a cluster member\n");
-    printf("  member update [-w json|fields] ID PEER_URLS  Update a member's peer URLs (comma-separated supported)\n");
-    printf("  member promote [-w json|fields] ID    Promote a member to voting member\n");
+    printf("  member remove [-w json|fields] ID    Remove a cluster member (ID hex > 0)\n");
+    printf("  member update [-w json|fields] ID PEER_URLS  Update a member's peer URLs (ID hex > 0; comma-separated supported)\n");
+    printf("  member promote [-w json|fields] ID    Promote a member to voting member (ID hex > 0)\n");
     printf("  auth enable [-w json|fields]     Enable authentication\n");
     printf("  auth disable [-w json|fields]     Disable authentication\n");
     printf("  auth status [-w json|fields]     Query auth status\n");

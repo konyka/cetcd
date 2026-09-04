@@ -336,6 +336,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl member list                     # List cluster members
 ./build/bin/cetcdctl member add --peer-urls http://localhost:2380 --name node2  # Add member with name
 ./build/bin/cetcdctl member remove 1234567890         # Remove member by ID
+# member ID is hex > 0; leftover text is not a truncated decimal id
 ./build/bin/cetcdctl member update 1234567890 http://localhost:2380  # Update member peer URL
 ./build/bin/cetcdctl member promote 1234567890        # Promote learner to voting member
 ```

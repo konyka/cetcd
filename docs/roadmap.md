@@ -211,6 +211,9 @@ Performance-first, fail-closed design:
   used to become id `0`.
 - **`cetcdctl lease revoke` / `timetolive` / `keepalive` ID** — must be `> 0`.
   A typo used to become lease id `0` via `atol`; that now fails at parse.
+- **`cetcdctl member remove` / `update` / `promote` ID** — hex integer `> 0`.
+  `atol` used to take a decimal prefix (`8e9a…` → `8`) or id `0`; that now
+  fails at parse.
 - **`--grpc-keepalive-time` / `--grpc-keepalive-timeout`** — TCP keepalive on
   accepted client sockets, accepted peer sockets, and outbound Raft dials
   (`uv_tcp_keepalive_ex`). Timeout without time, or a non-duration value, fail
