@@ -197,6 +197,9 @@ Performance-first, fail-closed design:
   The flag used to be logged only while every member was named `default`.
 - **`--logger`** — `zap` or `capnslog` are accepted (built-in logger). Any
   other type used to be ignored while still starting; that now fails at parse.
+- **`--log-level`** — `trace`/`debug`/`info`/`warn`/`error` (etcd aliases
+  `warning`/`dpanic`/`panic`/`fatal`). A typo used to become `info`; that now
+  fails at parse.
 - **`--initial-cluster-token`** — written to `{data-dir}/cluster_token` on first
   start. A later start with a different token fail-closes so a data dir is not
   reused as a different cluster. Omitted flag stays a no-op.

@@ -156,9 +156,20 @@ int main(int argc, char **argv) {
             const char *lvl = argv[++i];
             if (strcmp(lvl, "trace") == 0) cetcd_log_set_level(CETCD_LOG_TRACE);
             else if (strcmp(lvl, "debug") == 0) cetcd_log_set_level(CETCD_LOG_DEBUG);
-            else if (strcmp(lvl, "warn") == 0) cetcd_log_set_level(CETCD_LOG_WARN);
-            else if (strcmp(lvl, "error") == 0) cetcd_log_set_level(CETCD_LOG_ERROR);
-            else cetcd_log_set_level(CETCD_LOG_INFO);
+            else if (strcmp(lvl, "info") == 0) cetcd_log_set_level(CETCD_LOG_INFO);
+            else if (strcmp(lvl, "warn") == 0 || strcmp(lvl, "warning") == 0)
+                cetcd_log_set_level(CETCD_LOG_WARN);
+            else if (strcmp(lvl, "error") == 0 ||
+                     strcmp(lvl, "dpanic") == 0 ||
+                     strcmp(lvl, "panic") == 0 ||
+                     strcmp(lvl, "fatal") == 0)
+                cetcd_log_set_level(CETCD_LOG_ERROR);
+            else {
+                fprintf(stderr,
+                        "--log-level %s is not supported (trace, debug, info, warn, error)\n",
+                        lvl);
+                return 1;
+            }
         } else if (strcmp(argv[i], "--log-format") == 0 && i + 1 < argc) {
             const char *fmt = argv[++i];
             if (strcmp(fmt, "json") == 0) cetcd_log_set_format(CETCD_LOG_FORMAT_JSON);

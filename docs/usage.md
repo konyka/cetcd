@@ -177,8 +177,9 @@ cetcd accepts several etcd server flags for migration compatibility:
 
 # gRPC keepalive applies TCP keepalive on client and peer sockets; min-time is validated but not applied
 # --logger zap|capnslog is accepted; other types fail at parse
+# --log-level is trace|debug|info|warn|error (etcd aliases); a typo fails at parse
 ./build/bin/cetcd --grpc-keepalive-time 10s --grpc-keepalive-timeout 5s \
-  --grpc-keepalive-min-time 5s --logger zap --log-outputs stderr
+  --grpc-keepalive-min-time 5s --logger zap --log-level info --log-outputs stderr
 
 # Experimental flags (accepted as no-op)
 ./build/bin/cetcd --experimental-initial-corrupt-check \
