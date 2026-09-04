@@ -384,6 +384,8 @@ campaigns on `server_new` so the first Put does not wait for election ticks.
   A missing role is fail-closed before propose; apply overwrites the permission.
 - **Auth RoleRevokePermission** proposes apply tag 22 (role name). A missing
   role is fail-closed before propose; apply clears the permission.
+- **Auth ChangePassword** proposes apply tag 23 (name + password hash). A
+  missing user is fail-closed before propose; apply overwrites the hash.
 - **Compact** proposes apply tag 11 (revision varint) so followers share the same
   compacted revision. A future or already-compacted revision is fail-closed
   before propose. Apply is idempotent for WAL replay.

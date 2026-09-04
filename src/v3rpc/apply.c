@@ -343,6 +343,14 @@ int cetcd_apply_encode_auth_role_revoke_perm(uint8_t **out, size_t *out_len,
                           NULL, 0, 0, 0, out, out_len);
 }
 
+int cetcd_apply_encode_auth_user_change_pass(uint8_t **out, size_t *out_len,
+                                             const uint8_t *name, size_t name_len,
+                                             const uint8_t *hash, size_t hash_len) {
+    if (!name || name_len == 0 || !hash || hash_len == 0) return -1;
+    return encode_tagged_(CETCD_APPLY_AUTH_USER_CHANGE_PASS, name, name_len,
+                          hash, hash_len, 0, 0, out, out_len);
+}
+
 static void lease_after_put_(const uint8_t *key, size_t key_len,
                              int64_t old_lease, int64_t new_lease) {
     if (!g_rpc_lease_mgr) return;
@@ -783,6 +791,24 @@ int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len) {
             return 0;
         }
         if (cetcd_auth_revoke_permission(g_rpc_auth, name) != CETCD_OK)
+            return -1;
+        cetcd_v3rpc_auth_persist();
+        return 0;
+    }
+    if (op == CETCD_APPLY_AUTH_USER_CHANGE_PASS) {
+        uint64_t hlen = 0;
+        if (read_varint_(data, len, &pos, &hlen) != 0) return -1;
+        if (hlen == 0 || hlen > len - pos) return -1;
+        if (!g_rpc_auth || klen >= 128) return -1;
+        char name[128];
+        memcpy(name, key, (size_t)klen);
+        name[(size_t)klen] = '\0';
+        if (!cetcd_auth_has_user(g_rpc_auth, name)) {
+            cetcd_v3rpc_auth_persist();
+            return 0;
+        }
+        if (cetcd_auth_set_user_hash(g_rpc_auth, name, data + pos,
+                                     (size_t)hlen) != CETCD_OK)
             return -1;
         cetcd_v3rpc_auth_persist();
         return 0;

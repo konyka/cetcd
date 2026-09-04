@@ -200,6 +200,23 @@ int cetcd_auth_add_user_hash(cetcd_auth_store *s, const char *name,
     return CETCD_OK;
 }
 
+int cetcd_auth_set_user_hash(cetcd_auth_store *s, const char *name,
+                             const uint8_t *hash, size_t hash_len) {
+    if (s == NULL || name == NULL || name[0] == '\0' || hash == NULL)
+        return CETCD_ERR_INVAL;
+    if (hash_len == 0 || hash_len > sizeof(((cetcd_user *)0)->password_hash))
+        return CETCD_ERR_INVAL;
+    cetcd_slice key = auth_key_(name);
+    void *tmp = NULL;
+    if (!cetcd_hashmap_get(s->users, key, &tmp))
+        return CETCD_ERR_NOTFOUND;
+    cetcd_user *u = (cetcd_user *)tmp;
+    memcpy(u->password_hash, hash, hash_len);
+    u->hash_len = hash_len;
+    cetcd_auth_revoke_user_tokens(s, name);
+    return CETCD_OK;
+}
+
 int cetcd_auth_remove_user(cetcd_auth_store *s, const char *name) {
     if (s == NULL || name == NULL) return CETCD_ERR_INVAL;
     cetcd_slice key = auth_key_(name);

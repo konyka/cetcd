@@ -425,12 +425,29 @@ cetcd_rpc_bytes auth_handle_user_change_password(cetcd_v3rpc *rpc, const uint8_t
             uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
         }
     }
-    int rc = -1;
-    if (g_rpc_auth && name && pass) {
-        rc = cetcd_auth_change_password(g_rpc_auth, (const char *)name, (const char *)pass);
+    if (!g_rpc_auth || !name || name_len == 0 || !pass ||
+        !cetcd_auth_has_user(g_rpc_auth, (const char *)name)) {
+        free(name); free(pass);
+        return (cetcd_rpc_bytes){NULL, 0};
     }
+    uint8_t hash[64];
+    size_t hlen = 0;
+    if (cetcd_auth_hash_password(g_rpc_auth, (const char *)pass,
+                                 hash, sizeof(hash), &hlen) != CETCD_OK) {
+        free(name); free(pass);
+        return (cetcd_rpc_bytes){NULL, 0};
+    }
+    uint8_t *entry = NULL;
+    size_t elen = 0;
+    if (cetcd_apply_encode_auth_user_change_pass(&entry, &elen,
+            name, name_len, hash, hlen) != 0) {
+        free(name); free(pass);
+        return (cetcd_rpc_bytes){NULL, 0};
+    }
+    int rc = cetcd_v3rpc_propose_or_apply(entry, elen);
+    free(entry);
     free(name); free(pass);
-    if (rc != CETCD_OK) return (cetcd_rpc_bytes){NULL, 0};
+    if (rc < 0) return (cetcd_rpc_bytes){NULL, 0};
     return simple_ok_response();
 }
 

@@ -132,6 +132,9 @@ Performance-first, fail-closed design:
 - **Auth RoleRevokePermission via Raft** — apply tag 22 (role name). Missing
   role fail-closes before propose. Apply clears the permission and is
   idempotent if the role is already gone.
+- **Auth ChangePassword via Raft** — apply tag 23 (name + password hash, never
+  plaintext). Missing user fail-closes before propose. Apply overwrites the
+  hash, revokes simple tokens, and is idempotent if the user is already gone.
 
 ## Previously done (auth data plane)
 
@@ -142,8 +145,7 @@ Performance-first, fail-closed design:
 
 ### Reliability (cluster correctness)
 
-- **Remaining Auth mutations via Raft** — ChangePassword still mutates the
-  local auth store. Followers can diverge after that RPC.
+None remaining in this pass.
 
 ### Security / ops
 
