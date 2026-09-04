@@ -91,6 +91,7 @@ CETCD_API void cetcd_v3rpc_watch_flush_replay(void);
 #define CETCD_APPLY_MEMBER_UPDATE  8
 #define CETCD_APPLY_LEAVE_JOINT    9
 #define CETCD_APPLY_LEASE_REVOKE  10
+#define CETCD_APPLY_COMPACT       11
 
 CETCD_API int cetcd_apply_encode_put(uint8_t **out, size_t *out_len,
                                      const uint8_t *key, size_t key_len,
@@ -119,6 +120,8 @@ CETCD_API int cetcd_apply_encode_member_update(uint8_t **out, size_t *out_len,
                                                const char *addr, uint16_t port);
 CETCD_API int cetcd_apply_encode_lease_revoke(uint8_t **out, size_t *out_len,
                                               uint64_t lease_id);
+CETCD_API int cetcd_apply_encode_compact(uint8_t **out, size_t *out_len,
+                                         int64_t revision);
 
 /* Propose compact Delete ops for `n` keys (chunks of 128). 0 on success. */
 CETCD_API int cetcd_v3rpc_propose_deletes(const uint8_t *const *keys,

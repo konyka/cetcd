@@ -312,6 +312,72 @@ CETCD_TEST_CASE(server_wal_replay_when_mvcc_empty) {
     cetcd_server_free(srv);
 }
 
+CETCD_TEST_CASE(server_wal_replay_compact) {
+    char data_dir[] = "/tmp/cetcd-test-walcompact-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
+    char wal_dir[600];
+    snprintf(wal_dir, sizeof(wal_dir), "%s/wal", data_dir);
+    CETCD_ASSERT_EQ_INT(mkdir(wal_dir, 0755), 0);
+
+    uint8_t *putp = NULL, *cmpp = NULL;
+    size_t putl = 0, cmpl = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_put(&putp, &putl,
+        (const uint8_t *)"ck", 2, (const uint8_t *)"cv", 2, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_compact(&cmpp, &cmpl, 1), 0);
+
+    cetcd_wal_encoder *enc = cetcd_wal_encoder_create(wal_dir);
+    CETCD_ASSERT_NOT_NULL(enc);
+    cetcd_entry e;
+    memset(&e, 0, sizeof(e));
+    e.term = 1;
+    e.index = 1;
+    e.type = CETCD_ENTRY_NORMAL;
+    e.data = cetcd_slice_make(putp, putl);
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encode_entry(enc, &e), 0);
+    e.index = 2;
+    e.data = cetcd_slice_make(cmpp, cmpl);
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encode_entry(enc, &e), 0);
+    cetcd_hard_state hs = {1, 1, 2};
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encode_hard_state(enc, &hs), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encoder_sync(enc), 0);
+    cetcd_wal_encoder_free(enc);
+    free(putp);
+    free(cmpp);
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+
+    uint8_t compact_buf[4];
+    size_t pos = 0;
+    compact_buf[pos++] = 0x08;
+    compact_buf[pos++] = 0x01;
+    cetcd_server_rpc_result resp =
+        cetcd_server_handle_rpc(srv, "/etcdserverpb.KV/Compact", compact_buf, pos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_server_rpc_result_free(&resp);
+
+    uint8_t range_buf[8];
+    pos = 0;
+    range_buf[pos++] = 0x0a; range_buf[pos++] = 0x02;
+    memcpy(range_buf + pos, "ck", 2); pos += 2;
+    resp = cetcd_server_handle_rpc(srv, "/etcdserverpb.KV/Range", range_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found = 0;
+    for (size_t i = 0; i + 2 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "cv", 2) == 0) { found = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(found);
+    cetcd_server_rpc_result_free(&resp);
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_CASE(server_txn_put_survives_restart) {
     char data_dir[] = "/tmp/cetcd-test-txnraft-XXXXXX";
     CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
@@ -792,6 +858,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_snapshot),
     CETCD_TEST_ENTRY(server_raft_put_restart_keeps_revision),
     CETCD_TEST_ENTRY(server_wal_replay_when_mvcc_empty),
+    CETCD_TEST_ENTRY(server_wal_replay_compact),
     CETCD_TEST_ENTRY(server_txn_put_survives_restart),
     CETCD_TEST_ENTRY(server_lease_survives_restart),
     CETCD_TEST_ENTRY(server_snapshot_count_truncates_wal),

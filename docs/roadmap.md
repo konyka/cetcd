@@ -97,6 +97,9 @@ Performance-first, fail-closed design:
 - **ThreadSanitizer in CI** — Linux clang Debug job uses `-DCETCD_SANITIZERS=thread`.
   Configure fail-closes if libtsan/compiler-rt cannot link. Forked live tests are
   excluded (`ctest -E integration_server`); Ubuntu installs `libtsan1`.
+- **Compact via Raft** — `KV/Compact` encodes apply tag 11 (revision varint).
+  Not-leader or a future / already-compacted revision is fail-closed. Apply is
+  idempotent so WAL replay after LMDB already compacted that revision succeeds.
 
 ## Previously done (auth data plane)
 

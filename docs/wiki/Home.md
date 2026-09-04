@@ -60,6 +60,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **嵌套 Txn**：`RequestTxn` 递归执行（每层仍 `MaxTxnOps=128`），深度上限 16 以防栈溢出；未知 RequestOp 仍 fail-closed。
 - **租约持久化**：Grant/KeepAlive/Revoke 写入 LMDB `lease` 桶；重启按墙钟 deadline 恢复剩余 TTL，再从 MVCC 挂回键。
 - **租约过期 / Revoke 经 Raft**：leader 过期提出 compact Delete；`LeaseRevoke` 为 apply tag 10，follower 从日志删除相同键并丢掉租约。非 leader 过期不本地删键。
+- **Compact 经 Raft**：`KV/Compact` 为 apply tag 11（修订号 varint）；未来修订或已压缩修订 fail-closed；WAL 重放对已压缩修订幂等。
 - **Learner 提升**：`MemberPromote` 将 learner 转为投票成员；缺失或已是 voter 则 fail-closed。Raft quorum 不计 learner。
 - **成员持久化**：MemberAdd/Remove/Promote/Update 经 Raft apply，写入 LMDB `members` 桶；重启在 campaign 前恢复 peer。
 - **Joint 共识**：voter 增删/提升先进入 C_old,new 联合配置，两边多数派都满足才提交；新成员追上 joint-index 后 leader 提出 `LEAVE_JOINT`。重叠的 voter 变更 fail-closed。联合配置持久化以便重启保持双多数。
@@ -854,7 +855,7 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 | KV | `/etcdserverpb.KV/RangeStream` | `kv_handler.c` | 服务端流：先 `more=true` 头，再完整 RangeResponse |
 | KV | `/etcdserverpb.KV/DeleteRange` | `kv_handler.c` | 删除键，推进 MVCC 修订号，返回删除计数 |
 | KV | `/etcdserverpb.KV/Txn` | `kv_handler.c` | 事务：解析 compare/success/failure，评估 Compare 条件（VALUE/VERSION/CREATE/MOD/LEASE），执行 success 或 failure 操作，返回含 ResponseHeader + succeeded + ResponseOps 的完整响应 |
-| KV | `/etcdserverpb.KV/Compact` | `kv_handler.c` | 压缩 MVCC 历史到指定修订号，返回含 revision 的 ResponseHeader |
+| KV | `/etcdserverpb.KV/Compact` | `kv_handler.c` | 经 Raft 压缩 MVCC 历史到指定修订号，返回含 revision 的 ResponseHeader |
 | Lease | `/etcdserverpb.Lease/LeaseGrant` | `lease_handler.c` | 授予租约，返回 ID+TTL |
 | Lease | `/etcdserverpb.Lease/LeaseRevoke` | `lease_handler.c` | 撤销租约，返回含 revision 的 ResponseHeader |
 | Lease | `/etcdserverpb.Lease/LeaseKeepAlive` | `lease_handler.c` | 续约，使用原始授予 TTL（非硬编码），返回剩余 TTL |

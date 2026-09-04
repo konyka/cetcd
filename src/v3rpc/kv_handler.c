@@ -1928,10 +1928,18 @@ cetcd_rpc_bytes kv_handle_compact(cetcd_v3rpc *rpc, const uint8_t *req, size_t r
     if (!g_rpc_store)
         return (cetcd_rpc_bytes){NULL, 0};
     {
-        int rc = cetcd_mvcc_compact(g_rpc_store, compact_rev);
-        if (rc != CETCD_OK)
+        int64_t cur = cetcd_mvcc_revision(g_rpc_store);
+        int64_t compacted = cetcd_mvcc_compacted_revision(g_rpc_store);
+        if (compact_rev <= 0 || compact_rev > cur || compact_rev <= compacted)
             return (cetcd_rpc_bytes){NULL, 0}; /* ErrFutureRev / ErrCompacted / invalid */
-        cetcd_v3rpc_watch_cancel_compacted(compact_rev);
+        uint8_t *entry = NULL;
+        size_t elen = 0;
+        if (cetcd_apply_encode_compact(&entry, &elen, compact_rev) != 0)
+            return (cetcd_rpc_bytes){NULL, 0};
+        int rc = cetcd_v3rpc_propose_or_apply(entry, elen);
+        free(entry);
+        if (rc < 0)
+            return (cetcd_rpc_bytes){NULL, 0};
     }
     /* CompactResponse: header with revision */
     int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;

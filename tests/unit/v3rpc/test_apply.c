@@ -202,6 +202,30 @@ CETCD_TEST_CASE(apply_lease_revoke_deletes_keys) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(apply_compact_sets_revision) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    uint8_t *buf = NULL;
+    size_t len = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_put(&buf, &len,
+        (const uint8_t *)"ck", 2, (const uint8_t *)"cv", 2, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+    CETCD_ASSERT_EQ_INT((int)cetcd_mvcc_revision(cetcd_v3rpc_store(rpc)), 1);
+
+    CETCD_ASSERT_TRUE(cetcd_apply_encode_compact(&buf, &len, 0) != 0);
+    uint8_t trunc[] = { CETCD_APPLY_COMPACT };
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_apply_entry(trunc, sizeof(trunc)) != 0);
+
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_compact(&buf, &len, 1), 0);
+    CETCD_ASSERT_EQ_INT((int)buf[0], CETCD_APPLY_COMPACT);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    CETCD_ASSERT_EQ_INT((int)cetcd_mvcc_compacted_revision(cetcd_v3rpc_store(rpc)), 1);
+    /* Replay after LMDB already compacted this rev is idempotent. */
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(quota_blocks_put_not_delete) {
     char tmpl[] = "/tmp/cetcd-quota-XXXXXX";
     char *path = mkdtemp(tmpl);
@@ -284,6 +308,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(apply_member_add_remove),
     CETCD_TEST_ENTRY(apply_leave_joint),
     CETCD_TEST_ENTRY(apply_lease_revoke_deletes_keys),
+    CETCD_TEST_ENTRY(apply_compact_sets_revision),
     CETCD_TEST_ENTRY(quota_blocks_put_not_delete),
 CETCD_TEST_LIST_END
 

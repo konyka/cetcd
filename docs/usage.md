@@ -282,7 +282,7 @@ to cancel the watch and close the stream.
 ### Compaction
 
 ```sh
-./build/bin/cetcdctl compact 100           # Compact MVCC history to revision 100
+./build/bin/cetcdctl compact 100           # Compact via Raft (followers share compacted_rev)
 ```
 
 ### Cluster management

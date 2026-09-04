@@ -361,6 +361,9 @@ campaigns on `server_new` so the first Put does not wait for election ticks.
   so restarts restore remaining TTL. Lease expiry deletes are proposed by the
   leader as compact Delete entries; `LeaseRevoke` is apply tag 10 so followers
   drop the same keys and lease record.
+- **Compact** proposes apply tag 11 (revision varint) so followers share the same
+  compacted revision. A future or already-compacted revision is fail-closed
+  before propose. Apply is idempotent for WAL replay.
 - **Learners** are non-voting: they are excluded from quorum and vote counts.
   `MemberPromote` flips a learner to a voter (fail-closed if missing or already
   voting). Membership changes are compact apply tags (5–10) proposed like KV

@@ -2254,10 +2254,17 @@ int cetcd_server_compact(cetcd_server *srv, int64_t rev) {
     if (!srv || !srv->rpc) return CETCD_ERR_INVAL;
     extern cetcd_mvcc_store *g_rpc_store;
     if (!g_rpc_store) return CETCD_ERR_INVAL;
-    int rc = cetcd_mvcc_compact(g_rpc_store, rev);
-    if (rc == CETCD_OK)
-        cetcd_v3rpc_watch_cancel_compacted(rev);
-    return rc;
+    int64_t cur = cetcd_mvcc_revision(g_rpc_store);
+    int64_t compacted = cetcd_mvcc_compacted_revision(g_rpc_store);
+    if (rev <= 0 || rev > cur) return CETCD_ERR_INVAL;
+    if (rev <= compacted) return CETCD_ERR_RANGE;
+    uint8_t *entry = NULL;
+    size_t elen = 0;
+    if (cetcd_apply_encode_compact(&entry, &elen, rev) != 0)
+        return CETCD_ERR_INVAL;
+    int rc = cetcd_v3rpc_propose_or_apply(entry, elen);
+    free(entry);
+    return rc < 0 ? CETCD_ERR_IO : CETCD_OK;
 }
 
 cetcd_snap *cetcd_server_snapshot(cetcd_server *srv) {

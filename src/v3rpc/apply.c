@@ -225,6 +225,18 @@ int cetcd_apply_encode_lease_revoke(uint8_t **out, size_t *out_len, uint64_t lea
     return 0;
 }
 
+int cetcd_apply_encode_compact(uint8_t **out, size_t *out_len, int64_t revision) {
+    if (!out || !out_len || revision <= 0) return -1;
+    uint8_t *buf = (uint8_t *)malloc(16);
+    if (!buf) return -1;
+    size_t pos = 0;
+    buf[pos++] = CETCD_APPLY_COMPACT;
+    if (write_varint_(buf, 16, &pos, (uint64_t)revision) != 0) { free(buf); return -1; }
+    *out = buf;
+    *out_len = pos;
+    return 0;
+}
+
 static void lease_after_put_(const uint8_t *key, size_t key_len,
                              int64_t old_lease, int64_t new_lease) {
     if (!g_rpc_lease_mgr) return;
@@ -430,6 +442,23 @@ int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len) {
         uint64_t id = 0;
         if (read_varint_(data, len, &pos, &id) != 0 || id == 0) return -1;
         return apply_lease_revoke_(id);
+    }
+
+    if (op == CETCD_APPLY_COMPACT) {
+        if (len < 2) return -1;
+        uint64_t rev = 0;
+        if (read_varint_(data, len, &pos, &rev) != 0 || rev == 0) return -1;
+        if (!g_rpc_store) return -1;
+        int rc = cetcd_mvcc_compact(g_rpc_store, (int64_t)rev);
+        if (rc == CETCD_OK) {
+            cetcd_v3rpc_watch_cancel_compacted((int64_t)rev);
+            return 0;
+        }
+        /* WAL replay after LMDB already compacted this rev. */
+        if (rc == CETCD_ERR_RANGE &&
+            cetcd_mvcc_compacted_revision(g_rpc_store) >= (int64_t)rev)
+            return 0;
+        return -1;
     }
 
     if (op == CETCD_APPLY_MEMBER_ADD || op == CETCD_APPLY_MEMBER_REMOVE
