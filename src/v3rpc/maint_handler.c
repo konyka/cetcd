@@ -25,6 +25,8 @@ extern cetcd_mvcc_store *g_rpc_store;
 extern cetcd_raft       *g_rpc_raft;
 extern cetcd_cluster    *g_rpc_cluster;
 extern uint64_t          g_rpc_node_id;
+extern cetcd_stream_write_fn g_rpc_stream_write_fn;
+extern void             *g_rpc_stream_write_ctx;
 
 #define MAX_ALARMS 8
 static struct {
@@ -402,9 +404,37 @@ cetcd_rpc_bytes maint_handle_move_leader(cetcd_v3rpc *rpc, const uint8_t *req, s
  *   field 2 (remaining) = uint64, tag = 0x10 (remaining bytes, 0 = done)
  *   field 3 (blob)     = bytes, tag = 0x1a (snapshot data)
  *
- * In this simplified implementation, we return a single chunk containing
- * a compact encoding of all key-value pairs in the store.
+ * Unary / custom-TCP: one SnapshotResponse with remaining=0.
+ * Streaming (stream writer set): a remaining=blob_len header first, then
+ * the remaining=0 payload — etcd clients concatenate blobs until remaining=0.
  */
+static cetcd_rpc_bytes encode_snapshot_response_(int64_t rev, uint64_t remaining,
+                                                 const uint8_t *blob, size_t blob_len) {
+    size_t cap = 64 + blob_len;
+    uint8_t *buf = (uint8_t *)malloc(cap);
+    if (!buf) return (cetcd_rpc_bytes){NULL, 0};
+    size_t pos = 0;
+    uint8_t hdr_buf[32];
+    size_t hp = 0;
+    hdr_buf[hp++] = 0x18;
+    write_varint_m(hdr_buf, sizeof(hdr_buf), &hp, (uint64_t)(rev > 0 ? rev : 1));
+    buf[pos++] = 0x0a;
+    write_varint_m(buf, cap, &pos, (uint64_t)hp);
+    memcpy(buf + pos, hdr_buf, hp);
+    pos += hp;
+    buf[pos++] = 0x10;
+    write_varint_m(buf, cap, &pos, remaining);
+    if (blob_len > 0 && blob) {
+        buf[pos++] = 0x1a;
+        write_varint_m(buf, cap, &pos, (uint64_t)blob_len);
+        if (pos + blob_len <= cap) {
+            memcpy(buf + pos, blob, blob_len);
+            pos += blob_len;
+        }
+    }
+    return (cetcd_rpc_bytes){buf, pos};
+}
+
 cetcd_rpc_bytes maint_handle_snapshot(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc; (void)req; (void)req_len;
 
@@ -447,40 +477,17 @@ cetcd_rpc_bytes maint_handle_snapshot(cetcd_v3rpc *rpc, const uint8_t *req, size
         }
     }
 
-    /* Build response: field 1 (header) + field 2 (remaining=0) + field 3 (blob) */
-    size_t cap = 64 + (blob_len > 0 ? blob_len : 0);
-    uint8_t *buf = (uint8_t *)malloc(cap);
-    if (!buf) { if (blob) free(blob); return (cetcd_rpc_bytes){NULL, 0}; }
-
-    size_t pos = 0;
-    /* field 1 = header (ResponseHeader with revision) */
-    {
-        int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
-        uint8_t hdr_buf[32]; size_t hp = 0;
-        hdr_buf[hp++] = 0x18; /* revision */
-        write_varint_m(hdr_buf, sizeof(hdr_buf), &hp, (uint64_t)(current_rev > 0 ? current_rev : 1));
-        buf[pos++] = 0x0a; /* field 1 = header */
-        write_varint_m(buf, cap, &pos, (uint64_t)hp);
-        memcpy(buf + pos, hdr_buf, hp); pos += hp;
+    int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+    if (g_rpc_stream_write_fn && blob_len > 0) {
+        cetcd_rpc_bytes first = encode_snapshot_response_(
+            current_rev, (uint64_t)blob_len, NULL, 0);
+        if (first.data)
+            g_rpc_stream_write_fn(first.data, first.len, g_rpc_stream_write_ctx);
+        free(first.data);
     }
-
-    /* field 2 = remaining (uint64), tag = 0x10 */
-    buf[pos++] = 0x10;
-    write_varint_m(buf, cap, &pos, 0);
-
-    /* field 3 = blob (bytes), tag = 0x1a */
-    if (blob_len > 0) {
-        buf[pos++] = 0x1a;
-        write_varint_m(buf, cap, &pos, (uint64_t)blob_len);
-        if (pos + blob_len <= cap) {
-            memcpy(buf + pos, blob, blob_len);
-            pos += blob_len;
-        }
-    }
-
+    cetcd_rpc_bytes out = encode_snapshot_response_(current_rev, 0, blob, blob_len);
     if (blob) free(blob);
-
-    return (cetcd_rpc_bytes){buf, pos};
+    return out;
 }
 
 /*

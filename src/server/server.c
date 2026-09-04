@@ -1028,6 +1028,10 @@ static int client_h2_is_bidi_(const client_ctx_ *ctx) {
            (ctx && strcmp(ctx->h2_path, "/etcdserverpb.Lease/LeaseKeepAlive") == 0);
 }
 
+static int client_h2_is_snapshot_(const client_ctx_ *ctx) {
+    return ctx && strcmp(ctx->h2_path, "/etcdserverpb.Maintenance/Snapshot") == 0;
+}
+
 static void client_h2_send_headers_(client_ctx_ *ctx) {
     if (!ctx || ctx->h2_hdrs_sent || !ctx->h2) return;
     const char *hdrs[] = {
@@ -1052,13 +1056,17 @@ static void client_h2_stream_write_(const uint8_t *data, size_t len, void *arg) 
         (void)cetcd_h2_send_pending(ctx->h2, h2_write_uv_, ctx->h2_stream);
 }
 
-static void client_h2_watch_error_(client_ctx_ *ctx, const char *grpc_status) {
+static void client_h2_send_trailers_(client_ctx_ *ctx, const char *grpc_status) {
     client_h2_send_headers_(ctx);
     if (ctx->h2_stream)
         (void)cetcd_h2_send_pending(ctx->h2, h2_write_uv_, ctx->h2_stream);
     const char *tr[] = { "grpc-status", grpc_status, "grpc-message", "" };
     cetcd_h2_submit_trailers(ctx->h2, ctx->h2_sid, tr, 4);
     ctx->h2_done = 1;
+}
+
+static void client_h2_watch_error_(client_ctx_ *ctx, const char *grpc_status) {
+    client_h2_send_trailers_(ctx, grpc_status);
 }
 
 static void client_h2_watch_pump_(client_ctx_ *ctx) {
@@ -1091,7 +1099,8 @@ static void client_h2_watch_pump_(client_ctx_ *ctx) {
             client_h2_watch_error_(ctx, "12");
             return;
         }
-        if (client_h2_is_watch_(ctx) && ctx->h2_stream)
+        if ((client_h2_is_watch_(ctx) || client_h2_is_snapshot_(ctx)) &&
+            ctx->h2_stream)
             cetcd_v3rpc_set_stream_writer(ctx->srv->rpc, client_h2_stream_write_,
                                           ctx->h2_stream);
         static const uint8_t empty_req = 0;
@@ -1159,6 +1168,23 @@ static void client_h2_on_data_(cetcd_h2_session *sess, int32_t stream_id,
     if (client_h2_is_bidi_(ctx)) {
         client_h2_watch_pump_(ctx);
         /* Client END_STREAM is a send half-close; keep the response open. */
+        if (end_stream && !ctx->h2_done && ctx->h2_body_len > 0)
+            client_h2_watch_error_(ctx, "3");
+        return;
+    }
+    if (client_h2_is_snapshot_(ctx)) {
+        if (end_stream && ctx->h2_body_len == 0 && !ctx->h2_done) {
+            static const uint8_t empty_grpc[5] = {0, 0, 0, 0, 0};
+            if (client_h2_body_append_(ctx, empty_grpc, 5) != 0) {
+                ctx->h2_fail = 1;
+                return;
+            }
+        }
+        client_h2_watch_pump_(ctx);
+        if (ctx->srv && ctx->srv->rpc)
+            cetcd_v3rpc_set_stream_writer(ctx->srv->rpc, NULL, NULL);
+        if (!ctx->h2_done && ctx->h2_hdrs_sent && ctx->h2_body_len == 0)
+            client_h2_send_trailers_(ctx, "0");
         if (end_stream && !ctx->h2_done && ctx->h2_body_len > 0)
             client_h2_watch_error_(ctx, "3");
         return;

@@ -79,8 +79,9 @@ Performance-first, fail-closed design:
   bearer token. Responses use gRPC trailers (`grpc-status`). Watch is a
   true bidi stream (create DATA without END_STREAM; events as extra DATA;
   client END_STREAM is a send half-close). LeaseKeepAlive is the same bidi
-  pattern (one DATA response per keepalive). Snapshot / RangeStream stay
-  unary-shaped. Client TLS (`--cert-file`) selects ALPN
+  pattern (one DATA response per keepalive). Snapshot is a server stream
+  (remaining>0 header DATA, then remaining=0 blob, then trailers).
+  RangeStream stays unary-shaped / undispatched. Client TLS (`--cert-file`) selects ALPN
   `h2` when the peer offers it; clients that omit ALPN still handshake
   (custom-frame TLS). A non-`h2` ALPN offer is fail-closed. Peer TLS does
   not advertise `h2`.
@@ -105,7 +106,7 @@ None remaining in this pass.
 | Gap | Why it matters | Suggested approach |
 |-----|----------------|--------------------|
 | `rafthttp` over HTTP/2 | Peer protocol is length-prefixed TCP | Second listener; not required for correctness of in-house Raft. |
-| Snapshot / RangeStream as true streams | Unary-shaped today | Same Watch/KeepAlive writer callback model; no extra coroutines. |
+| RangeStream as a true stream | Not dispatched; unary-shaped if added | Same Snapshot writer callback model; no extra coroutines. |
 
 ### Tests / tooling
 

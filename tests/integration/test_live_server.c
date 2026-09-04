@@ -1117,6 +1117,118 @@ CETCD_TEST_CASE(live_server_http2_lease_keepalive) {
     int st;
     waitpid(pid, &st, 0);
 }
+
+CETCD_TEST_CASE(live_server_http2_snapshot) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        cetcd_server_config cfg;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.node_id = 1;
+        strncpy(cfg.listen_addr, "127.0.0.1", sizeof(cfg.listen_addr) - 1);
+        cfg.listen_port = 23857;
+        cfg.election_tick = 10;
+        cfg.heartbeat_tick = 1;
+        cetcd_server *srv = cetcd_server_new(&cfg);
+        if (srv) {
+            cetcd_server_start(srv);
+            alarm(3);
+            cetcd_server_serve(srv);
+            cetcd_server_free(srv);
+        }
+        _exit(0);
+    }
+
+    struct timespec ts = {0, 200000000};
+    nanosleep(&ts, NULL);
+
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(23857);
+    inet_pton(AF_INET, "127.0.0.1", &sa.sin_addr);
+
+    int put_fd = socket(AF_INET, SOCK_STREAM, 0);
+    CETCD_ASSERT_TRUE(put_fd >= 0);
+    CETCD_ASSERT_EQ_INT(connect(put_fd, (struct sockaddr *)&sa, sizeof(sa)), 0);
+    uint8_t put_req[] = {0x0a, 0x04, 's','n','a','p', 0x12, 0x02, 'v','1'};
+    uint8_t frame_buf[4096];
+    size_t put_len = build_grpc_request(frame_buf, sizeof(frame_buf),
+                                        "/etcdserverpb.KV/Put", put_req, sizeof(put_req));
+    send(put_fd, frame_buf, put_len, 0);
+    uint8_t put_resp[1024];
+    CETCD_ASSERT_TRUE(recv(put_fd, put_resp, sizeof(put_resp), 0) > 7);
+    close(put_fd);
+
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    CETCD_ASSERT_TRUE(fd >= 0);
+    CETCD_ASSERT_EQ_INT(connect(fd, (struct sockaddr *)&sa, sizeof(sa)), 0);
+    fcntl(fd, F_SETFL, O_NONBLOCK);
+
+    live_h2_ctx_ cctx;
+    memset(&cctx, 0, sizeof(cctx));
+    cctx.grpc_status = -1;
+
+    nghttp2_session_callbacks *ccb;
+    nghttp2_session_callbacks_new(&ccb);
+    nghttp2_session_callbacks_set_on_header_callback(ccb, live_h2_on_header_);
+    nghttp2_session_callbacks_set_on_data_chunk_recv_callback(ccb, live_h2_on_data_);
+    nghttp2_session *client;
+    nghttp2_session_client_new(&client, ccb, &cctx);
+    nghttp2_session_callbacks_del(ccb);
+
+    nghttp2_nv hdrs[] = {
+        NGHTTP2_NV_MAKE(":method", "POST"),
+        NGHTTP2_NV_MAKE(":path", "/etcdserverpb.Maintenance/Snapshot"),
+        NGHTTP2_NV_MAKE(":scheme", "http"),
+        NGHTTP2_NV_MAKE(":authority", "127.0.0.1:23857"),
+        NGHTTP2_NV_MAKE("content-type", "application/grpc"),
+        NGHTTP2_NV_MAKE("te", "trailers"),
+    };
+    nghttp2_data_provider2 dp;
+    dp.read_callback = live_h2_empty_grpc_;
+    dp.source.ptr = NULL;
+    int32_t sid = nghttp2_submit_request2(client, NULL, hdrs, 6, &dp, NULL);
+    CETCD_ASSERT_TRUE(sid > 0);
+    nghttp2_submit_settings(client, NGHTTP2_FLAG_NONE, NULL, 0);
+
+    for (int i = 0; i < 200 && !cctx.got_trailer; i++) {
+        for (;;) {
+            const uint8_t *out = NULL;
+            nghttp2_ssize nsend = nghttp2_session_mem_send2(client, &out);
+            if (nsend <= 0) break;
+            ssize_t w = send(fd, out, (size_t)nsend, 0);
+            if (w < 0) break;
+        }
+        struct pollfd pfd;
+        pfd.fd = fd;
+        pfd.events = POLLIN;
+        if (poll(&pfd, 1, 10) > 0) {
+            uint8_t in[4096];
+            ssize_t r = recv(fd, in, sizeof(in), 0);
+            if (r > 0) nghttp2_session_mem_recv2(client, in, (size_t)r);
+        }
+    }
+    CETCD_ASSERT_TRUE(cctx.got_trailer);
+    CETCD_ASSERT_EQ_INT(cctx.grpc_status, 0);
+    int nframes = 0;
+    size_t off = 0;
+    while (off + 5 <= cctx.data_len) {
+        uint32_t plen = ((uint32_t)cctx.data[off + 1] << 24) |
+                        ((uint32_t)cctx.data[off + 2] << 16) |
+                        ((uint32_t)cctx.data[off + 3] << 8) |
+                        (uint32_t)cctx.data[off + 4];
+        if (off + 5 + plen > cctx.data_len) break;
+        nframes++;
+        off += 5 + plen;
+    }
+    CETCD_ASSERT_TRUE(nframes >= 2);
+
+    nghttp2_session_del(client);
+    close(fd);
+    kill(pid, SIGTERM);
+    int st;
+    waitpid(pid, &st, 0);
+}
 #endif
 
 CETCD_TEST_LIST_BEGIN
@@ -1137,6 +1249,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_http2_status),
     CETCD_TEST_ENTRY(live_server_http2_watch),
     CETCD_TEST_ENTRY(live_server_http2_lease_keepalive),
+    CETCD_TEST_ENTRY(live_server_http2_snapshot),
 #endif
 CETCD_TEST_LIST_END
 

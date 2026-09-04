@@ -1594,6 +1594,35 @@ CETCD_TEST_CASE(v3rpc_maintenance_snapshot_empty) {
     cetcd_v3rpc_free(rpc);
 }
 
+static int g_snap_stream_n = 0;
+static void snap_stream_write_(const uint8_t *data, size_t len, void *ctx) {
+    (void)data; (void)len; (void)ctx;
+    g_snap_stream_n++;
+}
+
+CETCD_TEST_CASE(v3rpc_maintenance_snapshot_streams) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    uint8_t put_buf[32];
+    size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x02;
+    memcpy(put_buf + pos, "s1", 2); pos += 2;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x02;
+    memcpy(put_buf + pos, "v1", 2); pos += 2;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&resp);
+
+    g_snap_stream_n = 0;
+    cetcd_v3rpc_set_stream_writer(rpc, snap_stream_write_, NULL);
+    uint8_t dummy[] = {0x00};
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Maintenance/Snapshot", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    CETCD_ASSERT_EQ_INT(g_snap_stream_n, 1);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_set_stream_writer(rpc, NULL, NULL);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_maintenance_downgrade) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -5720,6 +5749,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_auth_user_revoke_role),
     CETCD_TEST_ENTRY(v3rpc_maintenance_snapshot),
     CETCD_TEST_ENTRY(v3rpc_maintenance_snapshot_empty),
+    CETCD_TEST_ENTRY(v3rpc_maintenance_snapshot_streams),
     CETCD_TEST_ENTRY(v3rpc_maintenance_downgrade),
     CETCD_TEST_ENTRY(v3rpc_auth_user_get),
     CETCD_TEST_ENTRY(v3rpc_auth_role_get),

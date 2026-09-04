@@ -57,8 +57,8 @@ CETCD_API void cetcd_v3rpc_auth_persist(void);
 void cetcd_rpc_bytes_free(cetcd_rpc_bytes *b);
 
 /* Streaming support: associate the event loop and a writer callback.
- * When these are set, the Watch handler runs in bidirectional streaming
- * mode; otherwise it falls back to legacy single-shot behaviour. */
+ * When these are set, Watch is bidirectional and Snapshot emits a
+ * remaining>0 header before the final blob; otherwise both stay single-shot. */
 CETCD_API void cetcd_v3rpc_set_loop(cetcd_v3rpc *rpc, cetcd_loop *loop);
 CETCD_API void cetcd_v3rpc_set_stream_writer(cetcd_v3rpc *rpc,
                                               cetcd_stream_write_fn fn,
