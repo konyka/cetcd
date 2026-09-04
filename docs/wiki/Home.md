@@ -784,7 +784,8 @@ BIOs so libuv keeps the socket; blocking `SSL_accept` is not used on the reactor
 `cetcdctl --cacert FILE` (optional `--cert`/`--key`) wraps the same custom-frame
 client in a blocking TLS handshake and omits ALPN so the server keeps the
 length-prefixed path. `--insecure` skips verify; missing files, cert-without-key,
-or `--insecure-transport` mixed with cert flags fail closed. `--auto-tls` stays a no-op.
+or `--insecure-transport` mixed with cert flags fail closed. `--auto-tls` /
+`--peer-auto-tls` without matching cert files fail closed (cetcd does not mint).
 `--cipher-suites` restricts TLS (IANA or OpenSSL names); unknown names or the flag
 without certs fail closed.
 `https://` on `--listen-client-urls` / `--listen-peer-urls` requires the matching

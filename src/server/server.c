@@ -2105,6 +2105,10 @@ int cetcd_server_start(cetcd_server *srv) {
         return CETCD_ERR_INVAL;
     if (srv->cfg.keepalive_timeout > 0 && !srv->cfg.keepalive_set)
         return CETCD_ERR_INVAL;
+    if (srv->cfg.auto_tls && !srv->cfg.cert_file[0])
+        return CETCD_ERR_INVAL;
+    if (srv->cfg.peer_auto_tls && !srv->cfg.peer_cert_file[0])
+        return CETCD_ERR_INVAL;
 
     if (!srv->tls_client && !srv->tls_peer && !srv->tls_peer_out) {
         int trc = load_tls_ctx_(&srv->tls_client,

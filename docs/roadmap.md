@@ -182,6 +182,9 @@ Performance-first, fail-closed design:
 - **`--grpc-keepalive-time` / `--grpc-keepalive-timeout`** — TCP keepalive on
   accepted client sockets (`uv_tcp_keepalive_ex`). Timeout without time, or a
   non-duration value, fail at parse. `--grpc-keepalive-min-time` stays a no-op.
+- **`--auto-tls` / `--peer-auto-tls`** — cetcd does not mint certificates.
+  Either flag without the matching `--cert-file` / `--peer-cert-file` fail-closes
+  at start instead of listening in plaintext.
 
 ## Previously done (auth data plane)
 

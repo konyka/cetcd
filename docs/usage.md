@@ -152,8 +152,8 @@ cetcd accepts several etcd server flags for migration compatibility:
   --peer-cert-file peer.crt --peer-key-file peer.key \
   --peer-trusted-ca-file peer-ca.crt --peer-client-cert-auth
 
-# Still no-op: --auto-tls, --peer-auto-tls
-./build/bin/cetcd --auto-tls
+# --auto-tls without certs fails (cetcd does not mint certificates)
+# ./build/bin/cetcd --auto-tls  → error
 
 # TLS cipher list (IANA or OpenSSL names; requires --cert-file or --peer-cert-file)
 ./build/bin/cetcd --cert-file server.crt --key-file server.key \

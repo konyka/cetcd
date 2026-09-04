@@ -55,12 +55,12 @@ static void print_usage(const char *prog) {
     printf("  --key-file FILE     Client TLS private key\n");
     printf("  --trusted-ca-file FILE  Client TLS CA (required with --client-cert-auth)\n");
     printf("  --client-cert-auth  Require a client certificate (fail-closed)\n");
-    printf("  --auto-tls           Accepted but no-op (plain TCP)\n");
+    printf("  --auto-tls           Not implemented (fail-closed without --cert-file)\n");
     printf("  --peer-cert-file FILE    Peer accept TLS certificate (requires --peer-key-file)\n");
     printf("  --peer-key-file FILE     Peer accept TLS private key\n");
     printf("  --peer-trusted-ca-file FILE  Peer TLS CA (required with --peer-client-cert-auth)\n");
     printf("  --peer-client-cert-auth  Require a peer certificate on accept (fail-closed)\n");
-    printf("  --peer-auto-tls      Accepted but no-op (plain TCP)\n");
+    printf("  --peer-auto-tls      Not implemented (fail-closed without --peer-cert-file)\n");
     printf("  --cipher-suites LIST  TLS cipher list (IANA or OpenSSL names; requires TLS)\n");
     printf("  --logger TYPE       Accepted but no-op (uses built-in logger)\n");
     printf("  --log-outputs LIST   stderr or stdout; a file path fail-closes\n");
@@ -244,7 +244,7 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--client-cert-auth") == 0) {
             cfg.client_cert_auth = true;
         } else if (strcmp(argv[i], "--auto-tls") == 0) {
-            /* no-op: cetcd does not mint certificates */
+            cfg.auto_tls = true;
         } else if (strcmp(argv[i], "--peer-cert-file") == 0 && i + 1 < argc) {
             strncpy(cfg.peer_cert_file, argv[++i], sizeof(cfg.peer_cert_file) - 1);
         } else if (strcmp(argv[i], "--peer-key-file") == 0 && i + 1 < argc) {
@@ -254,7 +254,7 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--peer-client-cert-auth") == 0) {
             cfg.peer_client_cert_auth = true;
         } else if (strcmp(argv[i], "--peer-auto-tls") == 0) {
-            /* no-op: cetcd does not mint certificates */
+            cfg.peer_auto_tls = true;
         } else if (strcmp(argv[i], "--cipher-suites") == 0 && i + 1 < argc) {
             strncpy(cfg.cipher_suites, argv[++i], sizeof(cfg.cipher_suites) - 1);
         } else if (strcmp(argv[i], "--logger") == 0 && i + 1 < argc) {
