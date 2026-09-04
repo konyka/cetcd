@@ -124,33 +124,71 @@ static int suite_to_openssl_(const char *in, size_t n, char *out, size_t cap) {
     return 0;
 }
 
+static int suite_eq_(const char *in, size_t n, const char *want) {
+    size_t w = strlen(want);
+    return n == w && memcmp(in, want, n) == 0;
+}
+
+static int is_tls13_suite_(const char *in, size_t n) {
+    while (n > 0 && (*in == ' ' || *in == '\t')) { in++; n--; }
+    while (n > 0 && (in[n - 1] == ' ' || in[n - 1] == '\t')) n--;
+    return suite_eq_(in, n, "TLS_AES_128_GCM_SHA256")
+        || suite_eq_(in, n, "TLS_AES_256_GCM_SHA384")
+        || suite_eq_(in, n, "TLS_CHACHA20_POLY1305_SHA256")
+        || suite_eq_(in, n, "TLS_AES_128_CCM_SHA256")
+        || suite_eq_(in, n, "TLS_AES_128_CCM_8_SHA256");
+}
+
+static int append_colon_(char *dst, size_t cap, size_t *pos, const char *one) {
+    size_t olen = strlen(one);
+    if (*pos > 0) {
+        if (*pos + 1 >= cap) return -1;
+        dst[(*pos)++] = ':';
+    }
+    if (*pos + olen >= cap) return -1;
+    memcpy(dst + *pos, one, olen);
+    *pos += olen;
+    dst[*pos] = '\0';
+    return 0;
+}
+
 int cetcd_tls_set_ciphers(cetcd_tls_ctx *ctx, const char *list) {
     if (ctx == NULL || ctx->ssl_ctx == NULL || list == NULL) return CETCD_ERR_INVAL;
-    char ossl[1024];
-    size_t opos = 0;
+    char tls12[1024];
+    char tls13[1024];
+    size_t p12 = 0, p13 = 0;
+    tls12[0] = tls13[0] = '\0';
     const char *p = list;
-    int any = 0;
     while (*p) {
         while (*p == ' ' || *p == '\t' || *p == ',') p++;
         if (!*p) break;
         const char *start = p;
         while (*p && *p != ',') p++;
-        char one[256];
-        if (suite_to_openssl_(start, (size_t)(p - start), one, sizeof(one)) != 0)
-            return CETCD_ERR_INVAL;
-        size_t olen = strlen(one);
-        if (any) {
-            if (opos + 1 >= sizeof(ossl)) return CETCD_ERR_OVERFLOW;
-            ossl[opos++] = ':';
+        size_t n = (size_t)(p - start);
+        const char *s = start;
+        size_t sn = n;
+        while (sn > 0 && (*s == ' ' || *s == '\t')) { s++; sn--; }
+        while (sn > 0 && (s[sn - 1] == ' ' || s[sn - 1] == '\t')) sn--;
+        if (sn == 0) return CETCD_ERR_INVAL;
+        if (is_tls13_suite_(s, sn)) {
+            char one[256];
+            if (sn >= sizeof(one)) return CETCD_ERR_OVERFLOW;
+            memcpy(one, s, sn);
+            one[sn] = '\0';
+            if (append_colon_(tls13, sizeof(tls13), &p13, one) != 0)
+                return CETCD_ERR_OVERFLOW;
+        } else {
+            char one[256];
+            if (suite_to_openssl_(start, n, one, sizeof(one)) != 0)
+                return CETCD_ERR_INVAL;
+            if (append_colon_(tls12, sizeof(tls12), &p12, one) != 0)
+                return CETCD_ERR_OVERFLOW;
         }
-        if (opos + olen >= sizeof(ossl)) return CETCD_ERR_OVERFLOW;
-        memcpy(ossl + opos, one, olen);
-        opos += olen;
-        any = 1;
     }
-    if (!any) return CETCD_ERR_INVAL;
-    ossl[opos] = '\0';
-    if (SSL_CTX_set_cipher_list(ctx->ssl_ctx, ossl) != 1)
+    if (p12 == 0 && p13 == 0) return CETCD_ERR_INVAL;
+    if (p13 > 0 && SSL_CTX_set_ciphersuites(ctx->ssl_ctx, tls13) != 1)
+        return CETCD_ERR_INVAL;
+    if (p12 > 0 && SSL_CTX_set_cipher_list(ctx->ssl_ctx, tls12) != 1)
         return CETCD_ERR_INVAL;
     return CETCD_OK;
 }

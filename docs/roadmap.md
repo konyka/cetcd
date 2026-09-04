@@ -152,7 +152,9 @@ Performance-first, fail-closed design:
   `--insecure-transport` mixed with cert flags fail-close. `--insecure` skips
   verify when TLS is on. Plaintext remains the default.
 - **`--cipher-suites`** — comma-separated IANA or OpenSSL names applied to
-  client and peer TLS contexts. An unknown suite, an empty list, or the flag
+  client and peer TLS contexts. TLS 1.3 IANA names (`TLS_AES_*`,
+  `TLS_CHACHA20_*`) go to `SSL_CTX_set_ciphersuites`; TLS 1.2 names stay on
+  `SSL_CTX_set_cipher_list`. An unknown suite, an empty list, or the flag
   without `--cert-file`/`--peer-cert-file` fail-closes at start.
 - **`--max-call-send-msg-size` / `--max-call-recv-msg-size`** — cap the custom-frame
   payload (not the path header). `0` or a non-integer fail-closes at parse.

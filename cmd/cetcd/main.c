@@ -61,7 +61,7 @@ static void print_usage(const char *prog) {
     printf("  --peer-trusted-ca-file FILE  Peer TLS CA (required with --peer-client-cert-auth)\n");
     printf("  --peer-client-cert-auth  Require a peer certificate on accept (fail-closed)\n");
     printf("  --peer-auto-tls      Not implemented (fail-closed without --peer-cert-file)\n");
-    printf("  --cipher-suites LIST  TLS cipher list (IANA or OpenSSL names; requires TLS)\n");
+    printf("  --cipher-suites LIST  TLS 1.2/1.3 cipher list (IANA or OpenSSL names; requires TLS)\n");
     printf("  --logger TYPE       zap or capnslog (built-in logger; others fail)\n");
     printf("  --log-outputs LIST   stderr or stdout; a file path fail-closes\n");
     printf("  --experimental-*    Accepted but no-op\n");

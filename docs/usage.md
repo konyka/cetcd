@@ -157,7 +157,7 @@ cetcd accepts several etcd server flags for migration compatibility:
 # --auto-tls without certs fails (cetcd does not mint certificates)
 # ./build/bin/cetcd --auto-tls  → error
 
-# TLS cipher list (IANA or OpenSSL names; requires --cert-file or --peer-cert-file)
+# TLS cipher list (IANA or OpenSSL names, including TLS 1.3; requires certs)
 ./build/bin/cetcd --cert-file server.crt --key-file server.key \
   --cipher-suites TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
 

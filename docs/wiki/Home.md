@@ -786,8 +786,8 @@ client in a blocking TLS handshake and omits ALPN so the server keeps the
 length-prefixed path. `--insecure` skips verify; missing files, cert-without-key,
 or `--insecure-transport` mixed with cert flags fail closed. `--auto-tls` /
 `--peer-auto-tls` without matching cert files fail closed (cetcd does not mint).
-`--cipher-suites` restricts TLS (IANA or OpenSSL names); unknown names or the flag
-without certs fail closed.
+`--cipher-suites` restricts TLS (IANA or OpenSSL names; TLS 1.3 IANA names use
+`SSL_CTX_set_ciphersuites`); unknown names or the flag without certs fail closed.
 `https://` on `--listen-client-urls` / `--listen-peer-urls` requires the matching
 cert files; `https://` in `--initial-cluster` requires `--peer-cert-file`;
 `cetcdctl --endpoints https://...` requires `--cacert` or `--insecure`
