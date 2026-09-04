@@ -129,6 +129,9 @@ Performance-first, fail-closed design:
 - **Auth RoleGrantPermission via Raft** — apply tag 21 (role + key + perm
   type 0/1/2). Missing role fail-closes before propose. Apply overwrites the
   role permission and persists the `auth` bucket.
+- **Auth RoleRevokePermission via Raft** — apply tag 22 (role name). Missing
+  role fail-closes before propose. Apply clears the permission and is
+  idempotent if the role is already gone.
 
 ## Previously done (auth data plane)
 
@@ -139,9 +142,8 @@ Performance-first, fail-closed design:
 
 ### Reliability (cluster correctness)
 
-- **Remaining Auth mutations via Raft** — RoleRevokePermission and
-  ChangePassword still mutate the local auth store. Followers can diverge
-  after those RPCs.
+- **Remaining Auth mutations via Raft** — ChangePassword still mutates the
+  local auth store. Followers can diverge after that RPC.
 
 ### Security / ops
 

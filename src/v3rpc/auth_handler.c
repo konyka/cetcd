@@ -752,11 +752,21 @@ cetcd_rpc_bytes auth_handle_role_revoke_permission(cetcd_v3rpc *rpc, const uint8
             uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
         }
     }
-    int rc = -1;
-    if (g_rpc_auth && role_name) {
-        rc = cetcd_auth_revoke_permission(g_rpc_auth, (const char *)role_name);
+    if (!g_rpc_auth || !role_name || role_name_len == 0 ||
+        !cetcd_auth_get_role(g_rpc_auth, (const char *)role_name)) {
+        free(role_name);
+        return (cetcd_rpc_bytes){NULL, 0};
     }
+    uint8_t *entry = NULL;
+    size_t elen = 0;
+    if (cetcd_apply_encode_auth_role_revoke_perm(&entry, &elen,
+            role_name, role_name_len) != 0) {
+        free(role_name);
+        return (cetcd_rpc_bytes){NULL, 0};
+    }
+    int rc = cetcd_v3rpc_propose_or_apply(entry, elen);
+    free(entry);
     free(role_name);
-    if (rc != CETCD_OK) return (cetcd_rpc_bytes){NULL, 0};
+    if (rc < 0) return (cetcd_rpc_bytes){NULL, 0};
     return simple_ok_response();
 }

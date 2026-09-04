@@ -70,6 +70,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **Auth UserGrantRole 经 Raft**：apply tag 19（用户名 + 角色）；缺失用户或角色 fail-closed；已授予则幂等。
 - **Auth UserRevokeRole 经 Raft**：apply tag 20（用户名 + 角色）；缺失绑定 fail-closed；已撤销则幂等。
 - **Auth RoleGrantPermission 经 Raft**：apply tag 21（角色 + key + perm type）；缺失角色 fail-closed；apply 覆盖权限。
+- **Auth RoleRevokePermission 经 Raft**：apply tag 22（角色名）；缺失角色 fail-closed；apply 清空权限。
 - **Compact 经 Raft**：`KV/Compact` 为 apply tag 11（修订号 varint）；未来修订或已压缩修订 fail-closed；WAL 重放对已压缩修订幂等。
 - **Learner 提升**：`MemberPromote` 将 learner 转为投票成员；缺失或已是 voter 则 fail-closed。Raft quorum 不计 learner。
 - **成员持久化**：MemberAdd/Remove/Promote/Update 经 Raft apply，写入 LMDB `members` 桶；重启在 campaign 前恢复 peer。
@@ -888,7 +889,7 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 | Auth | `/etcdserverpb.Auth/UserGet` | `auth_handler.c` | 查询单个用户详情（角色列表） |
 | Auth | `/etcdserverpb.Auth/RoleGet` | `auth_handler.c` | 查询单个角色详情（权限信息） |
 | Auth | `/etcdserverpb.Auth/RoleGrantPermission` | `auth_handler.c` | 经 Raft 授予角色权限 |
-| Auth | `/etcdserverpb.Auth/RoleRevokePermission` | `auth_handler.c` | 撤销角色权限 |
+| Auth | `/etcdserverpb.Auth/RoleRevokePermission` | `auth_handler.c` | 经 Raft 撤销角色权限 |
 | Cluster | `/etcdserverpb.Cluster/MemberList` | `cluster_handler.c` | 列出集群成员（self + 所有 peer） |
 | Cluster | `/etcdserverpb.Cluster/MemberAdd` | `cluster_handler.c` | 添加集群成员 |
 | Cluster | `/etcdserverpb.Cluster/MemberRemove` | `cluster_handler.c` | 移除集群成员 |
