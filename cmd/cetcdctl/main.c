@@ -3956,7 +3956,13 @@ static int cmd_snapshot(int argc, char **argv) {
             } else if (strcmp(argv[i], "--initial-cluster-token") == 0 && i + 1 < argc) {
                 cluster_token = argv[++i];
             } else if (strcmp(argv[i], "--initial-cluster-state") == 0 && i + 1 < argc) {
-                i++; /* no-op, accepted for compatibility */
+                const char *st = argv[++i];
+                if (strcmp(st, "new") != 0) {
+                    fprintf(stderr,
+                            "--initial-cluster-state %s is not implemented (new only)\n",
+                            st);
+                    return 1;
+                }
             } else if (!snap_file && argv[i][0] != '-') {
                 snap_file = argv[i];
             }

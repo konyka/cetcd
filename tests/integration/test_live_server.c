@@ -1950,6 +1950,33 @@ CETCD_TEST_CASE(live_cetcdctl_restore_cluster_token) {
     unlink(snap);
 }
 
+CETCD_TEST_CASE(live_cetcdctl_restore_cluster_state) {
+    char snap[128], dir[128], cmd[1024];
+    snprintf(snap, sizeof(snap), "/tmp/cetcd-snap-st-%d", (int)getpid());
+    snprintf(dir, sizeof(dir), "/tmp/cetcd-restore-st-%d", (int)getpid());
+
+    FILE *sf = fopen(snap, "wb");
+    CETCD_ASSERT_NOT_NULL(sf);
+    uint8_t kv[] = {0x01, 'a', 0x01, 'b'};
+    CETCD_ASSERT_TRUE(fwrite(kv, 1, sizeof(kv), sf) == sizeof(kv));
+    fclose(sf);
+
+    snprintf(cmd, sizeof(cmd), "mkdir -p '%s'", dir);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' snapshot restore '%s' --data-dir '%s' --initial-cluster-state new >/dev/null",
+             CETCDCTL_BIN, snap, dir);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' snapshot restore '%s' --data-dir '%s' --initial-cluster-state existing --force >/dev/null 2>&1",
+             CETCDCTL_BIN, snap, dir);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    unlink(snap);
+}
+
 CETCD_TEST_CASE(live_cetcdctl_discovery_srv_not_implemented) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -2052,6 +2079,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_advertise_https_requires_certs),
     CETCD_TEST_ENTRY(live_cetcdctl_https_endpoint_requires_tls),
     CETCD_TEST_ENTRY(live_cetcdctl_restore_cluster_token),
+    CETCD_TEST_ENTRY(live_cetcdctl_restore_cluster_state),
     CETCD_TEST_ENTRY(live_cetcdctl_discovery_srv_not_implemented),
     CETCD_TEST_ENTRY(live_cetcdctl_tcp_keepalive),
     CETCD_TEST_ENTRY(live_cetcdctl_max_call_msg_size),

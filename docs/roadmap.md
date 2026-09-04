@@ -167,7 +167,8 @@ Performance-first, fail-closed design:
 - **`--initial-cluster-state` / `--force-new-cluster`** — `new` (or omitted) is
   the only cluster bootstrap. `existing` would look like a join while still
   forming a new cluster; `--force-new-cluster` would look like a wipe. Both
-  fail-close at start instead of no-op.
+  fail-close at start instead of no-op. `cetcdctl snapshot restore
+  --initial-cluster-state` other than `new` fail-closes the same way.
 - **`--initial-cluster https://`** — a peer URL with an https scheme requires
   `--peer-cert-file`. Stripping the scheme and dialing plaintext is fail-open.
 - **Unknown server flags** — a typo or an unimplemented etcd flag such as
