@@ -60,7 +60,7 @@ static void print_usage(const char *prog) {
     printf("  --peer-auto-tls      Accepted but no-op (plain TCP)\n");
     printf("  --cipher-suites LIST  TLS cipher list (IANA or OpenSSL names; requires TLS)\n");
     printf("  --logger TYPE       Accepted but no-op (uses built-in logger)\n");
-    printf("  --log-outputs LIST   Accepted but no-op (logs to stderr)\n");
+    printf("  --log-outputs LIST   stderr or stdout; a file path fail-closes\n");
     printf("  --experimental-*    Accepted but no-op\n");
     printf("  --help           Show this help\n");
 }
@@ -246,7 +246,16 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--logger") == 0 && i + 1 < argc) {
             i++; /* no-op, uses built-in logger */
         } else if (strcmp(argv[i], "--log-outputs") == 0 && i + 1 < argc) {
-            i++; /* no-op, logs to stderr */
+            const char *out = argv[++i];
+            if (strcmp(out, "stderr") == 0 || strcmp(out, "/dev/stderr") == 0) {
+                cetcd_log_set_sink(stderr);
+            } else if (strcmp(out, "stdout") == 0 || strcmp(out, "/dev/stdout") == 0) {
+                cetcd_log_set_sink(stdout);
+            } else {
+                fprintf(stderr, "--log-outputs %s is not supported (stderr or stdout)\n",
+                        out);
+                return 1;
+            }
         } else if (strncmp(argv[i], "--grpc-keepalive-", 17) == 0 && i + 1 < argc) {
             i++; /* no-op, plain TCP */
         } else if (strncmp(argv[i], "--experimental-", 15) == 0) {

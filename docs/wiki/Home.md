@@ -794,6 +794,7 @@ cert files; `https://` in `--initial-cluster` requires `--peer-cert-file`;
 `--initial-cluster-state existing` and `--force-new-cluster` fail at start
 (cetcd only bootstraps `new` and does not wipe `data_dir`).
 Unknown server flags (for example `--wal-dir`) fail at parse instead of being ignored.
+`--log-outputs` is `stderr` or `stdout`; a file path fail-closes.
 `--max-call-send-msg-size` / `--max-call-recv-msg-size` cap the payload (`0` rejected;
 oversized recv is not truncated).
 

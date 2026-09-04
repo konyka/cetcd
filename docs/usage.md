@@ -173,7 +173,7 @@ cetcd accepts several etcd server flags for migration compatibility:
 ./build/bin/cetcd --max-txn-ops 128 --max-request-bytes 1572864 \
   --auth-token 'jwt,sign-method=RS256,priv-key=./jwt.pem,ttl=5m' --bcrypt-cost 10
 
-# gRPC keepalive and logger flags (accepted as no-op)
+# gRPC keepalive stays no-op; --log-outputs is stderr or stdout (a file path fails)
 ./build/bin/cetcd --grpc-keepalive-time 10s --grpc-keepalive-timeout 5s \
   --grpc-keepalive-min-time 5s --logger zap --log-outputs stderr
 

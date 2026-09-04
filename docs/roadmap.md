@@ -170,6 +170,9 @@ Performance-first, fail-closed design:
   `--peer-cert-file`. Stripping the scheme and dialing plaintext is fail-open.
 - **Unknown server flags** — a typo or an unimplemented etcd flag such as
   `--wal-dir` fails at parse instead of starting with the option ignored.
+- **`--log-outputs`** — `stderr`/`stdout` (and `/dev/std{err,out}`) are applied
+  via the log sink. A file path, journal, or comma-list would look like logs
+  left stderr; those fail at parse.
 
 ## Previously done (auth data plane)
 
