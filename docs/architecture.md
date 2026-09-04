@@ -376,6 +376,8 @@ campaigns on `server_new` so the first Put does not wait for election ticks.
   fail-closed before propose; apply is idempotent and saves the `auth` bucket.
 - **Auth RoleDelete** proposes apply tag 18 (role name). A missing name is
   fail-closed before propose; apply is idempotent and saves the `auth` bucket.
+- **Auth UserGrantRole** proposes apply tag 19 (username + role). Missing user
+  or role is fail-closed before propose; apply is idempotent if already granted.
 - **Compact** proposes apply tag 11 (revision varint) so followers share the same
   compacted revision. A future or already-compacted revision is fail-closed
   before propose. Apply is idempotent for WAL replay.

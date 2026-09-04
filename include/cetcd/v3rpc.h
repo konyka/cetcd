@@ -99,6 +99,7 @@ CETCD_API void cetcd_v3rpc_watch_flush_replay(void);
 #define CETCD_APPLY_AUTH_USER_DELETE 16
 #define CETCD_APPLY_AUTH_ROLE_ADD 17
 #define CETCD_APPLY_AUTH_ROLE_DELETE 18
+#define CETCD_APPLY_AUTH_USER_GRANT_ROLE 19
 
 CETCD_API int cetcd_apply_encode_put(uint8_t **out, size_t *out_len,
                                      const uint8_t *key, size_t key_len,
@@ -147,6 +148,11 @@ CETCD_API int cetcd_apply_encode_auth_role_add(uint8_t **out, size_t *out_len,
 CETCD_API int cetcd_apply_encode_auth_role_delete(uint8_t **out, size_t *out_len,
                                                   const uint8_t *name,
                                                   size_t name_len);
+CETCD_API int cetcd_apply_encode_auth_user_grant_role(uint8_t **out, size_t *out_len,
+                                                      const uint8_t *user,
+                                                      size_t user_len,
+                                                      const uint8_t *role,
+                                                      size_t role_len);
 
 /* Propose compact Delete ops for `n` keys (chunks of 128). 0 on success. */
 CETCD_API int cetcd_v3rpc_propose_deletes(const uint8_t *const *keys,

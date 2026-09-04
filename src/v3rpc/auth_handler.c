@@ -306,12 +306,23 @@ cetcd_rpc_bytes auth_handle_role_grant(cetcd_v3rpc *rpc, const uint8_t *req, siz
             uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
         }
     }
-    int rc = -1;
-    if (g_rpc_auth && user && role) {
-        rc = cetcd_auth_grant_role(g_rpc_auth, (const char *)user, (const char *)role);
+    if (!g_rpc_auth || !user || user_len == 0 || !role || role_len == 0 ||
+        !cetcd_auth_has_user(g_rpc_auth, (const char *)user) ||
+        !cetcd_auth_get_role(g_rpc_auth, (const char *)role)) {
+        free(user); free(role);
+        return (cetcd_rpc_bytes){NULL, 0};
     }
+    uint8_t *entry = NULL;
+    size_t elen = 0;
+    if (cetcd_apply_encode_auth_user_grant_role(&entry, &elen,
+            user, user_len, role, role_len) != 0) {
+        free(user); free(role);
+        return (cetcd_rpc_bytes){NULL, 0};
+    }
+    int rc = cetcd_v3rpc_propose_or_apply(entry, elen);
+    free(entry);
     free(user); free(role);
-    if (rc != CETCD_OK) return (cetcd_rpc_bytes){NULL, 0};
+    if (rc < 0) return (cetcd_rpc_bytes){NULL, 0};
     return simple_ok_response();
 }
 

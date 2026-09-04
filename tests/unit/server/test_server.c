@@ -775,6 +775,74 @@ CETCD_TEST_CASE(server_wal_replay_auth_role_delete) {
     cetcd_server_free(srv);
 }
 
+CETCD_TEST_CASE(server_wal_replay_auth_user_grant_role) {
+    char data_dir[] = "/tmp/cetcd-test-walauthgrant-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
+    char wal_dir[600];
+    snprintf(wal_dir, sizeof(wal_dir), "%s/wal", data_dir);
+    CETCD_ASSERT_EQ_INT(mkdir(wal_dir, 0755), 0);
+
+    cetcd_auth_store *tmp = cetcd_auth_store_new();
+    uint8_t hash[64];
+    size_t hlen = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_auth_hash_password(tmp, "secret", hash, sizeof(hash), &hlen), 0);
+    uint8_t *up = NULL, *rp = NULL, *gp = NULL;
+    size_t ul = 0, rl = 0, gl = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_user_add(&up, &ul,
+        (const uint8_t *)"root", 4, hash, hlen), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_role_add(&rp, &rl,
+        (const uint8_t *)"admin", 5), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_user_grant_role(&gp, &gl,
+        (const uint8_t *)"root", 4, (const uint8_t *)"admin", 5), 0);
+    cetcd_auth_store_free(tmp);
+
+    cetcd_wal_encoder *enc = cetcd_wal_encoder_create(wal_dir);
+    CETCD_ASSERT_NOT_NULL(enc);
+    cetcd_entry e;
+    memset(&e, 0, sizeof(e));
+    e.term = 1;
+    e.index = 1;
+    e.type = CETCD_ENTRY_NORMAL;
+    e.data = cetcd_slice_make(up, ul);
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encode_entry(enc, &e), 0);
+    e.index = 2;
+    e.data = cetcd_slice_make(rp, rl);
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encode_entry(enc, &e), 0);
+    e.index = 3;
+    e.data = cetcd_slice_make(gp, gl);
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encode_entry(enc, &e), 0);
+    cetcd_hard_state hs = {1, 1, 3};
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encode_hard_state(enc, &hs), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_wal_encoder_sync(enc), 0);
+    cetcd_wal_encoder_free(enc);
+    free(up); free(rp); free(gp);
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+
+    uint8_t get_buf[16];
+    size_t pos = 0;
+    get_buf[pos++] = 0x0a; get_buf[pos++] = 0x04;
+    memcpy(get_buf + pos, "root", 4); pos += 4;
+    cetcd_server_rpc_result resp =
+        cetcd_server_handle_rpc(srv, "/etcdserverpb.Auth/UserGet", get_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found = 0;
+    for (size_t i = 0; i + 5 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "admin", 5) == 0) { found = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(found);
+    cetcd_server_rpc_result_free(&resp);
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_CASE(server_txn_put_survives_restart) {
     char data_dir[] = "/tmp/cetcd-test-txnraft-XXXXXX";
     CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
@@ -1263,6 +1331,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_wal_replay_auth_user_delete),
     CETCD_TEST_ENTRY(server_wal_replay_auth_role_add),
     CETCD_TEST_ENTRY(server_wal_replay_auth_role_delete),
+    CETCD_TEST_ENTRY(server_wal_replay_auth_user_grant_role),
     CETCD_TEST_ENTRY(server_txn_put_survives_restart),
     CETCD_TEST_ENTRY(server_lease_survives_restart),
     CETCD_TEST_ENTRY(server_snapshot_count_truncates_wal),

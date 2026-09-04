@@ -121,6 +121,9 @@ Performance-first, fail-closed design:
 - **Auth RoleDelete via Raft** — apply tag 18 (role name). Missing names fail
   closed before propose. Apply is idempotent for WAL replay and persists the
   `auth` bucket.
+- **Auth UserGrantRole via Raft** — apply tag 19 (username + role). Missing
+  user or role fail closed before propose. Apply is idempotent if already
+  granted and persists the `auth` bucket.
 
 ## Previously done (auth data plane)
 
@@ -131,9 +134,9 @@ Performance-first, fail-closed design:
 
 ### Reliability (cluster correctness)
 
-- **Remaining Auth mutations via Raft** — grant/revoke role and permission,
-  ChangePassword still mutate the local auth store. Followers can diverge
-  after those RPCs.
+- **Remaining Auth mutations via Raft** — revoke role, grant/revoke
+  permission, and ChangePassword still mutate the local auth store.
+  Followers can diverge after those RPCs.
 
 ### Security / ops
 
