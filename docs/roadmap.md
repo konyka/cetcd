@@ -88,8 +88,9 @@ Performance-first, fail-closed design:
   `h2` when the peer offers it; clients that omit ALPN still handshake
   (custom-frame TLS). A non-`h2` ALPN offer is fail-closed. Peer TLS
   advertises ALPN `h2`; inbound HTTP/2 POST `/raft` steps a framed raft
-  message and replies 204. Outbound `peer_tx_` is still length-prefixed
-  (no ALPN offer), so in-house clusters stay on the existing framing.
+  message and replies 204. Outbound `peer_tx_` offers ALPN `h2` and, when
+  negotiated, POSTs each queued frame to `/raft` instead of the 4-byte
+  prefix. A handshake without `h2` keeps the length-prefixed send path.
 
 ## Previously done (auth data plane)
 
@@ -108,9 +109,7 @@ None remaining in this pass.
 
 ### Wire compatibility
 
-| Gap | Why it matters | Suggested approach |
-|-----|----------------|--------------------|
-| `rafthttp` outbound over HTTP/2 | Inbound POST `/raft` is accepted; send still uses 4-byte framing | Offer ALPN `h2` on `peer_tx_` and POST `/raft` when negotiated. |
+None remaining in this pass.
 
 ### Tests / tooling
 

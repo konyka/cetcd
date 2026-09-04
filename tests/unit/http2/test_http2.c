@@ -109,7 +109,13 @@ CETCD_TEST_CASE(h2_session_null_safety) {
     CETCD_ASSERT_EQ_INT(cetcd_h2_feed(NULL, NULL, 0), -1);
     CETCD_ASSERT_EQ_INT(cetcd_h2_send_pending(NULL, NULL, NULL), -1);
     CETCD_ASSERT_EQ_INT(cetcd_h2_submit_response(NULL, 0, NULL, 0, NULL, 0, false), -1);
+    CETCD_ASSERT_EQ_INT(cetcd_h2_submit_request(NULL, "POST", "/raft", NULL, 0), -1);
     cetcd_h2_session_terminate(NULL, 0);
+    {
+        cetcd_h2_session *cli = cetcd_h2_session_new_client(NULL);
+        CETCD_ASSERT_NOT_NULL(cli);
+        cetcd_h2_session_free(cli);
+    }
 }
 
 /* ========================================================================== */
@@ -382,6 +388,52 @@ CETCD_TEST_CASE(h2_server_receives_request) {
     cetcd_h2_session_free(server);
 }
 
+CETCD_TEST_CASE(h2_client_posts_raft) {
+    h2_test_ctx tc = {0};
+    cetcd_h2_callbacks scbs = {
+        .on_request = test_on_request,
+        .on_data    = test_on_data,
+        .udata      = &tc
+    };
+    cetcd_h2_session *server = cetcd_h2_session_new(&scbs);
+    cetcd_h2_session *client = cetcd_h2_session_new_client(NULL);
+    CETCD_ASSERT_NOT_NULL(server);
+    CETCD_ASSERT_NOT_NULL(client);
+
+    const uint8_t body[] = {0x00, 0x00, 0x00, 0x04, 0xaa, 0xbb, 0xcc, 0xdd};
+    CETCD_ASSERT_EQ_INT(cetcd_h2_submit_request(client, "POST", "/raft",
+                                                body, sizeof(body)), 0);
+
+    for (int round = 0; round < 50; round++) {
+        int any = 0;
+        collect_ctx_ c = {0};
+        cetcd_h2_send_pending(client, collect_write_fn_, &c);
+        if (c.len > 0) {
+            cetcd_h2_feed(server, c.buf, c.len);
+            any = 1;
+        }
+        free(c.buf);
+        collect_ctx_ s = {0};
+        cetcd_h2_send_pending(server, collect_write_fn_, &s);
+        if (s.len > 0) {
+            cetcd_h2_feed(client, s.buf, s.len);
+            any = 1;
+        }
+        free(s.buf);
+        if (!any) break;
+    }
+
+    CETCD_ASSERT_TRUE(tc.got_request);
+    CETCD_ASSERT_EQ_STR(tc.method, "POST");
+    CETCD_ASSERT_EQ_STR(tc.path, "/raft");
+    CETCD_ASSERT_TRUE(tc.got_end_stream);
+    CETCD_ASSERT_EQ_INT((int)tc.data_len, (int)sizeof(body));
+    CETCD_ASSERT_TRUE(memcmp(tc.data_buf, body, sizeof(body)) == 0);
+
+    cetcd_h2_session_free(client);
+    cetcd_h2_session_free(server);
+}
+
 CETCD_TEST_CASE(h2_full_roundtrip) {
     h2_test_ctx tc = {0};
     cetcd_h2_callbacks scbs = {
@@ -613,6 +665,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(h2_client_preface_and_request),
 #ifdef CETCD_HAS_NGHTTP2
     CETCD_TEST_ENTRY(h2_server_receives_request),
+    CETCD_TEST_ENTRY(h2_client_posts_raft),
     CETCD_TEST_ENTRY(h2_full_roundtrip),
     CETCD_TEST_ENTRY(h2_submit_response_with_trailers),
     CETCD_TEST_ENTRY(h2_submit_data_keeps_stream_open),

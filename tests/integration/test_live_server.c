@@ -13,6 +13,8 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <time.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 static bool try_connect(const char *addr, uint16_t port) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -1487,6 +1489,110 @@ CETCD_TEST_CASE(live_server_http2_rafthttp) {
     int st;
     waitpid(pid, &st, 0);
 }
+
+static int live_make_selfsigned_(char *dir, size_t dirsz) {
+    char tmpl[] = "/tmp/cetcd-peer-h2-XXXXXX";
+    if (!mkdtemp(tmpl)) return -1;
+    snprintf(dir, dirsz, "%s", tmpl);
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 "
+             "-days 1 -nodes -subj /CN=localhost "
+             "-keyout '%s/key.pem' -out '%s/cert.pem' >/dev/null 2>&1",
+             dir, dir);
+    return system(cmd) == 0 ? 0 : -1;
+}
+
+CETCD_TEST_CASE(live_server_peer_tls_h2_put) {
+    char certdir[128];
+    CETCD_ASSERT_EQ_INT(live_make_selfsigned_(certdir, sizeof(certdir)), 0);
+    char cert[300], key[300];
+    snprintf(cert, sizeof(cert), "%s/cert.pem", certdir);
+    snprintf(key, sizeof(key), "%s/key.pem", certdir);
+
+    pid_t pids[2] = {0};
+    for (int i = 0; i < 2; i++) {
+        pids[i] = fork();
+        if (pids[i] == 0) {
+            cetcd_server_config cfg;
+            memset(&cfg, 0, sizeof(cfg));
+            cfg.node_id = (uint64_t)(i + 1);
+            strncpy(cfg.listen_addr, "127.0.0.1", sizeof(cfg.listen_addr) - 1);
+            cfg.listen_port = (uint16_t)(23798 + i);
+            strncpy(cfg.peer_addr, "127.0.0.1", sizeof(cfg.peer_addr) - 1);
+            cfg.peer_port = (uint16_t)(23862 + i);
+            cfg.election_tick = 5;
+            cfg.heartbeat_tick = 1;
+            strncpy(cfg.peer_cert_file, cert, sizeof(cfg.peer_cert_file) - 1);
+            strncpy(cfg.peer_key_file, key, sizeof(cfg.peer_key_file) - 1);
+            cetcd_peer_info peers[2];
+            memset(peers, 0, sizeof(peers));
+            peers[0].id = 1;
+            strncpy(peers[0].addr, "127.0.0.1", sizeof(peers[0].addr) - 1);
+            peers[0].port = 23862;
+            peers[1].id = 2;
+            strncpy(peers[1].addr, "127.0.0.1", sizeof(peers[1].addr) - 1);
+            peers[1].port = 23863;
+            memcpy(cfg.initial_peers, peers, sizeof(peers));
+            cfg.n_initial_peers = 2;
+            cetcd_server *srv = cetcd_server_new(&cfg);
+            if (srv) {
+                cetcd_server_start(srv);
+                alarm(4);
+                cetcd_server_serve(srv);
+                cetcd_server_free(srv);
+            }
+            _exit(0);
+        }
+    }
+
+    struct timespec ts = {1, 500000000};
+    nanosleep(&ts, NULL);
+
+    int put_ok = 0;
+    for (int i = 0; i < 2; i++) {
+        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (fd < 0) continue;
+        struct sockaddr_in sa;
+        memset(&sa, 0, sizeof(sa));
+        sa.sin_family = AF_INET;
+        sa.sin_port = htons((uint16_t)(23798 + i));
+        inet_pton(AF_INET, "127.0.0.1", &sa.sin_addr);
+        if (connect(fd, (struct sockaddr *)&sa, sizeof(sa)) != 0) {
+            close(fd);
+            continue;
+        }
+        uint8_t put_req[] = {0x0a, 0x01, 'k', 0x12, 0x01, 'v'};
+        uint8_t frame[4096];
+        size_t flen = build_grpc_request(frame, sizeof(frame),
+                                         "/etcdserverpb.KV/Put",
+                                         put_req, sizeof(put_req));
+        send(fd, frame, flen, 0);
+        uint8_t r[1024];
+        ssize_t n = recv(fd, r, sizeof(r), 0);
+        close(fd);
+        if (n > 7) {
+            uint16_t rpath = ((uint16_t)r[0] << 8) | r[1];
+            if ((size_t)n > (size_t)(2 + rpath + 5)) {
+                uint32_t plen = ((uint32_t)r[2 + rpath + 1] << 24) |
+                                ((uint32_t)r[2 + rpath + 2] << 16) |
+                                ((uint32_t)r[2 + rpath + 3] << 8) |
+                                ((uint32_t)r[2 + rpath + 4]);
+                if (plen > 0) put_ok = 1;
+            }
+        }
+    }
+
+    for (int i = 0; i < 2; i++) kill(pids[i], SIGTERM);
+    for (int i = 0; i < 2; i++) {
+        int st;
+        waitpid(pids[i], &st, 0);
+    }
+    unlink(cert);
+    unlink(key);
+    rmdir(certdir);
+    CETCD_ASSERT_TRUE(put_ok);
+}
 #endif
 
 CETCD_TEST_LIST_BEGIN
@@ -1510,6 +1616,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_http2_snapshot),
     CETCD_TEST_ENTRY(live_server_http2_range_stream),
     CETCD_TEST_ENTRY(live_server_http2_rafthttp),
+    CETCD_TEST_ENTRY(live_server_peer_tls_h2_put),
 #endif
 CETCD_TEST_LIST_END
 

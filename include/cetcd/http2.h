@@ -37,7 +37,13 @@ struct cetcd_h2_callbacks {
 };
 
 cetcd_h2_session *cetcd_h2_session_new(const cetcd_h2_callbacks *cbs);
+cetcd_h2_session *cetcd_h2_session_new_client(const cetcd_h2_callbacks *cbs);
 void              cetcd_h2_session_free(cetcd_h2_session *s);
+
+/* Client: POST (or other method) with optional body. END_STREAM after DATA. */
+int cetcd_h2_submit_request(cetcd_h2_session *s,
+                            const char *method, const char *path,
+                            const uint8_t *body, size_t body_len);
 
 int cetcd_h2_feed(cetcd_h2_session *s, const uint8_t *data, size_t len);
 int cetcd_h2_send_pending(cetcd_h2_session *s,

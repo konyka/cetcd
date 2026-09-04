@@ -223,6 +223,8 @@ typedef struct peer_tx_ {
     bool              shutting_down;
     cetcd_tls_conn   *tls;
     int               tls_ready;
+    cetcd_h2_session *h2;
+    int               h2_out;
 } peer_tx_;
 
 static void on_peer_tx_connect_(uv_connect_t *req, int status);
@@ -295,8 +297,143 @@ static int tls_take_pending_(cetcd_tls_conn *tls, uint8_t **out, size_t *out_len
     return 0;
 }
 
+typedef struct {
+    uint8_t *buf;
+    size_t   len;
+    size_t   cap;
+} peer_h2_collect_;
+
+static int peer_h2_collect_fn_(const uint8_t *buf, size_t len, void *ctx) {
+    peer_h2_collect_ *c = (peer_h2_collect_ *)ctx;
+    if (!buf || len == 0) return 0;
+    if (c->len + len > c->cap) {
+        size_t nc = c->cap ? c->cap * 2 : 4096;
+        while (nc < c->len + len) nc *= 2;
+        uint8_t *nb = (uint8_t *)realloc(c->buf, nc);
+        if (!nb) return -1;
+        c->buf = nb;
+        c->cap = nc;
+    }
+    memcpy(c->buf + c->len, buf, len);
+    c->len += len;
+    return 0;
+}
+
+static int peer_tx_alpn_h2_(const cetcd_tls_conn *tls) {
+    const uint8_t *p = NULL;
+    unsigned int n = 0;
+    if (cetcd_tls_alpn_selected(tls, &p, &n) != CETCD_OK) return 0;
+    return n == 2 && p && p[0] == 'h' && p[1] == '2';
+}
+
+static void peer_tx_maybe_start_h2_(peer_tx_ *tx) {
+    if (!tx || tx->h2 || !tx->tls) return;
+    if (!peer_tx_alpn_h2_(tx->tls)) return;
+    tx->h2 = cetcd_h2_session_new_client(NULL);
+    if (!tx->h2) {
+        peer_tx_close_(tx);
+        return;
+    }
+    tx->h2_out = 1;
+}
+
+static void peer_tx_emit_plain_(peer_tx_ *tx, uint8_t *data, size_t len) {
+    tx->write_inflight = true;
+    tx->write_req.data = tx;
+    if (!tx->tls) {
+        uv_buf_t wb = uv_buf_init((char *)data, (unsigned int)len);
+        peer_out_frame_ *cf = (peer_out_frame_ *)malloc(sizeof(*cf));
+        if (!cf) {
+            free(data);
+            tx->write_inflight = false;
+            peer_tx_close_(tx);
+            return;
+        }
+        cf->next = NULL;
+        cf->data = data;
+        cf->len = len;
+        tx->writing = cf;
+        if (uv_write(&tx->write_req, (uv_stream_t *)&tx->tcp, &wb, 1, on_peer_tx_write_) != 0) {
+            tx->write_inflight = false;
+            free(data); free(cf); tx->writing = NULL;
+            peer_tx_close_(tx);
+        }
+        return;
+    }
+    int w = cetcd_tls_write(tx->tls, data, len);
+    free(data);
+    if (w < 0 || (size_t)w != len) {
+        tx->write_inflight = false;
+        peer_tx_close_(tx);
+        return;
+    }
+    uint8_t *cipher = NULL;
+    size_t clen = 0;
+    if (tls_take_pending_(tx->tls, &cipher, &clen) < 0) {
+        tx->write_inflight = false;
+        peer_tx_close_(tx);
+        return;
+    }
+    if (clen == 0) {
+        tx->write_inflight = false;
+        peer_tx_drain_(tx);
+        return;
+    }
+    peer_out_frame_ *cf = (peer_out_frame_ *)malloc(sizeof(*cf));
+    if (!cf) {
+        free(cipher);
+        tx->write_inflight = false;
+        peer_tx_close_(tx);
+        return;
+    }
+    cf->next = NULL;
+    cf->data = cipher;
+    cf->len = clen;
+    tx->writing = cf;
+    uv_buf_t wb = uv_buf_init((char *)cipher, (unsigned int)clen);
+    if (uv_write(&tx->write_req, (uv_stream_t *)&tx->tcp, &wb, 1, on_peer_tx_write_) != 0) {
+        tx->write_inflight = false;
+        free(cipher); free(cf); tx->writing = NULL;
+        peer_tx_close_(tx);
+    }
+}
+
+static void peer_tx_h2_emit_(peer_tx_ *tx) {
+    if (!tx->h2) return;
+    peer_h2_collect_ c;
+    memset(&c, 0, sizeof(c));
+    if (cetcd_h2_send_pending(tx->h2, peer_h2_collect_fn_, &c) != 0) {
+        free(c.buf);
+        peer_tx_close_(tx);
+        return;
+    }
+    if (c.len == 0) {
+        free(c.buf);
+        return;
+    }
+    peer_tx_emit_plain_(tx, c.buf, c.len);
+}
+
 static void peer_tx_drain_(peer_tx_ *tx) {
-    if (tx->write_inflight || tx->state != PEER_TX_CONNECTED || !tx->head) return;
+    if (tx->write_inflight || tx->state != PEER_TX_CONNECTED) return;
+    if (tx->h2_out) {
+        if (tx->head) {
+            peer_out_frame_ *f = tx->head;
+            tx->head = f->next;
+            if (!tx->head) tx->tail = NULL;
+            if (f->len < 4 ||
+                cetcd_h2_submit_request(tx->h2, "POST", "/raft",
+                                        f->data + 4, f->len - 4) != 0) {
+                free(f->data); free(f);
+                peer_tx_close_(tx);
+                return;
+            }
+            free(f->data); free(f);
+        }
+        peer_tx_h2_emit_(tx);
+        return;
+    }
+    if (!tx->head) return;
     peer_out_frame_ *f = tx->head;
     tx->head = f->next;
     if (!tx->head) tx->tail = NULL;
@@ -389,6 +526,8 @@ static void on_peer_tx_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t 
         if (hs == 0) return;
         tx->tls_ready = 1;
         tx->state = PEER_TX_CONNECTED;
+        peer_tx_maybe_start_h2_(tx);
+        if (tx->state != PEER_TX_CONNECTED) return;
         peer_tx_drain_(tx);
     }
     for (;;) {
@@ -396,7 +535,12 @@ static void on_peer_tx_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t 
         int n = cetcd_tls_read(tx->tls, tmp, sizeof(tmp));
         if (n < 0) { peer_tx_close_(tx); return; }
         if (n == 0) break;
+        if (tx->h2 && cetcd_h2_feed(tx->h2, tmp, (size_t)n) != 0) {
+            peer_tx_close_(tx);
+            return;
+        }
     }
+    if (tx->h2 && !tx->write_inflight) peer_tx_h2_emit_(tx);
 }
 
 static void on_peer_tx_connect_(uv_connect_t *req, int status) {
@@ -420,7 +564,8 @@ static void on_peer_tx_connect_(uv_connect_t *req, int status) {
         if (hs == 1) {
             tx->tls_ready = 1;
             tx->state = PEER_TX_CONNECTED;
-            peer_tx_drain_(tx);
+            peer_tx_maybe_start_h2_(tx);
+            if (tx->state == PEER_TX_CONNECTED) peer_tx_drain_(tx);
         }
         return;
     }
@@ -446,6 +591,9 @@ static void on_peer_tx_close_(uv_handle_t *handle) {
     cetcd_tls_conn_free(tx->tls);
     tx->tls = NULL;
     tx->tls_ready = 0;
+    cetcd_h2_session_free(tx->h2);
+    tx->h2 = NULL;
+    tx->h2_out = 0;
     tx->state = PEER_TX_IDLE;
     tx->tcp_init = false;
     if (!tx->shutting_down && tx->head) peer_tx_connect_(tx);
@@ -1956,6 +2104,18 @@ int cetcd_server_start(cetcd_server *srv) {
                 srv->tls_client = NULL;
                 srv->tls_peer = NULL;
                 return trc;
+            }
+            if (srv->tls_peer_out) {
+                const char *out_alpn[] = { "h2" };
+                if (cetcd_tls_set_alpn(srv->tls_peer_out, out_alpn, 1) != CETCD_OK) {
+                    cetcd_tls_ctx_free(srv->tls_client);
+                    cetcd_tls_ctx_free(srv->tls_peer);
+                    cetcd_tls_ctx_free(srv->tls_peer_out);
+                    srv->tls_client = NULL;
+                    srv->tls_peer = NULL;
+                    srv->tls_peer_out = NULL;
+                    return CETCD_ERR_INTERNAL;
+                }
             }
         }
     }

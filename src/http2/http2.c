@@ -222,8 +222,8 @@ h2_data_read_cb_(nghttp2_session *session,
 
 /* -- Public API ------------------------------------------------------------- */
 
-cetcd_h2_session *
-cetcd_h2_session_new(const cetcd_h2_callbacks *cbs) {
+static cetcd_h2_session *
+h2_session_new_(const cetcd_h2_callbacks *cbs, int client) {
     cetcd_h2_session *s = (cetcd_h2_session *)calloc(1, sizeof(*s));
     if (s == NULL) return NULL;
     if (cbs) s->cbs = *cbs;
@@ -248,7 +248,9 @@ cetcd_h2_session_new(const cetcd_h2_callbacks *cbs) {
     nghttp2_option_new(&opt);
     nghttp2_option_set_no_http_messaging(opt, 1);
 
-    int rc = nghttp2_session_server_new2(&s->ngh, cb, s, opt);
+    int rc = client
+        ? nghttp2_session_client_new2(&s->ngh, cb, s, opt)
+        : nghttp2_session_server_new2(&s->ngh, cb, s, opt);
     nghttp2_option_del(opt);
     nghttp2_session_callbacks_del(cb);
     if (rc != 0) {
@@ -256,10 +258,18 @@ cetcd_h2_session_new(const cetcd_h2_callbacks *cbs) {
         return NULL;
     }
 
-    /* Submit initial SETTINGS frame */
     nghttp2_submit_settings(s->ngh, NGHTTP2_FLAG_NONE, NULL, 0);
-
     return s;
+}
+
+cetcd_h2_session *
+cetcd_h2_session_new(const cetcd_h2_callbacks *cbs) {
+    return h2_session_new_(cbs, 0);
+}
+
+cetcd_h2_session *
+cetcd_h2_session_new_client(const cetcd_h2_callbacks *cbs) {
+    return h2_session_new_(cbs, 1);
 }
 
 void
@@ -293,6 +303,59 @@ cetcd_h2_send_pending(cetcd_h2_session *s,
         nghttp2_ssize out_len = nghttp2_session_mem_send2(s->ngh, &out_data);
         if (out_len <= 0) break;
         if (write_fn(out_data, (size_t)out_len, ctx) != 0) return -1;
+    }
+    return 0;
+}
+
+int
+cetcd_h2_submit_request(cetcd_h2_session *s,
+                        const char *method, const char *path,
+                        const uint8_t *body, size_t body_len) {
+    if (!s || !s->ngh || !method || !path || method[0] == '\0' || path[0] == '\0')
+        return -1;
+    if (body_len > 0 && !body) return -1;
+    if (s->resp_body && s->resp_body_pos < s->resp_body_len) return -1;
+
+    if (s->resp_body) { free(s->resp_body); s->resp_body = NULL; }
+    s->resp_body_len = 0;
+    s->resp_body_pos = 0;
+    if (body_len > 0) {
+        s->resp_body = (uint8_t *)malloc(body_len);
+        if (!s->resp_body) return -1;
+        memcpy(s->resp_body, body, body_len);
+        s->resp_body_len = body_len;
+    }
+
+    nghttp2_nv nva[4];
+    memset(nva, 0, sizeof(nva));
+    nva[0].name = (uint8_t *)(uintptr_t)":method";
+    nva[0].namelen = 7;
+    nva[0].value = (uint8_t *)(uintptr_t)method;
+    nva[0].valuelen = strlen(method);
+    nva[1].name = (uint8_t *)(uintptr_t)":path";
+    nva[1].namelen = 5;
+    nva[1].value = (uint8_t *)(uintptr_t)path;
+    nva[1].valuelen = strlen(path);
+    nva[2].name = (uint8_t *)(uintptr_t)":scheme";
+    nva[2].namelen = 7;
+    nva[2].value = (uint8_t *)(uintptr_t)"http";
+    nva[2].valuelen = 4;
+    nva[3].name = (uint8_t *)(uintptr_t)"content-type";
+    nva[3].namelen = 12;
+    nva[3].value = (uint8_t *)(uintptr_t)"application/octet-stream";
+    nva[3].valuelen = 24;
+
+    nghttp2_data_provider2 dp;
+    memset(&dp, 0, sizeof(dp));
+    dp.read_callback = h2_data_read_cb_;
+    dp.source.ptr = s;
+    int32_t sid = nghttp2_submit_request2(s->ngh, NULL, nva, 4,
+                                          body_len > 0 ? &dp : NULL, NULL);
+    if (sid < 0) {
+        free(s->resp_body);
+        s->resp_body = NULL;
+        s->resp_body_len = 0;
+        return -1;
     }
     return 0;
 }
@@ -437,6 +500,19 @@ cetcd_h2_session_new(const cetcd_h2_callbacks *cbs) {
     if (s == NULL) return NULL;
     if (cbs) s->cbs = *cbs;
     return s;
+}
+
+cetcd_h2_session *
+cetcd_h2_session_new_client(const cetcd_h2_callbacks *cbs) {
+    return cetcd_h2_session_new(cbs);
+}
+
+int
+cetcd_h2_submit_request(cetcd_h2_session *s,
+                        const char *method, const char *path,
+                        const uint8_t *body, size_t body_len) {
+    (void)s; (void)method; (void)path; (void)body; (void)body_len;
+    return -1;
 }
 
 void
