@@ -24,7 +24,7 @@ static void print_usage(const char *prog) {
     printf("  --name NAME      Member name (default: default)\n");
     printf("  --data-dir DIR   Data directory (default: ./data)\n");
     printf("  --listen ADDR    Client listen address (default: 127.0.0.1)\n");
-    printf("  --port PORT      Client listen port (default: 2379)\n");
+    printf("  --port PORT      Client listen port (default: 2379; 1..65535)\n");
     printf("  --peer ADDR      Peer listen address (default: 127.0.0.1)\n");
     printf("  --peer-port PORT Peer listen port (default: 2380)\n");
     printf("  --metrics-port PORT Metrics listen port (default: 2381, 0 to disable)\n");
@@ -103,7 +103,14 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--listen") == 0 && i + 1 < argc) {
             strncpy(cfg.listen_addr, argv[++i], sizeof(cfg.listen_addr) - 1);
         } else if (strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
-            cfg.listen_port = (uint16_t)atoi(argv[++i]);
+            char *end = NULL;
+            errno = 0;
+            long v = strtol(argv[++i], &end, 10);
+            if (errno == ERANGE || !end || *end || v < 1 || v > 65535) {
+                fprintf(stderr, "--port must be 1..65535\n");
+                return 1;
+            }
+            cfg.listen_port = (uint16_t)v;
         } else if (strcmp(argv[i], "--peer") == 0 && i + 1 < argc) {
             strncpy(cfg.peer_addr, argv[++i], sizeof(cfg.peer_addr) - 1);
         } else if (strcmp(argv[i], "--peer-port") == 0 && i + 1 < argc) {

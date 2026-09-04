@@ -795,6 +795,7 @@ cert files; `https://` in `--initial-cluster` requires `--peer-cert-file`;
 `--initial-cluster-state existing` and `--force-new-cluster` fail at start
 (cetcd only bootstraps `new` and does not wipe `data_dir`).
 Unknown server flags (for example `--wal-dir`) fail at parse instead of being ignored.
+`--port` is `1..65535`; a typo fail-closes instead of binding port `0`.
 `--log-outputs` is `stderr` or `stdout`; a file path fail-closes.
 `--logger` is `zap` or `capnslog`; any other type fail-closes.
 `--log-level` is `trace`/`debug`/`info`/`warn`/`error` (etcd `warning`/`dpanic`/`panic`/`fatal` aliases); any other level fail-closes.
