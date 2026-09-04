@@ -200,6 +200,8 @@ Performance-first, fail-closed design:
 - **`--log-level`** — `trace`/`debug`/`info`/`warn`/`error` (etcd aliases
   `warning`/`dpanic`/`panic`/`fatal`). A typo used to become `info`; that now
   fails at parse.
+- **`--log-format`** — `json` or `text` (etcd `console` = text). A typo used
+  to become text; that now fails at parse.
 - **`--initial-cluster-token`** — written to `{data-dir}/cluster_token` on first
   start. A later start with a different token fail-closes so a data dir is not
   reused as a different cluster. Omitted flag stays a no-op.

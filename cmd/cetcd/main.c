@@ -33,7 +33,7 @@ static void print_usage(const char *prog) {
     printf("  --election-tick N   Raft election tick (default: 10)\n");
     printf("  --heartbeat-tick N  Raft heartbeat tick (default: 1)\n");
     printf("  --log-level LVL  Log level: trace,debug,info,warn,error (default: info)\n");
-    printf("  --log-format FMT Log format: text,json (default: text)\n");
+    printf("  --log-format FMT Log format: text,json (etcd console = text; others fail)\n");
     printf("\n  etcd-compatible flags (accepted for compatibility):\n");
     printf("  --listen-client-urls URL    Client listen URL (https requires --cert-file)\n");
     printf("  --listen-peer-urls URL      Peer listen URL (https requires --peer-cert-file)\n");
@@ -173,7 +173,14 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--log-format") == 0 && i + 1 < argc) {
             const char *fmt = argv[++i];
             if (strcmp(fmt, "json") == 0) cetcd_log_set_format(CETCD_LOG_FORMAT_JSON);
-            else cetcd_log_set_format(CETCD_LOG_FORMAT_TEXT);
+            else if (strcmp(fmt, "text") == 0 || strcmp(fmt, "console") == 0)
+                cetcd_log_set_format(CETCD_LOG_FORMAT_TEXT);
+            else {
+                fprintf(stderr,
+                        "--log-format %s is not supported (text, json)\n",
+                        fmt);
+                return 1;
+            }
         } else if (strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return 0;

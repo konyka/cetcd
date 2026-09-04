@@ -798,6 +798,7 @@ Unknown server flags (for example `--wal-dir`) fail at parse instead of being ig
 `--log-outputs` is `stderr` or `stdout`; a file path fail-closes.
 `--logger` is `zap` or `capnslog`; any other type fail-closes.
 `--log-level` is `trace`/`debug`/`info`/`warn`/`error` (etcd `warning`/`dpanic`/`panic`/`fatal` aliases); any other level fail-closes.
+`--log-format` is `json` or `text` (etcd `console` = text); any other format fail-closes.
 `cetcdctl --discovery-srv` is not implemented and fail-closes (it used to ignore
 the flag and still use 127.0.0.1:2379).
 `--keepalive-time` / `--keepalive-timeout` set TCP keepalive on the client socket
