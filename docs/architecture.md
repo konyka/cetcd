@@ -362,7 +362,8 @@ campaigns on `server_new` so the first Put does not wait for election ticks.
   leader as compact Delete entries; `LeaseRevoke` is apply tag 10 so followers
   drop the same keys and lease record. `LeaseGrant` is apply tag 12 (`id` +
   `ttl`) so followers create the same lease record; a duplicate id is
-  fail-closed before propose.
+  fail-closed before propose. `LeaseKeepAlive` is apply tag 13 so followers
+  refresh the same deadline; a missing lease returns TTL=0 without proposing.
 - **Compact** proposes apply tag 11 (revision varint) so followers share the same
   compacted revision. A future or already-compacted revision is fail-closed
   before propose. Apply is idempotent for WAL replay.

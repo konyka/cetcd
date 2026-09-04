@@ -61,6 +61,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **租约持久化**：Grant/KeepAlive/Revoke 写入 LMDB `lease` 桶；重启按墙钟 deadline 恢复剩余 TTL，再从 MVCC 挂回键。
 - **租约过期 / Revoke 经 Raft**：leader 过期提出 compact Delete；`LeaseRevoke` 为 apply tag 10，follower 从日志删除相同键并丢掉租约。非 leader 过期不本地删键。
 - **LeaseGrant 经 Raft**：apply tag 12（id + ttl）；已存在 id 或非 leader fail-closed；WAL 重放对已存在租约幂等。
+- **LeaseKeepAlive 经 Raft**：apply tag 13（id + granted ttl）；缺失租约仍返回 TTL=0 且不 propose；非 leader 对存活租约 fail-closed。
 - **Compact 经 Raft**：`KV/Compact` 为 apply tag 11（修订号 varint）；未来修订或已压缩修订 fail-closed；WAL 重放对已压缩修订幂等。
 - **Learner 提升**：`MemberPromote` 将 learner 转为投票成员；缺失或已是 voter 则 fail-closed。Raft quorum 不计 learner。
 - **成员持久化**：MemberAdd/Remove/Promote/Update 经 Raft apply，写入 LMDB `members` 桶；重启在 campaign 前恢复 peer。
@@ -859,7 +860,7 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 | KV | `/etcdserverpb.KV/Compact` | `kv_handler.c` | 经 Raft 压缩 MVCC 历史到指定修订号，返回含 revision 的 ResponseHeader |
 | Lease | `/etcdserverpb.Lease/LeaseGrant` | `lease_handler.c` | 经 Raft 授予租约，返回 ID+TTL |
 | Lease | `/etcdserverpb.Lease/LeaseRevoke` | `lease_handler.c` | 撤销租约，返回含 revision 的 ResponseHeader |
-| Lease | `/etcdserverpb.Lease/LeaseKeepAlive` | `lease_handler.c` | 续约，使用原始授予 TTL（非硬编码），返回剩余 TTL |
+| Lease | `/etcdserverpb.Lease/LeaseKeepAlive` | `lease_handler.c` | 经 Raft 续约（原始授予 TTL），返回剩余 TTL |
 | Lease | `/etcdserverpb.Lease/LeaseTimeToLive` | `lease_handler.c` | 查询租约剩余时间和授予 TTL |
 | Lease | `/etcdserverpb.Lease/LeaseLeases` | `lease_handler.c` | 列出所有活跃租约（返回实际租约 ID 列表） |
 | Watch | `/etcdserverpb.Watch/Watch` | `watch_handler.c` | 创建/取消观察者，返回 watch_id（field 2）+ created（field 3）+ events（field 11, tag 0x5a），事件包含完整的 KeyValue |

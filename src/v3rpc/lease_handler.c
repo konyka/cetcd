@@ -168,11 +168,18 @@ cetcd_rpc_bytes lease_handle_keep_alive(cetcd_v3rpc *rpc, const uint8_t *req, si
         }
     }
     int64_t remaining_ttl = 0;
-    if (id > 0 && cetcd_lease_exists(g_rpc_lease_mgr, (cetcd_lease_id)id)) {
-        /* Use the original granted TTL for keep-alive */
+    if (id > 0 && g_rpc_lease_mgr &&
+        cetcd_lease_exists(g_rpc_lease_mgr, (cetcd_lease_id)id)) {
         int64_t granted = cetcd_lease_granted_ttl(g_rpc_lease_mgr, (cetcd_lease_id)id);
-        if (granted <= 0) granted = 60; /* fallback */
-        cetcd_lease_keep_alive(g_rpc_lease_mgr, (cetcd_lease_id)id, granted);
+        if (granted <= 0) granted = 60;
+        uint8_t *entry = NULL;
+        size_t elen = 0;
+        if (cetcd_apply_encode_lease_keepalive(&entry, &elen, (uint64_t)id, granted) != 0)
+            return (cetcd_rpc_bytes){NULL, 0};
+        int rc = cetcd_v3rpc_propose_or_apply(entry, elen);
+        free(entry);
+        if (rc < 0)
+            return (cetcd_rpc_bytes){NULL, 0};
         remaining_ttl = cetcd_lease_ttl_remaining(g_rpc_lease_mgr, (cetcd_lease_id)id);
     }
     /* LeaseKeepAliveResponse:

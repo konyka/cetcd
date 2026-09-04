@@ -103,6 +103,9 @@ Performance-first, fail-closed design:
 - **LeaseGrant via Raft** — apply tag 12 (`id` + `ttl` varints). The leader
   reserves an id (or the client-chosen id) and proposes; already-exists and
   not-leader are fail-closed. Apply is idempotent for WAL replay.
+- **LeaseKeepAlive via Raft** — apply tag 13 (`id` + granted `ttl`). Missing
+  leases still return TTL=0 without a proposal; not-leader with a live lease
+  is fail-closed. Apply no-ops if the lease is already gone.
 
 ## Previously done (auth data plane)
 

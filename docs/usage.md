@@ -260,7 +260,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl lease revoke 1 -w fields              # Revoke with fields output
 ./build/bin/cetcdctl lease timetolive 1                    # Check remaining TTL
 ./build/bin/cetcdctl lease timetolive --keys 1 -w fields   # Include keys with fields output
-./build/bin/cetcdctl lease keepalive 1                     # Keep lease alive (loop, Ctrl+C to stop)
+./build/bin/cetcdctl lease keepalive 1                     # Keepalive via Raft (followers share deadline)
 ./build/bin/cetcdctl lease keepalive --once 1 -w fields   # Single keepalive with fields output
 ./build/bin/cetcdctl lease keepalive --interval 5 1        # Keep alive with custom 5-second interval
 ./build/bin/cetcdctl lease list -w fields                  # List all leases in fields format
