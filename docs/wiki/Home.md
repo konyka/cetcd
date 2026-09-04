@@ -63,6 +63,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **LeaseGrant 经 Raft**：apply tag 12（id + ttl）；已存在 id 或非 leader fail-closed；WAL 重放对已存在租约幂等。
 - **LeaseKeepAlive 经 Raft**：apply tag 13（id + granted ttl）；缺失租约仍返回 TTL=0 且不 propose；非 leader 对存活租约 fail-closed。
 - **Auth UserAdd 经 Raft**：apply tag 14（用户名 + 密码哈希，WAL 不存明文）；重名 fail-closed；apply 幂等并写入 LMDB `auth` 桶。
+- **AuthEnable / AuthDisable 经 Raft**：apply tag 15（`0` 关闭 / `1` 开启）；无 `root` 时 enable fail-closed；apply 幂等、写入 `auth` 桶，disable 时撤销全部 token。
 - **Compact 经 Raft**：`KV/Compact` 为 apply tag 11（修订号 varint）；未来修订或已压缩修订 fail-closed；WAL 重放对已压缩修订幂等。
 - **Learner 提升**：`MemberPromote` 将 learner 转为投票成员；缺失或已是 voter 则 fail-closed。Raft quorum 不计 learner。
 - **成员持久化**：MemberAdd/Remove/Promote/Update 经 Raft apply，写入 LMDB `members` 桶；重启在 campaign 前恢复 peer。
@@ -865,8 +866,8 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 | Lease | `/etcdserverpb.Lease/LeaseTimeToLive` | `lease_handler.c` | 查询租约剩余时间和授予 TTL |
 | Lease | `/etcdserverpb.Lease/LeaseLeases` | `lease_handler.c` | 列出所有活跃租约（返回实际租约 ID 列表） |
 | Watch | `/etcdserverpb.Watch/Watch` | `watch_handler.c` | 创建/取消观察者，返回 watch_id（field 2）+ created（field 3）+ events（field 11, tag 0x5a），事件包含完整的 KeyValue |
-| Auth | `/etcdserverpb.Auth/AuthEnable` | `auth_handler.c` | 启用认证 |
-| Auth | `/etcdserverpb.Auth/AuthDisable` | `auth_handler.c` | 禁用认证 |
+| Auth | `/etcdserverpb.Auth/AuthEnable` | `auth_handler.c` | 经 Raft 启用认证（apply tag 15=1，需已有 `root`） |
+| Auth | `/etcdserverpb.Auth/AuthDisable` | `auth_handler.c` | 经 Raft 禁用认证（apply tag 15=0，撤销全部 token） |
 | Auth | `/etcdserverpb.Auth/AuthStatus` | `auth_handler.c` | 查询认证状态（enabled/disabled） |
 | Auth | `/etcdserverpb.Auth/Authenticate` | `auth_handler.c` | 密码验证，返回 token |
 | Auth | `/etcdserverpb.Auth/UserAdd` | `auth_handler.c` | 经 Raft 添加用户（日志中为密码哈希） |

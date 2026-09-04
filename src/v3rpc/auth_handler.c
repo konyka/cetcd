@@ -105,16 +105,29 @@ cetcd_rpc_bytes auth_handle_enable(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
     /* etcd: AuthEnable requires a "root" user to already exist. */
     if (!g_rpc_auth || !cetcd_auth_has_user(g_rpc_auth, "root"))
         return (cetcd_rpc_bytes){NULL, 0};
-    cetcd_auth_set_enabled(g_rpc_auth, true);
+    uint8_t *entry = NULL;
+    size_t elen = 0;
+    if (cetcd_apply_encode_auth_enabled(&entry, &elen, 1) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
+    int rc = cetcd_v3rpc_propose_or_apply(entry, elen);
+    free(entry);
+    if (rc < 0)
+        return (cetcd_rpc_bytes){NULL, 0};
     return simple_ok_response();
 }
 
 cetcd_rpc_bytes auth_handle_disable(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc; (void)req; (void)req_len;
-    if (g_rpc_auth) {
-        cetcd_auth_set_enabled(g_rpc_auth, false);
-        cetcd_auth_revoke_all_tokens(g_rpc_auth);
-    }
+    if (!g_rpc_auth)
+        return simple_ok_response();
+    uint8_t *entry = NULL;
+    size_t elen = 0;
+    if (cetcd_apply_encode_auth_enabled(&entry, &elen, 0) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
+    int rc = cetcd_v3rpc_propose_or_apply(entry, elen);
+    free(entry);
+    if (rc < 0)
+        return (cetcd_rpc_bytes){NULL, 0};
     return simple_ok_response();
 }
 

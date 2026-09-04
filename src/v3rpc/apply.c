@@ -277,6 +277,18 @@ int cetcd_apply_encode_auth_user_add(uint8_t **out, size_t *out_len,
                           hash, hash_len, 0, 0, out, out_len);
 }
 
+int cetcd_apply_encode_auth_enabled(uint8_t **out, size_t *out_len, int enabled) {
+    if (!out || !out_len || (enabled != 0 && enabled != 1)) return -1;
+    uint8_t *buf = (uint8_t *)malloc(8);
+    if (!buf) return -1;
+    size_t pos = 0;
+    buf[pos++] = CETCD_APPLY_AUTH_ENABLED;
+    if (write_varint_(buf, 8, &pos, (uint64_t)enabled) != 0) { free(buf); return -1; }
+    *out = buf;
+    *out_len = pos;
+    return 0;
+}
+
 static void lease_after_put_(const uint8_t *key, size_t key_len,
                              int64_t old_lease, int64_t new_lease) {
     if (!g_rpc_lease_mgr) return;
@@ -529,6 +541,18 @@ int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len) {
             cetcd_mvcc_compacted_revision(g_rpc_store) >= (int64_t)rev)
             return 0;
         return -1;
+    }
+
+    if (op == CETCD_APPLY_AUTH_ENABLED) {
+        if (len < 2) return -1;
+        uint64_t on = 0;
+        if (read_varint_(data, len, &pos, &on) != 0 || on > 1) return -1;
+        if (!g_rpc_auth) return -1;
+        if (on && !cetcd_auth_has_user(g_rpc_auth, "root")) return -1;
+        cetcd_auth_set_enabled(g_rpc_auth, on != 0);
+        if (!on) cetcd_auth_revoke_all_tokens(g_rpc_auth);
+        cetcd_v3rpc_auth_persist();
+        return 0;
     }
 
     if (op == CETCD_APPLY_MEMBER_ADD || op == CETCD_APPLY_MEMBER_REMOVE

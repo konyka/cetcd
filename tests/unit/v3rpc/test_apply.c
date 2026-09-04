@@ -280,6 +280,53 @@ CETCD_TEST_CASE(apply_auth_user_add_then_has_user) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(apply_auth_enabled_requires_root) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    uint8_t *buf = NULL;
+    size_t len = 0;
+    CETCD_ASSERT_TRUE(cetcd_apply_encode_auth_enabled(&buf, &len, 2) != 0);
+    uint8_t trunc[] = { CETCD_APPLY_AUTH_ENABLED };
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_apply_entry(trunc, sizeof(trunc)) != 0);
+
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_enabled(&buf, &len, 1), 0);
+    CETCD_ASSERT_EQ_INT((int)buf[0], CETCD_APPLY_AUTH_ENABLED);
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_apply_entry(buf, len) != 0);
+    free(buf);
+
+    cetcd_auth_store *tmp = cetcd_auth_store_new();
+    uint8_t hash[64];
+    size_t hlen = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_auth_hash_password(tmp, "secret", hash, sizeof(hash), &hlen), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_user_add(&buf, &len,
+        (const uint8_t *)"root", 4, hash, hlen), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+    cetcd_auth_store_free(tmp);
+
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_enabled(&buf, &len, 1), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+
+    uint8_t put_buf[16];
+    size_t p = 0;
+    put_buf[p++] = 0x0a; put_buf[p++] = 0x01;
+    memcpy(put_buf + p, "k", 1); p += 1;
+    put_buf[p++] = 0x12; put_buf[p++] = 0x01;
+    memcpy(put_buf + p, "v", 1); p += 1;
+    cetcd_rpc_bytes put = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, p);
+    CETCD_ASSERT_TRUE(put.data == NULL || put.len == 0);
+    cetcd_rpc_bytes_free(&put);
+
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_enabled(&buf, &len, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+    put = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, p);
+    CETCD_ASSERT_NOT_NULL(put.data);
+    cetcd_rpc_bytes_free(&put);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(apply_compact_sets_revision) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
     uint8_t *buf = NULL;
@@ -389,6 +436,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(apply_lease_grant_then_exists),
     CETCD_TEST_ENTRY(apply_lease_keepalive_extends),
     CETCD_TEST_ENTRY(apply_auth_user_add_then_has_user),
+    CETCD_TEST_ENTRY(apply_auth_enabled_requires_root),
     CETCD_TEST_ENTRY(apply_compact_sets_revision),
     CETCD_TEST_ENTRY(quota_blocks_put_not_delete),
 CETCD_TEST_LIST_END

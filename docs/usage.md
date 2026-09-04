@@ -328,7 +328,7 @@ to cancel the watch and close the stream.
 ```sh
 # Enable authentication (requires a `root` user first)
 ./build/bin/cetcdctl user add root
-./build/bin/cetcdctl auth enable
+./build/bin/cetcdctl auth enable               # Enable via Raft (followers share the switch)
 
 # Subsequent commands must authenticate. The token is attached to each RPC.
 ./build/bin/cetcdctl --user root:PASS put foo bar
