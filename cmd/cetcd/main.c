@@ -48,6 +48,7 @@ static void print_usage(const char *prog) {
     printf("  --max-request-bytes N  Max client frame (default 1572864); oversized closes\n");
     printf("  --grpc-keepalive-time SEC   TCP keepalive idle on client and peer sockets (0 disables)\n");
     printf("  --grpc-keepalive-timeout SEC  TCP keepalive interval (requires --grpc-keepalive-time)\n");
+    printf("  --grpc-keepalive-min-time SEC  Accepted duration (not applied; 0..86400)\n");
     printf("  --grpc-keepalive-*  Other grpc-keepalive flags accepted as no-op\n");
     printf("  --auth-token TYPE   simple (default) or jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]\n");
     printf("  --bcrypt-cost N     Hash new passwords with bcrypt (4..31; default SHA-256)\n");
@@ -299,8 +300,14 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "--grpc-keepalive-timeout must be 1..86400 seconds\n");
                 return 1;
             }
+        } else if (strcmp(argv[i], "--grpc-keepalive-min-time") == 0 && i + 1 < argc) {
+            int dummy;
+            if (parse_keepalive_sec_(argv[++i], 0, &dummy) != 0) {
+                fprintf(stderr, "--grpc-keepalive-min-time must be 0..86400 seconds\n");
+                return 1;
+            }
         } else if (strncmp(argv[i], "--grpc-keepalive-", 17) == 0 && i + 1 < argc) {
-            i++; /* no-op, e.g. --grpc-keepalive-min-time */
+            i++; /* no-op, e.g. --grpc-keepalive-permit-without-stream */
         } else if (strncmp(argv[i], "--experimental-", 15) == 0) {
             /* no-op, accepted for etcd compatibility */
             if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* skip value if present */

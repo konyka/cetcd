@@ -1810,6 +1810,16 @@ CETCD_TEST_CASE(live_cetcd_grpc_keepalive) {
              "'%s' --grpc-keepalive-time 10s --grpc-keepalive-timeout 5s --help >/dev/null 2>&1",
              CETCD_BIN);
     CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --grpc-keepalive-min-time abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --grpc-keepalive-min-time 5s --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
 }
 
 CETCD_TEST_CASE(live_cetcd_auto_tls_requires_certs) {
