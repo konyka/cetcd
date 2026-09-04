@@ -372,6 +372,8 @@ campaigns on `server_new` so the first Put does not wait for election ticks.
   `auth` bucket, and revoke-all-tokens on disable.
 - **Auth UserDelete** proposes apply tag 16 (username). A missing name is
   fail-closed before propose; apply is idempotent and saves the `auth` bucket.
+- **Auth RoleAdd** proposes apply tag 17 (role name). A duplicate name is
+  fail-closed before propose; apply is idempotent and saves the `auth` bucket.
 - **Compact** proposes apply tag 11 (revision varint) so followers share the same
   compacted revision. A future or already-compacted revision is fail-closed
   before propose. Apply is idempotent for WAL replay.
