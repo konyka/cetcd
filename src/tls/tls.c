@@ -90,6 +90,71 @@ int cetcd_tls_set_verify_peer(cetcd_tls_ctx *ctx, int require_cert) {
     return CETCD_OK;
 }
 
+static int suite_to_openssl_(const char *in, size_t n, char *out, size_t cap) {
+    if (!in || !out || cap < 2) return -1;
+    while (n > 0 && (*in == ' ' || *in == '\t')) { in++; n--; }
+    while (n > 0 && (in[n - 1] == ' ' || in[n - 1] == '\t')) n--;
+    if (n == 0) return -1;
+    if (n >= 4 && in[0] == 'T' && in[1] == 'L' && in[2] == 'S' && in[3] == '_') {
+        in += 4;
+        n -= 4;
+    }
+    size_t o = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (in[i] == '_' && i + 6 <= n &&
+            in[i + 1] == 'W' && in[i + 2] == 'I' && in[i + 3] == 'T' &&
+            in[i + 4] == 'H' && in[i + 5] == '_') {
+            if (o + 1 >= cap) return -1;
+            out[o++] = '-';
+            i += 5;
+            continue;
+        }
+        if (in[i] == '_') {
+            if (i + 1 < n && in[i + 1] >= '0' && in[i + 1] <= '9')
+                continue;
+            if (o + 1 >= cap) return -1;
+            out[o++] = '-';
+            continue;
+        }
+        if (o + 1 >= cap) return -1;
+        out[o++] = in[i];
+    }
+    if (o == 0) return -1;
+    out[o] = '\0';
+    return 0;
+}
+
+int cetcd_tls_set_ciphers(cetcd_tls_ctx *ctx, const char *list) {
+    if (ctx == NULL || ctx->ssl_ctx == NULL || list == NULL) return CETCD_ERR_INVAL;
+    char ossl[1024];
+    size_t opos = 0;
+    const char *p = list;
+    int any = 0;
+    while (*p) {
+        while (*p == ' ' || *p == '\t' || *p == ',') p++;
+        if (!*p) break;
+        const char *start = p;
+        while (*p && *p != ',') p++;
+        char one[256];
+        if (suite_to_openssl_(start, (size_t)(p - start), one, sizeof(one)) != 0)
+            return CETCD_ERR_INVAL;
+        size_t olen = strlen(one);
+        if (any) {
+            if (opos + 1 >= sizeof(ossl)) return CETCD_ERR_OVERFLOW;
+            ossl[opos++] = ':';
+        }
+        if (opos + olen >= sizeof(ossl)) return CETCD_ERR_OVERFLOW;
+        memcpy(ossl + opos, one, olen);
+        opos += olen;
+        any = 1;
+    }
+    if (!any) return CETCD_ERR_INVAL;
+    ossl[opos] = '\0';
+    if (SSL_CTX_set_cipher_list(ctx->ssl_ctx, ossl) != 1)
+        return CETCD_ERR_INVAL;
+    return CETCD_OK;
+}
+
 static int alpn_select_(SSL *ssl, const unsigned char **out, unsigned char *outlen,
                         const unsigned char *in, unsigned int inlen, void *arg) {
     (void)ssl;
@@ -344,6 +409,9 @@ int cetcd_tls_alpn_selected(const cetcd_tls_conn *conn,
 }
 int cetcd_tls_set_verify_peer(cetcd_tls_ctx *ctx, int require_cert) {
     (void)ctx; (void)require_cert; return CETCD_ERR_UNSUPPORT;
+}
+int cetcd_tls_set_ciphers(cetcd_tls_ctx *ctx, const char *list) {
+    (void)ctx; (void)list; return CETCD_ERR_UNSUPPORT;
 }
 cetcd_tls_conn *cetcd_tls_accept(cetcd_tls_ctx *ctx, int fd) {
     (void)ctx; (void)fd; return NULL;

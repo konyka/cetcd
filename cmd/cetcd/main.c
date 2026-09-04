@@ -58,7 +58,7 @@ static void print_usage(const char *prog) {
     printf("  --peer-trusted-ca-file FILE  Peer TLS CA (required with --peer-client-cert-auth)\n");
     printf("  --peer-client-cert-auth  Require a peer certificate on accept (fail-closed)\n");
     printf("  --peer-auto-tls      Accepted but no-op (plain TCP)\n");
-    printf("  --cipher-suites LIST  Accepted but no-op (plain TCP)\n");
+    printf("  --cipher-suites LIST  TLS cipher list (IANA or OpenSSL names; requires TLS)\n");
     printf("  --logger TYPE       Accepted but no-op (uses built-in logger)\n");
     printf("  --log-outputs LIST   Accepted but no-op (logs to stderr)\n");
     printf("  --experimental-*    Accepted but no-op\n");
@@ -224,7 +224,7 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--peer-auto-tls") == 0) {
             /* no-op: cetcd does not mint certificates */
         } else if (strcmp(argv[i], "--cipher-suites") == 0 && i + 1 < argc) {
-            i++; /* no-op, plain TCP */
+            strncpy(cfg.cipher_suites, argv[++i], sizeof(cfg.cipher_suites) - 1);
         } else if (strcmp(argv[i], "--logger") == 0 && i + 1 < argc) {
             i++; /* no-op, uses built-in logger */
         } else if (strcmp(argv[i], "--log-outputs") == 0 && i + 1 < argc) {

@@ -51,6 +51,7 @@ typedef struct cetcd_server_config {
     uint64_t        max_request_bytes;    /* 0 → CETCD_DEFAULT_MAX_REQUEST_BYTES */
     uint64_t        quota_backend_bytes; /* 0 = unlimited */
     uint64_t        max_txn_ops;          /* 0 → CETCD_DEFAULT_MAX_TXN_OPS; cap CETCD_MAX_TXN_OPS */
+    char            cipher_suites[512];   /* empty = OpenSSL default; requires TLS */
 } cetcd_server_config;
 
 cetcd_server *cetcd_server_new(const cetcd_server_config *cfg);

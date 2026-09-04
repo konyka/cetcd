@@ -151,6 +151,9 @@ Performance-first, fail-closed design:
   length-prefixed path). Missing files, cert-without-key, verify failure, and
   `--insecure-transport` mixed with cert flags fail-close. `--insecure` skips
   verify when TLS is on. Plaintext remains the default.
+- **`--cipher-suites`** — comma-separated IANA or OpenSSL names applied to
+  client and peer TLS contexts. An unknown suite, an empty list, or the flag
+  without `--cert-file`/`--peer-cert-file` fail-closes at start.
 - **`--max-call-send-msg-size` / `--max-call-recv-msg-size`** — cap the custom-frame
   payload (not the path header). `0` or a non-integer fail-closes at parse.
   An oversized send is not written; an oversized recv is not truncated.

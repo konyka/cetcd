@@ -152,8 +152,12 @@ cetcd accepts several etcd server flags for migration compatibility:
   --peer-cert-file peer.crt --peer-key-file peer.key \
   --peer-trusted-ca-file peer-ca.crt --peer-client-cert-auth
 
-# Still no-op: --auto-tls, --peer-auto-tls, --cipher-suites
-./build/bin/cetcd --auto-tls --cipher-suites TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+# Still no-op: --auto-tls, --peer-auto-tls
+./build/bin/cetcd --auto-tls
+
+# TLS cipher list (IANA or OpenSSL names; requires --cert-file or --peer-cert-file)
+./build/bin/cetcd --cert-file server.crt --key-file server.key \
+  --cipher-suites TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
 
 # Limit flags: --max-request-bytes and --max-txn-ops are applied
 ./build/bin/cetcd --max-txn-ops 128 --max-request-bytes 1572864 \

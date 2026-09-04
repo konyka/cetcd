@@ -785,6 +785,8 @@ BIOs so libuv keeps the socket; blocking `SSL_accept` is not used on the reactor
 client in a blocking TLS handshake and omits ALPN so the server keeps the
 length-prefixed path. `--insecure` skips verify; missing files, cert-without-key,
 or `--insecure-transport` mixed with cert flags fail closed. `--auto-tls` stays a no-op.
+`--cipher-suites` restricts TLS (IANA or OpenSSL names); unknown names or the flag
+without certs fail closed.
 `--max-call-send-msg-size` / `--max-call-recv-msg-size` cap the payload (`0` rejected;
 oversized recv is not truncated).
 
