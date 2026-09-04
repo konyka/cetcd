@@ -5551,7 +5551,7 @@ static void print_usage(void) {
     printf("  --port PORT    Server port (default: 2379)\n");
     printf("  --endpoints EP Server endpoint (https requires --cacert or --insecure)\n");
     printf("  --user USER:PASS  Authenticate with server before executing command\n");
-    printf("  --command-timeout SEC  Timeout for commands (default: none)\n");
+    printf("  --command-timeout SEC  Timeout for commands (duration; 0 = none; invalid fails)\n");
     printf("  --debug       Print debug info (RPC path and response size)\n");
     printf("  --insecure    Skip TLS certificate verification (with --cacert/--cert)\n");
     printf("  --dial-timeout SEC  Connection timeout (default: none)\n");
@@ -5672,28 +5672,48 @@ int main(int argc, char **argv) {
             }
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--command-timeout") == 0 && cmd_start + 1 < argc) {
-            /* Parse timeout: supports integer seconds or Go duration format (5s, 1m, 1m30s, 500ms) */
+            /* Parse timeout: integer seconds or Go duration (5s, 1m, 1m30s, 500ms). */
             const char *ts = argv[cmd_start + 1];
             int timeout_sec = 0;
-            int is_pure_num = 1;
-            for (const char *p = ts; *p; p++) {
-                if (*p < '0' || *p > '9') { is_pure_num = 0; break; }
-            }
-            if (is_pure_num) {
-                timeout_sec = atoi(ts);
-            } else {
-                const char *p = ts;
-                while (*p) {
-                    char *endp;
-                    long val = strtol(p, &endp, 10);
-                    if (endp == p) break;
-                    p = endp;
-                    if (strncmp(p, "ms", 2) == 0) { timeout_sec += (int)((val + 999) / 1000); p += 2; }
-                    else if (*p == 'h') { timeout_sec += (int)(val * 3600); p++; }
-                    else if (*p == 'm') { timeout_sec += (int)(val * 60); p++; }
-                    else if (*p == 's') { timeout_sec += (int)val; p++; }
-                    else { timeout_sec += (int)val; break; }
+            int ok = 0;
+            if (ts[0]) {
+                int is_pure_num = 1;
+                for (const char *p = ts; *p; p++) {
+                    if (*p < '0' || *p > '9') { is_pure_num = 0; break; }
                 }
+                if (is_pure_num) {
+                    timeout_sec = atoi(ts);
+                    ok = 1;
+                } else {
+                    const char *p = ts;
+                    while (*p) {
+                        char *endp;
+                        errno = 0;
+                        long val = strtol(p, &endp, 10);
+                        if (errno == ERANGE || endp == p || val < 0) break;
+                        p = endp;
+                        if (strncmp(p, "ms", 2) == 0) {
+                            timeout_sec += (int)((val + 999) / 1000);
+                            p += 2;
+                        } else if (*p == 'h') {
+                            timeout_sec += (int)(val * 3600);
+                            p++;
+                        } else if (*p == 'm') {
+                            timeout_sec += (int)(val * 60);
+                            p++;
+                        } else if (*p == 's') {
+                            timeout_sec += (int)val;
+                            p++;
+                        } else {
+                            break;
+                        }
+                    }
+                    if (*p == '\0') ok = 1;
+                }
+            }
+            if (!ok) {
+                fprintf(stderr, "--command-timeout must be a duration\n");
+                return 1;
             }
             if (timeout_sec > 0) {
                 signal(SIGALRM, (void (*)(int))_exit);
