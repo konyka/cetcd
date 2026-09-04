@@ -532,7 +532,7 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `snapshot restore FILE --data-dir DIR [--force] [-w json]` (restore snapshot to data directory with optional --force to overwrite existing data)
 `lock LOCKNAME [CMD...]` (distributed lock using Lease + Txn with signal-based release),
 `elect ELECTION_NAME [PROPOSAL]` (leader election using Lease + Txn),
-`--endpoints host:port` (global flag for specifying server endpoint),
+`--endpoints host:port` (global flag for specifying server endpoint; port must be `1..65535`; a typo fail-closes),
 `member list -w table` (table format output for member list),
 `status -w json` (JSON output format for status query),
 `put -w json` / `del -w json` / `watch -w json` (JSON output for KV operations and watch events),
@@ -666,7 +666,7 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `lock` lease keepalive (forks a child process that periodically sends LeaseKeepAlive RPCs every ttl/2 seconds while the lock is held, preventing the lease from expiring; the child is killed on lock release or signal),
 `elect` lease keepalive (same fork-based keepalive mechanism as `lock`, ensuring the leader's lease does not expire while holding the election),
 `watch --progress-notify` (sets WatchCreateRequest field 4, tag 0x20 to request periodic progress notifications from the server, matching etcdctl behavior),
-`--endpoints` comma-separated multi-endpoint support (accepts `host1:port1,host2:port2` format, uses first endpoint; also accepts `http://host:port` URL format),
+`--endpoints` comma-separated multi-endpoint support (accepts `host1:port1,host2:port2` format, uses first endpoint; also accepts `http://host:port` URL format; port must be `1..65535`; a typo fail-closes),
 `--command-timeout` Go duration format (accepts `5s`, `1m`, `1m30s`, `500ms` in addition to plain integer seconds),
 `endpoint health -w table` (table output format for health check with ENDPOINT/HEALTH/TOOK/ERROR columns, supports both single and `--cluster` modes),
 `snapshot save -w table` (table output format for snapshot save with REVISION/SIZE/[FILENAME] columns),

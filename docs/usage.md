@@ -553,7 +553,7 @@ Supported operations (in `then`/`else` sections):
 |--------|---------|-------------|
 | `--host ADDR` | 127.0.0.1 | Server address |
 | `--port PORT` | 2379 | Server port (`1..65535`; a typo fail-closes) |
-| `--endpoints EP` | 127.0.0.1:2379 | Server endpoint (host:port; `https://` requires `--cacert` or `--insecure`) |
+| `--endpoints EP` | 127.0.0.1:2379 | Server endpoint (host:port `1..65535`; a typo fail-closes; `https://` requires `--cacert` or `--insecure`) |
 | `--command-timeout SEC` | none | Timeout for commands (integer seconds or Go duration: `5s`, `1m`, `1m30s`, `500ms`; `0` = none; invalid fails) |
 | `--user USER:PASS` | none | Authenticate with server before command |
 | `--password PASS` | none | Password for `--user` (when USER has no `:PASS`) |

@@ -5549,7 +5549,7 @@ static void print_usage(void) {
     printf("Global options:\n");
     printf("  --host ADDR    Server address (default: 127.0.0.1)\n");
     printf("  --port PORT    Server port (default: 2379; 1..65535)\n");
-    printf("  --endpoints EP Server endpoint (https requires --cacert or --insecure)\n");
+    printf("  --endpoints EP Server endpoint (https requires --cacert or --insecure; port 1..65535)\n");
     printf("  --user USER:PASS  Authenticate with server before executing command\n");
     printf("  --command-timeout SEC  Timeout for commands (duration; 0 = none; invalid fails)\n");
     printf("  --debug       Print debug info (RPC path and response size)\n");
@@ -5672,7 +5672,15 @@ int main(int argc, char **argv) {
                     memcpy(host_buf, ep_start, hlen);
                     host_buf[hlen] = '\0';
                     g_host = host_buf;
-                    g_port = (uint16_t)atoi(colon + 1);
+                    char *end = NULL;
+                    errno = 0;
+                    long v = strtol(colon + 1, &end, 10);
+                    if (errno == ERANGE || !end || end == colon + 1 || *end ||
+                        v < 1 || v > 65535) {
+                        fprintf(stderr, "--endpoints port must be 1..65535\n");
+                        return 1;
+                    }
+                    g_port = (uint16_t)v;
                 }
             } else {
                 g_host = ep_start;
