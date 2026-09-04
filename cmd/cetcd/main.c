@@ -41,7 +41,7 @@ static void print_usage(const char *prog) {
     printf("  --initial-advertise-peer-urls URL  MemberList peerURLs (https requires --peer-cert-file)\n");
     printf("  --initial-cluster-state STATE  new (default); existing is not implemented\n");
     printf("  --initial-cluster-token TOKEN  Persist in data-dir; mismatch fail-closes\n");
-    printf("  --snapshot-count N   Rewrite WAL after N applies (default: 10000)\n");
+    printf("  --snapshot-count N   Rewrite WAL after N applies (default: 10000; must be > 0)\n");
     printf("  --quota-backend-bytes N  NOSPACE when LMDB size >= N (0 = unlimited)\n");
     printf("  --force-new-cluster  Not implemented (fail-closed; would wipe data_dir)\n");
     printf("  --max-txn-ops N     Max compare/success/failure ops per Txn (default 128, max 128)\n");
@@ -294,7 +294,14 @@ int main(int argc, char **argv) {
             strncpy(cfg.initial_cluster_token, argv[++i],
                     sizeof(cfg.initial_cluster_token) - 1);
         } else if (strcmp(argv[i], "--snapshot-count") == 0 && i + 1 < argc) {
-            cfg.snapshot_count = (uint64_t)strtoull(argv[++i], NULL, 10);
+            char *end = NULL;
+            errno = 0;
+            unsigned long long v = strtoull(argv[++i], &end, 10);
+            if (errno == ERANGE || !end || *end || v == 0) {
+                fprintf(stderr, "--snapshot-count must be > 0\n");
+                return 1;
+            }
+            cfg.snapshot_count = (uint64_t)v;
         } else if (strcmp(argv[i], "--quota-backend-bytes") == 0 && i + 1 < argc) {
             cfg.quota_backend_bytes = (uint64_t)strtoull(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--force-new-cluster") == 0) {

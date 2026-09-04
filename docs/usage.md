@@ -145,6 +145,7 @@ cetcd accepts several etcd server flags for migration compatibility:
   --initial-advertise-peer-urls http://127.0.0.1:2380 \
   --initial-cluster-state new --initial-cluster-token etcd-cluster \
   --snapshot-count 10000 --data-dir ./data
+# --snapshot-count must be > 0; a typo or 0 is not the silent default 10000
 
 # Backend quota (NOSPACE on Puts when LMDB size >= N; 0 = unlimited) and request cap
 ./build/bin/cetcd --quota-backend-bytes 2147483648 --max-request-bytes 1572864 \

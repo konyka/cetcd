@@ -801,6 +801,7 @@ Unknown server flags (for example `--wal-dir`) fail at parse instead of being ig
 `--node-id` must be `> 0`; a typo fail-closes instead of becoming Raft id `0`.
 `--election-tick` must be `> 0`; a typo or `0` fail-closes instead of becoming `10`.
 `--heartbeat-tick` must be `> 0`; a typo or `0` fail-closes instead of becoming `1`.
+`--snapshot-count` must be `> 0`; a typo or `0` fail-closes instead of becoming the default 10000.
 `--log-outputs` is `stderr` or `stdout`; a file path fail-closes.
 `--logger` is `zap` or `capnslog`; any other type fail-closes.
 `--log-level` is `trace`/`debug`/`info`/`warn`/`error` (etcd `warning`/`dpanic`/`panic`/`fatal` aliases); any other level fail-closes.

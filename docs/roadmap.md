@@ -222,6 +222,8 @@ Performance-first, fail-closed design:
   that now fails at parse.
 - **`--heartbeat-tick`** — must be `> 0`. A typo or `0` used to become `1`;
   that now fails at parse.
+- **`--snapshot-count`** — must be `> 0`. A typo or `0` used to become the
+  default 10000; that now fails at parse. Omitted still defaults to 10000.
 - **`--initial-cluster-token`** — written to `{data-dir}/cluster_token` on first
   start. A later start with a different token fail-closes so a data dir is not
   reused as a different cluster. Omitted flag stays a no-op.
