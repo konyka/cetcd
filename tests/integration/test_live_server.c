@@ -1694,6 +1694,59 @@ CETCD_TEST_CASE(live_server_client_tls_put) {
     rmdir(tmpl);
 }
 
+#ifndef CETCDCTL_BIN
+#define CETCDCTL_BIN "cetcdctl"
+#endif
+
+CETCD_TEST_CASE(live_cetcdctl_max_call_msg_size) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        cetcd_server_config cfg;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.node_id = 1;
+        strncpy(cfg.listen_addr, "127.0.0.1", sizeof(cfg.listen_addr) - 1);
+        cfg.listen_port = 23801;
+        cfg.election_tick = 10;
+        cfg.heartbeat_tick = 1;
+        cetcd_server *srv = cetcd_server_new(&cfg);
+        if (srv) {
+            cetcd_server_start(srv);
+            alarm(4);
+            cetcd_server_serve(srv);
+            cetcd_server_free(srv);
+        }
+        _exit(0);
+    }
+
+    struct timespec ts = {0, 300000000};
+    nanosleep(&ts, NULL);
+
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --max-call-send-msg-size 0 put k v >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --host 127.0.0.1 --port 23801 --max-call-send-msg-size 1 put k v >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --host 127.0.0.1 --port 23801 put k v >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --host 127.0.0.1 --port 23801 --max-call-recv-msg-size 1 get k >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    kill(pid, SIGTERM);
+    int st;
+    waitpid(pid, &st, 0);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_start_stop),
     CETCD_TEST_ENTRY(live_server_snapshot_after_writes),
@@ -1709,6 +1762,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_grpc_delete_range),
     CETCD_TEST_ENTRY(live_server_grpc_lease_grant),
     CETCD_TEST_ENTRY(live_server_client_tls_put),
+    CETCD_TEST_ENTRY(live_cetcdctl_max_call_msg_size),
 #ifdef CETCD_HAS_NGHTTP2
     CETCD_TEST_ENTRY(live_server_http2_status),
     CETCD_TEST_ENTRY(live_server_http2_watch),

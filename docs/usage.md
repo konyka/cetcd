@@ -533,8 +533,8 @@ Supported operations (in `then`/`else` sections):
 | `--cacert FILE` | none | TLS CA certificate (enables TLS; missing file fail-closes) |
 | `--cert FILE` | none | TLS client certificate (requires `--key`) |
 | `--key FILE` | none | TLS client key (requires `--cert`) |
-| `--max-call-send-msg-size N` | none | Max gRPC send message size (no-op) |
-| `--max-call-recv-msg-size N` | none | Max gRPC recv message size (no-op) |
+| `--max-call-send-msg-size N` | none | Max request payload in bytes (`0` rejected) |
+| `--max-call-recv-msg-size N` | none | Max response payload in bytes (`0` rejected; no silent truncate) |
 | `--discovery-srv DOMAIN` | none | Discovery service (no-op) |
 
 ### Table output formats

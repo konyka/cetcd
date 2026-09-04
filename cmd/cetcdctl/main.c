@@ -102,6 +102,8 @@ static char        g_key[512] = "";
 static cetcd_tls_ctx  *g_tls_ctx = NULL;
 static cetcd_tls_conn *g_tls = NULL;
 static int             g_tls_fd = -1;
+static uint64_t        g_max_call_send = 0; /* 0 = unlimited */
+static uint64_t        g_max_call_recv = 0;
 
 /* --- Lock state for signal handler --- */
 static char          g_lock_key[256];
@@ -316,6 +318,8 @@ static int send_request(int fd, const char *path,
     header[hpos++] = (uint8_t)((payload_len >> 8) & 0xFF);
     header[hpos++] = (uint8_t)(payload_len & 0xFF);
 
+    if (g_max_call_send && (uint64_t)payload_len > g_max_call_send) return -1;
+
     if (conn_send_all(fd, header, hpos) != (ssize_t)hpos) return -1;
     if (payload_len > 0) {
         if (conn_send_all(fd, payload, payload_len) != (ssize_t)payload_len) return -1;
@@ -338,7 +342,8 @@ static int recv_response(int fd, uint8_t *buf, size_t buf_cap) {
                            ((uint32_t)hdr[path_len + 2] << 16) |
                            ((uint32_t)hdr[path_len + 3] << 8)  |
                            ((uint32_t)hdr[path_len + 4]);
-    if (payload_len >= buf_cap) payload_len = buf_cap - 1;
+    if (g_max_call_recv && (uint64_t)payload_len > g_max_call_recv) return -1;
+    if (payload_len >= buf_cap) return -1;
 
     if (payload_len > 0) {
         n = conn_recv_all(fd, buf, payload_len);
@@ -5481,8 +5486,8 @@ static void print_usage(void) {
     printf("  --cacert FILE   TLS CA certificate (enables TLS; missing file fail-closes)\n");
     printf("  --cert FILE     TLS client certificate (requires --key)\n");
     printf("  --key FILE      TLS client key (requires --cert)\n");
-    printf("  --max-call-send-msg-size N  Max gRPC send message size (no-op)\n");
-    printf("  --max-call-recv-msg-size N  Max gRPC recv message size (no-op)\n");
+    printf("  --max-call-send-msg-size N  Max request payload (bytes; 0 rejected)\n");
+    printf("  --max-call-recv-msg-size N  Max response payload (bytes; 0 rejected)\n");
     printf("  --insecure-skip-tls-verify  Same as --insecure\n");
     printf("  --insecure-transport  Force plaintext even if TLS flags are set (fail-closed if mixed)\n");
     printf("  --password PASS  Password for --user authentication\n");
@@ -5645,10 +5650,24 @@ int main(int argc, char **argv) {
             g_key[sizeof(g_key) - 1] = '\0';
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--max-call-send-msg-size") == 0 && cmd_start + 1 < argc) {
-            /* Accepted for compatibility, no-op */
+            char *end = NULL;
+            errno = 0;
+            unsigned long long v = strtoull(argv[cmd_start + 1], &end, 10);
+            if (errno == ERANGE || !end || *end || v == 0) {
+                fprintf(stderr, "--max-call-send-msg-size must be > 0\n");
+                return 1;
+            }
+            g_max_call_send = (uint64_t)v;
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--max-call-recv-msg-size") == 0 && cmd_start + 1 < argc) {
-            /* Accepted for compatibility, no-op */
+            char *end = NULL;
+            errno = 0;
+            unsigned long long v = strtoull(argv[cmd_start + 1], &end, 10);
+            if (errno == ERANGE || !end || *end || v == 0) {
+                fprintf(stderr, "--max-call-recv-msg-size must be > 0\n");
+                return 1;
+            }
+            g_max_call_recv = (uint64_t)v;
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--insecure-skip-tls-verify") == 0) {
             g_insecure = 1;
