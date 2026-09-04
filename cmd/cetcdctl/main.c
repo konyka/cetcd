@@ -2031,7 +2031,15 @@ static int cmd_compact(int argc, char **argv) {
             else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
             i++;
         } else if (!rev) {
-            rev = strtoll(argv[i], NULL, 10);
+            char *end = NULL;
+            errno = 0;
+            long long v = strtoll(argv[i], &end, 10);
+            if (errno == ERANGE || !end || end == argv[i] || *end ||
+                v < 1) {
+                fprintf(stderr, "compact REV must be > 0\n");
+                return 1;
+            }
+            rev = v;
         }
     }
     if (rev <= 0) { fprintf(stderr, "usage: cetcdctl compact [--physical] [-w json|fields] REV\n"); return 1; }
@@ -5686,7 +5694,7 @@ static void print_usage(void) {
     printf("  txn cas [-w json|fields] KEY EXP NEW  Compare-and-swap (if KEY==EXP then KEY=NEW)\n");
     printf("  txn get [-w json|fields] KEY [RANGE_END]  Execute a transaction (Range)\n");
     printf("  txn del [-w json|fields] [--prefix] [--prev-kv] KEY [RANGE_END]  Execute a transaction (Delete)\n");
-    printf("  compact [--physical] [-w json|fields] REV  Compact MVCC history to revision\n");
+    printf("  compact [--physical] [-w json|fields] REV  Compact MVCC history to revision (REV > 0)\n");
     printf("  status [-w json|fields]  Get server status\n");
     printf("  alarm list [-w table|json|fields]  List all alarms\n");
     printf("  alarm activate [-w json|fields] [TYPE]  Activate an alarm (NOSPACE|CORRUPT|NONE)\n");

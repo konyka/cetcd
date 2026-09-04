@@ -323,6 +323,7 @@ to cancel the watch and close the stream.
 
 ```sh
 ./build/bin/cetcdctl compact 100           # Compact via Raft (followers share compacted_rev)
+# REV must be > 0; leftover text is not a silent truncated revision
 ```
 
 ### Cluster management

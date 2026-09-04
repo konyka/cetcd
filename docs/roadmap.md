@@ -216,6 +216,8 @@ Performance-first, fail-closed design:
   fails at parse.
 - **`cetcdctl move-leader TARGET_ID`** — hex integer `> 0`. `atol` used to
   take a decimal prefix or id `0`; that now fails at parse.
+- **`cetcdctl compact REV`** — must be `> 0`. Leftover text such as `10foo`
+  used to compact to revision `10` via `strtoll`; that now fails at parse.
 - **`--grpc-keepalive-time` / `--grpc-keepalive-timeout`** — TCP keepalive on
   accepted client sockets, accepted peer sockets, and outbound Raft dials
   (`uv_tcp_keepalive_ex`). Timeout without time, or a non-duration value, fail

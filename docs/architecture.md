@@ -618,7 +618,7 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `snapshot file format with revision` (snapshot files now include a 12-byte header: 4-byte magic "CTS1" + 8-byte revision in little-endian; `snapshot status` displays the revision; `snapshot restore` skips the header and writes KV data only to `snapshot.kv`; old format files without the header are still supported for backward compatibility),
 `member list -w fields` (new output format showing ID, name, peerURLs, clientURLs, and isLearner for each member),
 `endpoint status -w fields` (new output format showing endpoint, ID, revision, dbSize, raftIndex, raftTerm, and version),
-`compact -w fields` (new output format showing ResponseHeader fields),
+`compact -w fields` (new output format showing ResponseHeader fields; REV must be `> 0`; leftover text fail-closes),
 `defrag -w fields` (fields output showing ResponseHeader),
 `move-leader -w fields` (fields output showing ResponseHeader; TARGET_ID is hex `> 0`; leftover text fail-closes),
 `snapshot status -w fields` (fields output showing hash, revision, total_keys, size, filename),
