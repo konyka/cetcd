@@ -176,6 +176,9 @@ Performance-first, fail-closed design:
 - **`--discovery-srv`** — DNS SRV lookup is not implemented. The flag used to
   be ignored while the client still used `--host`/`--endpoints` (default
   127.0.0.1:2379). It now fails at parse.
+- **`cetcdctl --keepalive-time` / `--keepalive-timeout`** — TCP `SO_KEEPALIVE`
+  with `TCP_KEEPIDLE` / `TCP_KEEPINTVL`. Invalid durations and timeout without
+  time fail at parse. Omitted flags keep the OS default.
 
 ## Previously done (auth data plane)
 

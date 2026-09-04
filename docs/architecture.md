@@ -553,7 +553,7 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `auth status -w json` (JSON output for auth status query),
 `--insecure` (global flag, skips TLS verify when `--cacert`/`--cert` enable TLS),
 `--dial-timeout SEC` (global flag for connection timeout via SO_SNDTIMEO/SO_RCVTIMEO),
-`--keepalive-time SEC` / `--keepalive-timeout SEC` (global flags accepted for etcdctl compatibility, no-op for plain TCP),
+`--keepalive-time SEC` / `--keepalive-timeout SEC` (TCP `SO_KEEPALIVE` idle/interval; invalid values and timeout without time fail-close),
 `endpoint hashkv [-w json]` (subcommand to call HashKV RPC per endpoint, with JSON output),
 `endpoint health -w json` (JSON output for health check with endpoint/status/error fields),
 `endpoint status -w json|table` (JSON or table output for endpoint status, now parses actual revision from ResponseHeader),

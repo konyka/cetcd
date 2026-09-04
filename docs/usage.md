@@ -545,8 +545,8 @@ Supported operations (in `then`/`else` sections):
 | `--insecure-skip-tls-verify` | off | Same as `--insecure` |
 | `--insecure-transport` | off | Force plaintext; fail-closes if mixed with `--cacert`/`--cert`/`--key` or `https://` endpoints |
 | `--dial-timeout SEC` | none | Connection timeout |
-| `--keepalive-time SEC` | none | Keepalive ping interval (no-op, plain TCP) |
-| `--keepalive-timeout SEC` | none | Keepalive timeout (no-op, plain TCP) |
+| `--keepalive-time SEC` | none | TCP keepalive idle seconds (`0` disables; `0..86400`) |
+| `--keepalive-timeout SEC` | none | TCP keepalive interval (requires `--keepalive-time`) |
 | `--cacert FILE` | none | TLS CA certificate (enables TLS; missing file fail-closes) |
 | `--cert FILE` | none | TLS client certificate (requires `--key`) |
 | `--key FILE` | none | TLS client key (requires `--cert`) |

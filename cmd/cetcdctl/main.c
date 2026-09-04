@@ -75,6 +75,7 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 
 #include "cetcd/base.h"
@@ -95,6 +96,8 @@ static int         g_insecure = 0; /* skip TLS verify when TLS is on */
 static int         g_insecure_transport = 0; /* force plaintext */
 static int         g_endpoint_https = 0; /* --endpoints used https:// */
 static int         g_dial_timeout = 0; /* flag for --dial-timeout (seconds) */
+static int         g_tcp_keepalive_time = -1; /* -1 unset; 0 disable; else TCP_KEEPIDLE */
+static int         g_tcp_keepalive_timeout = -1; /* -1 unset; TCP_KEEPINTVL when time > 0 */
 static char        g_auth_token[CETCD_AUTH_MAX_TOKEN_LEN + 1] = ""; /* token from --user */
 static char        g_password[256] = ""; /* password from --password flag */
 static char        g_cacert[512] = "";
@@ -272,6 +275,33 @@ static int connect_server(void) {
         tv.tv_usec = 0;
         setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    }
+    if (g_tcp_keepalive_time >= 0) {
+        int on = g_tcp_keepalive_time > 0;
+        if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &on, sizeof(on)) != 0) {
+            perror("SO_KEEPALIVE");
+            close(fd);
+            return -1;
+        }
+        if (on) {
+#ifdef TCP_KEEPIDLE
+            if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &g_tcp_keepalive_time,
+                           sizeof(g_tcp_keepalive_time)) != 0) {
+                perror("TCP_KEEPIDLE");
+                close(fd);
+                return -1;
+            }
+#endif
+#ifdef TCP_KEEPINTVL
+            if (g_tcp_keepalive_timeout > 0 &&
+                setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &g_tcp_keepalive_timeout,
+                           sizeof(g_tcp_keepalive_timeout)) != 0) {
+                perror("TCP_KEEPINTVL");
+                close(fd);
+                return -1;
+            }
+#endif
+        }
     }
     if (connect(fd, (struct sockaddr *)&sa, sizeof(sa)) != 0) {
         perror("connect");
@@ -5483,8 +5513,8 @@ static void print_usage(void) {
     printf("  --debug       Print debug info (RPC path and response size)\n");
     printf("  --insecure    Skip TLS certificate verification (with --cacert/--cert)\n");
     printf("  --dial-timeout SEC  Connection timeout (default: none)\n");
-    printf("  --keepalive-time SEC    Keepalive ping interval (no-op, plain TCP)\n");
-    printf("  --keepalive-timeout SEC  Keepalive timeout (no-op, plain TCP)\n");
+    printf("  --keepalive-time SEC    TCP keepalive idle (0 disables; requires 0..86400)\n");
+    printf("  --keepalive-timeout SEC  TCP keepalive interval (requires --keepalive-time)\n");
     printf("  --cacert FILE   TLS CA certificate (enables TLS; missing file fail-closes)\n");
     printf("  --cert FILE     TLS client certificate (requires --key)\n");
     printf("  --key FILE      TLS client key (requires --cert)\n");
@@ -5638,10 +5668,34 @@ int main(int argc, char **argv) {
             g_dial_timeout = atoi(argv[cmd_start + 1]);
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--keepalive-time") == 0 && cmd_start + 1 < argc) {
-            /* Accepted for compatibility, no-op for plain TCP */
+            char *end = NULL;
+            errno = 0;
+            long v = strtol(argv[cmd_start + 1], &end, 10);
+            if (errno == ERANGE || !end || end == argv[cmd_start + 1] || v < 0 || v > 86400) {
+                fprintf(stderr, "--keepalive-time must be 0..86400 seconds\n");
+                return 1;
+            }
+            if (*end == 's') end++;
+            if (*end) {
+                fprintf(stderr, "--keepalive-time must be 0..86400 seconds\n");
+                return 1;
+            }
+            g_tcp_keepalive_time = (int)v;
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--keepalive-timeout") == 0 && cmd_start + 1 < argc) {
-            /* Accepted for compatibility, no-op for plain TCP */
+            char *end = NULL;
+            errno = 0;
+            long v = strtol(argv[cmd_start + 1], &end, 10);
+            if (errno == ERANGE || !end || end == argv[cmd_start + 1] || v <= 0 || v > 86400) {
+                fprintf(stderr, "--keepalive-timeout must be 1..86400 seconds\n");
+                return 1;
+            }
+            if (*end == 's') end++;
+            if (*end) {
+                fprintf(stderr, "--keepalive-timeout must be 1..86400 seconds\n");
+                return 1;
+            }
+            g_tcp_keepalive_timeout = (int)v;
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--cacert") == 0 && cmd_start + 1 < argc) {
             strncpy(g_cacert, argv[cmd_start + 1], sizeof(g_cacert) - 1);
@@ -5719,6 +5773,10 @@ int main(int argc, char **argv) {
     }
     if (g_endpoint_https && !g_cacert[0] && !(g_cert[0] && g_key[0]) && !g_insecure) {
         fprintf(stderr, "tls: https endpoint requires --cacert or --insecure\n");
+        return 1;
+    }
+    if (g_tcp_keepalive_timeout >= 0 && g_tcp_keepalive_time < 0) {
+        fprintf(stderr, "--keepalive-timeout requires --keepalive-time\n");
         return 1;
     }
     if (user_cred) {
