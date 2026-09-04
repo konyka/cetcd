@@ -517,12 +517,34 @@ cetcd_rpc_bytes auth_handle_user_revoke_role(cetcd_v3rpc *rpc, const uint8_t *re
             uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
         }
     }
-    int rc = -1;
-    if (g_rpc_auth && user && role) {
-        rc = cetcd_auth_revoke_role(g_rpc_auth, (const char *)user, (const char *)role);
+    if (!g_rpc_auth || !user || user_len == 0 || !role || role_len == 0) {
+        free(user); free(role);
+        return (cetcd_rpc_bytes){NULL, 0};
     }
+    const cetcd_user *u = cetcd_auth_get_user(g_rpc_auth, (const char *)user);
+    int has = 0;
+    if (u && u->roles && u->n_roles > 0) {
+        const char *p = u->roles;
+        for (size_t i = 0; i < u->n_roles; i++) {
+            if (strcmp(p, (const char *)role) == 0) { has = 1; break; }
+            p += strlen(p) + 1;
+        }
+    }
+    if (!has) {
+        free(user); free(role);
+        return (cetcd_rpc_bytes){NULL, 0};
+    }
+    uint8_t *entry = NULL;
+    size_t elen = 0;
+    if (cetcd_apply_encode_auth_user_revoke_role(&entry, &elen,
+            user, user_len, role, role_len) != 0) {
+        free(user); free(role);
+        return (cetcd_rpc_bytes){NULL, 0};
+    }
+    int rc = cetcd_v3rpc_propose_or_apply(entry, elen);
+    free(entry);
     free(user); free(role);
-    if (rc != CETCD_OK) return (cetcd_rpc_bytes){NULL, 0};
+    if (rc < 0) return (cetcd_rpc_bytes){NULL, 0};
     return simple_ok_response();
 }
 

@@ -341,7 +341,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl user list             # List all users
 ./build/bin/cetcdctl user change-password root NEWPASS  # Change password
 ./build/bin/cetcdctl user grant-role root admin         # Grant via Raft (followers share the binding)
-./build/bin/cetcdctl user revoke-role root admin        # Revoke role from user
+./build/bin/cetcdctl user revoke-role root admin        # Revoke via Raft (followers drop the binding)
 ./build/bin/cetcdctl user delete root                   # Delete via Raft (followers drop the user)
 
 # Role management

@@ -450,6 +450,61 @@ CETCD_TEST_CASE(apply_auth_user_grant_role_then_get) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(apply_auth_user_revoke_role_then_gone) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    uint8_t *buf = NULL;
+    size_t len = 0;
+    CETCD_ASSERT_TRUE(cetcd_apply_encode_auth_user_revoke_role(&buf, &len,
+        NULL, 0, (const uint8_t *)"admin", 5) != 0);
+    uint8_t trunc[] = { CETCD_APPLY_AUTH_USER_REVOKE_ROLE };
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_apply_entry(trunc, sizeof(trunc)) != 0);
+
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_user_revoke_role(&buf, &len,
+        (const uint8_t *)"root", 4, (const uint8_t *)"admin", 5), 0);
+    CETCD_ASSERT_EQ_INT((int)buf[0], CETCD_APPLY_AUTH_USER_REVOKE_ROLE);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+
+    cetcd_auth_store *tmp = cetcd_auth_store_new();
+    uint8_t hash[64];
+    size_t hlen = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_auth_hash_password(tmp, "secret", hash, sizeof(hash), &hlen), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_user_add(&buf, &len,
+        (const uint8_t *)"root", 4, hash, hlen), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+    cetcd_auth_store_free(tmp);
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_role_add(&buf, &len,
+        (const uint8_t *)"admin", 5), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_user_grant_role(&buf, &len,
+        (const uint8_t *)"root", 4, (const uint8_t *)"admin", 5), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+
+    CETCD_ASSERT_EQ_INT(cetcd_apply_encode_auth_user_revoke_role(&buf, &len,
+        (const uint8_t *)"root", 4, (const uint8_t *)"admin", 5), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_entry(buf, len), 0);
+    free(buf);
+
+    uint8_t get_buf[16];
+    size_t pos = 0;
+    get_buf[pos++] = 0x0a; get_buf[pos++] = 0x04;
+    memcpy(get_buf + pos, "root", 4); pos += 4;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Auth/UserGet", get_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found = 0;
+    for (size_t i = 0; i + 5 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "admin", 5) == 0) { found = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(!found);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(apply_auth_enabled_requires_root) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
     uint8_t *buf = NULL;
@@ -610,6 +665,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(apply_auth_role_add_then_get),
     CETCD_TEST_ENTRY(apply_auth_role_delete_then_gone),
     CETCD_TEST_ENTRY(apply_auth_user_grant_role_then_get),
+    CETCD_TEST_ENTRY(apply_auth_user_revoke_role_then_gone),
     CETCD_TEST_ENTRY(apply_auth_enabled_requires_root),
     CETCD_TEST_ENTRY(apply_compact_sets_revision),
     CETCD_TEST_ENTRY(quota_blocks_put_not_delete),
