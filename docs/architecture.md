@@ -569,7 +569,7 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `lease list -w fields` (fields output format for lease list),
 `get -w table` (table output format for range queries with KEY/CREATE_REV/MODIFY_REV/VERSION/VALUE columns),
 `auth enable/disable -w json` (JSON output for auth enable/disable operations),
-`lease revoke -w json` / `lease keepalive -w json` (JSON output for lease revoke and keepalive with ID/TTL fields),
+`lease revoke -w json` / `lease keepalive -w json` (JSON output for lease revoke and keepalive with ID/TTL fields; lease IDs must be `> 0`; a typo fail-closes),
 `user add/delete/get/list/change-password/grant-role/revoke-role -w json` (JSON output for all user management commands),
 `role add/delete/get/list/grant-permission/revoke-permission -w json` (JSON output for all role management commands, including permission details in role get),
 `snapshot save -w json` (JSON output for snapshot save with snapshot filename and size fields),

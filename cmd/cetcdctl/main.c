@@ -1625,6 +1625,17 @@ static int cmd_del(int argc, char **argv) {
     return 0;
 }
 
+static int parse_positive_u64_(const char *s, uint64_t *out) {
+    if (!s || !out) return -1;
+    char *end = NULL;
+    errno = 0;
+    unsigned long long v = strtoull(s, &end, 10);
+    if (errno == ERANGE || !end || end == s || *end || v < 1)
+        return -1;
+    *out = (uint64_t)v;
+    return 0;
+}
+
 static int cmd_lease(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl lease grant [--lease-id ID] [-w json|fields] TTL\n");
@@ -1720,9 +1731,14 @@ static int cmd_lease(int argc, char **argv) {
             }
         }
         if (!id_str) { fprintf(stderr, "usage: cetcdctl lease revoke [-w json|fields] ID\n"); return 1; }
+        uint64_t lease_id = 0;
+        if (parse_positive_u64_(id_str, &lease_id) != 0) {
+            fprintf(stderr, "lease revoke ID must be > 0\n");
+            return 1;
+        }
         uint8_t req[32], resp[256];
         size_t pos = 0;
-        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(id_str));
+        pos = encode_varint_field(req, sizeof(req), pos, 0x08, lease_id);
         int rlen = do_rpc("/etcdserverpb.Lease/LeaseRevoke", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
@@ -1745,9 +1761,14 @@ static int cmd_lease(int argc, char **argv) {
             }
         }
         if (!id_str) { fprintf(stderr, "usage: cetcdctl lease timetolive [--keys] [-w json|fields] ID\n"); return 1; }
+        uint64_t ttl_id = 0;
+        if (parse_positive_u64_(id_str, &ttl_id) != 0) {
+            fprintf(stderr, "lease timetolive ID must be > 0\n");
+            return 1;
+        }
         uint8_t req[32], resp[4096];
         size_t pos = 0;
-        pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(id_str));
+        pos = encode_varint_field(req, sizeof(req), pos, 0x08, ttl_id);
         if (want_keys) {
             pos = encode_varint_field(req, sizeof(req), pos, 0x10, 1);
         }
@@ -1925,7 +1946,11 @@ static int cmd_lease(int argc, char **argv) {
             }
         }
         if (!id_str) { fprintf(stderr, "usage: cetcdctl lease keepalive [--once] [--interval SEC] [-w json|fields] ID\n"); return 1; }
-        uint64_t lease_id = (uint64_t)atol(id_str);
+        uint64_t lease_id = 0;
+        if (parse_positive_u64_(id_str, &lease_id) != 0) {
+            fprintf(stderr, "lease keepalive ID must be > 0\n");
+            return 1;
+        }
         /* Set SIGINT handler for graceful exit from keepalive loop */
         g_keepalive_stop = 0;
         void (*old_sig)(int) = signal(SIGINT, keepalive_sigint_handler);
@@ -5621,8 +5646,8 @@ static void print_usage(void) {
     printf("  del [--prefix] [--from-key] [--range-end KEY] [--prev-kv] [--hex] [--print-value-only] [-w json|fields] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --range-end, --prev-kv, --hex, --print-value-only)\n");
     printf("  watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--progress-notify] [--start-rev N] [--filter NOPUT|NODELETE] [--hex] [--exec CMD] [-w json|fields] KEY  Watch key changes (-i for interactive mode, --progress-notify for periodic progress updates, --exec runs CMD with ETCD_WATCH_* env vars)\n");
     printf("  lease grant [--lease-id ID] [-w json|fields] TTL  Grant a lease (TTL > 0; --lease-id hex)\n");
-    printf("  lease revoke [-w json|fields] ID  Revoke a lease by ID\n");
-    printf("  lease timetolive [--keys] [-w json|fields] ID  Query remaining TTL\n");
+    printf("  lease revoke [-w json|fields] ID  Revoke a lease by ID (> 0)\n");
+    printf("  lease timetolive [--keys] [-w json|fields] ID  Query remaining TTL (ID > 0)\n");
     printf("  lease list [-w table|json|fields]  List all active leases\n");
     printf("  lease keepalive [--once] [--interval SEC] [-w json|fields] ID  Keep a lease alive (loop by default, --once for single, --interval > 0)\n");
     printf("  txn -i [-w json|fields]  Interactive transaction (read from stdin: cmp/put/get/del/then/else)\n");

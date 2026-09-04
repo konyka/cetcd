@@ -295,6 +295,7 @@ to cancel the watch and close the stream.
 # --lease-id must be hex; leftover text is not id 0
 ./build/bin/cetcdctl lease grant 60 -w fields              # Grant with fields output
 ./build/bin/cetcdctl lease revoke 1                        # Revoke lease ID 1
+# lease ID must be > 0; a typo is not lease id 0
 ./build/bin/cetcdctl lease revoke 1 -w fields              # Revoke with fields output
 ./build/bin/cetcdctl lease timetolive 1                    # Check remaining TTL
 ./build/bin/cetcdctl lease timetolive --keys 1 -w fields   # Include keys with fields output
