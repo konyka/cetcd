@@ -2425,6 +2425,11 @@ CETCD_TEST_CASE(live_cetcdctl_lease_grant_ttl) {
              "'%s' lease grant 0 >/dev/null 2>&1",
              CETCDCTL_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' lease grant --lease-id zz 60 >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
 CETCD_TEST_CASE(live_cetcdctl_max_call_msg_size) {

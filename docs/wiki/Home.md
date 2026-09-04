@@ -826,6 +826,7 @@ the flag and still use 127.0.0.1:2379).
 `cetcdctl lock --ttl` / `elect --ttl` must be `> 0`; leftover text fail-closes instead of becoming a truncated TTL.
 `cetcdctl lease keepalive --interval` must be `> 0`; leftover text fail-closes instead of becoming a truncated interval.
 `cetcdctl lease grant TTL` must be `> 0`; a typo fail-closes instead of granting TTL `0`.
+`cetcdctl lease grant --lease-id` must be hex; leftover text fail-closes instead of becoming id `0`.
 `--grpc-keepalive-time` / `--grpc-keepalive-timeout` set TCP keepalive on accepted
 client sockets, accepted peer sockets, and outbound Raft dials
 (`--grpc-keepalive-min-time` is not applied; a non-duration value fail-closes).

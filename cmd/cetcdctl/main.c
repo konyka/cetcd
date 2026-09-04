@@ -1646,7 +1646,15 @@ static int cmd_lease(int argc, char **argv) {
                 else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
                 i++;
             } else if (strcmp(argv[i], "--lease-id") == 0 && i + 1 < argc) {
-                lease_id = (uint64_t)strtoull(argv[++i], NULL, 16);
+                const char *s = argv[++i];
+                char *end = NULL;
+                errno = 0;
+                unsigned long long v = strtoull(s, &end, 16);
+                if (errno == ERANGE || !end || end == s || *end) {
+                    fprintf(stderr, "--lease-id must be a hex integer\n");
+                    return 1;
+                }
+                lease_id = (uint64_t)v;
                 has_lease_id = true;
             } else if (!ttl_str) {
                 ttl_str = argv[i];
@@ -5612,7 +5620,7 @@ static void print_usage(void) {
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
     printf("  del [--prefix] [--from-key] [--range-end KEY] [--prev-kv] [--hex] [--print-value-only] [-w json|fields] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --range-end, --prev-kv, --hex, --print-value-only)\n");
     printf("  watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--progress-notify] [--start-rev N] [--filter NOPUT|NODELETE] [--hex] [--exec CMD] [-w json|fields] KEY  Watch key changes (-i for interactive mode, --progress-notify for periodic progress updates, --exec runs CMD with ETCD_WATCH_* env vars)\n");
-    printf("  lease grant [--lease-id ID] [-w json|fields] TTL  Grant a lease (TTL in seconds; must be > 0)\n");
+    printf("  lease grant [--lease-id ID] [-w json|fields] TTL  Grant a lease (TTL > 0; --lease-id hex)\n");
     printf("  lease revoke [-w json|fields] ID  Revoke a lease by ID\n");
     printf("  lease timetolive [--keys] [-w json|fields] ID  Query remaining TTL\n");
     printf("  lease list [-w table|json|fields]  List all active leases\n");
