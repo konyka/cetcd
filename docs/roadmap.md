@@ -163,7 +163,8 @@ Performance-first, fail-closed design:
   `--cert-file`, `--listen-peer-urls https://...` without `--peer-cert-file`,
   or `cetcdctl --endpoints https://...` without `--cacert`/`--insecure` fail
   closed instead of speaking plaintext. `--insecure-transport` mixed with
-  an https endpoint also fails.
+  an https endpoint also fails. A non-port in `--listen-client-urls` used to
+  bind port `0`; that now fails at parse.
 - **`--initial-cluster-state` / `--force-new-cluster`** — `new` (or omitted) is
   the only cluster bootstrap. `existing` would look like a join while still
   forming a new cluster; `--force-new-cluster` would look like a wipe. Both
