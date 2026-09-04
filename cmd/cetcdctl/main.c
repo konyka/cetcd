@@ -3178,8 +3178,16 @@ static int cmd_lock(int argc, char **argv) {
     const char *lockname = NULL;
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--ttl") == 0 && i + 1 < argc) {
-            ttl = atoi(argv[++i]);
-            if (ttl <= 0) { fprintf(stderr, "invalid --ttl value\n"); return 1; }
+            const char *s = argv[++i];
+            char *end = NULL;
+            errno = 0;
+            long v = strtol(s, &end, 10);
+            if (errno == ERANGE || !end || end == s || *end ||
+                v < 1 || v > 0x7fffffffL) {
+                fprintf(stderr, "--ttl must be > 0\n");
+                return 1;
+            }
+            ttl = (int)v;
         } else if (strcmp(argv[i], "--print-value-only") == 0) {
             print_value_only = 1;
         } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
@@ -3419,8 +3427,16 @@ static int cmd_elect(int argc, char **argv) {
     const char *proposal = NULL;
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--ttl") == 0 && i + 1 < argc) {
-            ttl = atoi(argv[++i]);
-            if (ttl <= 0) { fprintf(stderr, "invalid --ttl value\n"); return 1; }
+            const char *s = argv[++i];
+            char *end = NULL;
+            errno = 0;
+            long v = strtol(s, &end, 10);
+            if (errno == ERANGE || !end || end == s || *end ||
+                v < 1 || v > 0x7fffffffL) {
+                fprintf(stderr, "--ttl must be > 0\n");
+                return 1;
+            }
+            ttl = (int)v;
         } else if (strcmp(argv[i], "--print-value-only") == 0) {
             print_value_only = 1;
         } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
@@ -5635,8 +5651,8 @@ static void print_usage(void) {
     printf("  endpoint hashkv [--cluster] [-w json|table|fields]      Get KV hash per endpoint (or all cluster members with --cluster)\n");
     printf("  check perf [--load S|M|L] [--prefix PREFIX] [-w json|fields]    Run a simple performance check\n");
     printf("  check datascale [-w json|fields] [--load N] [--prefix PREFIX]  Test database scalability (--load > 0)\n");
-    printf("  lock [--ttl N] [--print-value-only] [-w json|fields] LOCKNAME [CMD...]  Acquire a distributed lock\n");
-    printf("  elect [--ttl N] [--print-value-only] [-w json|fields] ELECTION_NAME [PROPOSAL]  Leader election\n");
+    printf("  lock [--ttl N] [--print-value-only] [-w json|fields] LOCKNAME [CMD...]  Acquire a distributed lock (--ttl > 0)\n");
+    printf("  elect [--ttl N] [--print-value-only] [-w json|fields] ELECTION_NAME [PROPOSAL]  Leader election (--ttl > 0)\n");
     printf("  completion bash|zsh|fish   Generate shell completion script\n");
 }
 

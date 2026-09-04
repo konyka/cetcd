@@ -344,6 +344,7 @@ to cancel the watch and close the stream.
 # while the lock is held, preventing it from expiring.
 ./build/bin/cetcdctl lock mylock               # Prints lock key, waits for signal
 ./build/bin/cetcdctl lock --ttl 30 mylock     # Lock with 30s lease TTL
+# --ttl must be > 0; leftover text is not a silent truncated TTL
 ./build/bin/cetcdctl lock --print-value-only mylock  # Print only lease ID
 ./build/bin/cetcdctl lock mylock echo done    # Run command while holding lock
 ./build/bin/cetcdctl lock -w json mylock       # Lock with JSON output (header+key)

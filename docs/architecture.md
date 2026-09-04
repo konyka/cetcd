@@ -576,7 +576,7 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `get -w json` enhanced (now includes ResponseHeader with cluster_id/member_id/revision/raft_term, and full KV fields: create_revision/mod_revision/version/lease in each entry),
 `auth login -w json` (JSON output with token field for authentication response),
 `check perf -w json` (JSON output with status and put/get latency measurements in milliseconds),
-`lock --ttl N` / `elect --ttl N` (customizable lease TTL for distributed lock and leader election, default 60s),
+`lock --ttl N` / `elect --ttl N` (customizable lease TTL for distributed lock and leader election, default 60s; `--ttl` must be `> 0`; leftover text fail-closes),
 `put -w json` enhanced (now parses ResponseHeader and outputs cluster_id/member_id/revision/raft_term),
 `del -w json` enhanced (now parses ResponseHeader and outputs prev_kvs array with full KV metadata when --prev-kv is set),
 All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetolive/list/grant/keepalive, txn put/del, alarm list, auth enable/disable/status, user/role CRUD, member remove/update/promote, downgrade, defrag, move-leader — all output real cluster_id/member_id/revision/raft_term instead of empty `{}`).
