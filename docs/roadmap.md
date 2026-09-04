@@ -216,6 +216,8 @@ Performance-first, fail-closed design:
   that now fails at parse.
 - **`--metrics-port`** — `0..65535` (`0` disables). A typo used to disable
   metrics via `atoi`; that now fails at parse.
+- **`--node-id`** — must be `> 0`. A typo used to become Raft id `0` via
+  `atol`; that now fails at parse.
 - **`--initial-cluster-token`** — written to `{data-dir}/cluster_token` on first
   start. A later start with a different token fail-closes so a data dir is not
   reused as a different cluster. Omitted flag stays a no-op.
