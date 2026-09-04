@@ -380,6 +380,8 @@ campaigns on `server_new` so the first Put does not wait for election ticks.
   or role is fail-closed before propose; apply is idempotent if already granted.
 - **Auth UserRevokeRole** proposes apply tag 20 (username + role). A missing
   binding is fail-closed before propose; apply is idempotent if already revoked.
+- **Auth RoleGrantPermission** proposes apply tag 21 (role + key + perm type).
+  A missing role is fail-closed before propose; apply overwrites the permission.
 - **Compact** proposes apply tag 11 (revision varint) so followers share the same
   compacted revision. A future or already-compacted revision is fail-closed
   before propose. Apply is idempotent for WAL replay.
