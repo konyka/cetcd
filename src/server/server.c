@@ -2079,6 +2079,10 @@ int cetcd_server_start(cetcd_server *srv) {
     if (srv->cfg.cipher_suites[0] &&
         !(srv->cfg.cert_file[0] || srv->cfg.peer_cert_file[0]))
         return CETCD_ERR_INVAL;
+    if (srv->cfg.listen_https && !srv->cfg.cert_file[0])
+        return CETCD_ERR_INVAL;
+    if (srv->cfg.peer_listen_https && !srv->cfg.peer_cert_file[0])
+        return CETCD_ERR_INVAL;
 
     if (!srv->tls_client && !srv->tls_peer && !srv->tls_peer_out) {
         int trc = load_tls_ctx_(&srv->tls_client,

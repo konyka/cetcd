@@ -157,6 +157,11 @@ Performance-first, fail-closed design:
 - **`--max-call-send-msg-size` / `--max-call-recv-msg-size`** — cap the custom-frame
   payload (not the path header). `0` or a non-integer fail-closes at parse.
   An oversized send is not written; an oversized recv is not truncated.
+- **`https://` listen URLs** — `--listen-client-urls https://...` without
+  `--cert-file`, `--listen-peer-urls https://...` without `--peer-cert-file`,
+  or `cetcdctl --endpoints https://...` without `--cacert`/`--insecure` fail
+  closed instead of speaking plaintext. `--insecure-transport` mixed with
+  an https endpoint also fails.
 
 ## Previously done (auth data plane)
 

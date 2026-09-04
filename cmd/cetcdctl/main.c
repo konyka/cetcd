@@ -93,6 +93,7 @@ static int         g_write_table = 0; /* flag for -w table */
 static int         g_debug = 0; /* flag for --debug */
 static int         g_insecure = 0; /* skip TLS verify when TLS is on */
 static int         g_insecure_transport = 0; /* force plaintext */
+static int         g_endpoint_https = 0; /* --endpoints used https:// */
 static int         g_dial_timeout = 0; /* flag for --dial-timeout (seconds) */
 static char        g_auth_token[CETCD_AUTH_MAX_TOKEN_LEN + 1] = ""; /* token from --user */
 static char        g_password[256] = ""; /* password from --password flag */
@@ -169,7 +170,8 @@ static size_t encode_varint_field(uint8_t *buf, size_t cap, size_t pos,
 /* --- Wire protocol --- */
 
 static int tls_wanted_(void) {
-    return !g_insecure_transport && (g_cacert[0] || (g_cert[0] && g_key[0]));
+    return !g_insecure_transport &&
+           (g_cacert[0] || (g_cert[0] && g_key[0]) || g_endpoint_https);
 }
 
 static void conn_close(int fd) {
@@ -5475,7 +5477,7 @@ static void print_usage(void) {
     printf("Global options:\n");
     printf("  --host ADDR    Server address (default: 127.0.0.1)\n");
     printf("  --port PORT    Server port (default: 2379)\n");
-    printf("  --endpoints EP Server endpoint (host:port format, uses first endpoint)\n");
+    printf("  --endpoints EP Server endpoint (https requires --cacert or --insecure)\n");
     printf("  --user USER:PASS  Authenticate with server before executing command\n");
     printf("  --command-timeout SEC  Timeout for commands (default: none)\n");
     printf("  --debug       Print debug info (RPC path and response size)\n");
@@ -5577,8 +5579,12 @@ int main(int argc, char **argv) {
             char *comma = strchr(ep_buf, ',');
             if (comma) *comma = '\0';
             char *ep_start = ep_buf;
-            if (strncmp(ep_start, "http://", 7) == 0) ep_start += 7;
-            else if (strncmp(ep_start, "https://", 8) == 0) ep_start += 8;
+            if (strncmp(ep_start, "https://", 8) == 0) {
+                g_endpoint_https = 1;
+                ep_start += 8;
+            } else if (strncmp(ep_start, "http://", 7) == 0) {
+                ep_start += 7;
+            }
             const char *colon = strchr(ep_start, ':');
             if (colon) {
                 size_t hlen = (size_t)(colon - ep_start);
@@ -5705,6 +5711,14 @@ int main(int argc, char **argv) {
     }
     if (g_insecure_transport && (g_cacert[0] || g_cert[0] || g_key[0])) {
         fprintf(stderr, "tls: --insecure-transport cannot be mixed with --cacert/--cert/--key\n");
+        return 1;
+    }
+    if (g_endpoint_https && g_insecure_transport) {
+        fprintf(stderr, "tls: https endpoint cannot be mixed with --insecure-transport\n");
+        return 1;
+    }
+    if (g_endpoint_https && !g_cacert[0] && !(g_cert[0] && g_key[0]) && !g_insecure) {
+        fprintf(stderr, "tls: https endpoint requires --cacert or --insecure\n");
         return 1;
     }
     if (user_cred) {

@@ -787,6 +787,9 @@ length-prefixed path. `--insecure` skips verify; missing files, cert-without-key
 or `--insecure-transport` mixed with cert flags fail closed. `--auto-tls` stays a no-op.
 `--cipher-suites` restricts TLS (IANA or OpenSSL names); unknown names or the flag
 without certs fail closed.
+`https://` on `--listen-client-urls` / `--listen-peer-urls` requires the matching
+cert files; `cetcdctl --endpoints https://...` requires `--cacert` or `--insecure`
+(and rejects `--insecure-transport`). Plaintext is not a silent fallback.
 `--max-call-send-msg-size` / `--max-call-recv-msg-size` cap the payload (`0` rejected;
 oversized recv is not truncated).
 

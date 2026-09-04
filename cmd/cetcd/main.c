@@ -34,8 +34,8 @@ static void print_usage(const char *prog) {
     printf("  --log-level LVL  Log level: trace,debug,info,warn,error (default: info)\n");
     printf("  --log-format FMT Log format: text,json (default: text)\n");
     printf("\n  etcd-compatible flags (accepted for compatibility):\n");
-    printf("  --listen-client-urls URL    Client listen URL (e.g. http://127.0.0.1:2379)\n");
-    printf("  --listen-peer-urls URL      Peer listen URL (e.g. http://127.0.0.1:2380)\n");
+    printf("  --listen-client-urls URL    Client listen URL (https requires --cert-file)\n");
+    printf("  --listen-peer-urls URL      Peer listen URL (https requires --peer-cert-file)\n");
     printf("  --advertise-client-urls URL  Accepted but no-op (single-node)\n");
     printf("  --initial-advertise-peer-urls URL  Accepted but no-op (single-node)\n");
     printf("  --initial-cluster-state STATE  Accepted (always 'new' in cetcd)\n");
@@ -146,8 +146,12 @@ int main(int argc, char **argv) {
             /* Parse URL format: http://addr:port */
             const char *url = argv[++i];
             const char *addr_start = url;
-            if (strncmp(url, "http://", 7) == 0) addr_start = url + 7;
-            else if (strncmp(url, "https://", 8) == 0) addr_start = url + 8;
+            if (strncmp(url, "https://", 8) == 0) {
+                cfg.listen_https = true;
+                addr_start = url + 8;
+            } else if (strncmp(url, "http://", 7) == 0) {
+                addr_start = url + 7;
+            }
             const char *colon = strrchr(addr_start, ':');
             if (colon) {
                 size_t alen = (size_t)(colon - addr_start);
@@ -162,8 +166,12 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--listen-peer-urls") == 0 && i + 1 < argc) {
             const char *url = argv[++i];
             const char *addr_start = url;
-            if (strncmp(url, "http://", 7) == 0) addr_start = url + 7;
-            else if (strncmp(url, "https://", 8) == 0) addr_start = url + 8;
+            if (strncmp(url, "https://", 8) == 0) {
+                cfg.peer_listen_https = true;
+                addr_start = url + 8;
+            } else if (strncmp(url, "http://", 7) == 0) {
+                addr_start = url + 7;
+            }
             const char *colon = strrchr(addr_start, ':');
             if (colon) {
                 size_t alen = (size_t)(colon - addr_start);

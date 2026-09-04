@@ -1698,6 +1698,19 @@ CETCD_TEST_CASE(live_server_client_tls_put) {
 #define CETCDCTL_BIN "cetcdctl"
 #endif
 
+CETCD_TEST_CASE(live_cetcdctl_https_endpoint_requires_tls) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --endpoints https://127.0.0.1:2379 version >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --endpoints https://127.0.0.1:2379 --insecure-transport version >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcdctl_max_call_msg_size) {
     pid_t pid = fork();
     if (pid == 0) {
@@ -1762,6 +1775,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_grpc_delete_range),
     CETCD_TEST_ENTRY(live_server_grpc_lease_grant),
     CETCD_TEST_ENTRY(live_server_client_tls_put),
+    CETCD_TEST_ENTRY(live_cetcdctl_https_endpoint_requires_tls),
     CETCD_TEST_ENTRY(live_cetcdctl_max_call_msg_size),
 #ifdef CETCD_HAS_NGHTTP2
     CETCD_TEST_ENTRY(live_server_http2_status),

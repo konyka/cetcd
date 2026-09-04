@@ -1600,6 +1600,63 @@ CETCD_TEST_CASE(server_start_accepts_iana_cipher_suites) {
     cleanup_selfsigned_(dir);
 }
 
+CETCD_TEST_CASE(server_start_rejects_https_listen_without_tls) {
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    cfg.listen_https = true;
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), CETCD_ERR_INVAL);
+    cetcd_server_free(srv);
+}
+
+CETCD_TEST_CASE(server_start_rejects_https_peer_listen_without_tls) {
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    cfg.peer_listen_https = true;
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), CETCD_ERR_INVAL);
+    cetcd_server_free(srv);
+}
+
+CETCD_TEST_CASE(server_start_accepts_https_listen_with_certs) {
+    char dir[128];
+    CETCD_ASSERT_EQ_INT(make_selfsigned_(dir, sizeof(dir)), 0);
+    char cert[300], key[300];
+    snprintf(cert, sizeof(cert), "%s/cert.pem", dir);
+    snprintf(key, sizeof(key), "%s/key.pem", dir);
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    cfg.listen_https = true;
+    cfg.peer_listen_https = true;
+    strncpy(cfg.cert_file, cert, sizeof(cfg.cert_file) - 1);
+    strncpy(cfg.key_file, key, sizeof(cfg.key_file) - 1);
+    strncpy(cfg.peer_cert_file, cert, sizeof(cfg.peer_cert_file) - 1);
+    strncpy(cfg.peer_key_file, key, sizeof(cfg.peer_key_file) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+    cetcd_server_free(srv);
+    cleanup_selfsigned_(dir);
+}
+
 CETCD_TEST_CASE(server_start_rejects_jwt_without_key) {
     cetcd_server_config cfg;
     memset(&cfg, 0, sizeof(cfg));
@@ -1828,6 +1885,9 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_start_rejects_cipher_suites_without_tls),
     CETCD_TEST_ENTRY(server_start_rejects_unknown_cipher_suites),
     CETCD_TEST_ENTRY(server_start_accepts_iana_cipher_suites),
+    CETCD_TEST_ENTRY(server_start_rejects_https_listen_without_tls),
+    CETCD_TEST_ENTRY(server_start_rejects_https_peer_listen_without_tls),
+    CETCD_TEST_ENTRY(server_start_accepts_https_listen_with_certs),
     CETCD_TEST_ENTRY(server_start_rejects_jwt_without_key),
     CETCD_TEST_ENTRY(server_start_rejects_jwt_ps256),
     CETCD_TEST_ENTRY(server_start_accepts_jwt_hs256),

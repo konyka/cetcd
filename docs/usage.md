@@ -159,6 +159,12 @@ cetcd accepts several etcd server flags for migration compatibility:
 ./build/bin/cetcd --cert-file server.crt --key-file server.key \
   --cipher-suites TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
 
+# https listen URLs require TLS certs (plaintext is not a silent fallback)
+./build/bin/cetcd --listen-client-urls https://127.0.0.1:2379 \
+  --listen-peer-urls https://127.0.0.1:2380 \
+  --cert-file server.crt --key-file server.key \
+  --peer-cert-file peer.crt --peer-key-file peer.key --data-dir ./data
+
 # Limit flags: --max-request-bytes and --max-txn-ops are applied
 ./build/bin/cetcd --max-txn-ops 128 --max-request-bytes 1572864 \
   --auth-token 'jwt,sign-method=RS256,priv-key=./jwt.pem,ttl=5m' --bcrypt-cost 10
@@ -523,14 +529,14 @@ Supported operations (in `then`/`else` sections):
 |--------|---------|-------------|
 | `--host ADDR` | 127.0.0.1 | Server address |
 | `--port PORT` | 2379 | Server port |
-| `--endpoints EP` | 127.0.0.1:2379 | Server endpoint (host:port, comma-separated for multiple, http:// prefix supported) |
+| `--endpoints EP` | 127.0.0.1:2379 | Server endpoint (host:port; `https://` requires `--cacert` or `--insecure`) |
 | `--command-timeout SEC` | none | Timeout for commands (integer seconds or Go duration: `5s`, `1m`, `1m30s`, `500ms`) |
 | `--user USER:PASS` | none | Authenticate with server before command |
 | `--password PASS` | none | Password for `--user` (when USER has no `:PASS`) |
 | `--debug` | off | Print RPC path and response size |
-| `--insecure` | off | Skip TLS verify when `--cacert`/`--cert` enable TLS |
+| `--insecure` | off | Skip TLS verify when TLS is on; required with `https://` endpoints if no `--cacert` |
 | `--insecure-skip-tls-verify` | off | Same as `--insecure` |
-| `--insecure-transport` | off | Force plaintext; fail-closes if mixed with `--cacert`/`--cert`/`--key` |
+| `--insecure-transport` | off | Force plaintext; fail-closes if mixed with `--cacert`/`--cert`/`--key` or `https://` endpoints |
 | `--dial-timeout SEC` | none | Connection timeout |
 | `--keepalive-time SEC` | none | Keepalive ping interval (no-op, plain TCP) |
 | `--keepalive-timeout SEC` | none | Keepalive timeout (no-op, plain TCP) |
