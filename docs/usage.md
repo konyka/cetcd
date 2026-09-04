@@ -181,6 +181,9 @@ cetcd accepts several etcd server flags for migration compatibility:
 ./build/bin/cetcd --experimental-initial-corrupt-check \
   --experimental-compaction-batch-limit 1000
 
+# Unknown flags fail at parse (not a silent ignore)
+# ./build/bin/cetcd --wal-dir /var/lib/cetcd/wal  → error: unknown flag
+
 # Raft timing parameters (actually applied)
 ./build/bin/cetcd --election-tick 10 --heartbeat-tick 1
 ```

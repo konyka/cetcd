@@ -252,6 +252,9 @@ int main(int argc, char **argv) {
         } else if (strncmp(argv[i], "--experimental-", 15) == 0) {
             /* no-op, accepted for etcd compatibility */
             if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* skip value if present */
+        } else {
+            fprintf(stderr, "unknown flag: %s\n", argv[i]);
+            return 1;
         }
     }
     strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);

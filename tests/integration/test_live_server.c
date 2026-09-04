@@ -1697,6 +1697,22 @@ CETCD_TEST_CASE(live_server_client_tls_put) {
 #ifndef CETCDCTL_BIN
 #define CETCDCTL_BIN "cetcdctl"
 #endif
+#ifndef CETCD_BIN
+#define CETCD_BIN "cetcd"
+#endif
+
+CETCD_TEST_CASE(live_cetcd_rejects_unknown_flag) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --wal-dir /tmp/cetcd-wal >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
 
 CETCD_TEST_CASE(live_cetcdctl_https_endpoint_requires_tls) {
     char cmd[1024];
@@ -1775,6 +1791,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_grpc_delete_range),
     CETCD_TEST_ENTRY(live_server_grpc_lease_grant),
     CETCD_TEST_ENTRY(live_server_client_tls_put),
+    CETCD_TEST_ENTRY(live_cetcd_rejects_unknown_flag),
     CETCD_TEST_ENTRY(live_cetcdctl_https_endpoint_requires_tls),
     CETCD_TEST_ENTRY(live_cetcdctl_max_call_msg_size),
 #ifdef CETCD_HAS_NGHTTP2
