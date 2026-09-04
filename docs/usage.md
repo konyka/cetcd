@@ -348,7 +348,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl role add admin        # Create via Raft (followers share the role)
 ./build/bin/cetcdctl role get admin        # View role permissions
 ./build/bin/cetcdctl role list             # List all roles
-./build/bin/cetcdctl role delete admin     # Delete role
+./build/bin/cetcdctl role delete admin     # Delete via Raft (followers drop the role)
 
 # Permission management
 ./build/bin/cetcdctl role grant-permission admin readwrite /foo    # Grant permission on a key

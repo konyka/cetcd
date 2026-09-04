@@ -303,6 +303,13 @@ int cetcd_apply_encode_auth_role_add(uint8_t **out, size_t *out_len,
                           NULL, 0, 0, 0, out, out_len);
 }
 
+int cetcd_apply_encode_auth_role_delete(uint8_t **out, size_t *out_len,
+                                        const uint8_t *name, size_t name_len) {
+    if (!name || name_len == 0) return -1;
+    return encode_tagged_(CETCD_APPLY_AUTH_ROLE_DELETE, name, name_len,
+                          NULL, 0, 0, 0, out, out_len);
+}
+
 static void lease_after_put_(const uint8_t *key, size_t key_len,
                              int64_t old_lease, int64_t new_lease) {
     if (!g_rpc_lease_mgr) return;
@@ -664,6 +671,20 @@ int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len) {
             return 0;
         }
         if (cetcd_auth_add_role(g_rpc_auth, name, 1, 1, "/", 1) != CETCD_OK)
+            return -1;
+        cetcd_v3rpc_auth_persist();
+        return 0;
+    }
+    if (op == CETCD_APPLY_AUTH_ROLE_DELETE) {
+        if (!g_rpc_auth || klen >= 128) return -1;
+        char name[128];
+        memcpy(name, key, (size_t)klen);
+        name[(size_t)klen] = '\0';
+        if (!cetcd_auth_get_role(g_rpc_auth, name)) {
+            cetcd_v3rpc_auth_persist();
+            return 0;
+        }
+        if (cetcd_auth_remove_role(g_rpc_auth, name) != CETCD_OK)
             return -1;
         cetcd_v3rpc_auth_persist();
         return 0;
