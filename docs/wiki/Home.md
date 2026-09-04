@@ -781,7 +781,10 @@ contexts at start. Plaintext remains the default. Cert without key, missing file
 `--client-cert-auth` without `--trusted-ca-file` fail closed. Handshake runs on memory
 BIOs so libuv keeps the socket; blocking `SSL_accept` is not used on the reactor.
 `--peer-cert-file` also wraps outbound `peer_tx_` (client handshake after TCP connect).
-`cetcdctl` is still a plaintext client. `--auto-tls` stays a no-op.
+`cetcdctl --cacert FILE` (optional `--cert`/`--key`) wraps the same custom-frame
+client in a blocking TLS handshake and omits ALPN so the server keeps the
+length-prefixed path. `--insecure` skips verify; missing files, cert-without-key,
+or `--insecure-transport` mixed with cert flags fail closed. `--auto-tls` stays a no-op.
 
 ---
 

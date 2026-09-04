@@ -181,6 +181,29 @@ cetcd_tls_conn *cetcd_tls_accept(cetcd_tls_ctx *ctx, int fd) {
     return cn;
 }
 
+cetcd_tls_conn *cetcd_tls_connect(cetcd_tls_ctx *ctx, int fd) {
+    if (ctx == NULL || ctx->ssl_ctx == NULL) return NULL;
+    cetcd_tls_conn *cn = (cetcd_tls_conn *)calloc(1, sizeof(*cn));
+    if (cn == NULL) return NULL;
+    cn->fd = fd;
+    cn->ssl = SSL_new(ctx->ssl_ctx);
+    if (cn->ssl == NULL) {
+        free(cn);
+        return NULL;
+    }
+    if (SSL_set_fd(cn->ssl, fd) != 1) {
+        SSL_free(cn->ssl);
+        free(cn);
+        return NULL;
+    }
+    if (SSL_connect(cn->ssl) != 1) {
+        SSL_free(cn->ssl);
+        free(cn);
+        return NULL;
+    }
+    return cn;
+}
+
 static cetcd_tls_conn *conn_mem_(cetcd_tls_ctx *ctx, int server) {
     if (ctx == NULL || ctx->ssl_ctx == NULL) return NULL;
     cetcd_tls_conn *cn = (cetcd_tls_conn *)calloc(1, sizeof(*cn));
@@ -323,6 +346,9 @@ int cetcd_tls_set_verify_peer(cetcd_tls_ctx *ctx, int require_cert) {
     (void)ctx; (void)require_cert; return CETCD_ERR_UNSUPPORT;
 }
 cetcd_tls_conn *cetcd_tls_accept(cetcd_tls_ctx *ctx, int fd) {
+    (void)ctx; (void)fd; return NULL;
+}
+cetcd_tls_conn *cetcd_tls_connect(cetcd_tls_ctx *ctx, int fd) {
     (void)ctx; (void)fd; return NULL;
 }
 cetcd_tls_conn *cetcd_tls_conn_accept(cetcd_tls_ctx *ctx) {

@@ -27,6 +27,7 @@ int cetcd_tls_set_verify_peer(cetcd_tls_ctx *ctx, int require_cert);
 
 /* Blocking handshake on an fd. The caller still owns the fd. */
 cetcd_tls_conn *cetcd_tls_accept(cetcd_tls_ctx *ctx, int fd);
+cetcd_tls_conn *cetcd_tls_connect(cetcd_tls_ctx *ctx, int fd);
 
 /* Non-blocking memory-BIO connections for a libuv-owned fd. */
 cetcd_tls_conn *cetcd_tls_conn_accept(cetcd_tls_ctx *ctx);

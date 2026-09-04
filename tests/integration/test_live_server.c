@@ -4,6 +4,7 @@
 #include "cetcd/snap.h"
 #include "cetcd/raft.h"
 #include "cetcd/peer.h"
+#include "cetcd/tls.h"
 #include "cetcd_test.h"
 
 #include <sys/socket.h>
@@ -1595,6 +1596,104 @@ CETCD_TEST_CASE(live_server_peer_tls_h2_put) {
 }
 #endif
 
+CETCD_TEST_CASE(live_server_client_tls_put) {
+    char tmpl[] = "/tmp/cetcd-client-tls-XXXXXX";
+    char *certdir = mkdtemp(tmpl);
+    CETCD_ASSERT_NOT_NULL(certdir);
+    char cert[300], key[300];
+    snprintf(cert, sizeof(cert), "%s/cert.pem", certdir);
+    snprintf(key, sizeof(key), "%s/key.pem", certdir);
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 "
+             "-days 1 -nodes -subj /CN=localhost "
+             "-keyout '%s' -out '%s' >/dev/null 2>&1",
+             key, cert);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        cetcd_server_config cfg;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.node_id = 1;
+        strncpy(cfg.listen_addr, "127.0.0.1", sizeof(cfg.listen_addr) - 1);
+        cfg.listen_port = 23800;
+        strncpy(cfg.cert_file, cert, sizeof(cfg.cert_file) - 1);
+        strncpy(cfg.key_file, key, sizeof(cfg.key_file) - 1);
+        cfg.election_tick = 10;
+        cfg.heartbeat_tick = 1;
+        cetcd_server *srv = cetcd_server_new(&cfg);
+        if (srv) {
+            cetcd_server_start(srv);
+            alarm(3);
+            cetcd_server_serve(srv);
+            cetcd_server_free(srv);
+        }
+        _exit(0);
+    }
+
+    struct timespec ts = {0, 300000000};
+    nanosleep(&ts, NULL);
+
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    CETCD_ASSERT_TRUE(fd >= 0);
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(23800);
+    inet_pton(AF_INET, "127.0.0.1", &sa.sin_addr);
+    CETCD_ASSERT_EQ_INT(connect(fd, (struct sockaddr *)&sa, sizeof(sa)), 0);
+
+    cetcd_tls_ctx *cctx = cetcd_tls_ctx_new_client();
+    CETCD_ASSERT_NOT_NULL(cctx);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_ca(cctx, cert), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_verify_peer(cctx, 0), CETCD_OK);
+    cetcd_tls_conn *cli = cetcd_tls_connect(cctx, fd);
+    CETCD_ASSERT_NOT_NULL(cli);
+
+    uint8_t put_req[] = {0x0a, 0x01, 't', 0x12, 0x01, 'l'};
+    uint8_t frame[4096];
+    size_t flen = build_grpc_request(frame, sizeof(frame),
+                                     "/etcdserverpb.KV/Put",
+                                     put_req, sizeof(put_req));
+    size_t woff = 0;
+    while (woff < flen) {
+        int n = cetcd_tls_write(cli, frame + woff, flen - woff);
+        CETCD_ASSERT_TRUE(n > 0);
+        woff += (size_t)n;
+    }
+
+    uint8_t resp[1024];
+    size_t roff = 0;
+    while (roff < 7) {
+        int n = cetcd_tls_read(cli, resp + roff, sizeof(resp) - roff);
+        CETCD_ASSERT_TRUE(n > 0);
+        roff += (size_t)n;
+    }
+    uint16_t rpath = ((uint16_t)resp[0] << 8) | resp[1];
+    CETCD_ASSERT_TRUE(rpath > 0);
+    while (roff < (size_t)(2 + rpath + 5)) {
+        int n = cetcd_tls_read(cli, resp + roff, sizeof(resp) - roff);
+        CETCD_ASSERT_TRUE(n > 0);
+        roff += (size_t)n;
+    }
+    uint32_t plen = ((uint32_t)resp[2 + rpath + 1] << 24) |
+                    ((uint32_t)resp[2 + rpath + 2] << 16) |
+                    ((uint32_t)resp[2 + rpath + 3] << 8) |
+                    ((uint32_t)resp[2 + rpath + 4]);
+    CETCD_ASSERT_TRUE(plen > 0);
+
+    cetcd_tls_conn_free(cli);
+    cetcd_tls_ctx_free(cctx);
+    close(fd);
+    kill(pid, SIGTERM);
+    int st;
+    waitpid(pid, &st, 0);
+    unlink(cert);
+    unlink(key);
+    rmdir(tmpl);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_start_stop),
     CETCD_TEST_ENTRY(live_server_snapshot_after_writes),
@@ -1609,6 +1708,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_grpc_put_range_roundtrip),
     CETCD_TEST_ENTRY(live_server_grpc_delete_range),
     CETCD_TEST_ENTRY(live_server_grpc_lease_grant),
+    CETCD_TEST_ENTRY(live_server_client_tls_put),
 #ifdef CETCD_HAS_NGHTTP2
     CETCD_TEST_ENTRY(live_server_http2_status),
     CETCD_TEST_ENTRY(live_server_http2_watch),

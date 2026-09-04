@@ -551,7 +551,7 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `compact/hash/hashkv/defrag/move-leader -w json` (JSON output for maintenance and KV compact commands),
 `lease grant/timetolive -w json` (JSON output for lease commands),
 `auth status -w json` (JSON output for auth status query),
-`--insecure` (global flag, accepted for etcdctl compatibility, no-op for plain TCP),
+`--insecure` (global flag, skips TLS verify when `--cacert`/`--cert` enable TLS),
 `--dial-timeout SEC` (global flag for connection timeout via SO_SNDTIMEO/SO_RCVTIMEO),
 `--keepalive-time SEC` / `--keepalive-timeout SEC` (global flags accepted for etcdctl compatibility, no-op for plain TCP),
 `endpoint hashkv [-w json]` (subcommand to call HashKV RPC per endpoint, with JSON output),
@@ -561,7 +561,7 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `version -w json` (JSON output with client/version/etcd fields),
 `status -w fields` (fields output format showing version, dbSize, leader, raftIndex, raftTerm, and revision from ResponseHeader),
 `status -w json` now includes `revision` field from ResponseHeader.
-`--cacert` / `--cert` / `--key` (global TLS flags accepted for etcdctl compatibility, no-op for plain TCP),
+`--cacert` / `--cert` / `--key` (global TLS flags: `--cacert` or `--cert`+`--key` enable TLS; missing files and cert-without-key fail closed),
 `txn -w json` (JSON output for all txn subcommands: put, cas, get, del — outputs `{"header":{},"succeeded":true|false}`),
 `member add/remove/update/promote -w json` (JSON output for cluster member management operations),
 `downgrade -w json` (JSON output for downgrade enable/cancel/validate),
@@ -947,7 +947,7 @@ C11 atomics (`memory_order_release`/`acquire`) to remain thread-safe without a
 mutex. The per-key watcher fan-out and cluster membership queries use
 `_Thread_local` storage where re-entrancy is a concern.
 
-`cetcdctl global flags` (now accepts `--max-call-send-msg-size`, `--max-call-recv-msg-size`, `--insecure-skip-tls-verify`, `--insecure-transport`, `--password`, `--discovery-srv` as no-op compatibility flags; `--password` can be used with `--user USER` to provide the password separately),
+`cetcdctl global flags` (`--cacert`/`--cert`/`--key` enable TLS; `--insecure-skip-tls-verify` skips verify; `--insecure-transport` mixed with cert flags fail-closes; `--max-call-send-msg-size`, `--max-call-recv-msg-size`, `--discovery-srv` stay no-op compatibility flags; `--password` can be used with `--user USER` to provide the password separately),
 `get --count-only -w fields` (fields output now includes ResponseHeader fields and `"count" : N` line, matching etcdctl fields format),
 `snapshot restore` etcd-compatible flags (now accepts `--skip-hash-check`, `--initial-cluster`, `--initial-advertise-peer-urls`, `--name`, `--initial-cluster-token`, `--initial-cluster-state` as no-op flags for etcdctl compatibility),
 `get --count-only -w json` format fix (now outputs `{"header":{...},"count":N}` without `kvs` or `more` fields, matching etcdctl output format),

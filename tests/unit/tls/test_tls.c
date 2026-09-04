@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
 
 static int make_selfsigned_(char *dir, size_t dirsz) {
     char tmpl[] = "/tmp/cetcd-tls-XXXXXX";
@@ -259,6 +261,97 @@ CETCD_TEST_CASE(tls_alpn_selected_null_safety) {
     CETCD_ASSERT_EQ_INT(cetcd_tls_alpn_selected(NULL, NULL, NULL), CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(tls_blocking_connect_roundtrip) {
+    char dir[128];
+    CETCD_ASSERT_EQ_INT(make_selfsigned_(dir, sizeof(dir)), 0);
+    char cert[300], key[300];
+    snprintf(cert, sizeof(cert), "%s/cert.pem", dir);
+    snprintf(key, sizeof(key), "%s/key.pem", dir);
+
+    int sp[2];
+    CETCD_ASSERT_EQ_INT(socketpair(AF_UNIX, SOCK_STREAM, 0, sp), 0);
+    pid_t pid = fork();
+    CETCD_ASSERT_TRUE(pid >= 0);
+    if (pid == 0) {
+        alarm(2);
+        close(sp[0]);
+        cetcd_tls_ctx *sctx = cetcd_tls_ctx_new();
+        if (!sctx || cetcd_tls_set_cert(sctx, cert, key) != CETCD_OK) _exit(1);
+        cetcd_tls_conn *srv = cetcd_tls_accept(sctx, sp[1]);
+        if (!srv) _exit(2);
+        char got[8];
+        if (cetcd_tls_read(srv, got, 4) != 4) _exit(3);
+        if (memcmp(got, "ping", 4) != 0) _exit(4);
+        if (cetcd_tls_write(srv, "pong", 4) != 4) _exit(5);
+        cetcd_tls_conn_free(srv);
+        cetcd_tls_ctx_free(sctx);
+        close(sp[1]);
+        _exit(0);
+    }
+    close(sp[1]);
+    cetcd_tls_ctx *cctx = cetcd_tls_ctx_new_client();
+    CETCD_ASSERT_NOT_NULL(cctx);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_ca(cctx, cert), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_verify_peer(cctx, 0), CETCD_OK);
+    cetcd_tls_conn *cli = cetcd_tls_connect(cctx, sp[0]);
+    CETCD_ASSERT_NOT_NULL(cli);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_write(cli, "ping", 4), 4);
+    char got[8];
+    CETCD_ASSERT_EQ_INT(cetcd_tls_read(cli, got, 4), 4);
+    CETCD_ASSERT_EQ_INT(memcmp(got, "pong", 4), 0);
+    cetcd_tls_conn_free(cli);
+    cetcd_tls_ctx_free(cctx);
+    close(sp[0]);
+    int st = 0;
+    waitpid(pid, &st, 0);
+    CETCD_ASSERT_EQ_INT(WEXITSTATUS(st), 0);
+    cleanup_selfsigned_(dir);
+}
+
+CETCD_TEST_CASE(tls_blocking_connect_verify_fail_closed) {
+    char dir[128];
+    CETCD_ASSERT_EQ_INT(make_selfsigned_(dir, sizeof(dir)), 0);
+    char cert[300], key[300];
+    snprintf(cert, sizeof(cert), "%s/cert.pem", dir);
+    snprintf(key, sizeof(key), "%s/key.pem", dir);
+
+    int sp[2];
+    CETCD_ASSERT_EQ_INT(socketpair(AF_UNIX, SOCK_STREAM, 0, sp), 0);
+    pid_t pid = fork();
+    CETCD_ASSERT_TRUE(pid >= 0);
+    if (pid == 0) {
+        alarm(2);
+        close(sp[0]);
+        cetcd_tls_ctx *sctx = cetcd_tls_ctx_new();
+        if (!sctx || cetcd_tls_set_cert(sctx, cert, key) != CETCD_OK) _exit(1);
+        cetcd_tls_conn *srv = cetcd_tls_accept(sctx, sp[1]);
+        if (srv) {
+            cetcd_tls_conn_free(srv);
+            cetcd_tls_ctx_free(sctx);
+            close(sp[1]);
+            _exit(0);
+        }
+        cetcd_tls_ctx_free(sctx);
+        close(sp[1]);
+        _exit(2);
+    }
+    close(sp[1]);
+    cetcd_tls_ctx *cctx = cetcd_tls_ctx_new_client();
+    CETCD_ASSERT_NOT_NULL(cctx);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_verify_peer(cctx, 0), CETCD_OK);
+    cetcd_tls_conn *cli = cetcd_tls_connect(cctx, sp[0]);
+    CETCD_ASSERT_TRUE(cli == NULL);
+    cetcd_tls_ctx_free(cctx);
+    close(sp[0]);
+    int st = 0;
+    waitpid(pid, &st, 0);
+    cleanup_selfsigned_(dir);
+}
+
+CETCD_TEST_CASE(tls_blocking_connect_null_ctx) {
+    CETCD_ASSERT_TRUE(cetcd_tls_connect(NULL, 0) == NULL);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(tls_ctx_create_destroy),
     CETCD_TEST_ENTRY(tls_ctx_set_alpn),
@@ -270,6 +363,9 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(tls_alpn_omitted_by_client_still_handshakes),
     CETCD_TEST_ENTRY(tls_alpn_mismatch_fail_closed),
     CETCD_TEST_ENTRY(tls_alpn_selected_null_safety),
+    CETCD_TEST_ENTRY(tls_blocking_connect_roundtrip),
+    CETCD_TEST_ENTRY(tls_blocking_connect_verify_fail_closed),
+    CETCD_TEST_ENTRY(tls_blocking_connect_null_ctx),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

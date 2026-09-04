@@ -52,7 +52,8 @@ Performance-first, fail-closed design:
   equivalents) load OpenSSL server contexts at start. Traffic stays plaintext
   when omitted. Cert without key, missing files, or `--client-cert-auth`
   without a CA fail closed (no silent plaintext). Handshake uses memory BIOs
-  so libuv keeps the fd; `cetcdctl` is still a plaintext client.
+  so libuv keeps the fd; `cetcdctl --cacert` (or `--cert`/`--key`) speaks TLS.
+  `--insecure` skips verify; `--insecure-transport` mixed with cert flags fail-closes.
 - **Peer TLS on outbound `peer_tx_`** — when `--peer-cert-file` is set, Raft
   send does a client-method memory-BIO handshake after TCP connect, then
   `SSL_write` before `uv_write`. Missing CA skips verification (self-signed
@@ -145,6 +146,11 @@ Performance-first, fail-closed design:
   reloads it. A truncated blob is ignored (fail-closed empty table).
 - **`--max-txn-ops`** — Txn `max(compare, success, failure)` is capped (default
   128, hard max 128 for the C stack). Larger N fail-closes at start.
+- **`cetcdctl` TLS** — `--cacert` and `--cert`/`--key` wrap the custom-frame
+  client in a blocking TLS handshake (no ALPN, so the server keeps the
+  length-prefixed path). Missing files, cert-without-key, verify failure, and
+  `--insecure-transport` mixed with cert flags fail-close. `--insecure` skips
+  verify when TLS is on. Plaintext remains the default.
 
 ## Previously done (auth data plane)
 

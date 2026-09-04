@@ -182,6 +182,7 @@ It mirrors `etcdctl` command structure for familiarity.
 
 ```sh
 ./build/bin/cetcdctl put foo bar
+./build/bin/cetcdctl --cacert ./ca.crt put foo bar  # TLS custom-frame client
 ./build/bin/cetcdctl put foo bar --prev-kv         # Store and return previous value
 ./build/bin/cetcdctl put foo bar --prev-kv --print-value-only  # Output only previous value
 ./build/bin/cetcdctl put foo -                     # Read value from stdin
@@ -523,15 +524,15 @@ Supported operations (in `then`/`else` sections):
 | `--user USER:PASS` | none | Authenticate with server before command |
 | `--password PASS` | none | Password for `--user` (when USER has no `:PASS`) |
 | `--debug` | off | Print RPC path and response size |
-| `--insecure` | off | Skip TLS certificate verification (no-op, plain TCP) |
-| `--insecure-skip-tls-verify` | off | Same as `--insecure` (no-op) |
-| `--insecure-transport` | off | Disable TLS transport (no-op) |
+| `--insecure` | off | Skip TLS verify when `--cacert`/`--cert` enable TLS |
+| `--insecure-skip-tls-verify` | off | Same as `--insecure` |
+| `--insecure-transport` | off | Force plaintext; fail-closes if mixed with `--cacert`/`--cert`/`--key` |
 | `--dial-timeout SEC` | none | Connection timeout |
 | `--keepalive-time SEC` | none | Keepalive ping interval (no-op, plain TCP) |
 | `--keepalive-timeout SEC` | none | Keepalive timeout (no-op, plain TCP) |
-| `--cacert FILE` | none | TLS CA certificate (no-op, plain TCP) |
-| `--cert FILE` | none | TLS certificate (no-op, plain TCP) |
-| `--key FILE` | none | TLS key (no-op, plain TCP) |
+| `--cacert FILE` | none | TLS CA certificate (enables TLS; missing file fail-closes) |
+| `--cert FILE` | none | TLS client certificate (requires `--key`) |
+| `--key FILE` | none | TLS client key (requires `--cert`) |
 | `--max-call-send-msg-size N` | none | Max gRPC send message size (no-op) |
 | `--max-call-recv-msg-size N` | none | Max gRPC recv message size (no-op) |
 | `--discovery-srv DOMAIN` | none | Discovery service (no-op) |

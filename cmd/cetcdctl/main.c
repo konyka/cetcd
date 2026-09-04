@@ -79,6 +79,7 @@
 
 #include "cetcd/base.h"
 #include "cetcd/auth.h"
+#include "cetcd/tls.h"
 
 static const char *g_host = "127.0.0.1";
 static uint16_t    g_port = 2379;
@@ -90,10 +91,17 @@ static int         g_write_json = 0; /* flag for -w json */
 static int         g_write_fields = 0; /* flag for -w fields */
 static int         g_write_table = 0; /* flag for -w table */
 static int         g_debug = 0; /* flag for --debug */
-static int         g_insecure = 0; /* flag for --insecure (no-op, plain TCP) */
+static int         g_insecure = 0; /* skip TLS verify when TLS is on */
+static int         g_insecure_transport = 0; /* force plaintext */
 static int         g_dial_timeout = 0; /* flag for --dial-timeout (seconds) */
 static char        g_auth_token[CETCD_AUTH_MAX_TOKEN_LEN + 1] = ""; /* token from --user */
 static char        g_password[256] = ""; /* password from --password flag */
+static char        g_cacert[512] = "";
+static char        g_cert[512] = "";
+static char        g_key[512] = "";
+static cetcd_tls_ctx  *g_tls_ctx = NULL;
+static cetcd_tls_conn *g_tls = NULL;
+static int             g_tls_fd = -1;
 
 /* --- Lock state for signal handler --- */
 static char          g_lock_key[256];
@@ -158,6 +166,94 @@ static size_t encode_varint_field(uint8_t *buf, size_t cap, size_t pos,
 
 /* --- Wire protocol --- */
 
+static int tls_wanted_(void) {
+    return !g_insecure_transport && (g_cacert[0] || (g_cert[0] && g_key[0]));
+}
+
+static void conn_close(int fd) {
+    if (g_tls && g_tls_fd == fd) {
+        cetcd_tls_shutdown(g_tls);
+        cetcd_tls_conn_free(g_tls);
+        g_tls = NULL;
+        g_tls_fd = -1;
+    }
+    if (fd >= 0) close(fd);
+}
+
+static ssize_t conn_send_all(int fd, const void *buf, size_t len) {
+    const uint8_t *p = (const uint8_t *)buf;
+    size_t off = 0;
+    while (off < len) {
+        ssize_t n;
+        if (g_tls && g_tls_fd == fd) {
+            int w = cetcd_tls_write(g_tls, p + off, len - off);
+            n = (w > 0) ? (ssize_t)w : -1;
+        } else {
+            n = send(fd, p + off, len - off, 0);
+        }
+        if (n <= 0) return -1;
+        off += (size_t)n;
+    }
+    return (ssize_t)len;
+}
+
+static ssize_t conn_recv_all(int fd, void *buf, size_t len) {
+    uint8_t *p = (uint8_t *)buf;
+    size_t off = 0;
+    while (off < len) {
+        ssize_t n;
+        if (g_tls && g_tls_fd == fd) {
+            int r = cetcd_tls_read(g_tls, p + off, len - off);
+            n = (r > 0) ? (ssize_t)r : -1;
+        } else {
+            n = recv(fd, p + off, len - off, MSG_WAITALL);
+        }
+        if (n <= 0) return -1;
+        off += (size_t)n;
+    }
+    return (ssize_t)len;
+}
+
+static int tls_ctx_ensure_(void) {
+    if (g_tls_ctx) return 0;
+    if ((g_cert[0] && !g_key[0]) || (!g_cert[0] && g_key[0])) {
+        fprintf(stderr, "tls: --cert and --key must be set together\n");
+        return -1;
+    }
+    g_tls_ctx = cetcd_tls_ctx_new_client();
+    if (!g_tls_ctx) {
+        fprintf(stderr, "tls: client context unavailable\n");
+        return -1;
+    }
+    if (g_cacert[0]) {
+        if (cetcd_tls_set_ca(g_tls_ctx, g_cacert) != CETCD_OK) {
+            fprintf(stderr, "tls: failed to load --cacert %s\n", g_cacert);
+            cetcd_tls_ctx_free(g_tls_ctx);
+            g_tls_ctx = NULL;
+            return -1;
+        }
+        if (!g_insecure) {
+            if (cetcd_tls_set_verify_peer(g_tls_ctx, 0) != CETCD_OK) {
+                cetcd_tls_ctx_free(g_tls_ctx);
+                g_tls_ctx = NULL;
+                return -1;
+            }
+        }
+    } else if (!g_insecure) {
+        fprintf(stderr, "tls: --cert/--key require --cacert or --insecure\n");
+        cetcd_tls_ctx_free(g_tls_ctx);
+        g_tls_ctx = NULL;
+        return -1;
+    }
+    if (g_cert[0] && cetcd_tls_set_cert(g_tls_ctx, g_cert, g_key) != CETCD_OK) {
+        fprintf(stderr, "tls: failed to load --cert/--key\n");
+        cetcd_tls_ctx_free(g_tls_ctx);
+        g_tls_ctx = NULL;
+        return -1;
+    }
+    return 0;
+}
+
 static int connect_server(void) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) { perror("socket"); return -1; }
@@ -177,6 +273,19 @@ static int connect_server(void) {
         perror("connect");
         close(fd);
         return -1;
+    }
+    if (tls_wanted_()) {
+        if (tls_ctx_ensure_() != 0) {
+            close(fd);
+            return -1;
+        }
+        g_tls = cetcd_tls_connect(g_tls_ctx, fd);
+        if (!g_tls) {
+            fprintf(stderr, "tls: handshake failed\n");
+            close(fd);
+            return -1;
+        }
+        g_tls_fd = fd;
     }
     return fd;
 }
@@ -207,9 +316,9 @@ static int send_request(int fd, const char *path,
     header[hpos++] = (uint8_t)((payload_len >> 8) & 0xFF);
     header[hpos++] = (uint8_t)(payload_len & 0xFF);
 
-    if (send(fd, header, hpos, 0) != (ssize_t)hpos) return -1;
+    if (conn_send_all(fd, header, hpos) != (ssize_t)hpos) return -1;
     if (payload_len > 0) {
-        if (send(fd, payload, payload_len, 0) != (ssize_t)payload_len) return -1;
+        if (conn_send_all(fd, payload, payload_len) != (ssize_t)payload_len) return -1;
     }
     return 0;
 }
@@ -217,13 +326,13 @@ static int send_request(int fd, const char *path,
 static int recv_response(int fd, uint8_t *buf, size_t buf_cap) {
     /* Read header: 2B path_len + path + 1B compressed + 4B payload_len */
     uint8_t hdr[512];
-    ssize_t n = recv(fd, hdr, 2, MSG_WAITALL);
+    ssize_t n = conn_recv_all(fd, hdr, 2);
     if (n != 2) return -1;
     uint16_t path_len = ((uint16_t)hdr[0] << 8) | hdr[1];
     if (path_len > 256) return -1;
 
-    n = recv(fd, hdr, path_len + 5, MSG_WAITALL);
-    if (n != path_len + 5) return -1;
+    n = conn_recv_all(fd, hdr, (size_t)path_len + 5);
+    if (n != (ssize_t)path_len + 5) return -1;
 
     uint32_t payload_len = ((uint32_t)hdr[path_len + 1] << 24) |
                            ((uint32_t)hdr[path_len + 2] << 16) |
@@ -232,7 +341,7 @@ static int recv_response(int fd, uint8_t *buf, size_t buf_cap) {
     if (payload_len >= buf_cap) payload_len = buf_cap - 1;
 
     if (payload_len > 0) {
-        n = recv(fd, buf, payload_len, MSG_WAITALL);
+        n = conn_recv_all(fd, buf, payload_len);
         if (n != (ssize_t)payload_len) return -1;
     }
     buf[payload_len] = '\0';
@@ -247,11 +356,11 @@ static int do_rpc(const char *path, const uint8_t *req, size_t req_len,
     int fd = connect_server();
     if (fd < 0) return -1;
     if (send_request(fd, path, req, req_len) != 0) {
-        close(fd);
+        conn_close(fd);
         return -1;
     }
     int rlen = recv_response(fd, resp, resp_cap);
-    close(fd);
+    conn_close(fd);
     if (g_debug) {
         fprintf(stderr, "[debug] RPC %s resp_len=%d\n", path, rlen);
     }
@@ -4895,9 +5004,9 @@ static int cmd_watch(int argc, char **argv) {
         size_t wpos = build_watch_create(watch_buf, sizeof(watch_buf),
                                          key, key_len, prefix, range_end_arg,
                                          start_rev, prev_kv, filter_type, progress_notify);
-        if (wpos == 0) { fprintf(stderr, "key too long\n"); close(fd); return 1; }
+        if (wpos == 0) { fprintf(stderr, "key too long\n"); conn_close(fd); return 1; }
         if (send_request(fd, "/etcdserverpb.Watch/Watch", watch_buf, wpos) != 0) {
-            fprintf(stderr, "send failed\n"); close(fd); return 1;
+            fprintf(stderr, "send failed\n"); conn_close(fd); return 1;
         }
     }
 
@@ -4969,7 +5078,7 @@ static int cmd_watch(int argc, char **argv) {
 
     sigaction(SIGINT, &old_sa, NULL);
     g_watch_fd = -1;
-    close(fd);
+    conn_close(fd);
     return 0;
 }
 
@@ -5365,17 +5474,17 @@ static void print_usage(void) {
     printf("  --user USER:PASS  Authenticate with server before executing command\n");
     printf("  --command-timeout SEC  Timeout for commands (default: none)\n");
     printf("  --debug       Print debug info (RPC path and response size)\n");
-    printf("  --insecure    Skip TLS certificate verification (no-op, plain TCP)\n");
+    printf("  --insecure    Skip TLS certificate verification (with --cacert/--cert)\n");
     printf("  --dial-timeout SEC  Connection timeout (default: none)\n");
     printf("  --keepalive-time SEC    Keepalive ping interval (no-op, plain TCP)\n");
     printf("  --keepalive-timeout SEC  Keepalive timeout (no-op, plain TCP)\n");
-    printf("  --cacert FILE   TLS CA certificate (no-op, plain TCP)\n");
-    printf("  --cert FILE     TLS certificate (no-op, plain TCP)\n");
-    printf("  --key FILE      TLS key (no-op, plain TCP)\n");
+    printf("  --cacert FILE   TLS CA certificate (enables TLS; missing file fail-closes)\n");
+    printf("  --cert FILE     TLS client certificate (requires --key)\n");
+    printf("  --key FILE      TLS client key (requires --cert)\n");
     printf("  --max-call-send-msg-size N  Max gRPC send message size (no-op)\n");
     printf("  --max-call-recv-msg-size N  Max gRPC recv message size (no-op)\n");
-    printf("  --insecure-skip-tls-verify  Skip TLS verification (no-op, plain TCP)\n");
-    printf("  --insecure-transport  Disable TLS for transport (no-op, plain TCP)\n");
+    printf("  --insecure-skip-tls-verify  Same as --insecure\n");
+    printf("  --insecure-transport  Force plaintext even if TLS flags are set (fail-closed if mixed)\n");
     printf("  --password PASS  Password for --user authentication\n");
     printf("  --discovery-srv DOMAIN  Discovery service (no-op)\n\n");
     printf("Commands:\n");
@@ -5447,6 +5556,7 @@ static void print_usage(void) {
 int main(int argc, char **argv) {
     /* Parse global options */
     int cmd_start = 1;
+    const char *user_cred = NULL;
     while (cmd_start < argc) {
         if (strcmp(argv[cmd_start], "--host") == 0 && cmd_start + 1 < argc) {
             g_host = argv[cmd_start + 1];
@@ -5523,13 +5633,16 @@ int main(int argc, char **argv) {
             /* Accepted for compatibility, no-op for plain TCP */
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--cacert") == 0 && cmd_start + 1 < argc) {
-            /* Accepted for compatibility, no-op (plain TCP) */
+            strncpy(g_cacert, argv[cmd_start + 1], sizeof(g_cacert) - 1);
+            g_cacert[sizeof(g_cacert) - 1] = '\0';
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--cert") == 0 && cmd_start + 1 < argc) {
-            /* Accepted for compatibility, no-op (plain TCP) */
+            strncpy(g_cert, argv[cmd_start + 1], sizeof(g_cert) - 1);
+            g_cert[sizeof(g_cert) - 1] = '\0';
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--key") == 0 && cmd_start + 1 < argc) {
-            /* Accepted for compatibility, no-op (plain TCP) */
+            strncpy(g_key, argv[cmd_start + 1], sizeof(g_key) - 1);
+            g_key[sizeof(g_key) - 1] = '\0';
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--max-call-send-msg-size") == 0 && cmd_start + 1 < argc) {
             /* Accepted for compatibility, no-op */
@@ -5538,10 +5651,10 @@ int main(int argc, char **argv) {
             /* Accepted for compatibility, no-op */
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--insecure-skip-tls-verify") == 0) {
-            /* Accepted for compatibility, no-op (plain TCP) */
+            g_insecure = 1;
             cmd_start += 1;
         } else if (strcmp(argv[cmd_start], "--insecure-transport") == 0) {
-            /* Accepted for compatibility, no-op (plain TCP) */
+            g_insecure_transport = 1;
             cmd_start += 1;
         } else if (strcmp(argv[cmd_start], "--password") == 0 && cmd_start + 1 < argc) {
             /* Password for --user: stored and appended when --user has no password */
@@ -5552,19 +5665,7 @@ int main(int argc, char **argv) {
             /* Accepted for compatibility, no-op */
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--user") == 0 && cmd_start + 1 < argc) {
-            const char *cred = argv[cmd_start + 1];
-            /* If --password was provided and cred has no ':', append password */
-            if (g_password[0] && strchr(cred, ':') == NULL) {
-                char cred_buf[512];
-                snprintf(cred_buf, sizeof(cred_buf), "%s:%s", cred, g_password);
-                if (do_authenticate(cred_buf) != 0) {
-                    return 1;
-                }
-            } else {
-                if (do_authenticate(cred) != 0) {
-                    return 1;
-                }
-            }
+            user_cred = argv[cmd_start + 1];
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--help") == 0 || strcmp(argv[cmd_start], "-h") == 0) {
             print_usage();
@@ -5577,6 +5678,25 @@ int main(int argc, char **argv) {
     if (cmd_start >= argc) {
         print_usage();
         return 1;
+    }
+
+    if ((g_cert[0] && !g_key[0]) || (!g_cert[0] && g_key[0])) {
+        fprintf(stderr, "tls: --cert and --key must be set together\n");
+        return 1;
+    }
+    if (g_insecure_transport && (g_cacert[0] || g_cert[0] || g_key[0])) {
+        fprintf(stderr, "tls: --insecure-transport cannot be mixed with --cacert/--cert/--key\n");
+        return 1;
+    }
+    if (user_cred) {
+        if (g_password[0] && strchr(user_cred, ':') == NULL) {
+            char cred_buf[512];
+            snprintf(cred_buf, sizeof(cred_buf), "%s:%s", user_cred, g_password);
+            if (do_authenticate(cred_buf) != 0)
+                return 1;
+        } else if (do_authenticate(user_cred) != 0) {
+            return 1;
+        }
     }
 
     /* Shift args so command is at argv[1] */
