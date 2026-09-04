@@ -46,7 +46,7 @@ static void print_usage(const char *prog) {
     printf("  --force-new-cluster  Not implemented (fail-closed; would wipe data_dir)\n");
     printf("  --max-txn-ops N     Max compare/success/failure ops per Txn (default 128, max 128)\n");
     printf("  --max-request-bytes N  Max client frame (default 1572864); oversized closes\n");
-    printf("  --grpc-keepalive-time SEC   TCP keepalive idle on client sockets (0 disables)\n");
+    printf("  --grpc-keepalive-time SEC   TCP keepalive idle on client and peer sockets (0 disables)\n");
     printf("  --grpc-keepalive-timeout SEC  TCP keepalive interval (requires --grpc-keepalive-time)\n");
     printf("  --grpc-keepalive-*  Other grpc-keepalive flags accepted as no-op\n");
     printf("  --auth-token TYPE   simple (default) or jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]\n");

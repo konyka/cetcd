@@ -318,6 +318,42 @@ CETCD_TEST_CASE(live_server_peer_port_listen) {
     CETCD_ASSERT_TRUE(peer_ok);
 }
 
+CETCD_TEST_CASE(live_server_peer_tcp_keepalive) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        cetcd_server_config cfg;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.node_id = 1;
+        strncpy(cfg.listen_addr, "127.0.0.1", sizeof(cfg.listen_addr) - 1);
+        cfg.listen_port = 23864;
+        cfg.peer_port = 23802;
+        cfg.election_tick = 10;
+        cfg.heartbeat_tick = 1;
+        cfg.keepalive_set = true;
+        cfg.keepalive_time = 10;
+        cfg.keepalive_timeout = 5;
+        cetcd_server *srv = cetcd_server_new(&cfg);
+        if (srv) {
+            cetcd_server_start(srv);
+            alarm(3);
+            cetcd_server_serve(srv);
+            cetcd_server_free(srv);
+        }
+        _exit(0);
+    }
+
+    struct timespec ts = {0, 200000000};
+    nanosleep(&ts, NULL);
+
+    /* Keepalive is on the accepted fds; a failed apply closes the accept.
+     * Connecting to both ports must still succeed. */
+    CETCD_ASSERT_TRUE(try_connect("127.0.0.1", 23864));
+    CETCD_ASSERT_TRUE(try_connect("127.0.0.1", 23802));
+    kill(pid, SIGTERM);
+    int status;
+    waitpid(pid, &status, 0);
+}
+
 CETCD_TEST_CASE(live_server_raft_tick_timer) {
     cetcd_server_config cfg;
     memset(&cfg, 0, sizeof(cfg));
@@ -1895,6 +1931,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_tcp_listen),
     CETCD_TEST_ENTRY(live_server_cluster_membership),
     CETCD_TEST_ENTRY(live_server_peer_port_listen),
+    CETCD_TEST_ENTRY(live_server_peer_tcp_keepalive),
     CETCD_TEST_ENTRY(live_server_raft_tick_timer),
     CETCD_TEST_ENTRY(live_server_3node_cluster_election),
     CETCD_TEST_ENTRY(live_server_grpc_put_via_tcp),

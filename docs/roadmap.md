@@ -180,8 +180,9 @@ Performance-first, fail-closed design:
   with `TCP_KEEPIDLE` / `TCP_KEEPINTVL`. Invalid durations and timeout without
   time fail at parse. Omitted flags keep the OS default.
 - **`--grpc-keepalive-time` / `--grpc-keepalive-timeout`** — TCP keepalive on
-  accepted client sockets (`uv_tcp_keepalive_ex`). Timeout without time, or a
-  non-duration value, fail at parse. `--grpc-keepalive-min-time` stays a no-op.
+  accepted client sockets, accepted peer sockets, and outbound Raft dials
+  (`uv_tcp_keepalive_ex`). Timeout without time, or a non-duration value, fail
+  at parse. `--grpc-keepalive-min-time` stays a no-op.
 - **`--auto-tls` / `--peer-auto-tls`** — cetcd does not mint certificates.
   Either flag without the matching `--cert-file` / `--peer-cert-file` fail-closes
   at start instead of listening in plaintext.

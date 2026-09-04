@@ -802,7 +802,8 @@ the flag and still use 127.0.0.1:2379).
 `--keepalive-time` / `--keepalive-timeout` set TCP keepalive on the client socket
 (invalid durations and timeout without time fail-close).
 `--grpc-keepalive-time` / `--grpc-keepalive-timeout` set TCP keepalive on accepted
-client sockets the same way (`--grpc-keepalive-min-time` stays a no-op).
+client sockets, accepted peer sockets, and outbound Raft dials
+(`--grpc-keepalive-min-time` stays a no-op).
 `--max-call-send-msg-size` / `--max-call-recv-msg-size` cap the payload (`0` rejected;
 oversized recv is not truncated).
 `--advertise-client-urls` / `--initial-advertise-peer-urls` fill MemberList self

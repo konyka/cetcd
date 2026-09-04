@@ -234,6 +234,7 @@ static void on_peer_tx_alloc_(uv_handle_t *handle, size_t suggested_size, uv_buf
 static void on_peer_tx_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf);
 static void peer_tx_drain_(peer_tx_ *tx);
 static void peer_tx_close_(peer_tx_ *tx);
+static int apply_socket_keepalive_(cetcd_server *srv, uv_tcp_t *tcp);
 static int  tls_flush_uv_(uv_stream_t *stream, cetcd_tls_conn *tls);
 
 static peer_tx_ *peer_tx_get_(cetcd_server *srv, uint64_t id) {
@@ -548,6 +549,10 @@ static void on_peer_tx_connect_(uv_connect_t *req, int status) {
     if (!tx) return;
     if (tx->shutting_down) { peer_tx_close_(tx); return; }
     if (status != 0) { peer_tx_close_(tx); return; }
+    if (apply_socket_keepalive_(tx->srv, &tx->tcp) != 0) {
+        peer_tx_close_(tx);
+        return;
+    }
     if (tx->srv->tls_peer_out) {
         tx->tls = cetcd_tls_conn_connect(tx->srv->tls_peer_out);
         if (!tx->tls) { peer_tx_close_(tx); return; }
@@ -1524,22 +1529,25 @@ static void alloc_cb_(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf)
     *buf = uv_buf_init(slab, (unsigned int)cap);
 }
 
+static int apply_socket_keepalive_(cetcd_server *srv, uv_tcp_t *tcp) {
+    if (!srv || !srv->cfg.keepalive_set) return 0;
+    if (!tcp) return -1;
+    int on = srv->cfg.keepalive_time > 0;
+    unsigned idle = on ? (unsigned)srv->cfg.keepalive_time : 0;
+    unsigned intvl = srv->cfg.keepalive_timeout > 0
+        ? (unsigned)srv->cfg.keepalive_timeout : 1u;
+    return uv_tcp_keepalive_ex(tcp, on, idle, intvl, 10);
+}
+
 static void on_client_conn_(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
     (void)server;
     cetcd_server *srv = (cetcd_server *)arg;
     if (!client || !srv) return;
 
-    if (srv->cfg.keepalive_set) {
-        uv_stream_t *st = cetcd_tcp_stream(client);
-        int on = srv->cfg.keepalive_time > 0;
-        unsigned idle = on ? (unsigned)srv->cfg.keepalive_time : 0;
-        unsigned intvl = srv->cfg.keepalive_timeout > 0
-            ? (unsigned)srv->cfg.keepalive_timeout : 1u;
-        if (!st ||
-            uv_tcp_keepalive_ex((uv_tcp_t *)st, on, idle, intvl, 10) != 0) {
-            cetcd_tcp_close(client);
-            return;
-        }
+    uv_stream_t *st = cetcd_tcp_stream(client);
+    if (apply_socket_keepalive_(srv, st ? (uv_tcp_t *)st : NULL) != 0) {
+        cetcd_tcp_close(client);
+        return;
     }
 
     client_ctx_ *ctx = (client_ctx_ *)calloc(1, sizeof(client_ctx_));
@@ -1911,6 +1919,11 @@ static void on_peer_incoming_(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
 
     uv_stream_t *stream = cetcd_tcp_stream(client);
     if (stream) {
+        if (apply_socket_keepalive_(srv, (uv_tcp_t *)stream) != 0) {
+            free(ctx);
+            cetcd_tcp_close(client);
+            return;
+        }
         if (srv->tls_peer) {
             ctx->tls = cetcd_tls_conn_accept(srv->tls_peer);
             if (!ctx->tls) {
