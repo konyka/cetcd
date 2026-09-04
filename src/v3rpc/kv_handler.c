@@ -9,6 +9,7 @@
 /* Externs pointing to the live store/lease mgr (set by v3rpc_new) */
 extern cetcd_mvcc_store *g_rpc_store;
 extern cetcd_lease_mgr  *g_rpc_lease_mgr;
+extern uint64_t          g_rpc_max_txn_ops;
 extern cetcd_stream_write_fn g_rpc_stream_write_fn;
 extern void             *g_rpc_stream_write_ctx;
 
@@ -850,6 +851,12 @@ cetcd_rpc_bytes kv_handle_compact(cetcd_v3rpc *rpc, const uint8_t *req, size_t r
 /* etcd default MaxTxnOps — max(len(compare), len(success), len(failure)). */
 #define TXN_MAX_OPS 128
 
+static size_t txn_max_ops_(void) {
+    uint64_t n = g_rpc_max_txn_ops ? g_rpc_max_txn_ops : (uint64_t)TXN_MAX_OPS;
+    if (n > (uint64_t)TXN_MAX_OPS) n = (uint64_t)TXN_MAX_OPS;
+    return (size_t)n;
+}
+
 typedef struct {
     uint8_t *key;     size_t key_len;
     uint8_t *range_end; size_t range_end_len;
@@ -1047,7 +1054,7 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
         size_t opc = n_compares_raw;
         if (opc < n_success_raw) opc = n_success_raw;
         if (opc < n_failure_raw) opc = n_failure_raw;
-        if (opc > TXN_MAX_OPS) goto txn_cleanup;
+        if (opc > txn_max_ops_()) goto txn_cleanup;
     }
 
     for (size_t i = 0; i < n_compares; i++) {

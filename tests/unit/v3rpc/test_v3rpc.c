@@ -806,6 +806,47 @@ CETCD_TEST_CASE(v3rpc_txn_too_many_ops) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_txn_respects_max_txn_ops) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    cetcd_v3rpc_set_max_txn_ops(2);
+
+    uint8_t txn_buf[256];
+    size_t tpos = 0;
+    for (int i = 0; i < 3; i++) {
+        uint8_t put_inner[8]; size_t p = 0;
+        put_inner[p++] = 0x0a; put_inner[p++] = 1; put_inner[p++] = 'k';
+        put_inner[p++] = 0x12; put_inner[p++] = 1; put_inner[p++] = 'v';
+        uint8_t op[16]; size_t o = 0;
+        op[o++] = 0x12;
+        op[o++] = (uint8_t)p;
+        memcpy(op + o, put_inner, p); o += p;
+        txn_buf[tpos++] = 0x12;
+        txn_buf[tpos++] = (uint8_t)o;
+        memcpy(txn_buf + tpos, op, o); tpos += o;
+    }
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", txn_buf, tpos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    tpos = 0;
+    for (int i = 0; i < 2; i++) {
+        uint8_t put_inner[8]; size_t p = 0;
+        put_inner[p++] = 0x0a; put_inner[p++] = 1; put_inner[p++] = (uint8_t)('a' + i);
+        put_inner[p++] = 0x12; put_inner[p++] = 1; put_inner[p++] = 'v';
+        uint8_t op[16]; size_t o = 0;
+        op[o++] = 0x12;
+        op[o++] = (uint8_t)p;
+        memcpy(op + o, put_inner, p); o += p;
+        txn_buf[tpos++] = 0x12;
+        txn_buf[tpos++] = (uint8_t)o;
+        memcpy(txn_buf + tpos, op, o); tpos += o;
+    }
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", txn_buf, tpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_txn_nested_request_txn) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -5776,6 +5817,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_lease_leases),
     CETCD_TEST_ENTRY(v3rpc_txn),
     CETCD_TEST_ENTRY(v3rpc_txn_too_many_ops),
+    CETCD_TEST_ENTRY(v3rpc_txn_respects_max_txn_ops),
     CETCD_TEST_ENTRY(v3rpc_txn_nested_request_txn),
     CETCD_TEST_ENTRY(v3rpc_txn_unknown_request_op_rejected),
     CETCD_TEST_ENTRY(v3rpc_txn_value_compare_missing_key),

@@ -19,6 +19,8 @@ typedef struct cetcd_server cetcd_server;
 /* When snapshot_count is 0, rewrite the WAL after this many applies. */
 #define CETCD_DEFAULT_SNAPSHOT_COUNT 10000ULL
 #define CETCD_DEFAULT_MAX_REQUEST_BYTES (1572864ULL) /* etcd 1.5 MiB */
+#define CETCD_DEFAULT_MAX_TXN_OPS 128ULL
+#define CETCD_MAX_TXN_OPS 128ULL
 
 typedef struct cetcd_server_config {
     uint64_t        node_id;
@@ -48,6 +50,7 @@ typedef struct cetcd_server_config {
     int             bcrypt_cost; /* 0 = SHA-256; 4..31 = bcrypt */
     uint64_t        max_request_bytes;    /* 0 → CETCD_DEFAULT_MAX_REQUEST_BYTES */
     uint64_t        quota_backend_bytes; /* 0 = unlimited */
+    uint64_t        max_txn_ops;          /* 0 → CETCD_DEFAULT_MAX_TXN_OPS; cap CETCD_MAX_TXN_OPS */
 } cetcd_server_config;
 
 cetcd_server *cetcd_server_new(const cetcd_server_config *cfg);

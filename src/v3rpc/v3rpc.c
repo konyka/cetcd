@@ -76,6 +76,7 @@ uint64_t          g_rpc_node_id = 0;
 const char       *g_rpc_auth_user = NULL;
 cetcd_backend    *g_rpc_auth_backend = NULL;
 uint64_t          g_rpc_quota_bytes = 0;
+uint64_t          g_rpc_max_txn_ops = 128;
 
 /* Streaming support: event loop and write callback for streaming RPCs */
 cetcd_loop           *g_rpc_loop = NULL;
@@ -91,6 +92,7 @@ cetcd_v3rpc *cetcd_v3rpc_new(void) {
     g_rpc_store = rpc->store;
     g_rpc_lease_mgr = rpc->leases;
     g_rpc_auth = rpc->auth;
+    g_rpc_max_txn_ops = 128;
     cetcd_v3rpc_alarm_load(NULL);
     return rpc;
 }
@@ -111,6 +113,7 @@ void cetcd_v3rpc_free(cetcd_v3rpc *rpc) {
         rpc->auth = NULL;
     }
     if (g_rpc_auth_backend) g_rpc_auth_backend = NULL;
+    g_rpc_max_txn_ops = 128;
     free(rpc);
 }
 
@@ -297,6 +300,12 @@ void cetcd_v3rpc_set_auth_backend(cetcd_v3rpc *rpc, struct cetcd_backend *be) {
 
 void cetcd_v3rpc_set_quota(uint64_t bytes) {
     g_rpc_quota_bytes = bytes;
+}
+
+void cetcd_v3rpc_set_max_txn_ops(uint64_t n) {
+    if (n == 0) n = 128;
+    if (n > 128) n = 128;
+    g_rpc_max_txn_ops = n;
 }
 
 void cetcd_v3rpc_auth_persist(void) {

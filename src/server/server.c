@@ -2063,7 +2063,12 @@ int cetcd_server_start(cetcd_server *srv) {
     }
     if (srv->cfg.max_request_bytes == 0)
         srv->cfg.max_request_bytes = CETCD_DEFAULT_MAX_REQUEST_BYTES;
+    if (srv->cfg.max_txn_ops == 0)
+        srv->cfg.max_txn_ops = CETCD_DEFAULT_MAX_TXN_OPS;
+    if (srv->cfg.max_txn_ops > CETCD_MAX_TXN_OPS)
+        return CETCD_ERR_INVAL;
     cetcd_v3rpc_set_quota(srv->cfg.quota_backend_bytes);
+    cetcd_v3rpc_set_max_txn_ops(srv->cfg.max_txn_ops);
 
     if (!srv->tls_client && !srv->tls_peer && !srv->tls_peer_out) {
         int trc = load_tls_ctx_(&srv->tls_client,

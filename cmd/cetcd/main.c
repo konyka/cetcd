@@ -43,7 +43,7 @@ static void print_usage(const char *prog) {
     printf("  --snapshot-count N   Rewrite WAL after N applies (default: 10000)\n");
     printf("  --quota-backend-bytes N  NOSPACE when LMDB size >= N (0 = unlimited)\n");
     printf("  --force-new-cluster  Accepted but no-op\n");
-    printf("  --max-txn-ops N     Accepted but no-op\n");
+    printf("  --max-txn-ops N     Max compare/success/failure ops per Txn (default 128, max 128)\n");
     printf("  --max-request-bytes N  Max client frame (default 1572864); oversized closes\n");
     printf("  --grpc-keepalive-*  Accepted but no-op (plain TCP)\n");
     printf("  --auth-token TYPE   simple (default) or jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]\n");
@@ -196,7 +196,7 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--force-new-cluster") == 0) {
             /* no-op, accepted for etcd compatibility */
         } else if (strcmp(argv[i], "--max-txn-ops") == 0 && i + 1 < argc) {
-            i++; /* no-op */
+            cfg.max_txn_ops = (uint64_t)strtoull(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--max-request-bytes") == 0 && i + 1 < argc) {
             cfg.max_request_bytes = (uint64_t)strtoull(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--auth-token") == 0 && i + 1 < argc) {

@@ -155,7 +155,7 @@ cetcd accepts several etcd server flags for migration compatibility:
 # Still no-op: --auto-tls, --peer-auto-tls, --cipher-suites
 ./build/bin/cetcd --auto-tls --cipher-suites TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
 
-# Limit flags: --max-request-bytes is applied; --max-txn-ops is still a no-op
+# Limit flags: --max-request-bytes and --max-txn-ops are applied
 ./build/bin/cetcd --max-txn-ops 128 --max-request-bytes 1572864 \
   --auth-token 'jwt,sign-method=RS256,priv-key=./jwt.pem,ttl=5m' --bcrypt-cost 10
 

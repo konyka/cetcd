@@ -595,7 +595,7 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `version -w json` enhanced (now includes `server` field with value `cetcd`),
 `snapshot restore -w json` enhanced (now includes `keys` count field in JSON output),
 `print_json_string` helper (unified JSON string escaping for all -w json outputs; now used by get/put/del/watch/member/status/endpoint/auth/role/lease commands for proper handling of special characters like \" \\ \n \r \t and control characters),
-`etcd-compatible server flags` (cetcd now accepts `--listen-client-urls`, `--listen-peer-urls` with URL format parsing, plus `--advertise-client-urls`, `--initial-advertise-peer-urls`, `--initial-cluster-state`, `--initial-cluster-token`, `--force-new-cluster`, `--max-txn-ops`, `--auto-tls`, `--peer-auto-tls`, `--cipher-suites`, `--logger`, `--log-outputs`, `--grpc-keepalive-*`, `--experimental-*` as no-op compatibility flags; `--election-tick`, `--heartbeat-tick`, and `--snapshot-count` are actual Raft/WAL parameters; `--max-request-bytes` caps the client read buffer (default 1.5 MiB) and closes oversized frames; `--quota-backend-bytes` raises NOSPACE and rejects Puts when LMDB size is at or above the cap (Deletes still apply); `--auth-token jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]` issues JWTs (other methods fail closed); `--bcrypt-cost` hashes new passwords with bcrypt; `--cert-file`/`--key-file`/`--trusted-ca-file`/`--client-cert-auth` and the matching `--peer-*` flags terminate TLS on accept and on outbound `peer_tx_`),
+`etcd-compatible server flags` (cetcd now accepts `--listen-client-urls`, `--listen-peer-urls` with URL format parsing, plus `--advertise-client-urls`, `--initial-advertise-peer-urls`, `--initial-cluster-state`, `--initial-cluster-token`, `--force-new-cluster`, `--auto-tls`, `--peer-auto-tls`, `--cipher-suites`, `--logger`, `--log-outputs`, `--grpc-keepalive-*`, `--experimental-*` as no-op compatibility flags; `--election-tick`, `--heartbeat-tick`, and `--snapshot-count` are actual Raft/WAL parameters; `--max-request-bytes` caps the client read buffer (default 1.5 MiB) and closes oversized frames; `--max-txn-ops` rejects Txn lists longer than N (default 128, hard max 128; larger N fail-closes at start); `--quota-backend-bytes` raises NOSPACE and rejects Puts when LMDB size is at or above the cap (Deletes still apply); `--auth-token jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]` issues JWTs (other methods fail closed); `--bcrypt-cost` hashes new passwords with bcrypt; `--cert-file`/`--key-file`/`--trusted-ca-file`/`--client-cert-auth` and the matching `--peer-*` flags terminate TLS on accept and on outbound `peer_tx_`),
 `get/del --prefix ""` buffer overflow fix (empty key with `--prefix` now correctly uses `\0` as range_end to match all keys, instead of causing a `key_len - 1` underflow),
 `get/del --prefix --from-key` mutual exclusion (returns error when both flags are specified together),
 `alarm TYPE` argument parsing (`alarm activate` and `alarm disarm` now accept an optional TYPE argument: `NOSPACE`, `CORRUPT`, or `NONE`; `alarm list` output now displays `CORRUPT` alarm type correctly),
@@ -706,8 +706,9 @@ The `Txn` handler now evaluates `Compare` clauses against the MVCC store — sup
 `EQUAL`/`GREATER`/`LESS`/`NOT_EQUAL` operators on `VERSION`, `CREATE`, `MOD`, `VALUE`, and
 `LEASE` targets — and executes success or failure ops accordingly, returning a complete
 `TxnResponse` with `ResponseHeader`, `succeeded` flag, and `ResponseOp` entries.
-`max(len(compare), len(success), len(failure)) > 128` fails at the RPC layer
-(`ErrTooManyOps`, etcd default `MaxTxnOps`) instead of silently truncating ops.
+`max(len(compare), len(success), len(failure)) > MaxTxnOps` fails at the RPC layer
+(`ErrTooManyOps`; default 128, configurable via `--max-txn-ops`, hard max 128)
+instead of silently truncating ops.
 Nested `RequestTxn` (RequestOp field 4) is executed recursively with the same
 per-level `MaxTxnOps` budget; nesting deeper than 16 is fail-closed (C stack).
 Unrecognized RequestOp tags still fail the outer Txn instead of being skipped.

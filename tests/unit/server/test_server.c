@@ -1638,6 +1638,55 @@ CETCD_TEST_CASE(server_start_small_max_request_bytes) {
     cetcd_server_free(srv);
 }
 
+CETCD_TEST_CASE(server_start_rejects_huge_max_txn_ops) {
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    cfg.max_txn_ops = 129;
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), CETCD_ERR_INVAL);
+    cetcd_server_free(srv);
+}
+
+CETCD_TEST_CASE(server_start_applies_max_txn_ops) {
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    cfg.max_txn_ops = 2;
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+
+    uint8_t txn_buf[256];
+    size_t tpos = 0;
+    for (int i = 0; i < 3; i++) {
+        uint8_t put_inner[8]; size_t p = 0;
+        put_inner[p++] = 0x0a; put_inner[p++] = 1; put_inner[p++] = 'k';
+        put_inner[p++] = 0x12; put_inner[p++] = 1; put_inner[p++] = 'v';
+        uint8_t op[16]; size_t o = 0;
+        op[o++] = 0x12;
+        op[o++] = (uint8_t)p;
+        memcpy(op + o, put_inner, p); o += p;
+        txn_buf[tpos++] = 0x12;
+        txn_buf[tpos++] = (uint8_t)o;
+        memcpy(txn_buf + tpos, op, o); tpos += o;
+    }
+    cetcd_server_rpc_result resp =
+        cetcd_server_handle_rpc(srv, "/etcdserverpb.KV/Txn", txn_buf, tpos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_server_rpc_result_free(&resp);
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_create_destroy),
     CETCD_TEST_ENTRY(server_handle_rpc_put_range),
@@ -1676,6 +1725,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_start_rejects_bad_bcrypt_cost),
     CETCD_TEST_ENTRY(server_start_accepts_simple_auth_token),
     CETCD_TEST_ENTRY(server_start_small_max_request_bytes),
+    CETCD_TEST_ENTRY(server_start_rejects_huge_max_txn_ops),
+    CETCD_TEST_ENTRY(server_start_applies_max_txn_ops),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

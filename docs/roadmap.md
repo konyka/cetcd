@@ -138,6 +138,8 @@ Performance-first, fail-closed design:
 - **Alarm persistence** — NOSPACE/CORRUPT live in the LMDB `alarm` bucket.
   Activate (including quota NOSPACE) and disarm rewrite the table; restart
   reloads it. A truncated blob is ignored (fail-closed empty table).
+- **`--max-txn-ops`** — Txn `max(compare, success, failure)` is capped (default
+  128, hard max 128 for the C stack). Larger N fail-closes at start.
 
 ## Previously done (auth data plane)
 
