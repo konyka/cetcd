@@ -5493,7 +5493,7 @@ static void print_usage(void) {
     printf("  --insecure-skip-tls-verify  Same as --insecure\n");
     printf("  --insecure-transport  Force plaintext even if TLS flags are set (fail-closed if mixed)\n");
     printf("  --password PASS  Password for --user authentication\n");
-    printf("  --discovery-srv DOMAIN  Discovery service (no-op)\n\n");
+    printf("  --discovery-srv DOMAIN  Not implemented (fail-closed; would look like DNS discovery)\n\n");
     printf("Commands:\n");
     printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] [--print-value-only] [-w json|fields] KEY [VALUE|-]  Store a key-value pair\n");
     printf("  get [--prefix] [--from-key] [--range-end KEY] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields|table] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
@@ -5687,8 +5687,8 @@ int main(int argc, char **argv) {
             g_password[sizeof(g_password) - 1] = '\0';
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--discovery-srv") == 0 && cmd_start + 1 < argc) {
-            /* Accepted for compatibility, no-op */
-            cmd_start += 2;
+            fprintf(stderr, "--discovery-srv is not implemented\n");
+            return 1;
         } else if (strcmp(argv[cmd_start], "--user") == 0 && cmd_start + 1 < argc) {
             user_cred = argv[cmd_start + 1];
             cmd_start += 2;

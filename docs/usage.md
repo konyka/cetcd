@@ -552,7 +552,7 @@ Supported operations (in `then`/`else` sections):
 | `--key FILE` | none | TLS client key (requires `--cert`) |
 | `--max-call-send-msg-size N` | none | Max request payload in bytes (`0` rejected) |
 | `--max-call-recv-msg-size N` | none | Max response payload in bytes (`0` rejected; no silent truncate) |
-| `--discovery-srv DOMAIN` | none | Discovery service (no-op) |
+| `--discovery-srv DOMAIN` | none | Not implemented (fail-closed) |
 
 ### Table output formats
 

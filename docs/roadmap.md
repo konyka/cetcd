@@ -173,6 +173,9 @@ Performance-first, fail-closed design:
 - **`--log-outputs`** — `stderr`/`stdout` (and `/dev/std{err,out}`) are applied
   via the log sink. A file path, journal, or comma-list would look like logs
   left stderr; those fail at parse.
+- **`--discovery-srv`** — DNS SRV lookup is not implemented. The flag used to
+  be ignored while the client still used `--host`/`--endpoints` (default
+  127.0.0.1:2379). It now fails at parse.
 
 ## Previously done (auth data plane)
 
