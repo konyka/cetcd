@@ -28,7 +28,7 @@ static void print_usage(const char *prog) {
     printf("  --peer-port PORT Peer listen port (default: 2380)\n");
     printf("  --metrics-port PORT Metrics listen port (default: 2381, 0 to disable)\n");
     printf("  --node-id ID     Node ID (default: 1)\n");
-    printf("  --initial-cluster NODE1=ADDR:PORT,NODE2=...  Initial cluster membership\n");
+    printf("  --initial-cluster NODE1=ADDR:PORT,NODE2=...  Initial cluster (https requires --peer-cert-file)\n");
     printf("  --election-tick N   Raft election tick (default: 10)\n");
     printf("  --heartbeat-tick N  Raft heartbeat tick (default: 1)\n");
     printf("  --log-level LVL  Log level: trace,debug,info,warn,error (default: info)\n");
@@ -115,12 +115,21 @@ int main(int argc, char **argv) {
                     char *colon = strrchr(addr_part, ':');
                     if (colon) {
                         *colon = '\0';
-                        if (strncmp(addr_part, "http://", 7) == 0) addr_part += 7;
-                        else if (strncmp(addr_part, "https://", 8) == 0) addr_part += 8;
+                        if (strncmp(addr_part, "https://", 8) == 0) {
+                            cfg.initial_cluster_https = true;
+                            addr_part += 8;
+                        } else if (strncmp(addr_part, "http://", 7) == 0) {
+                            addr_part += 7;
+                        }
                         strncpy(pi->addr, addr_part, sizeof(pi->addr) - 1);
                         pi->port = (uint16_t)atoi(colon + 1);
                     } else {
-                        if (strncmp(addr_part, "http://", 7) == 0) addr_part += 7;
+                        if (strncmp(addr_part, "https://", 8) == 0) {
+                            cfg.initial_cluster_https = true;
+                            addr_part += 8;
+                        } else if (strncmp(addr_part, "http://", 7) == 0) {
+                            addr_part += 7;
+                        }
                         strncpy(pi->addr, addr_part, sizeof(pi->addr) - 1);
                         pi->port = 2380;
                     }

@@ -788,7 +788,8 @@ or `--insecure-transport` mixed with cert flags fail closed. `--auto-tls` stays 
 `--cipher-suites` restricts TLS (IANA or OpenSSL names); unknown names or the flag
 without certs fail closed.
 `https://` on `--listen-client-urls` / `--listen-peer-urls` requires the matching
-cert files; `cetcdctl --endpoints https://...` requires `--cacert` or `--insecure`
+cert files; `https://` in `--initial-cluster` requires `--peer-cert-file`;
+`cetcdctl --endpoints https://...` requires `--cacert` or `--insecure`
 (and rejects `--insecure-transport`). Plaintext is not a silent fallback.
 `--initial-cluster-state existing` and `--force-new-cluster` fail at start
 (cetcd only bootstraps `new` and does not wipe `data_dir`).

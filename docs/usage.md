@@ -165,6 +165,10 @@ cetcd accepts several etcd server flags for migration compatibility:
   --cert-file server.crt --key-file server.key \
   --peer-cert-file peer.crt --peer-key-file peer.key --data-dir ./data
 
+# https peer URLs in --initial-cluster also require --peer-cert-file
+./build/bin/cetcd --initial-cluster 1=https://127.0.0.1:2380 \
+  --peer-cert-file peer.crt --peer-key-file peer.key --data-dir ./data
+
 # Limit flags: --max-request-bytes and --max-txn-ops are applied
 ./build/bin/cetcd --max-txn-ops 128 --max-request-bytes 1572864 \
   --auth-token 'jwt,sign-method=RS256,priv-key=./jwt.pem,ttl=5m' --bcrypt-cost 10
