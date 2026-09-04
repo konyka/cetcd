@@ -3,6 +3,7 @@
 #include "cetcd/lease.h"
 #include "cetcd/raft.h"
 #include "cetcd/peer.h"
+#include "cetcd/auth.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,7 @@ extern cetcd_lease_mgr  *g_rpc_lease_mgr;
 extern cetcd_raft       *g_rpc_raft;
 extern cetcd_cluster    *g_rpc_cluster;
 extern cetcd_backend    *g_rpc_auth_backend;
+extern cetcd_auth_store *g_rpc_auth;
 extern uint64_t          g_rpc_quota_bytes;
 extern uint64_t          g_rpc_node_id;
 
@@ -265,6 +267,14 @@ int cetcd_apply_encode_lease_keepalive(uint8_t **out, size_t *out_len,
     *out = buf;
     *out_len = pos;
     return 0;
+}
+
+int cetcd_apply_encode_auth_user_add(uint8_t **out, size_t *out_len,
+                                     const uint8_t *name, size_t name_len,
+                                     const uint8_t *hash, size_t hash_len) {
+    if (!name || name_len == 0 || !hash || hash_len == 0) return -1;
+    return encode_tagged_(CETCD_APPLY_AUTH_USER_ADD, name, name_len,
+                          hash, hash_len, 0, 0, out, out_len);
 }
 
 static void lease_after_put_(const uint8_t *key, size_t key_len,
@@ -573,6 +583,24 @@ int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len) {
         if (elen > len - pos) return -1;
         const uint8_t *end = elen ? data + pos : NULL;
         return apply_delete_range_(key, (size_t)klen, end, (size_t)elen);
+    }
+    if (op == CETCD_APPLY_AUTH_USER_ADD) {
+        uint64_t hlen = 0;
+        if (read_varint_(data, len, &pos, &hlen) != 0) return -1;
+        if (hlen == 0 || hlen > len - pos) return -1;
+        if (!g_rpc_auth || klen >= 128) return -1;
+        char name[128];
+        memcpy(name, key, (size_t)klen);
+        name[(size_t)klen] = '\0';
+        if (cetcd_auth_has_user(g_rpc_auth, name)) {
+            cetcd_v3rpc_auth_persist();
+            return 0;
+        }
+        if (cetcd_auth_add_user_hash(g_rpc_auth, name, data + pos,
+                                     (size_t)hlen) != CETCD_OK)
+            return -1;
+        cetcd_v3rpc_auth_persist();
+        return 0;
     }
     return -1;
 }

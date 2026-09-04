@@ -32,6 +32,11 @@ void              cetcd_auth_store_free(cetcd_auth_store *s);
 
 int cetcd_auth_add_user(cetcd_auth_store *s, const char *name,
                          const char *password);
+/* Insert a user with an already-computed password hash (Raft apply). */
+int cetcd_auth_add_user_hash(cetcd_auth_store *s, const char *name,
+                             const uint8_t *hash, size_t hash_len);
+int cetcd_auth_hash_password(cetcd_auth_store *s, const char *password,
+                             uint8_t *out, size_t cap, size_t *out_len);
 int cetcd_auth_remove_user(cetcd_auth_store *s, const char *name);
 bool cetcd_auth_has_user(const cetcd_auth_store *s, const char *name);
 int cetcd_auth_grant_role(cetcd_auth_store *s, const char *user,

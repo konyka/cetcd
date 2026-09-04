@@ -106,6 +106,9 @@ Performance-first, fail-closed design:
 - **LeaseKeepAlive via Raft** — apply tag 13 (`id` + granted `ttl`). Missing
   leases still return TTL=0 without a proposal; not-leader with a live lease
   is fail-closed. Apply no-ops if the lease is already gone.
+- **Auth UserAdd via Raft** — apply tag 14 (name + password hash, never
+  plaintext). Duplicate names fail closed before propose. Apply is idempotent
+  for WAL replay and persists the LMDB `auth` bucket.
 
 ## Previously done (auth data plane)
 

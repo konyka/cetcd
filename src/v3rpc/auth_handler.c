@@ -189,11 +189,28 @@ cetcd_rpc_bytes auth_handle_user_add(cetcd_v3rpc *rpc, const uint8_t *req, size_
     }
     int rc = -1;
     if (g_rpc_auth && name) {
-        /* When no_password is set, allow empty password */
         const char *pw = (pass || no_password) ? (const char *)pass : NULL;
         if (no_password && !pass) pw = "";
         if (pw) {
-            rc = cetcd_auth_add_user(g_rpc_auth, (const char *)name, pw);
+            if (cetcd_auth_has_user(g_rpc_auth, (const char *)name)) {
+                free(name); free(pass);
+                return (cetcd_rpc_bytes){NULL, 0};
+            }
+            uint8_t hash[64];
+            size_t hlen = 0;
+            if (cetcd_auth_hash_password(g_rpc_auth, pw, hash, sizeof(hash), &hlen) != CETCD_OK) {
+                free(name); free(pass);
+                return (cetcd_rpc_bytes){NULL, 0};
+            }
+            uint8_t *entry = NULL;
+            size_t elen = 0;
+            if (cetcd_apply_encode_auth_user_add(&entry, &elen,
+                    name, strlen((const char *)name), hash, hlen) != 0) {
+                free(name); free(pass);
+                return (cetcd_rpc_bytes){NULL, 0};
+            }
+            rc = cetcd_v3rpc_propose_or_apply(entry, elen) < 0 ? -1 : CETCD_OK;
+            free(entry);
         }
     }
     free(name); free(pass);

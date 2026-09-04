@@ -164,6 +164,42 @@ int cetcd_auth_add_user(cetcd_auth_store *s, const char *name, const char *passw
     return CETCD_OK;
 }
 
+int cetcd_auth_hash_password(cetcd_auth_store *s, const char *password,
+                             uint8_t *out, size_t cap, size_t *out_len) {
+    if (!s || !password || !out || !out_len) return CETCD_ERR_INVAL;
+    cetcd_user u;
+    memset(&u, 0, sizeof(u));
+    int rc = fill_password_hash_(s, &u, password);
+    if (rc != CETCD_OK) return rc;
+    if (u.hash_len == 0 || u.hash_len > cap) return CETCD_ERR_OVERFLOW;
+    memcpy(out, u.password_hash, u.hash_len);
+    *out_len = u.hash_len;
+    return CETCD_OK;
+}
+
+int cetcd_auth_add_user_hash(cetcd_auth_store *s, const char *name,
+                             const uint8_t *hash, size_t hash_len) {
+    if (s == NULL || name == NULL || name[0] == '\0' || hash == NULL)
+        return CETCD_ERR_INVAL;
+    if (hash_len == 0 || hash_len > sizeof(((cetcd_user *)0)->password_hash))
+        return CETCD_ERR_INVAL;
+    cetcd_slice key = auth_key_(name);
+    void *tmp = NULL;
+    if (cetcd_hashmap_get(s->users, key, &tmp))
+        return CETCD_ERR_EXISTS;
+    cetcd_user *u = cetcd_user_new(name);
+    if (u == NULL) return CETCD_ERR_NOMEM;
+    memcpy(u->password_hash, hash, hash_len);
+    u->hash_len = hash_len;
+    int rc = cetcd_hashmap_put(s->users, key, (void *)u);
+    if (rc != 0) {
+        free(u->roles);
+        free(u);
+        return CETCD_ERR_NOMEM;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_auth_remove_user(cetcd_auth_store *s, const char *name) {
     if (s == NULL || name == NULL) return CETCD_ERR_INVAL;
     cetcd_slice key = auth_key_(name);

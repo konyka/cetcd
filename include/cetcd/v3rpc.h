@@ -94,6 +94,7 @@ CETCD_API void cetcd_v3rpc_watch_flush_replay(void);
 #define CETCD_APPLY_COMPACT       11
 #define CETCD_APPLY_LEASE_GRANT   12
 #define CETCD_APPLY_LEASE_KEEPALIVE 13
+#define CETCD_APPLY_AUTH_USER_ADD 14
 
 CETCD_API int cetcd_apply_encode_put(uint8_t **out, size_t *out_len,
                                      const uint8_t *key, size_t key_len,
@@ -128,6 +129,9 @@ CETCD_API int cetcd_apply_encode_lease_grant(uint8_t **out, size_t *out_len,
                                              uint64_t lease_id, int64_t ttl);
 CETCD_API int cetcd_apply_encode_lease_keepalive(uint8_t **out, size_t *out_len,
                                                  uint64_t lease_id, int64_t ttl);
+CETCD_API int cetcd_apply_encode_auth_user_add(uint8_t **out, size_t *out_len,
+                                               const uint8_t *name, size_t name_len,
+                                               const uint8_t *hash, size_t hash_len);
 
 /* Propose compact Delete ops for `n` keys (chunks of 128). 0 on success. */
 CETCD_API int cetcd_v3rpc_propose_deletes(const uint8_t *const *keys,
