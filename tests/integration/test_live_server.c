@@ -2468,6 +2468,19 @@ CETCD_TEST_CASE(live_cetcdctl_member_id) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcdctl_move_leader_id) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' move-leader zz >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' move-leader 0 >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcdctl_max_call_msg_size) {
     pid_t pid = fork();
     if (pid == 0) {
@@ -2572,6 +2585,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcdctl_lease_grant_ttl),
     CETCD_TEST_ENTRY(live_cetcdctl_lease_id),
     CETCD_TEST_ENTRY(live_cetcdctl_member_id),
+    CETCD_TEST_ENTRY(live_cetcdctl_move_leader_id),
     CETCD_TEST_ENTRY(live_cetcdctl_max_call_msg_size),
 #ifdef CETCD_HAS_NGHTTP2
     CETCD_TEST_ENTRY(live_server_http2_status),

@@ -620,7 +620,7 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `endpoint status -w fields` (new output format showing endpoint, ID, revision, dbSize, raftIndex, raftTerm, and version),
 `compact -w fields` (new output format showing ResponseHeader fields),
 `defrag -w fields` (fields output showing ResponseHeader),
-`move-leader -w fields` (fields output showing ResponseHeader),
+`move-leader -w fields` (fields output showing ResponseHeader; TARGET_ID is hex `> 0`; leftover text fail-closes),
 `snapshot status -w fields` (fields output showing hash, revision, total_keys, size, filename),
 `downgrade enable/cancel/validate -w fields` (fields output showing ResponseHeader),
 `auth enable/disable/status -w fields` (fields output showing ResponseHeader and enabled status),

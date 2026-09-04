@@ -5396,9 +5396,14 @@ static int cmd_move_leader(int argc, char **argv) {
         }
     }
     if (!target_str) { fprintf(stderr, "usage: cetcdctl move-leader [-w json|fields] TARGET_ID\n"); return 1; }
+    uint64_t target = 0;
+    if (parse_positive_hex_u64_(target_str, &target) != 0) {
+        fprintf(stderr, "move-leader TARGET_ID must be a hex integer > 0\n");
+        return 1;
+    }
     uint8_t req[32], resp[256];
     size_t pos = 0;
-    pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)atol(target_str));
+    pos = encode_varint_field(req, sizeof(req), pos, 0x08, target);
     int rlen = do_rpc("/etcdserverpb.Maintenance/MoveLeader", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
     if (want_json) {
@@ -5689,7 +5694,7 @@ static void print_usage(void) {
     printf("  hash [-w json|fields|table]         Get KV store hash\n");
     printf("  hashkv [-w json|fields|table]       Get KV store hash + compact revision\n");
     printf("  defrag [-w json|fields]       Defragment database (no-op for LMDB)\n");
-    printf("  move-leader [-w json|fields] TARGET_ID  Transfer leadership to target node\n");
+    printf("  move-leader [-w json|fields] TARGET_ID  Transfer leadership to target node (ID hex > 0)\n");
     printf("  member list [-w json|table|fields]  List cluster members\n");
     printf("  member add [-w json|fields] [--peer-urls URLS] [--name NAME] [--learner] [PEER_URL]  Add a cluster member (comma-separated URLs supported)\n");
     printf("  member remove [-w json|fields] ID    Remove a cluster member (ID hex > 0)\n");

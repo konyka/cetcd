@@ -465,6 +465,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl compact -w fields 5              # Compact with fields output
 ./build/bin/cetcdctl defrag -w fields                # Defragment with fields output
 ./build/bin/cetcdctl move-leader -w fields 1234567890  # Transfer leadership with fields output
+# TARGET_ID is hex > 0; leftover text is not a truncated decimal id
 ./build/bin/cetcdctl snapshot status backup.snap -w fields  # Snapshot info in fields format
 ./build/bin/cetcdctl downgrade enable 3.5.0 -w fields  # Downgrade with fields output
 ```
