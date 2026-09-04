@@ -1877,6 +1877,24 @@ CETCD_TEST_CASE(live_cetcd_snapshot_count) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_quota_backend_bytes) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --quota-backend-bytes 2147483648 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --quota-backend-bytes 0 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --quota-backend-bytes abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_log_level) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -2256,6 +2274,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_election_tick),
     CETCD_TEST_ENTRY(live_cetcd_heartbeat_tick),
     CETCD_TEST_ENTRY(live_cetcd_snapshot_count),
+    CETCD_TEST_ENTRY(live_cetcd_quota_backend_bytes),
     CETCD_TEST_ENTRY(live_cetcd_log_level),
     CETCD_TEST_ENTRY(live_cetcd_log_format),
     CETCD_TEST_ENTRY(live_cetcd_logger),

@@ -147,7 +147,7 @@ cetcd accepts several etcd server flags for migration compatibility:
   --snapshot-count 10000 --data-dir ./data
 # --snapshot-count must be > 0; a typo or 0 is not the silent default 10000
 
-# Backend quota (NOSPACE on Puts when LMDB size >= N; 0 = unlimited) and request cap
+# Backend quota (NOSPACE on Puts when LMDB size >= N; 0 = unlimited; a typo fails)
 ./build/bin/cetcd --quota-backend-bytes 2147483648 --max-request-bytes 1572864 \
   --data-dir ./data
 

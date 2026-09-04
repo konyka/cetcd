@@ -42,7 +42,7 @@ static void print_usage(const char *prog) {
     printf("  --initial-cluster-state STATE  new (default); existing is not implemented\n");
     printf("  --initial-cluster-token TOKEN  Persist in data-dir; mismatch fail-closes\n");
     printf("  --snapshot-count N   Rewrite WAL after N applies (default: 10000; must be > 0)\n");
-    printf("  --quota-backend-bytes N  NOSPACE when LMDB size >= N (0 = unlimited)\n");
+    printf("  --quota-backend-bytes N  NOSPACE when LMDB size >= N (0 = unlimited; invalid fails)\n");
     printf("  --force-new-cluster  Not implemented (fail-closed; would wipe data_dir)\n");
     printf("  --max-txn-ops N     Max compare/success/failure ops per Txn (default 128, max 128)\n");
     printf("  --max-request-bytes N  Max client frame (default 1572864); oversized closes\n");
@@ -303,7 +303,15 @@ int main(int argc, char **argv) {
             }
             cfg.snapshot_count = (uint64_t)v;
         } else if (strcmp(argv[i], "--quota-backend-bytes") == 0 && i + 1 < argc) {
-            cfg.quota_backend_bytes = (uint64_t)strtoull(argv[++i], NULL, 10);
+            const char *s = argv[++i];
+            char *end = NULL;
+            errno = 0;
+            unsigned long long v = strtoull(s, &end, 10);
+            if (errno == ERANGE || !end || end == s || *end) {
+                fprintf(stderr, "--quota-backend-bytes must be an integer (0 = unlimited)\n");
+                return 1;
+            }
+            cfg.quota_backend_bytes = (uint64_t)v;
         } else if (strcmp(argv[i], "--force-new-cluster") == 0) {
             cfg.force_new_cluster = true;
         } else if (strcmp(argv[i], "--max-txn-ops") == 0 && i + 1 < argc) {
