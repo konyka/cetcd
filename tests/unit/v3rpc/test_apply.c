@@ -794,6 +794,54 @@ CETCD_TEST_CASE(quota_blocks_put_not_delete) {
     rmdir(path);
 }
 
+CETCD_TEST_CASE(apply_alarm_reload_from_backend) {
+    char tmpl[] = "/tmp/cetcd-alarm-XXXXXX";
+    char *path = mkdtemp(tmpl);
+    CETCD_ASSERT_NOT_NULL(path);
+
+    cetcd_backend_config cfg = {
+        .path = path,
+        .map_size = 16 * 1024 * 1024,
+        .max_dbs = 8
+    };
+    cetcd_backend *be = cetcd_backend_open(&cfg);
+    CETCD_ASSERT_NOT_NULL(be);
+
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    CETCD_ASSERT_NOT_NULL(rpc);
+    cetcd_v3rpc_set_auth_backend(rpc, be);
+    cetcd_v3rpc_alarm_activate(1, 7);
+    cetcd_v3rpc_alarm_activate(2, 7);
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_alarm_is_active(1));
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_alarm_is_active(2));
+    cetcd_v3rpc_free(rpc);
+    CETCD_ASSERT_TRUE(!cetcd_v3rpc_alarm_is_active(1));
+    CETCD_ASSERT_TRUE(!cetcd_v3rpc_alarm_is_active(2));
+
+    rpc = cetcd_v3rpc_new();
+    CETCD_ASSERT_NOT_NULL(rpc);
+    cetcd_v3rpc_set_auth_backend(rpc, be);
+    cetcd_v3rpc_alarm_load(be);
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_alarm_is_active(1));
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_alarm_is_active(2));
+
+    uint8_t bad[] = { 2 };
+    const uint8_t key[] = {'t'};
+    CETCD_ASSERT_EQ_INT(cetcd_backend_put(be, "alarm", key, 1, bad, sizeof(bad)), 0);
+    cetcd_v3rpc_alarm_load(be);
+    CETCD_ASSERT_TRUE(!cetcd_v3rpc_alarm_is_active(1));
+    CETCD_ASSERT_TRUE(!cetcd_v3rpc_alarm_is_active(2));
+
+    cetcd_v3rpc_free(rpc);
+    cetcd_backend_close(be);
+    char db[300];
+    snprintf(db, sizeof(db), "%s/data.mdb", path);
+    unlink(db);
+    snprintf(db, sizeof(db), "%s/lock.mdb", path);
+    unlink(db);
+    rmdir(path);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(apply_put_delete_roundtrip),
     CETCD_TEST_ENTRY(apply_rejects_truncated),
@@ -818,6 +866,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(apply_auth_enabled_requires_root),
     CETCD_TEST_ENTRY(apply_compact_sets_revision),
     CETCD_TEST_ENTRY(quota_blocks_put_not_delete),
+    CETCD_TEST_ENTRY(apply_alarm_reload_from_backend),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

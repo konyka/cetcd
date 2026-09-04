@@ -498,8 +498,10 @@ current head; `revision < compacted_rev` or `revision > current` fails at the RP
 The `DowngradeResponse` now correctly returns only a header
 (field 1) instead of a version string. The `Alarm` handler processes three actions: GET (list current alarms), ACTIVATE (add an
 alarm), and DEACTIVATE (remove an alarm). It supports both NOSPACE and CORRUPT alarm types
-simultaneously, with an in-memory alarm table (up to 8 entries) that allows independent
-activation/deactivation of each alarm type. It returns an `AlarmResponse` with the current
+simultaneously, with an in-memory table (up to 8 entries) persisted to the LMDB `alarm`
+bucket so a restart keeps the flags. A truncated persist blob is ignored (empty table).
+Quota-triggered NOSPACE writes the same table. Independent
+activation/deactivation of each alarm type is allowed. It returns an `AlarmResponse` with the current
 alarm list (field 2, repeated AlarmMember with memberID and alarm type). The
 `make_simple_response()` helper used by `Defragment` and `MoveLeader` returns a proper
 `ResponseHeader` with the current revision.

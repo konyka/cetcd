@@ -1108,6 +1108,65 @@ CETCD_TEST_CASE(server_wal_replay_auth_role_revoke_perm) {
     cetcd_server_free(srv);
 }
 
+CETCD_TEST_CASE(server_alarm_survives_restart) {
+    char data_dir[] = "/tmp/cetcd-test-alarm-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+
+    uint8_t activate[] = {0x08, 0x01, 0x10, 0x00, 0x18, 0x01};
+    cetcd_server_rpc_result resp =
+        cetcd_server_handle_rpc(srv, "/etcdserverpb.Maintenance/Alarm",
+                                activate, sizeof(activate));
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_server_rpc_result_free(&resp);
+    cetcd_server_stop(srv);
+    cetcd_server_free(srv);
+    CETCD_ASSERT_TRUE(!cetcd_v3rpc_alarm_is_active(1));
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+    srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_alarm_is_active(1));
+
+    uint8_t get_alarm[] = {0x08, 0x00};
+    resp = cetcd_server_handle_rpc(srv, "/etcdserverpb.Maintenance/Alarm",
+                                   get_alarm, sizeof(get_alarm));
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found = 0;
+    for (size_t i = 0; i < resp.len; i++) {
+        if (resp.data[i] == 0x12) { found = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(found);
+    cetcd_server_rpc_result_free(&resp);
+
+    uint8_t disarm[] = {0x08, 0x02, 0x10, 0x00, 0x18, 0x01};
+    resp = cetcd_server_handle_rpc(srv, "/etcdserverpb.Maintenance/Alarm",
+                                   disarm, sizeof(disarm));
+    cetcd_server_rpc_result_free(&resp);
+    cetcd_server_stop(srv);
+    cetcd_server_free(srv);
+
+    srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+    CETCD_ASSERT_TRUE(!cetcd_v3rpc_alarm_is_active(1));
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_CASE(server_txn_put_survives_restart) {
     char data_dir[] = "/tmp/cetcd-test-txnraft-XXXXXX";
     CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
@@ -1601,6 +1660,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_wal_replay_auth_user_revoke_role),
     CETCD_TEST_ENTRY(server_wal_replay_auth_role_grant_perm),
     CETCD_TEST_ENTRY(server_wal_replay_auth_role_revoke_perm),
+    CETCD_TEST_ENTRY(server_alarm_survives_restart),
     CETCD_TEST_ENTRY(server_txn_put_survives_restart),
     CETCD_TEST_ENTRY(server_lease_survives_restart),
     CETCD_TEST_ENTRY(server_snapshot_count_truncates_wal),

@@ -91,11 +91,13 @@ cetcd_v3rpc *cetcd_v3rpc_new(void) {
     g_rpc_store = rpc->store;
     g_rpc_lease_mgr = rpc->leases;
     g_rpc_auth = rpc->auth;
+    cetcd_v3rpc_alarm_load(NULL);
     return rpc;
 }
 
 void cetcd_v3rpc_free(cetcd_v3rpc *rpc) {
     if (!rpc) return;
+    cetcd_v3rpc_alarm_load(NULL);
     if (rpc->store) {
         cetcd_mvcc_store_free(rpc->store);
         rpc->store = NULL;

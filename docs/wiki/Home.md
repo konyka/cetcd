@@ -72,6 +72,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **Auth RoleGrantPermission 经 Raft**：apply tag 21（角色 + key + perm type）；缺失角色 fail-closed；apply 覆盖权限。
 - **Auth RoleRevokePermission 经 Raft**：apply tag 22（角色名）；缺失角色 fail-closed；apply 清空权限。
 - **Auth ChangePassword 经 Raft**：apply tag 23（用户名 + 密码哈希，WAL 不存明文）；缺失用户 fail-closed；apply 覆盖哈希。
+- **告警持久化**：NOSPACE/CORRUPT 写入 LMDB `alarm` 桶；重启加载；截断记录 fail-closed 为空表。
 - **Compact 经 Raft**：`KV/Compact` 为 apply tag 11（修订号 varint）；未来修订或已压缩修订 fail-closed；WAL 重放对已压缩修订幂等。
 - **Learner 提升**：`MemberPromote` 将 learner 转为投票成员；缺失或已是 voter 则 fail-closed。Raft quorum 不计 learner。
 - **成员持久化**：MemberAdd/Remove/Promote/Update 经 Raft apply，写入 LMDB `members` 桶；重启在 campaign 前恢复 peer。

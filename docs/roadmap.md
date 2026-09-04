@@ -135,6 +135,9 @@ Performance-first, fail-closed design:
 - **Auth ChangePassword via Raft** — apply tag 23 (name + password hash, never
   plaintext). Missing user fail-closes before propose. Apply overwrites the
   hash, revokes simple tokens, and is idempotent if the user is already gone.
+- **Alarm persistence** — NOSPACE/CORRUPT live in the LMDB `alarm` bucket.
+  Activate (including quota NOSPACE) and disarm rewrite the table; restart
+  reloads it. A truncated blob is ignored (fail-closed empty table).
 
 ## Previously done (auth data plane)
 
@@ -149,8 +152,7 @@ None remaining in this pass.
 
 ### Security / ops
 
-- **Alarm persistence** — NOSPACE/CORRUPT flags are in-memory; a restart
-  clears them even when the quota condition remains.
+None remaining in this pass.
 
 ### Wire compatibility
 

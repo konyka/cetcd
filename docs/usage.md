@@ -289,7 +289,7 @@ to cancel the watch and close the stream.
 
 ```sh
 ./build/bin/cetcdctl status                # Server status (version, raft index, etc.)
-./build/bin/cetcdctl alarm list                       # List all alarms
+./build/bin/cetcdctl alarm list                       # List alarms (persisted across restart)
 ./build/bin/cetcdctl alarm activate NOSPACE           # Activate NOSPACE alarm
 ./build/bin/cetcdctl alarm activate CORRUPT           # Activate CORRUPT alarm
 ./build/bin/cetcdctl alarm disarm                    # Disarm alarms

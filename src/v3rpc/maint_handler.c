@@ -20,20 +20,79 @@
 #include "cetcd/base.h"
 #include "cetcd/raft.h"
 #include "cetcd/peer.h"
+#include "cetcd/backend.h"
 
 extern cetcd_mvcc_store *g_rpc_store;
 extern cetcd_raft       *g_rpc_raft;
 extern cetcd_cluster    *g_rpc_cluster;
 extern uint64_t          g_rpc_node_id;
+extern cetcd_backend    *g_rpc_auth_backend;
 extern cetcd_stream_write_fn g_rpc_stream_write_fn;
 extern void             *g_rpc_stream_write_ctx;
 
 #define MAX_ALARMS 8
+#define ALARM_BUCKET "alarm"
+static const uint8_t ALARM_KEY[] = {'t'};
+
 static struct {
     int active;
     int alarm_type;
     uint64_t member_id;
 } g_alarms[MAX_ALARMS];
+
+static void write_le64_(uint8_t *p, uint64_t v) {
+    for (int i = 0; i < 8; i++) p[i] = (uint8_t)(v >> (8 * i));
+}
+
+static uint64_t read_le64_(const uint8_t *p) {
+    uint64_t v = 0;
+    for (int i = 0; i < 8; i++) v |= (uint64_t)p[i] << (8 * i);
+    return v;
+}
+
+static void alarm_persist_(void) {
+    if (!g_rpc_auth_backend) return;
+    uint8_t val[1 + MAX_ALARMS * 9];
+    size_t n = 0;
+    val[0] = 0;
+    for (int i = 0; i < MAX_ALARMS; i++) {
+        if (!g_alarms[i].active) continue;
+        size_t off = 1 + n * 9;
+        val[off] = (uint8_t)g_alarms[i].alarm_type;
+        write_le64_(val + off + 1, g_alarms[i].member_id);
+        n++;
+        val[0] = (uint8_t)n;
+    }
+    (void)cetcd_backend_put(g_rpc_auth_backend, ALARM_BUCKET,
+                            ALARM_KEY, sizeof(ALARM_KEY), val, 1 + n * 9);
+}
+
+void cetcd_v3rpc_alarm_load(struct cetcd_backend *be) {
+    memset(g_alarms, 0, sizeof(g_alarms));
+    if (!be) return;
+    uint8_t *val = NULL;
+    size_t vlen = 0;
+    if (cetcd_backend_get(be, ALARM_BUCKET, ALARM_KEY, sizeof(ALARM_KEY),
+                          &val, &vlen) != CETCD_OK || !val)
+        return;
+    if (vlen < 1 || val[0] > MAX_ALARMS || vlen < 1u + (size_t)val[0] * 9u) {
+        free(val);
+        return;
+    }
+    uint8_t n = val[0];
+    int slot = 0;
+    for (uint8_t i = 0; i < n && slot < MAX_ALARMS; i++) {
+        size_t off = 1 + (size_t)i * 9;
+        int typ = (int)val[off];
+        if (typ <= 0) continue;
+        g_alarms[slot].active = 1;
+        g_alarms[slot].alarm_type = typ;
+        g_alarms[slot].member_id = read_le64_(val + off + 1);
+        if (g_alarms[slot].member_id == 0) g_alarms[slot].member_id = 1;
+        slot++;
+    }
+    free(val);
+}
 
 void cetcd_v3rpc_alarm_activate(int alarm_type, uint64_t member_id) {
     if (alarm_type <= 0) return;
@@ -50,6 +109,7 @@ void cetcd_v3rpc_alarm_activate(int alarm_type, uint64_t member_id) {
             g_alarms[i].active = 1;
             g_alarms[i].alarm_type = alarm_type;
             g_alarms[i].member_id = member_id > 0 ? member_id : 1;
+            alarm_persist_();
             return;
         }
     }
@@ -312,15 +372,18 @@ cetcd_rpc_bytes maint_handle_alarm(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
     if (action == 1 && alarm_type > 0) { /* ACTIVATE */
         cetcd_v3rpc_alarm_activate(alarm_type, member_id);
     } else if (action == 2 && alarm_type > 0) { /* DEACTIVATE */
+        int changed = 0;
         for (int i = 0; i < MAX_ALARMS; i++) {
             if (g_alarms[i].active && g_alarms[i].alarm_type == alarm_type) {
                 if (member_id == 0 || g_alarms[i].member_id == member_id) {
                     g_alarms[i].active = 0;
                     g_alarms[i].alarm_type = 0;
                     g_alarms[i].member_id = 0;
+                    changed = 1;
                 }
             }
         }
+        if (changed) alarm_persist_();
     }
     /* action == 0 (GET) just returns current state */
 

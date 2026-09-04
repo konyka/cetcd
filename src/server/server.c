@@ -2149,6 +2149,7 @@ int cetcd_server_start(cetcd_server *srv) {
             extern cetcd_auth_store *g_rpc_auth;
             if (g_rpc_auth)
                 (void)cetcd_auth_load(g_rpc_auth, srv->backend);
+            cetcd_v3rpc_alarm_load(srv->backend);
             if (srv->cluster) {
                 cetcd_cluster_set_backend(srv->cluster, srv->backend);
                 (void)cetcd_cluster_load(srv->cluster, srv->backend);
