@@ -552,7 +552,7 @@ Supported operations (in `then`/`else` sections):
 | `--insecure` | off | Skip TLS verify when TLS is on; required with `https://` endpoints if no `--cacert` |
 | `--insecure-skip-tls-verify` | off | Same as `--insecure` |
 | `--insecure-transport` | off | Force plaintext; fail-closes if mixed with `--cacert`/`--cert`/`--key` or `https://` endpoints |
-| `--dial-timeout SEC` | none | Connection timeout |
+| `--dial-timeout SEC` | none | Connection timeout (`0..86400`; optional `s`; `0` = none; invalid fails) |
 | `--keepalive-time SEC` | none | TCP keepalive idle seconds (`0` disables; `0..86400`) |
 | `--keepalive-timeout SEC` | none | TCP keepalive interval (requires `--keepalive-time`) |
 | `--cacert FILE` | none | TLS CA certificate (enables TLS; missing file fail-closes) |

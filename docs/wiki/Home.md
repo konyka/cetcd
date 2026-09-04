@@ -804,6 +804,7 @@ the flag and still use 127.0.0.1:2379).
 `--keepalive-time` / `--keepalive-timeout` set TCP keepalive on the client socket
 (invalid durations and timeout without time fail-close).
 `--command-timeout` is a duration (`0` = none); a typo fail-closes instead of hanging with no alarm.
+`--dial-timeout` is `0..86400` seconds (`0` = none); a typo fail-closes instead of connecting with no timeout.
 `--grpc-keepalive-time` / `--grpc-keepalive-timeout` set TCP keepalive on accepted
 client sockets, accepted peer sockets, and outbound Raft dials
 (`--grpc-keepalive-min-time` is not applied; a non-duration value fail-closes).

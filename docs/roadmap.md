@@ -184,6 +184,9 @@ Performance-first, fail-closed design:
   time fail at parse. Omitted flags keep the OS default.
 - **`cetcdctl --command-timeout`** — integer seconds or Go duration. A typo
   used to become “no timeout”; that now fails at parse. `0` stays none.
+- **`cetcdctl --dial-timeout`** — `0..86400` seconds (optional `s`). A typo
+  used to become “no timeout” via `atoi`; that now fails at parse. `0` stays
+  none.
 - **`--grpc-keepalive-time` / `--grpc-keepalive-timeout`** — TCP keepalive on
   accepted client sockets, accepted peer sockets, and outbound Raft dials
   (`uv_tcp_keepalive_ex`). Timeout without time, or a non-duration value, fail

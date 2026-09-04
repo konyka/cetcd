@@ -5554,7 +5554,7 @@ static void print_usage(void) {
     printf("  --command-timeout SEC  Timeout for commands (duration; 0 = none; invalid fails)\n");
     printf("  --debug       Print debug info (RPC path and response size)\n");
     printf("  --insecure    Skip TLS certificate verification (with --cacert/--cert)\n");
-    printf("  --dial-timeout SEC  Connection timeout (default: none)\n");
+    printf("  --dial-timeout SEC  Connection timeout (0..86400; 0 = none; invalid fails)\n");
     printf("  --keepalive-time SEC    TCP keepalive idle (0 disables; requires 0..86400)\n");
     printf("  --keepalive-timeout SEC  TCP keepalive interval (requires --keepalive-time)\n");
     printf("  --cacert FILE   TLS CA certificate (enables TLS; missing file fail-closes)\n");
@@ -5727,7 +5727,19 @@ int main(int argc, char **argv) {
             g_insecure = 1;
             cmd_start += 1;
         } else if (strcmp(argv[cmd_start], "--dial-timeout") == 0 && cmd_start + 1 < argc) {
-            g_dial_timeout = atoi(argv[cmd_start + 1]);
+            char *end = NULL;
+            errno = 0;
+            long v = strtol(argv[cmd_start + 1], &end, 10);
+            if (errno == ERANGE || !end || end == argv[cmd_start + 1] || v < 0 || v > 86400) {
+                fprintf(stderr, "--dial-timeout must be 0..86400 seconds\n");
+                return 1;
+            }
+            if (*end == 's') end++;
+            if (*end) {
+                fprintf(stderr, "--dial-timeout must be 0..86400 seconds\n");
+                return 1;
+            }
+            g_dial_timeout = (int)v;
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--keepalive-time") == 0 && cmd_start + 1 < argc) {
             char *end = NULL;
