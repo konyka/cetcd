@@ -50,6 +50,7 @@ extern cetcd_cluster *g_rpc_cluster;
 extern uint64_t       g_rpc_node_id;
 extern char           g_rpc_advertise_client[512];
 extern char           g_rpc_advertise_peer[512];
+extern char           g_rpc_member_name[128];
 extern cetcd_mvcc_store *g_rpc_store;
 extern cetcd_raft    *g_rpc_raft;
 
@@ -122,8 +123,8 @@ static cetcd_rpc_bytes make_simple_cluster_response(void) {
  *   field 2 (peerURLs) = repeated string, tag = 0x12
  */
 static size_t encode_member(uint8_t *buf, size_t cap, uint64_t id,
-                             const char *peer_addr, const char *client_url,
-                             int is_learner) {
+                             const char *name, const char *peer_addr,
+                             const char *client_url, int is_learner) {
     size_t pos = 0;
     buf[pos++] = 0x08; /* field 1 = ID */
     write_varint_c(buf, cap, &pos, id);
@@ -138,12 +139,12 @@ static size_t encode_member(uint8_t *buf, size_t cap, uint64_t id,
     }
     /* field 3 = name (string) */
     {
-        const char *name = "default";
-        size_t nlen = strlen(name);
+        const char *nm = (name && *name) ? name : "default";
+        size_t nlen = strlen(nm);
         buf[pos++] = 0x1a;
         write_varint_c(buf, cap, &pos, (uint64_t)nlen);
         if (pos + nlen < cap) {
-            memcpy(buf + pos, name, nlen);
+            memcpy(buf + pos, nm, nlen);
             pos += nlen;
         }
     }
@@ -190,8 +191,8 @@ cetcd_rpc_bytes cluster_handle_member_list(cetcd_v3rpc *rpc,
     if (g_rpc_node_id > 0) {
         uint8_t member_buf[512];
         size_t mlen = encode_member(member_buf, sizeof(member_buf),
-                                     g_rpc_node_id, g_rpc_advertise_peer,
-                                     g_rpc_advertise_client, 0);
+                                     g_rpc_node_id, g_rpc_member_name,
+                                     g_rpc_advertise_peer, g_rpc_advertise_client, 0);
         /* field 2 (members) = repeated Member, tag = 0x12 */
         buf[pos++] = 0x12;
         write_varint_c(buf, sizeof(buf), &pos, (uint64_t)mlen);
@@ -211,7 +212,7 @@ cetcd_rpc_bytes cluster_handle_member_list(cetcd_v3rpc *rpc,
             snprintf(peer_url, sizeof(peer_url), "%s:%u", pi->addr, pi->port);
             uint8_t member_buf[256];
             size_t mlen = encode_member(member_buf, sizeof(member_buf),
-                                         pi->id, peer_url, NULL, pi->is_learner);
+                                         pi->id, NULL, peer_url, NULL, pi->is_learner);
             if (pos + 2 + mlen < sizeof(buf)) {
                 buf[pos++] = 0x12;
                 write_varint_c(buf, sizeof(buf), &pos, (uint64_t)mlen);
@@ -322,7 +323,7 @@ cetcd_rpc_bytes cluster_handle_member_add(cetcd_v3rpc *rpc,
     if (new_id > 0) {
         uint8_t member_buf[128];
         size_t mlen = encode_member(member_buf, sizeof(member_buf),
-                                     new_id, "", NULL, is_learner);
+                                     new_id, NULL, "", NULL, is_learner);
         buf[bpos++] = 0x12;
         write_varint_c(buf, sizeof(buf), &bpos, (uint64_t)mlen);
         if (bpos + mlen < sizeof(buf)) {

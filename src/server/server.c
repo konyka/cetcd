@@ -2134,12 +2134,17 @@ int cetcd_server_start(cetcd_server *srv) {
     {
         extern char g_rpc_advertise_client[512];
         extern char g_rpc_advertise_peer[512];
+        extern char g_rpc_member_name[128];
         strncpy(g_rpc_advertise_client, srv->cfg.advertise_client_urls,
                 sizeof(g_rpc_advertise_client) - 1);
         g_rpc_advertise_client[sizeof(g_rpc_advertise_client) - 1] = '\0';
         strncpy(g_rpc_advertise_peer, srv->cfg.advertise_peer_urls,
                 sizeof(g_rpc_advertise_peer) - 1);
         g_rpc_advertise_peer[sizeof(g_rpc_advertise_peer) - 1] = '\0';
+        strncpy(g_rpc_member_name,
+                srv->cfg.name[0] ? srv->cfg.name : "default",
+                sizeof(g_rpc_member_name) - 1);
+        g_rpc_member_name[sizeof(g_rpc_member_name) - 1] = '\0';
     }
 
     if (!srv->tls_client && !srv->tls_peer && !srv->tls_peer_out) {

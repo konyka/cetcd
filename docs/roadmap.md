@@ -189,6 +189,8 @@ Performance-first, fail-closed design:
   self `clientURLs` / `peerURLs`. Omitted flags default from the listen address
   (scheme follows TLS). `https://` without the matching cert file fail-closes.
   Peers omit `clientURLs` rather than advertising a hardcoded 2379.
+- **`--name`** — MemberList self `name`. Omitted or empty stays `default`.
+  The flag used to be logged only while every member was named `default`.
 
 ## Previously done (auth data plane)
 

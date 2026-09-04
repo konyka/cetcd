@@ -308,6 +308,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+    strncpy(cfg.name, name, sizeof(cfg.name) - 1);
 
     CETCD_INFO("cetcd v%s starting", cetcd_version());
     CETCD_INFO("  name      : %s", name);

@@ -1916,6 +1916,29 @@ CETCD_TEST_CASE(server_start_member_list_uses_advertise_urls) {
     cetcd_server_free(srv);
 }
 
+CETCD_TEST_CASE(server_start_member_list_uses_name) {
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.name, "infra-a", sizeof(cfg.name) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+
+    uint8_t dummy[] = {0x00};
+    cetcd_server_rpc_result resp =
+        cetcd_server_handle_rpc(srv, "/etcdserverpb.Cluster/MemberList", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(bytes_contains_(resp.data, resp.len, "infra-a"));
+    CETCD_ASSERT_TRUE(!bytes_contains_(resp.data, resp.len, "default"));
+    cetcd_server_rpc_result_free(&resp);
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_CASE(server_start_rejects_jwt_without_key) {
     cetcd_server_config cfg;
     memset(&cfg, 0, sizeof(cfg));
@@ -2160,6 +2183,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_start_rejects_https_advertise_without_tls),
     CETCD_TEST_ENTRY(server_start_rejects_https_peer_advertise_without_tls),
     CETCD_TEST_ENTRY(server_start_member_list_uses_advertise_urls),
+    CETCD_TEST_ENTRY(server_start_member_list_uses_name),
     CETCD_TEST_ENTRY(server_start_rejects_jwt_without_key),
     CETCD_TEST_ENTRY(server_start_rejects_jwt_ps256),
     CETCD_TEST_ENTRY(server_start_accepts_jwt_hs256),

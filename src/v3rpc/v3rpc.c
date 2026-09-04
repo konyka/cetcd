@@ -75,6 +75,7 @@ cetcd_raft       *g_rpc_raft = NULL;
 uint64_t          g_rpc_node_id = 0;
 char              g_rpc_advertise_client[512] = "http://127.0.0.1:2379";
 char              g_rpc_advertise_peer[512] = "http://127.0.0.1:2380";
+char              g_rpc_member_name[128] = "default";
 const char       *g_rpc_auth_user = NULL;
 cetcd_backend    *g_rpc_auth_backend = NULL;
 uint64_t          g_rpc_quota_bytes = 0;

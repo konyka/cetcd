@@ -13,6 +13,7 @@ extern cetcd_cluster *g_rpc_cluster;
 extern uint64_t       g_rpc_node_id;
 extern char           g_rpc_advertise_client[512];
 extern char           g_rpc_advertise_peer[512];
+extern char           g_rpc_member_name[128];
 extern cetcd_loop           *g_rpc_loop;
 extern cetcd_stream_write_fn g_rpc_stream_write_fn;
 extern void                 *g_rpc_stream_write_ctx;
@@ -1406,6 +1407,27 @@ CETCD_TEST_CASE(v3rpc_member_list_uses_advertise_urls) {
     cetcd_rpc_bytes_free(&resp);
     memcpy(g_rpc_advertise_client, saved_client, sizeof(saved_client));
     memcpy(g_rpc_advertise_peer, saved_peer, sizeof(saved_peer));
+    g_rpc_node_id = saved_id;
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_member_list_uses_member_name) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    char saved_name[128];
+    uint64_t saved_id = g_rpc_node_id;
+    memcpy(saved_name, g_rpc_member_name, sizeof(saved_name));
+    g_rpc_node_id = 1;
+    strncpy(g_rpc_member_name, "infra-a", sizeof(g_rpc_member_name) - 1);
+
+    uint8_t dummy[] = {0x00};
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Cluster/MemberList", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(bytes_contains_(resp.data, resp.len, "infra-a"));
+    CETCD_ASSERT_TRUE(!bytes_contains_(resp.data, resp.len, "default"));
+
+    cetcd_rpc_bytes_free(&resp);
+    memcpy(g_rpc_member_name, saved_name, sizeof(saved_name));
     g_rpc_node_id = saved_id;
     cetcd_v3rpc_free(rpc);
 }
@@ -5954,6 +5976,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_range_revision_compacted),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_list),
     CETCD_TEST_ENTRY(v3rpc_member_list_uses_advertise_urls),
+    CETCD_TEST_ENTRY(v3rpc_member_list_uses_member_name),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_add),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_remove),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_update),

@@ -125,7 +125,8 @@ reloads live keys from LMDB and replays any WAL entries ahead of `applied_index`
 ```
 
 The cluster uses Raft consensus for replication. Leader election happens
-automatically within ~1 second of startup.
+automatically within ~1 second of startup. `--name` is the MemberList self
+name (`default` if omitted).
 
 ### etcd-compatible server flags
 
