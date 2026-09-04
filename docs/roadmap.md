@@ -197,6 +197,9 @@ Performance-first, fail-closed design:
   now fails at parse.
 - **`cetcdctl --endpoints` / `--endpoint`** — port `1..65535`. A typo
   used to connect to port `0` via `atoi`; that now fails at parse.
+- **`cetcdctl check datascale --load`** — must be `> 0`. A typo or `0` used
+  to become the silent default 10000 via `atoi`; that now fails at parse.
+  Omitted still defaults to 10000.
 - **`--grpc-keepalive-time` / `--grpc-keepalive-timeout`** — TCP keepalive on
   accepted client sockets, accepted peer sockets, and outbound Raft dials
   (`uv_tcp_keepalive_ex`). Timeout without time, or a non-duration value, fail

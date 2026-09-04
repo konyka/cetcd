@@ -3048,8 +3048,16 @@ static int cmd_check(int argc, char **argv) {
                 else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
                 i++;
             } else if (strcmp(argv[i], "--load") == 0 && i + 1 < argc) {
-                load_count = atoi(argv[++i]);
-                if (load_count <= 0) load_count = 10000;
+                const char *s = argv[++i];
+                char *end = NULL;
+                errno = 0;
+                long v = strtol(s, &end, 10);
+                if (errno == ERANGE || !end || end == s || *end ||
+                    v < 1 || v > 0x7fffffffL) {
+                    fprintf(stderr, "check datascale --load must be > 0\n");
+                    return 1;
+                }
+                load_count = (int)v;
             } else if (strcmp(argv[i], "--prefix") == 0 && i + 1 < argc) {
                 prefix = argv[++i];
             }
@@ -5626,7 +5634,7 @@ static void print_usage(void) {
     printf("  endpoint status [--cluster] [-w json|table|fields]  Get server status (or all cluster members with --cluster)\n");
     printf("  endpoint hashkv [--cluster] [-w json|table|fields]      Get KV hash per endpoint (or all cluster members with --cluster)\n");
     printf("  check perf [--load S|M|L] [--prefix PREFIX] [-w json|fields]    Run a simple performance check\n");
-    printf("  check datascale [-w json|fields] [--load N] [--prefix PREFIX]  Test database scalability\n");
+    printf("  check datascale [-w json|fields] [--load N] [--prefix PREFIX]  Test database scalability (--load > 0)\n");
     printf("  lock [--ttl N] [--print-value-only] [-w json|fields] LOCKNAME [CMD...]  Acquire a distributed lock\n");
     printf("  elect [--ttl N] [--print-value-only] [-w json|fields] ELECTION_NAME [PROPOSAL]  Leader election\n");
     printf("  completion bash|zsh|fish   Generate shell completion script\n");

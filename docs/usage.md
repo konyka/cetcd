@@ -444,6 +444,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl check perf -w json          # Performance check with JSON output
 ./build/bin/cetcdctl check perf -w fields         # Performance check with fields output
 ./build/bin/cetcdctl check datascale --load 1000  # Test database scalability with 1000 keys
+# --load must be > 0; a typo or 0 is not the silent default 10000
 ./build/bin/cetcdctl check datascale -w json --load 5000  # Datascale test with JSON output
 ./build/bin/cetcdctl check datascale -w fields --load 5000  # Datascale test with fields output
 ./build/bin/cetcdctl del key1 --prev-kv --hex        # Delete with prev-kv in hex format

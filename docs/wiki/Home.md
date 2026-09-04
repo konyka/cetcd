@@ -822,6 +822,7 @@ the flag and still use 127.0.0.1:2379).
 `--dial-timeout` is `0..86400` seconds (`0` = none); a typo fail-closes instead of connecting with no timeout.
 `cetcdctl --port` is `1..65535`; a typo fail-closes instead of connecting to port `0`.
 `cetcdctl --endpoints` / `--endpoint` port is `1..65535`; a typo fail-closes instead of connecting to port `0`.
+`cetcdctl check datascale --load` must be `> 0`; a typo or `0` fail-closes instead of loading 10000 keys.
 `--grpc-keepalive-time` / `--grpc-keepalive-timeout` set TCP keepalive on accepted
 client sockets, accepted peer sockets, and outbound Raft dials
 (`--grpc-keepalive-min-time` is not applied; a non-duration value fail-closes).

@@ -587,7 +587,7 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `snapshot save` fixed (now correctly extracts blob data from SnapshotResponse protobuf, writing only snapshot data to file instead of raw protobuf; JSON output now includes real ResponseHeader),
 `check perf -w json` fixed (now includes real ResponseHeader from Put response),
 `member add --peer-urls URL` / `--learner` (etcdctl-compatible flags for adding cluster members; --learner sends isLearner=true in MemberAddRequest),
-`check datascale [--load N] [--prefix PREFIX] [-w json]` (new subcommand to test database scalability by loading N keys and reporting DB size and elapsed time),
+`check datascale [--load N] [--prefix PREFIX] [-w json]` (new subcommand to test database scalability by loading N keys and reporting DB size and elapsed time; `--load` must be `> 0`; a typo fail-closes),
 `watch --filter NOPUT|NODELETE` (filter event types in watch, maps to WatchCreateRequest.filters field 5),
 `alarm activate/disarm -w json` (JSON output for alarm activate/disarm with real ResponseHeader),
 `member list -w json` enhanced (now parses name, clientURLs, and isLearner fields from Member proto; server also returns name="default" and clientURLs),
