@@ -96,7 +96,7 @@ cmake --build build-werror
 
 ```sh
 ./build/bin/cetcd --data-dir ./data --listen 127.0.0.1 --port 2379
-# --port must be 1..65535; a typo is not a silent bind on port 0
+# --port / --peer-port must be 1..65535; a typo is not a silent bind on port 0
 ```
 
 This starts a single-node cetcd server listening on port 2379 for client

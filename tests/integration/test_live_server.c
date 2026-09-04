@@ -1769,6 +1769,24 @@ CETCD_TEST_CASE(live_cetcd_port) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_peer_port) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --peer-port 2380 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --peer-port abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --peer-port 0 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_log_level) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -2124,6 +2142,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_client_tls_put),
     CETCD_TEST_ENTRY(live_cetcd_rejects_unknown_flag),
     CETCD_TEST_ENTRY(live_cetcd_port),
+    CETCD_TEST_ENTRY(live_cetcd_peer_port),
     CETCD_TEST_ENTRY(live_cetcd_log_level),
     CETCD_TEST_ENTRY(live_cetcd_log_format),
     CETCD_TEST_ENTRY(live_cetcd_logger),
