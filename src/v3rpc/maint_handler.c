@@ -9,7 +9,7 @@
  *   - HashKV: returns hash + revision
  *   - MoveLeader: leader transfer request
  *   - Snapshot: returns a snapshot of the KV store
- *   - Downgrade: cluster version downgrade (no-op, returns success)
+ *   - Downgrade: VALIDATE of cetcd_version() only; ENABLE/CANCEL fail-closed
  */
 
 #include <stdlib.h>
@@ -613,35 +613,51 @@ cetcd_rpc_bytes maint_handle_snapshot(cetcd_v3rpc *rpc, const uint8_t *req, size
 
 /*
  * Downgrade RPC.
- * Validates and/or enables a cluster downgrade.
  *
  * DowngradeRequest:
  *   field 1 (action)  = enum (VALIDATE/ENABLE/CANCEL), tag = 0x08
  *   field 2 (version) = string, tag = 0x12
  * DowngradeResponse:
- *   field 1 (version) = string, tag = 0x0a
+ *   field 1 (header)  = ResponseHeader, tag = 0x0a
  *
- * In this simplified implementation, downgrade is a no-op that returns
- * the current version string.
+ * cetcd cannot change on-disk format. VALIDATE of cetcd_version()
+ * succeeds; ENABLE, CANCEL, and any other version fail-closed.
  */
 cetcd_rpc_bytes maint_handle_downgrade(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
 
-    /* Parse request to consume fields (validate format) */
+    int action = 0;
+    char ver[32];
+    ver[0] = '\0';
     size_t pos = 0;
     while (pos < req_len) {
         uint8_t tag = req[pos++];
         if (tag == 0x08) {
-            /* action: enum varint */
-            uint64_t v = 0; read_varint_m(req, req_len, &pos, &v);
+            uint64_t v = 0;
+            if (read_varint_m(req, req_len, &pos, &v) < 0)
+                return (cetcd_rpc_bytes){NULL, 0};
+            if (v > 2147483647u) return (cetcd_rpc_bytes){NULL, 0};
+            action = (int)v;
         } else if (tag == 0x12) {
-            /* version: string (skip) */
-            uint64_t l = 0; read_varint_m(req, req_len, &pos, &l);
+            uint64_t l = 0;
+            if (read_varint_m(req, req_len, &pos, &l) < 0)
+                return (cetcd_rpc_bytes){NULL, 0};
+            if (l >= sizeof(ver) || pos + (size_t)l > req_len)
+                return (cetcd_rpc_bytes){NULL, 0};
+            memcpy(ver, req + pos, (size_t)l);
+            ver[(size_t)l] = '\0';
             pos += (size_t)l;
         } else {
-            uint64_t skip = 0; read_varint_m(req, req_len, &pos, &skip);
+            uint64_t skip = 0;
+            if (read_varint_m(req, req_len, &pos, &skip) < 0)
+                return (cetcd_rpc_bytes){NULL, 0};
+            if (pos + (size_t)skip > req_len)
+                return (cetcd_rpc_bytes){NULL, 0};
+            pos += (size_t)skip;
         }
     }
+    if (!cetcd_v3rpc_downgrade_ok(action, ver))
+        return (cetcd_rpc_bytes){NULL, 0};
 
     /* Response: field 1 = header (ResponseHeader) */
     int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;

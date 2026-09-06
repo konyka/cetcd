@@ -81,6 +81,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **WAL 截断**：`--snapshot-count` 次 apply（默认 10000）后，将 WAL 段改写为 `SNAPSHOT` + HardState 并压缩内存 log；写失败则保留原段。
 - **自动压缩**：`--auto-compaction-mode periodic|revision` 与 `--auto-compaction-retention`（0 关闭；periodic 为时长或小时数；revision 为保留修订数）。非法值启动失败。仅 leader 在 tick 上 propose Compact。
 - **启动完整性**：`--experimental-initial-corrupt-check` 在 WAL 回放后对当前库做 HashKV，并与 `{data-dir}/backend.hash` 对照；缺文件则写入，同修订哈希不同或当前修订低于已存修订则 fail-closed。其它 `--experimental-*` 仍为 no-op。
+- **Downgrade fail-closed**：`Maintenance/Downgrade` 仅 `VALIDATE` 当前 `cetcd_version()` 成功；`ENABLE`/`CANCEL` 及其它版本 fail-closed（磁盘格式不可改，也不会进入降级中）。
 - **请求上限 / 后端配额**：`--max-request-bytes`（默认 1.5 MiB）限制客户端读缓冲，超限关连接；`--max-txn-ops`（默认 128，上限 128）拒绝过长 Txn，更大值启动 fail-closed；`--quota-backend-bytes` 在 LMDB 体积达到上限时对 Put 返回空帧并激活 NOSPACE，Delete 仍可执行以便回收空间。
 - **JWT**：`--auth-token jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]` 签发带 `username`/`revision`/`exp` 的 JWT；密码变更不撤销已签发 JWT（与 etcd 一致）。其它 sign-method 启动失败。
 - **Peer 发送**：复用 TCP 连接，避免每条 Raft 消息新建短连接。入站可走 HTTP/2 `POST /raft`；peer TLS 协商 ALPN `h2` 时出站同样 POST `/raft`，否则仍为 4 字节长度前缀。
@@ -983,7 +984,7 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 | Maintenance | `/etcdserverpb.Maintenance/Alarm` | `maint_handler.c` | 告警获取/激活/停用 |
 | Maintenance | `/etcdserverpb.Maintenance/MoveLeader` | `maint_handler.c` | 领导者转移（通过 raft TRANSFER_LEADER 消息触发） |
 | Maintenance | `/etcdserverpb.Maintenance/Snapshot` | `maint_handler.c` | 返回 KV 存储快照（单次返回所有键值对） |
-| Maintenance | `/etcdserverpb.Maintenance/Downgrade` | `maint_handler.c` | 集群版本降级（no-op，返回当前版本） |
+| Maintenance | `/etcdserverpb.Maintenance/Downgrade` | `maint_handler.c` | VALIDATE 当前版本成功；ENABLE/CANCEL/其它版本 fail-closed |
 
 ---
 
@@ -1108,7 +1109,7 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `role grant-permission ROLE TYPE KEY` | 授予角色权限（TYPE: read/write/readwrite） |
 | `role revoke-permission ROLE` | 撤销角色权限 |
 | `snapshot save [FILE]` | 保存快照到文件 |
-| `downgrade enable/cancel/validate` | 集群版本降级 |
+| `downgrade enable/cancel/validate` | 仅 `validate <cetcd_version>` 成功；enable/cancel fail-closed |
 
 ---
 

@@ -470,9 +470,8 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl alarm activate NOSPACE               # Activate NOSPACE alarm
 ./build/bin/cetcdctl alarm activate CORRUPT               # Activate CORRUPT alarm
 ./build/bin/cetcdctl alarm disarm                        # Disarm all alarms
-./build/bin/cetcdctl downgrade enable             # Enable cluster downgrade
-./build/bin/cetcdctl downgrade cancel             # Cancel downgrade
-./build/bin/cetcdctl downgrade validate           # Validate downgrade state
+./build/bin/cetcdctl downgrade validate 0.3.0     # Confirm cluster is already at 0.3.0
+# enable / cancel / other versions fail-closed (on-disk format cannot change)
 ./build/bin/cetcdctl check perf                   # Run performance check (put/get latency)
 ./build/bin/cetcdctl check perf --load s            # Small load (10 keys)
 ./build/bin/cetcdctl check perf --load m            # Medium load (100 keys)
@@ -498,7 +497,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl move-leader -w fields 1234567890  # Transfer leadership with fields output
 # TARGET_ID is hex > 0; leftover text is not a truncated decimal id
 ./build/bin/cetcdctl snapshot status backup.snap -w fields  # Snapshot info in fields format
-./build/bin/cetcdctl downgrade enable 3.5.0 -w fields  # Downgrade with fields output
+./build/bin/cetcdctl downgrade validate 0.3.0 -w fields  # Validate current version with fields output
 ```
 
 ### Shell completion

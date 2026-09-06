@@ -203,6 +203,16 @@ CETCD_API int cetcd_v3rpc_propose_or_apply(const uint8_t *data, size_t len);
  * Linearizable requires this node to be the current leader. */
 CETCD_API int cetcd_v3rpc_linearizable_ok(int serializable);
 
+/* DowngradeRequest.DowngradeAction (etcd proto). */
+#define CETCD_DOWNGRADE_VALIDATE 0
+#define CETCD_DOWNGRADE_ENABLE   1
+#define CETCD_DOWNGRADE_CANCEL   2
+
+/* 1 if Downgrade may succeed. VALIDATE of cetcd_version() only.
+ * ENABLE/CANCEL and any other version fail-closed (on-disk format
+ * cannot change; no downgrade is ever in progress). */
+CETCD_API int cetcd_v3rpc_downgrade_ok(int action, const char *version);
+
 /* Accessors for server wiring (persistence, lease tick). */
 CETCD_API struct cetcd_mvcc_store *cetcd_v3rpc_store(cetcd_v3rpc *rpc);
 CETCD_API struct cetcd_lease_mgr  *cetcd_v3rpc_leases(cetcd_v3rpc *rpc);

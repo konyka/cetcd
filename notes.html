@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 38 — strict MemberRemove</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 39 — Downgrade fail-closed</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 38 fail-closes <code>MemberRemove</code>
-     of a voter when the remaining set would lose the old quorum
-     (last voter / 2-node shrink).</p>
+  <p><strong>v0.3.0</strong>. Phase 39 fail-closes <code>Downgrade</code>
+     ENABLE/CANCEL and any version other than <code>cetcd_version()</code>
+     so a fake target cannot look successful.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -91,6 +91,7 @@
       <tr><td>36</td><td>initial corrupt check</td><td>--experimental-initial-corrupt-check HashKV vs backend.hash after WAL replay; data-loss/mismatch fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>37</td><td>Raft PreVote</td><td>pre_vote campaigns at term+1 without local bump; lease/stale-log reject; TIMEOUT_NOW skips — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>38</td><td>strict MemberRemove</td><td>refuse voter remove that loses old quorum; learner remove still ok; unknown id fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>39</td><td>Downgrade fail-closed</td><td>VALIDATE cetcd_version() only; ENABLE/CANCEL and other versions empty-frame — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

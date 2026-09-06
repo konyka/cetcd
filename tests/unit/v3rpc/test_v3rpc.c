@@ -1862,22 +1862,57 @@ CETCD_TEST_CASE(v3rpc_range_stream_streams) {
     cetcd_v3rpc_free(rpc);
 }
 
+static size_t encode_downgrade_(uint8_t *buf, int action, const char *ver) {
+    size_t pos = 0;
+    buf[pos++] = 0x08;
+    buf[pos++] = (uint8_t)action;
+    if (ver && ver[0]) {
+        size_t n = strlen(ver);
+        buf[pos++] = 0x12;
+        buf[pos++] = (uint8_t)n;
+        memcpy(buf + pos, ver, n);
+        pos += n;
+    }
+    return pos;
+}
+
 CETCD_TEST_CASE(v3rpc_maintenance_downgrade) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
-    /* DowngradeRequest: field 1 (action) = 1 (ENABLE), field 2 (version) = "0.1.0" */
-    uint8_t dg_buf[32];
-    size_t pos = 0;
-    dg_buf[pos++] = 0x08; /* field 1 = action */
-    dg_buf[pos++] = 0x01; /* ENABLE */
-    dg_buf[pos++] = 0x12; /* field 2 = version */
-    dg_buf[pos++] = 0x05;
-    memcpy(dg_buf + pos, "0.1.0", 5); pos += 5;
+    uint8_t dg_buf[64];
+    size_t pos = encode_downgrade_(dg_buf, CETCD_DOWNGRADE_ENABLE, "0.1.0");
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Downgrade", dg_buf, pos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
 
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_downgrade_validate_current) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    uint8_t dg_buf[64];
+    size_t pos = encode_downgrade_(dg_buf, CETCD_DOWNGRADE_VALIDATE,
+                                   cetcd_version());
     cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
         "/etcdserverpb.Maintenance/Downgrade", dg_buf, pos);
     CETCD_ASSERT_NOT_NULL(resp.data);
-    CETCD_ASSERT_TRUE(resp.len > 0);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_downgrade_cancel_fail_closed) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    uint8_t dg_buf[64];
+    size_t pos = encode_downgrade_(dg_buf, CETCD_DOWNGRADE_CANCEL, NULL);
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Downgrade", dg_buf, pos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
     cetcd_rpc_bytes_free(&resp);
 
     cetcd_v3rpc_free(rpc);
@@ -3935,11 +3970,10 @@ CETCD_TEST_CASE(v3rpc_maintenance_responses_have_header) {
     CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
     cetcd_rpc_bytes_free(&resp);
 
-    /* Downgrade response should start with header (tag 0x0a) */
-    uint8_t dg_buf[16]; size_t pos = 0;
-    dg_buf[pos++] = 0x08; dg_buf[pos++] = 0x01; /* ENABLE */
-    dg_buf[pos++] = 0x12; dg_buf[pos++] = 0x05;
-    memcpy(dg_buf + pos, "0.1.0", 5); pos += 5;
+    /* Downgrade VALIDATE of the running version starts with header (tag 0x0a) */
+    uint8_t dg_buf[64];
+    size_t pos = encode_downgrade_(dg_buf, CETCD_DOWNGRADE_VALIDATE,
+                                   cetcd_version());
     resp = cetcd_v3rpc_dispatch(rpc,
         "/etcdserverpb.Maintenance/Downgrade", dg_buf, pos);
     CETCD_ASSERT_NOT_NULL(resp.data);
@@ -6237,6 +6271,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_range_stream_matches_range),
     CETCD_TEST_ENTRY(v3rpc_range_stream_streams),
     CETCD_TEST_ENTRY(v3rpc_maintenance_downgrade),
+    CETCD_TEST_ENTRY(v3rpc_downgrade_validate_current),
+    CETCD_TEST_ENTRY(v3rpc_downgrade_cancel_fail_closed),
     CETCD_TEST_ENTRY(v3rpc_auth_user_get),
     CETCD_TEST_ENTRY(v3rpc_auth_role_get),
     CETCD_TEST_ENTRY(v3rpc_auth_role_grant_permission),

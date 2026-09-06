@@ -364,6 +364,11 @@ Performance-first, fail-closed design:
   and a 2-voter shrink are refused. Learners and a 3+ voter remove still
   work. Unknown member ids fail-closed. No cluster (unit dispatch) is
   unchanged.
+- **Downgrade fail-closed** — `Maintenance/Downgrade` VALIDATE of
+  `cetcd_version()` succeeds (already at this binary). ENABLE, CANCEL,
+  and any other version fail-closed: the on-disk format cannot change
+  and no downgrade is ever in progress. A fake `0.1.0` ENABLE no
+  longer returns success.
 
 ## Previously done (auth data plane)
 
