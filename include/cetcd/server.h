@@ -174,6 +174,8 @@ typedef struct cetcd_server_config {
     bool            tick_advance_set;             /* --initial-election-tick-advance given */
     bool            tick_advance;                 /* unset → true (etcd 3.5) */
     bool            wait_cluster_ready;           /* --experimental-wait-cluster-ready */
+    bool            socket_reuse_port_set;        /* --socket-reuse-port given */
+    bool            socket_reuse_port;            /* unset → off; Windows enable fail-closes */
 } cetcd_server_config;
 
 /* true|false|1|0. Empty/unknown is INVAL. */
@@ -190,6 +192,12 @@ int cetcd_server_want_enable_pprof(int set, int enabled);
 int cetcd_parse_metrics_level(const char *s, int *extensive);
 /* Unset → 0 (basic). set uses extensive. */
 int cetcd_server_want_metrics_extensive(int set, int extensive);
+/* Unset → 0 (SO_REUSEPORT off). set uses enabled. */
+int cetcd_server_want_socket_reuse_port(int set, int enabled);
+/* enabled 0 is OK. Windows enable is UNSUPPORT. Unix enable is OK (bind sets it). */
+int cetcd_socket_reuse_port_apply(int enabled);
+/* 0 or UV_TCP_REUSEPORT (2). */
+unsigned cetcd_socket_reuse_port_bind_flags(int enabled);
 /* 1=/metrics 2=404 3=profile 4=heap 5=coroutines 6=/health. enable_pprof 0 → pprof is 404. */
 int cetcd_server_metrics_route(const char *path, size_t path_len, int enable_pprof);
 /* 1 healthy. Alarms then leader. serializable skips leader. exclude skips that alarm. */

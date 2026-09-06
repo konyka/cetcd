@@ -430,6 +430,12 @@ Performance-first, fail-closed design:
   observes `grpc_server_handling_seconds` (Prometheus DefBuckets).
   Other values or a missing value fail at parse (no longer an unknown
   flag). Accepting `extensive` as a no-op is rejected.
+- **`--socket-reuse-port`** — bool (omitted default off; bare / `true`
+  sets `SO_REUSEPORT` via `UV_TCP_REUSEPORT` on client, peer, and
+  metrics listeners). Windows has no `SO_REUSEPORT` and fail-closes
+  at start. A non-bool fail-closes. `--socket-reuse-address` is not
+  accepted (libuv already sets `SO_REUSEADDR`; a false value would be
+  a lie).
 - **Downgrade fail-closed** — `Maintenance/Downgrade` VALIDATE of
   `cetcd_version()` succeeds (already at this binary). ENABLE, CANCEL,
   and any other version fail-closed: the on-disk format cannot change

@@ -722,7 +722,9 @@ a typo fail-closes). `--listen-metrics-urls http://host:port` binds a
 different address (cannot mix with `--metrics-port`; `https` / multi-URL
 fail-closes). `--metrics basic|extensive` sets scrape detail (omitted
 `basic`; `extensive` records unary `grpc_server_handling_seconds`;
-other values fail-close).
+other values fail-close). `--socket-reuse-port` sets `SO_REUSEPORT` on
+listeners (omitted default off; Windows fail-closes; a non-bool
+fail-closes).
 
 ```sh
 # Start cetcd with the default metrics port
@@ -734,6 +736,7 @@ curl http://127.0.0.1:2381/metrics
 # omitted / * / empty allows all (etcd default)
 # --metrics extensive records unary grpc_server_handling_seconds histograms
 # --metrics basic (omitted default) keeps counters/gauges only
+# --socket-reuse-port sets SO_REUSEPORT (Windows fail-closes)
 
 # etcd-compatible health (200 + {"health":"true"} or 503 + reason)
 # ?serializable=true skips the leader check; exclude=NOSPACE|CORRUPT skips that alarm

@@ -1846,6 +1846,29 @@ CETCD_TEST_CASE(live_cetcd_listen_metrics_urls) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_socket_reuse_port) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --socket-reuse-port --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --socket-reuse-port=false --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --socket-reuse-port=abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --socket-reuse-port yes >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_metrics_level) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -3346,6 +3369,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_peer_port),
     CETCD_TEST_ENTRY(live_cetcd_metrics_port),
     CETCD_TEST_ENTRY(live_cetcd_listen_metrics_urls),
+    CETCD_TEST_ENTRY(live_cetcd_socket_reuse_port),
     CETCD_TEST_ENTRY(live_cetcd_metrics_level),
     CETCD_TEST_ENTRY(live_cetcd_enable_pprof),
     CETCD_TEST_ENTRY(live_cetcd_host_whitelist),

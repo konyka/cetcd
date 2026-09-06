@@ -250,6 +250,23 @@ int cetcd_server_want_metrics_extensive(int set, int extensive) {
     return set ? (extensive != 0) : 0;
 }
 
+int cetcd_server_want_socket_reuse_port(int set, int enabled) {
+    return set ? (enabled != 0) : 0;
+}
+
+int cetcd_socket_reuse_port_apply(int enabled) {
+    if (!enabled) return CETCD_OK;
+#if defined(_WIN32)
+    return CETCD_ERR_UNSUPPORT;
+#else
+    return CETCD_OK;
+#endif
+}
+
+unsigned cetcd_socket_reuse_port_bind_flags(int enabled) {
+    return enabled ? 2u : 0u; /* UV_TCP_REUSEPORT */
+}
+
 int cetcd_server_metrics_route(const char *path, size_t path_len, int enable_pprof) {
     if (!path || path_len == 0) return 2;
     if (path_len == 8 && memcmp(path, "/metrics", 8) == 0) return 1;

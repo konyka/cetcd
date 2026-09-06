@@ -2561,6 +2561,11 @@ int cetcd_server_start(cetcd_server *srv) {
         int mrc = cetcd_mlock_apply(1);
         if (mrc != CETCD_OK) return mrc;
     }
+    if (cetcd_server_want_socket_reuse_port(srv->cfg.socket_reuse_port_set,
+                                            srv->cfg.socket_reuse_port)) {
+        int prc = cetcd_socket_reuse_port_apply(1);
+        if (prc != CETCD_OK) return prc;
+    }
 
     if (srv->cfg.auth_token_ttl_sec) {
         extern cetcd_auth_store *g_rpc_auth;
@@ -3000,7 +3005,11 @@ static int bind_client_listener_(cetcd_server *srv) {
     if (srv->listener) return 0;
     srv->listener = cetcd_tcp_new(srv->loop);
     if (!srv->listener) return CETCD_ERR_INTERNAL;
-    int rc = cetcd_tcp_bind(srv->listener, srv->cfg.listen_addr, srv->cfg.listen_port);
+    unsigned bf = cetcd_socket_reuse_port_bind_flags(
+        cetcd_server_want_socket_reuse_port(srv->cfg.socket_reuse_port_set,
+                                            srv->cfg.socket_reuse_port));
+    int rc = cetcd_tcp_bind_ex(srv->listener, srv->cfg.listen_addr,
+                               srv->cfg.listen_port, bf);
     if (rc != 0) {
         cetcd_tcp_free(srv->listener);
         srv->listener = NULL;
@@ -3055,7 +3064,11 @@ int cetcd_server_serve(cetcd_server *srv) {
         const char *peer_addr = srv->cfg.peer_addr[0] ? srv->cfg.peer_addr : srv->cfg.listen_addr;
         srv->peer_listener = cetcd_tcp_new(srv->loop);
         if (srv->peer_listener) {
-            rc = cetcd_tcp_bind(srv->peer_listener, peer_addr, srv->cfg.peer_port);
+            unsigned pbf = cetcd_socket_reuse_port_bind_flags(
+                cetcd_server_want_socket_reuse_port(srv->cfg.socket_reuse_port_set,
+                                                    srv->cfg.socket_reuse_port));
+            rc = cetcd_tcp_bind_ex(srv->peer_listener, peer_addr, srv->cfg.peer_port,
+                                   pbf);
             if (rc == 0) {
                 cetcd_tcp_listen(srv->peer_listener, on_peer_incoming_, srv);
             }
@@ -3072,7 +3085,11 @@ int cetcd_server_serve(cetcd_server *srv) {
         const char *maddr = cetcd_server_metrics_addr(&srv->cfg);
         rc = uv_ip4_addr(maddr, srv->cfg.metrics_port, &addr_in);
         if (rc == 0) {
-            rc = uv_tcp_bind(&srv->metrics_listener, (const struct sockaddr *)&addr_in, 0);
+            unsigned mbf = cetcd_socket_reuse_port_bind_flags(
+                cetcd_server_want_socket_reuse_port(srv->cfg.socket_reuse_port_set,
+                                                    srv->cfg.socket_reuse_port));
+            rc = uv_tcp_bind(&srv->metrics_listener, (const struct sockaddr *)&addr_in,
+                             mbf);
         }
         if (rc == 0) {
             rc = uv_listen((uv_stream_t *)&srv->metrics_listener, 128, on_metrics_connection_);

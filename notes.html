@@ -116,6 +116,7 @@
       <tr><td>60</td><td>tls-min/max-version</td><td>--tls-min-version / --tls-max-version are TLS1.2 or TLS1.3; omitted min TLS1.2; min&gt;max / TLS1.1 fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>61</td><td>host-whitelist</td><td>--host-whitelist restricts metrics HTTP Host; omitted/* allow all; missing/unknown Host is 403 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>62</td><td>metrics level</td><td>--metrics basic|extensive; omitted basic skips unary histograms; extensive observes grpc_server_handling_seconds — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>63</td><td>socket-reuse-port</td><td>--socket-reuse-port sets SO_REUSEPORT on listeners; omitted default off; Windows / non-bool fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

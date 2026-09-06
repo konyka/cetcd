@@ -42,12 +42,17 @@ void cetcd_tcp_free(cetcd_tcp *tcp) {
 }
 
 int cetcd_tcp_bind(cetcd_tcp *tcp, const char *addr, uint16_t port) {
+    return cetcd_tcp_bind_ex(tcp, addr, port, 0);
+}
+
+int cetcd_tcp_bind_ex(cetcd_tcp *tcp, const char *addr, uint16_t port,
+                      unsigned flags) {
     if (!tcp) return -1;
     struct sockaddr_in addr_in;
     if (uv_ip4_addr(addr, port, &addr_in) != 0) {
         return -1;
     }
-    int r = uv_tcp_bind(&tcp->handle, (const struct sockaddr *)&addr_in, 0);
+    int r = uv_tcp_bind(&tcp->handle, (const struct sockaddr *)&addr_in, flags);
     return (r == 0) ? 0 : -1;
 }
 

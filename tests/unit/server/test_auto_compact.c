@@ -316,6 +316,21 @@ CETCD_TEST_CASE(auto_compact_metrics_addr) {
     CETCD_ASSERT_TRUE(cetcd_server_metrics_addr(NULL) == NULL);
 }
 
+CETCD_TEST_CASE(auto_compact_socket_reuse_port) {
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_socket_reuse_port(0, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_socket_reuse_port(0, 1), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_socket_reuse_port(1, 1), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_socket_reuse_port(1, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_socket_reuse_port_apply(0), CETCD_OK);
+#if defined(_WIN32)
+    CETCD_ASSERT_EQ_INT(cetcd_socket_reuse_port_apply(1), CETCD_ERR_UNSUPPORT);
+#else
+    CETCD_ASSERT_EQ_INT(cetcd_socket_reuse_port_apply(1), CETCD_OK);
+#endif
+    CETCD_ASSERT_TRUE(cetcd_socket_reuse_port_bind_flags(0) == 0);
+    CETCD_ASSERT_TRUE(cetcd_socket_reuse_port_bind_flags(1) == 2u);
+}
+
 CETCD_TEST_CASE(auto_compact_metrics_level) {
     int ext = 1;
     CETCD_ASSERT_EQ_INT(cetcd_parse_metrics_level("basic", &ext), CETCD_OK);
@@ -598,6 +613,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_listen_url),
     CETCD_TEST_ENTRY(auto_compact_parse_metrics_listen_url),
     CETCD_TEST_ENTRY(auto_compact_metrics_addr),
+    CETCD_TEST_ENTRY(auto_compact_socket_reuse_port),
     CETCD_TEST_ENTRY(auto_compact_metrics_level),
     CETCD_TEST_ENTRY(auto_compact_enable_pprof),
     CETCD_TEST_ENTRY(auto_compact_health),

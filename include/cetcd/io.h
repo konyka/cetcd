@@ -68,6 +68,8 @@ typedef void (*cetcd_tcp_conn_cb)(cetcd_tcp *server, cetcd_tcp *client, void *ar
 cetcd_tcp *cetcd_tcp_new(cetcd_loop *loop);
 void       cetcd_tcp_free(cetcd_tcp *tcp);
 int        cetcd_tcp_bind(cetcd_tcp *tcp, const char *addr, uint16_t port);
+int        cetcd_tcp_bind_ex(cetcd_tcp *tcp, const char *addr, uint16_t port,
+                             unsigned flags);
 int        cetcd_tcp_listen(cetcd_tcp *tcp, cetcd_tcp_conn_cb cb, void *arg);
 
 /* Stream I/O (read/write with coroutine yield) */

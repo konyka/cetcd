@@ -32,6 +32,7 @@ static void print_usage(const char *prog) {
     printf("  --metrics-port PORT Metrics listen port (default: 2381; 0 disables; 0..65535; /metrics + /health)\n");
     printf("  --listen-metrics-urls URL  Metrics listen URL (http://host:port; https/multi fail)\n");
     printf("  --metrics LEVEL   Metrics detail: basic|extensive (default basic; extensive = unary histograms)\n");
+    printf("  --socket-reuse-port  SO_REUSEPORT on listeners (default off; Windows fail-closes)\n");
     printf("  --enable-pprof     Expose /debug/pprof/* on the metrics port (default off; true|false)\n");
     printf("  --host-whitelist LIST  Allowed Host names on metrics HTTP (* or empty = all)\n");
     printf("  --node-id ID     Node ID (default: 1; must be > 0)\n");
@@ -194,6 +195,25 @@ int main(int argc, char **argv) {
             }
             cfg.metrics_level_set = true;
             cfg.metrics_extensive = ext != 0;
+        } else if (strcmp(argv[i], "--socket-reuse-port") == 0) {
+            cfg.socket_reuse_port_set = true;
+            cfg.socket_reuse_port = true;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                int b = 0;
+                if (cetcd_parse_bool_flag(argv[++i], &b) != CETCD_OK) {
+                    fprintf(stderr, "--socket-reuse-port must be true or false\n");
+                    return 1;
+                }
+                cfg.socket_reuse_port = b != 0;
+            }
+        } else if (strncmp(argv[i], "--socket-reuse-port=", 20) == 0) {
+            int b = 0;
+            if (cetcd_parse_bool_flag(argv[i] + 20, &b) != CETCD_OK) {
+                fprintf(stderr, "--socket-reuse-port must be true or false\n");
+                return 1;
+            }
+            cfg.socket_reuse_port_set = true;
+            cfg.socket_reuse_port = b != 0;
         } else if (strcmp(argv[i], "--enable-pprof") == 0) {
             cfg.enable_pprof_set = true;
             cfg.enable_pprof = true;
