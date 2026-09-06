@@ -76,6 +76,7 @@ static void print_usage(const char *prog) {
     printf("  --cert-file FILE    Client TLS certificate (requires --key-file)\n");
     printf("  --key-file FILE     Client TLS private key\n");
     printf("  --trusted-ca-file FILE  Client TLS CA (required with --client-cert-auth)\n");
+    printf("  --client-crl-file FILE  Client cert revocation list (requires --cert-file)\n");
     printf("  --client-cert-auth  Require a client certificate (fail-closed)\n");
     printf("  --auto-tls           Mint {data-dir}/fixtures/client.{crt,key} if --cert-file omitted\n");
     printf("  --self-signed-cert-validity N  Auto-TLS cert lifetime in years (default 1; must be > 0)\n");
@@ -84,6 +85,7 @@ static void print_usage(const char *prog) {
     printf("  --peer-client-cert-file FILE  Outbound peer TLS cert (default --peer-cert-file)\n");
     printf("  --peer-client-key-file FILE   Outbound peer TLS key (requires --peer-client-cert-file)\n");
     printf("  --peer-trusted-ca-file FILE  Peer TLS CA (required with --peer-client-cert-auth)\n");
+    printf("  --peer-crl-file FILE  Peer cert revocation list (requires --peer-cert-file)\n");
     printf("  --peer-client-cert-auth  Require a peer certificate on accept (fail-closed)\n");
     printf("  --peer-cert-allowed-cn LIST  Allowed peer cert CNs (requires peer TLS + CA; empty = off)\n");
     printf("  --peer-cert-allowed-hostname LIST  Allowed peer SAN hostnames (requires peer TLS + CA)\n");
@@ -664,6 +666,18 @@ int main(int argc, char **argv) {
             strncpy(cfg.key_file, argv[++i], sizeof(cfg.key_file) - 1);
         } else if (strcmp(argv[i], "--trusted-ca-file") == 0 && i + 1 < argc) {
             strncpy(cfg.trusted_ca_file, argv[++i], sizeof(cfg.trusted_ca_file) - 1);
+        } else if (strcmp(argv[i], "--client-crl-file") == 0) {
+            if (i + 1 >= argc || argv[i + 1][0] == '-' || !argv[i + 1][0]) {
+                fprintf(stderr, "--client-crl-file requires a file\n");
+                return 1;
+            }
+            strncpy(cfg.client_crl_file, argv[++i], sizeof(cfg.client_crl_file) - 1);
+        } else if (strncmp(argv[i], "--client-crl-file=", 18) == 0) {
+            if (!argv[i][18]) {
+                fprintf(stderr, "--client-crl-file requires a file\n");
+                return 1;
+            }
+            strncpy(cfg.client_crl_file, argv[i] + 18, sizeof(cfg.client_crl_file) - 1);
         } else if (strcmp(argv[i], "--client-cert-auth") == 0) {
             cfg.client_cert_auth = true;
         } else if (strcmp(argv[i], "--auto-tls") == 0) {
@@ -720,6 +734,18 @@ int main(int argc, char **argv) {
                     sizeof(cfg.peer_client_key_file) - 1);
         } else if (strcmp(argv[i], "--peer-trusted-ca-file") == 0 && i + 1 < argc) {
             strncpy(cfg.peer_trusted_ca_file, argv[++i], sizeof(cfg.peer_trusted_ca_file) - 1);
+        } else if (strcmp(argv[i], "--peer-crl-file") == 0) {
+            if (i + 1 >= argc || argv[i + 1][0] == '-' || !argv[i + 1][0]) {
+                fprintf(stderr, "--peer-crl-file requires a file\n");
+                return 1;
+            }
+            strncpy(cfg.peer_crl_file, argv[++i], sizeof(cfg.peer_crl_file) - 1);
+        } else if (strncmp(argv[i], "--peer-crl-file=", 16) == 0) {
+            if (!argv[i][16]) {
+                fprintf(stderr, "--peer-crl-file requires a file\n");
+                return 1;
+            }
+            strncpy(cfg.peer_crl_file, argv[i] + 16, sizeof(cfg.peer_crl_file) - 1);
         } else if (strcmp(argv[i], "--peer-client-cert-auth") == 0) {
             cfg.peer_client_cert_auth = true;
         } else if (strcmp(argv[i], "--peer-cert-allowed-cn") == 0) {

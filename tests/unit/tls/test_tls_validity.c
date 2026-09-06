@@ -124,6 +124,25 @@ CETCD_TEST_CASE(tls_outbound_paths) {
     CETCD_ASSERT_EQ_INT(strcmp(k, "cli.key"), 0);
 }
 
+CETCD_TEST_CASE(tls_crl_helpers) {
+    CETCD_ASSERT_EQ_INT(cetcd_tls_crl_requires_cert(NULL, NULL), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_crl_requires_cert("", "srv.crt"), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_crl_requires_cert("rev.crl", "srv.crt"), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_crl_requires_cert("rev.crl", NULL), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_crl_requires_cert("rev.crl", ""), CETCD_ERR_INVAL);
+    const uint8_t s1[] = { 0x01, 0x02, 0x03 };
+    const uint8_t s2[] = { 0xaa };
+    const uint8_t s3[] = { 0x01, 0x02 };
+    const uint8_t *rev[] = { s1, s2 };
+    const size_t lens[] = { 3, 1 };
+    CETCD_ASSERT_EQ_INT(cetcd_tls_serial_revoked(rev, lens, 2, s1, 3), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_serial_revoked(rev, lens, 2, s2, 1), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_serial_revoked(rev, lens, 2, s3, 2), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_serial_revoked(NULL, lens, 2, s1, 3), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_serial_revoked(rev, lens, 2, NULL, 3), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_check_crl(NULL, NULL), CETCD_OK);
+}
+
 CETCD_TEST_CASE(tls_self_signed_days_overflow_and_null) {
     int days = 0;
     CETCD_ASSERT_EQ_INT(cetcd_tls_self_signed_days((uint32_t)(INT_MAX / 365) + 1,
@@ -138,6 +157,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(tls_version_range),
     CETCD_TEST_ENTRY(tls_peer_identity_lists),
     CETCD_TEST_ENTRY(tls_outbound_paths),
+    CETCD_TEST_ENTRY(tls_crl_helpers),
     CETCD_TEST_ENTRY(tls_self_signed_days_overflow_and_null),
 CETCD_TEST_LIST_END
 

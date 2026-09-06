@@ -435,6 +435,12 @@ Performance-first, fail-closed design:
   cert, override without listen TLS, missing files, or a missing value
   fail-close. Accepting the flags as a no-op is rejected (a server-only
   cert would still be presented on dial).
+- **`--client-crl-file` / `--peer-crl-file`** — PEM/DER CRL loaded at
+  start. After handshake, a peer cert whose serial is on the list is
+  closed (etcd serial compare; no peer cert is OK). CRL without that
+  side's cert, a missing file, garbage PEM/DER, or a missing value
+  fail-close. Accepting the flags as a no-op is rejected (a revoked
+  cert would still be accepted).
 - **`--host-whitelist`** — comma-separated Host names on the metrics
   HTTP port. Empty / `*` (omitted default) allows all. A restricted list
   waits for headers and returns 403 if Host is missing or not listed

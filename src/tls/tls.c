@@ -139,11 +139,28 @@ int cetcd_tls_outbound_paths(const char *listen_cert, const char *listen_key,
     return CETCD_OK;
 }
 
+int cetcd_tls_crl_requires_cert(const char *crl, const char *cert) {
+    if (!crl || !crl[0]) return CETCD_OK;
+    if (!cert || !cert[0]) return CETCD_ERR_INVAL;
+    return CETCD_OK;
+}
+
+int cetcd_tls_serial_revoked(const uint8_t *const *revoked, const size_t *lens,
+                             size_t n, const uint8_t *serial, size_t slen) {
+    if (!serial || !slen || !revoked || !lens) return 0;
+    for (size_t i = 0; i < n; i++) {
+        if (revoked[i] && lens[i] == slen && memcmp(revoked[i], serial, slen) == 0)
+            return 1;
+    }
+    return 0;
+}
+
 #if CETCD_HAS_OPENSSL
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
+#include <openssl/asn1.h>
 #include <openssl/pem.h>
 #include <openssl/evp.h>
 #include <openssl/bio.h>
@@ -168,6 +185,9 @@ struct cetcd_tls_ctx {
     SSL_CTX        *ssl_ctx;
     unsigned char  *alpn;
     unsigned int    alpn_len;
+    uint8_t       **crl_serials;
+    size_t         *crl_lens;
+    size_t          n_crl;
 };
 
 struct cetcd_tls_conn {
@@ -202,11 +222,94 @@ cetcd_tls_ctx *cetcd_tls_ctx_new_client(void) {
     return ctx_new_(TLS_client_method());
 }
 
+static void crl_clear_(cetcd_tls_ctx *ctx) {
+    if (!ctx) return;
+    for (size_t i = 0; i < ctx->n_crl; i++)
+        free(ctx->crl_serials[i]);
+    free(ctx->crl_serials);
+    free(ctx->crl_lens);
+    ctx->crl_serials = NULL;
+    ctx->crl_lens = NULL;
+    ctx->n_crl = 0;
+}
+
 void cetcd_tls_ctx_free(cetcd_tls_ctx *ctx) {
     if (ctx == NULL) return;
     if (ctx->ssl_ctx) SSL_CTX_free(ctx->ssl_ctx);
     free(ctx->alpn);
+    crl_clear_(ctx);
     free(ctx);
+}
+
+int cetcd_tls_set_crl(cetcd_tls_ctx *ctx, const char *path) {
+    if (ctx == NULL || ctx->ssl_ctx == NULL) return CETCD_ERR_INVAL;
+    if (!path || !path[0]) {
+        crl_clear_(ctx);
+        return CETCD_OK;
+    }
+    FILE *f = fopen(path, "rb");
+    if (!f) return CETCD_ERR_IO;
+    X509_CRL *crl = PEM_read_X509_CRL(f, NULL, NULL, NULL);
+    if (!crl) {
+        rewind(f);
+        crl = d2i_X509_CRL_fp(f, NULL);
+    }
+    fclose(f);
+    if (!crl) return CETCD_ERR_INVAL;
+    crl_clear_(ctx);
+    STACK_OF(X509_REVOKED) *rev = X509_CRL_get_REVOKED(crl);
+    int n = rev ? sk_X509_REVOKED_num(rev) : 0;
+    if (n > 0) {
+        ctx->crl_serials = (uint8_t **)calloc((size_t)n, sizeof(*ctx->crl_serials));
+        ctx->crl_lens = (size_t *)calloc((size_t)n, sizeof(*ctx->crl_lens));
+        if (!ctx->crl_serials || !ctx->crl_lens) {
+            crl_clear_(ctx);
+            X509_CRL_free(crl);
+            return CETCD_ERR_NOMEM;
+        }
+        size_t got = 0;
+        for (int i = 0; i < n; i++) {
+            const X509_REVOKED *r = sk_X509_REVOKED_value(rev, i);
+            const ASN1_INTEGER *sn = r ? X509_REVOKED_get0_serialNumber(r) : NULL;
+            const unsigned char *d = sn ? ASN1_STRING_get0_data(sn) : NULL;
+            int slen = sn ? ASN1_STRING_length(sn) : 0;
+            if (!d || slen <= 0) continue;
+            uint8_t *b = (uint8_t *)malloc((size_t)slen);
+            if (!b) {
+                crl_clear_(ctx);
+                X509_CRL_free(crl);
+                return CETCD_ERR_NOMEM;
+            }
+            memcpy(b, d, (size_t)slen);
+            ctx->crl_serials[got] = b;
+            ctx->crl_lens[got] = (size_t)slen;
+            got++;
+        }
+        ctx->n_crl = got;
+    }
+    X509_CRL_free(crl);
+    return CETCD_OK;
+}
+
+int cetcd_tls_check_crl(const cetcd_tls_conn *conn, const cetcd_tls_ctx *ctx) {
+    if (!ctx || !ctx->n_crl) return CETCD_OK;
+    if (!conn || !conn->ssl) return CETCD_ERR_INVAL;
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    X509 *cert = SSL_get1_peer_certificate(conn->ssl);
+#else
+    X509 *cert = SSL_get_peer_certificate(conn->ssl);
+#endif
+    if (!cert) return CETCD_OK;
+    const ASN1_INTEGER *sn = X509_get_serialNumber(cert);
+    const unsigned char *d = sn ? ASN1_STRING_get0_data(sn) : NULL;
+    int slen = sn ? ASN1_STRING_length(sn) : 0;
+    int revoked = 0;
+    if (d && slen > 0)
+        revoked = cetcd_tls_serial_revoked((const uint8_t *const *)ctx->crl_serials,
+                                           ctx->crl_lens, ctx->n_crl,
+                                           d, (size_t)slen);
+    X509_free(cert);
+    return revoked ? CETCD_ERR_INVAL : CETCD_OK;
 }
 
 int cetcd_tls_set_cert(cetcd_tls_ctx *ctx, const char *cert_path, const char *key_path) {
@@ -867,6 +970,15 @@ int cetcd_tls_set_cert(cetcd_tls_ctx *ctx, const char *cert_path, const char *ke
 }
 int cetcd_tls_set_ca(cetcd_tls_ctx *ctx, const char *ca_path) {
     (void)ctx; (void)ca_path; return CETCD_ERR_UNSUPPORT;
+}
+int cetcd_tls_set_crl(cetcd_tls_ctx *ctx, const char *path) {
+    (void)ctx;
+    if (path && path[0]) return CETCD_ERR_UNSUPPORT;
+    return CETCD_OK;
+}
+int cetcd_tls_check_crl(const cetcd_tls_conn *conn, const cetcd_tls_ctx *ctx) {
+    (void)conn; (void)ctx;
+    return CETCD_OK;
 }
 int cetcd_tls_set_alpn(cetcd_tls_ctx *ctx, const char **protocols, size_t count) {
     (void)ctx; (void)protocols; (void)count; return CETCD_ERR_UNSUPPORT;

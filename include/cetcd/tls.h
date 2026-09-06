@@ -61,6 +61,15 @@ int cetcd_tls_peer_identity_ok(const char *cn_list, const char *host_list,
 int cetcd_tls_outbound_paths(const char *listen_cert, const char *listen_key,
                              const char *client_cert, const char *client_key,
                              const char **out_cert, const char **out_key);
+/* CRL path set without that side's cert is INVAL. Empty CRL is OK. */
+int cetcd_tls_crl_requires_cert(const char *crl, const char *cert);
+/* 1 if serial is in the revoked list. Missing serial is 0. */
+int cetcd_tls_serial_revoked(const uint8_t *const *revoked, const size_t *lens,
+                             size_t n, const uint8_t *serial, size_t slen);
+/* Load a PEM/DER CRL into ctx. Empty path clears. Missing file is IO. */
+int cetcd_tls_set_crl(cetcd_tls_ctx *ctx, const char *path);
+/* After handshake. No CRL is OK. No peer cert is OK (etcd). Revoked is INVAL. */
+int cetcd_tls_check_crl(const cetcd_tls_conn *conn, const cetcd_tls_ctx *ctx);
 /* After handshake. Open lists are OK. No peer cert / mismatch is INVAL. */
 int cetcd_tls_check_peer_identity(const cetcd_tls_conn *conn,
                                   const char *cn_list, const char *host_list);

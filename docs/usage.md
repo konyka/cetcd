@@ -171,7 +171,8 @@ cetcd accepts several etcd server flags for migration compatibility:
   --trusted-ca-file ca.crt --client-cert-auth \
   --peer-cert-file peer.crt --peer-key-file peer.key \
   --peer-client-cert-file peer-cli.crt --peer-client-key-file peer-cli.key \
-  --peer-trusted-ca-file peer-ca.crt --peer-client-cert-auth
+  --peer-trusted-ca-file peer-ca.crt --peer-client-cert-auth \
+  --client-crl-file client.crl --peer-crl-file peer.crl
 
 # Self-signed ECDSA P-256 into {data-dir}/fixtures/ (requires --data-dir)
 # --self-signed-cert-validity is years (default 1; must be > 0)

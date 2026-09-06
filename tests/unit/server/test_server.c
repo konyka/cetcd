@@ -1694,6 +1694,38 @@ CETCD_TEST_CASE(server_start_rejects_missing_peer_client_cert) {
     cleanup_selfsigned_(dir);
 }
 
+CETCD_TEST_CASE(server_start_crl_without_cert) {
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.client_crl_file, "/nonexistent/client.crl",
+            sizeof(cfg.client_crl_file) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), CETCD_ERR_INVAL);
+    cetcd_server_free(srv);
+}
+
+CETCD_TEST_CASE(server_start_peer_crl_without_cert) {
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.peer_crl_file, "/nonexistent/peer.crl",
+            sizeof(cfg.peer_crl_file) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(srv);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), CETCD_ERR_INVAL);
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_CASE(server_start_rejects_cipher_suites_without_tls) {
     cetcd_server_config cfg;
     memset(&cfg, 0, sizeof(cfg));
@@ -2739,6 +2771,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_start_peer_client_cert_without_listen),
     CETCD_TEST_ENTRY(server_start_loads_peer_client_cert),
     CETCD_TEST_ENTRY(server_start_rejects_missing_peer_client_cert),
+    CETCD_TEST_ENTRY(server_start_crl_without_cert),
+    CETCD_TEST_ENTRY(server_start_peer_crl_without_cert),
     CETCD_TEST_ENTRY(server_start_rejects_cipher_suites_without_tls),
     CETCD_TEST_ENTRY(server_start_rejects_unknown_cipher_suites),
     CETCD_TEST_ENTRY(server_start_accepts_iana_cipher_suites),

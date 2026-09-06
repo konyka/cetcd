@@ -251,15 +251,19 @@ static int apply_socket_keepalive_(cetcd_server *srv, uv_tcp_t *tcp);
 static int  tls_flush_uv_(uv_stream_t *stream, cetcd_tls_conn *tls);
 static int tls_peer_identity_ok_(cetcd_server *srv, cetcd_tls_conn *tls) {
     if (!srv || !tls) return 0;
-    return cetcd_tls_check_peer_identity(tls, srv->cfg.peer_cert_allowed_cn,
-                                         srv->cfg.peer_cert_allowed_hostname) ==
-           CETCD_OK;
+    if (cetcd_tls_check_peer_identity(tls, srv->cfg.peer_cert_allowed_cn,
+                                      srv->cfg.peer_cert_allowed_hostname) !=
+        CETCD_OK)
+        return 0;
+    return cetcd_tls_check_crl(tls, srv->tls_peer) == CETCD_OK;
 }
 static int tls_client_identity_ok_(cetcd_server *srv, cetcd_tls_conn *tls) {
     if (!srv || !tls) return 0;
-    return cetcd_tls_check_peer_identity(tls, NULL,
-                                         srv->cfg.client_cert_allowed_hostname) ==
-           CETCD_OK;
+    if (cetcd_tls_check_peer_identity(tls, NULL,
+                                      srv->cfg.client_cert_allowed_hostname) !=
+        CETCD_OK)
+        return 0;
+    return cetcd_tls_check_crl(tls, srv->tls_client) == CETCD_OK;
 }
 
 static peer_tx_ *peer_tx_get_(cetcd_server *srv, uint64_t id) {
@@ -2589,7 +2593,8 @@ static int load_tls_ctx_(cetcd_tls_ctx **out,
                          const char *cert, const char *key,
                          const char *ca, int client_cert_auth,
                          int client, const char *ciphers,
-                         int tls_min_ver, int tls_max_ver) {
+                         int tls_min_ver, int tls_max_ver,
+                         const char *crl) {
     int have_cert = cert && cert[0];
     int have_key = key && key[0];
     if (have_cert != have_key) return CETCD_ERR_INVAL;
@@ -2628,6 +2633,13 @@ static int load_tls_ctx_(cetcd_tls_ctx **out,
             if (cetcd_tls_set_verify_peer(ctx, 1) != CETCD_OK) {
                 cetcd_tls_ctx_free(ctx);
                 return CETCD_ERR_IO;
+            }
+        }
+        if (crl && crl[0]) {
+            int crc = cetcd_tls_set_crl(ctx, crl);
+            if (crc != CETCD_OK) {
+                cetcd_tls_ctx_free(ctx);
+                return crc;
             }
         }
         *out = ctx;
@@ -2734,6 +2746,12 @@ int cetcd_server_start(cetcd_server *srv) {
         (void)out_cert;
         (void)out_key;
     }
+    if (cetcd_tls_crl_requires_cert(srv->cfg.client_crl_file,
+                                    srv->cfg.cert_file) != CETCD_OK)
+        return CETCD_ERR_INVAL;
+    if (cetcd_tls_crl_requires_cert(srv->cfg.peer_crl_file,
+                                    srv->cfg.peer_cert_file) != CETCD_OK)
+        return CETCD_ERR_INVAL;
     if (srv->cfg.cipher_suites[0] &&
         !(srv->cfg.cert_file[0] || srv->cfg.peer_cert_file[0]))
         return CETCD_ERR_INVAL;
@@ -2811,7 +2829,8 @@ int cetcd_server_start(cetcd_server *srv) {
         int trc = load_tls_ctx_(&srv->tls_client,
                                 srv->cfg.cert_file, srv->cfg.key_file,
                                 srv->cfg.trusted_ca_file, client_auth, 0,
-                                srv->cfg.cipher_suites, vmin, vmax);
+                                srv->cfg.cipher_suites, vmin, vmax,
+                                srv->cfg.client_crl_file);
         if (trc != CETCD_OK) return trc;
         if (srv->tls_client) {
             const char *alpn[] = { "h2" };
@@ -2824,7 +2843,8 @@ int cetcd_server_start(cetcd_server *srv) {
         trc = load_tls_ctx_(&srv->tls_peer,
                             srv->cfg.peer_cert_file, srv->cfg.peer_key_file,
                             srv->cfg.peer_trusted_ca_file, peer_auth, 0,
-                            srv->cfg.cipher_suites, vmin, vmax);
+                            srv->cfg.cipher_suites, vmin, vmax,
+                            srv->cfg.peer_crl_file);
         if (trc != CETCD_OK) {
             cetcd_tls_ctx_free(srv->tls_client);
             srv->tls_client = NULL;
@@ -2850,7 +2870,8 @@ int cetcd_server_start(cetcd_server *srv) {
                 trc = load_tls_ctx_(&srv->tls_peer_out,
                                     out_cert, out_key,
                                     srv->cfg.peer_trusted_ca_file, 0, 1,
-                                    srv->cfg.cipher_suites, vmin, vmax);
+                                    srv->cfg.cipher_suites, vmin, vmax,
+                                    NULL);
             }
             if (trc != CETCD_OK) {
                 cetcd_tls_ctx_free(srv->tls_client);
