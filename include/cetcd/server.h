@@ -132,6 +132,8 @@ typedef struct cetcd_server_config {
     bool            client_cert_auth;
     char            peer_cert_file[512];
     char            peer_key_file[512];
+    char            peer_client_cert_file[512]; /* outbound; empty → peer_cert_file */
+    char            peer_client_key_file[512];
     char            peer_trusted_ca_file[512];
     bool            peer_client_cert_auth;
     char            peer_cert_allowed_cn[512];        /* empty = no extra peer CN check */

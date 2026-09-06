@@ -57,6 +57,10 @@ int cetcd_tls_hostname_matches(const char *pattern, const char *name);
 int cetcd_tls_peer_identity_ok(const char *cn_list, const char *host_list,
                                const char *cn, const char *const *sans,
                                size_t n_sans);
+/* etcd: ClientCertFile if set, else CertFile. Extra pair must be both or neither. */
+int cetcd_tls_outbound_paths(const char *listen_cert, const char *listen_key,
+                             const char *client_cert, const char *client_key,
+                             const char **out_cert, const char **out_key);
 /* After handshake. Open lists are OK. No peer cert / mismatch is INVAL. */
 int cetcd_tls_check_peer_identity(const cetcd_tls_conn *conn,
                                   const char *cn_list, const char *host_list);

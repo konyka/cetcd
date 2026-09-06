@@ -56,9 +56,10 @@ Performance-first, fail-closed design:
   `--insecure` skips verify; `--insecure-transport` mixed with cert flags fail-closes.
 - **Peer TLS on outbound `peer_tx_`** — when `--peer-cert-file` is set, Raft
   send does a client-method memory-BIO handshake after TCP connect, then
-  `SSL_write` before `uv_write`. Missing CA skips verification (self-signed
-  clusters); a configured `--peer-trusted-ca-file` verifies the remote.
-  ALPN `h2` is not advertised yet.
+  `SSL_write` before `uv_write`. `--peer-client-cert-file` / `--peer-client-key-file`
+  override the outbound identity (omitted uses the listen pair). Missing CA
+  skips verification (self-signed clusters); a configured
+  `--peer-trusted-ca-file` verifies the remote. ALPN `h2` is advertised.
 - **bcrypt password hashing** — default remains SHA-256 (cheap, existing
   records). `--bcrypt-cost N` (4..31) hashes new passwords with `$2b$` via
   libcrypt; verify accepts both encodings. `--auth-token simple` is the
@@ -428,6 +429,12 @@ Performance-first, fail-closed design:
   off. A restricted list requires that side's cert + CA and requires a
   peer/client certificate. Missing value fail-closes. No match closes
   the socket. Accepting the flags as a no-op is rejected.
+- **`--peer-client-cert-file` / `--peer-client-key-file`** — outbound
+  peer TLS identity (etcd: ClientCertFile on PeerTLSInfo). Omitted uses
+  `--peer-cert-file` / `--peer-key-file`. Cert without key, key without
+  cert, override without listen TLS, missing files, or a missing value
+  fail-close. Accepting the flags as a no-op is rejected (a server-only
+  cert would still be presented on dial).
 - **`--host-whitelist`** — comma-separated Host names on the metrics
   HTTP port. Empty / `*` (omitted default) allows all. A restricted list
   waits for headers and returns 403 if Host is missing or not listed

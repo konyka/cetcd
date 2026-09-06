@@ -3,6 +3,7 @@
 #include "cetcd_test.h"
 
 #include <limits.h>
+#include <string.h>
 
 CETCD_TEST_CASE(tls_self_signed_days_default_and_years) {
     int days = 0;
@@ -81,6 +82,48 @@ CETCD_TEST_CASE(tls_peer_identity_lists) {
     CETCD_ASSERT_EQ_INT(cetcd_tls_check_peer_identity(NULL, NULL, NULL), CETCD_OK);
 }
 
+CETCD_TEST_CASE(tls_outbound_paths) {
+    const char *c = NULL, *k = NULL;
+    CETCD_ASSERT_EQ_INT(cetcd_tls_outbound_paths(NULL, NULL, NULL, NULL, NULL, &k),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_outbound_paths(NULL, NULL, NULL, NULL, &c, NULL),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_outbound_paths(NULL, NULL, NULL, NULL, &c, &k),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(c[0], 0);
+    CETCD_ASSERT_EQ_INT(k[0], 0);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_outbound_paths("srv.crt", "srv.key", NULL, NULL,
+                                                 &c, &k),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(strcmp(c, "srv.crt"), 0);
+    CETCD_ASSERT_EQ_INT(strcmp(k, "srv.key"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_outbound_paths("srv.crt", "srv.key",
+                                                 "cli.crt", "cli.key", &c, &k),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(strcmp(c, "cli.crt"), 0);
+    CETCD_ASSERT_EQ_INT(strcmp(k, "cli.key"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_outbound_paths("srv.crt", "srv.key",
+                                                 "cli.crt", NULL, &c, &k),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_outbound_paths("srv.crt", "srv.key",
+                                                 NULL, "cli.key", &c, &k),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_outbound_paths("srv.crt", "srv.key",
+                                                 "cli.crt", "", &c, &k),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_outbound_paths("srv.crt", NULL, NULL, NULL,
+                                                 &c, &k),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_outbound_paths(NULL, "srv.key", NULL, NULL,
+                                                 &c, &k),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_outbound_paths("", "", "cli.crt", "cli.key",
+                                                 &c, &k),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(strcmp(c, "cli.crt"), 0);
+    CETCD_ASSERT_EQ_INT(strcmp(k, "cli.key"), 0);
+}
+
 CETCD_TEST_CASE(tls_self_signed_days_overflow_and_null) {
     int days = 0;
     CETCD_ASSERT_EQ_INT(cetcd_tls_self_signed_days((uint32_t)(INT_MAX / 365) + 1,
@@ -94,6 +137,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(tls_parse_version),
     CETCD_TEST_ENTRY(tls_version_range),
     CETCD_TEST_ENTRY(tls_peer_identity_lists),
+    CETCD_TEST_ENTRY(tls_outbound_paths),
     CETCD_TEST_ENTRY(tls_self_signed_days_overflow_and_null),
 CETCD_TEST_LIST_END
 

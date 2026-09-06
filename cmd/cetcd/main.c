@@ -81,6 +81,8 @@ static void print_usage(const char *prog) {
     printf("  --self-signed-cert-validity N  Auto-TLS cert lifetime in years (default 1; must be > 0)\n");
     printf("  --peer-cert-file FILE    Peer accept TLS certificate (requires --peer-key-file)\n");
     printf("  --peer-key-file FILE     Peer accept TLS private key\n");
+    printf("  --peer-client-cert-file FILE  Outbound peer TLS cert (default --peer-cert-file)\n");
+    printf("  --peer-client-key-file FILE   Outbound peer TLS key (requires --peer-client-cert-file)\n");
     printf("  --peer-trusted-ca-file FILE  Peer TLS CA (required with --peer-client-cert-auth)\n");
     printf("  --peer-client-cert-auth  Require a peer certificate on accept (fail-closed)\n");
     printf("  --peer-cert-allowed-cn LIST  Allowed peer cert CNs (requires peer TLS + CA; empty = off)\n");
@@ -688,6 +690,34 @@ int main(int argc, char **argv) {
             strncpy(cfg.peer_cert_file, argv[++i], sizeof(cfg.peer_cert_file) - 1);
         } else if (strcmp(argv[i], "--peer-key-file") == 0 && i + 1 < argc) {
             strncpy(cfg.peer_key_file, argv[++i], sizeof(cfg.peer_key_file) - 1);
+        } else if (strcmp(argv[i], "--peer-client-cert-file") == 0) {
+            if (i + 1 >= argc || argv[i + 1][0] == '-' || !argv[i + 1][0]) {
+                fprintf(stderr, "--peer-client-cert-file requires a file\n");
+                return 1;
+            }
+            strncpy(cfg.peer_client_cert_file, argv[++i],
+                    sizeof(cfg.peer_client_cert_file) - 1);
+        } else if (strncmp(argv[i], "--peer-client-cert-file=", 24) == 0) {
+            if (!argv[i][24]) {
+                fprintf(stderr, "--peer-client-cert-file requires a file\n");
+                return 1;
+            }
+            strncpy(cfg.peer_client_cert_file, argv[i] + 24,
+                    sizeof(cfg.peer_client_cert_file) - 1);
+        } else if (strcmp(argv[i], "--peer-client-key-file") == 0) {
+            if (i + 1 >= argc || argv[i + 1][0] == '-' || !argv[i + 1][0]) {
+                fprintf(stderr, "--peer-client-key-file requires a file\n");
+                return 1;
+            }
+            strncpy(cfg.peer_client_key_file, argv[++i],
+                    sizeof(cfg.peer_client_key_file) - 1);
+        } else if (strncmp(argv[i], "--peer-client-key-file=", 23) == 0) {
+            if (!argv[i][23]) {
+                fprintf(stderr, "--peer-client-key-file requires a file\n");
+                return 1;
+            }
+            strncpy(cfg.peer_client_key_file, argv[i] + 23,
+                    sizeof(cfg.peer_client_key_file) - 1);
         } else if (strcmp(argv[i], "--peer-trusted-ca-file") == 0 && i + 1 < argc) {
             strncpy(cfg.peer_trusted_ca_file, argv[++i], sizeof(cfg.peer_trusted_ca_file) - 1);
         } else if (strcmp(argv[i], "--peer-client-cert-auth") == 0) {
@@ -1299,6 +1329,8 @@ int main(int argc, char **argv) {
         CETCD_INFO("  tls       : cert=%s", cfg.cert_file);
     if (cfg.peer_cert_file[0])
         CETCD_INFO("  peer-tls  : cert=%s", cfg.peer_cert_file);
+    if (cfg.peer_client_cert_file[0])
+        CETCD_INFO("  peer-out  : cert=%s", cfg.peer_client_cert_file);
 
     cetcd_server *srv = cetcd_server_new(&cfg);
     if (!srv) {

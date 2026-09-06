@@ -2722,6 +2722,18 @@ int cetcd_server_start(cetcd_server *srv) {
         int at = apply_auto_tls_(srv);
         if (at != CETCD_OK) return at;
     }
+    {
+        const char *out_cert = NULL, *out_key = NULL;
+        if (cetcd_tls_outbound_paths(srv->cfg.peer_cert_file, srv->cfg.peer_key_file,
+                                     srv->cfg.peer_client_cert_file,
+                                     srv->cfg.peer_client_key_file,
+                                     &out_cert, &out_key) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+        if (srv->cfg.peer_client_cert_file[0] && !srv->cfg.peer_cert_file[0])
+            return CETCD_ERR_INVAL;
+        (void)out_cert;
+        (void)out_key;
+    }
     if (srv->cfg.cipher_suites[0] &&
         !(srv->cfg.cert_file[0] || srv->cfg.peer_cert_file[0]))
         return CETCD_ERR_INVAL;
@@ -2827,10 +2839,19 @@ int cetcd_server_start(cetcd_server *srv) {
                 srv->tls_peer = NULL;
                 return CETCD_ERR_INTERNAL;
             }
-            trc = load_tls_ctx_(&srv->tls_peer_out,
-                                srv->cfg.peer_cert_file, srv->cfg.peer_key_file,
-                                srv->cfg.peer_trusted_ca_file, 0, 1,
-                                srv->cfg.cipher_suites, vmin, vmax);
+            {
+                const char *out_cert = NULL, *out_key = NULL;
+                if (cetcd_tls_outbound_paths(srv->cfg.peer_cert_file,
+                                             srv->cfg.peer_key_file,
+                                             srv->cfg.peer_client_cert_file,
+                                             srv->cfg.peer_client_key_file,
+                                             &out_cert, &out_key) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+                trc = load_tls_ctx_(&srv->tls_peer_out,
+                                    out_cert, out_key,
+                                    srv->cfg.peer_trusted_ca_file, 0, 1,
+                                    srv->cfg.cipher_suites, vmin, vmax);
+            }
             if (trc != CETCD_OK) {
                 cetcd_tls_ctx_free(srv->tls_client);
                 cetcd_tls_ctx_free(srv->tls_peer);

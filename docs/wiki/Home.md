@@ -88,7 +88,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **Peer 发送**：复用 TCP 连接，避免每条 Raft 消息新建短连接。入站可走 HTTP/2 `POST /raft`；peer TLS 协商 ALPN `h2` 时出站同样 POST `/raft`，否则仍为 4 字节长度前缀。
 - **历史 Range**：`cetcd_mvcc_range(rev>0)` 按 history 回放；重启后对当前世代有 synthetic history。
 - **线性一致 Range**：默认 Range / Txn RequestRange 仅在本节点是 leader 时执行；follower 或无 leader 则 fail-closed。`serializable=true`（`cetcdctl get --consistency s`）读本地存储。
-- **HTTP/2 gRPC**：client 端口识别 `PRI * HTTP/2` preface，与 `cetcdctl` 自定义帧分流；`authorization` 作为 token。TLS（`--cert-file`）协商 ALPN `h2`；客户端不发 ALPN 仍可握手。Watch 与 LeaseKeepAlive 为双向流；Snapshot 与 RangeStream 为服务端流。peer 端口同样识别 preface：`POST /raft` 将 `cetcd_msg_encode` 体交给 Raft 并回 204；`--peer-cert-file` 协商 ALPN `h2`。
+- **HTTP/2 gRPC**：client 端口识别 `PRI * HTTP/2` preface，与 `cetcdctl` 自定义帧分流；`authorization` 作为 token。TLS（`--cert-file`）协商 ALPN `h2`；客户端不发 ALPN 仍可握手。Watch 与 LeaseKeepAlive 为双向流；Snapshot 与 RangeStream 为服务端流。peer 端口同样识别 preface：`POST /raft` 将 `cetcd_msg_encode` 体交给 Raft 并回 204；`--peer-cert-file` 协商 ALPN `h2`。`--peer-client-cert-file` / `--peer-client-key-file` 在出站 `peer_tx_` 上出示独立证书（省略则用 listen 证书；缺 key 或只有 outbound 没有 listen TLS 则 fail-closed）。
 
 ### 版本信息
 
@@ -789,6 +789,9 @@ contexts at start. Plaintext remains the default. Cert without key, missing file
 `--client-cert-auth` without `--trusted-ca-file` fail closed. Handshake runs on memory
 BIOs so libuv keeps the socket; blocking `SSL_accept` is not used on the reactor.
 `--peer-cert-file` also wraps outbound `peer_tx_` (client handshake after TCP connect).
+`--peer-client-cert-file` / `--peer-client-key-file` present a distinct outbound
+identity (omitted uses the listen pair). Cert without key, override without
+listen TLS, missing files, or a missing value fail-close.
 `cetcdctl --cacert FILE` (optional `--cert`/`--key`) wraps the same custom-frame
 client in a blocking TLS handshake and omits ALPN so the server keeps the
 length-prefixed path. `--insecure` skips verify; missing files, cert-without-key,

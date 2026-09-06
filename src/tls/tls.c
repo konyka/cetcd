@@ -115,6 +115,30 @@ int cetcd_tls_peer_identity_ok(const char *cn_list, const char *host_list,
     return 0;
 }
 
+static int path_set_(const char *s) {
+    return s && s[0];
+}
+
+int cetcd_tls_outbound_paths(const char *listen_cert, const char *listen_key,
+                             const char *client_cert, const char *client_key,
+                             const char **out_cert, const char **out_key) {
+    if (!out_cert || !out_key) return CETCD_ERR_INVAL;
+    int have_cc = path_set_(client_cert);
+    int have_ck = path_set_(client_key);
+    if (have_cc != have_ck) return CETCD_ERR_INVAL;
+    if (have_cc) {
+        *out_cert = client_cert;
+        *out_key = client_key;
+        return CETCD_OK;
+    }
+    int have_lc = path_set_(listen_cert);
+    int have_lk = path_set_(listen_key);
+    if (have_lc != have_lk) return CETCD_ERR_INVAL;
+    *out_cert = listen_cert ? listen_cert : "";
+    *out_key = listen_key ? listen_key : "";
+    return CETCD_OK;
+}
+
 #if CETCD_HAS_OPENSSL
 #include <openssl/ssl.h>
 #include <openssl/err.h>
