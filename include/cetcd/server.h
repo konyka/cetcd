@@ -117,6 +117,8 @@ typedef struct cetcd_server_config {
     uint64_t        corrupt_check_interval_sec;   /* 0 = off; periodic HashKV vs backend.hash */
     uint64_t        compaction_batch_limit;       /* 0 = unlimited auto-compact step */
     uint64_t        watch_progress_interval_ms;   /* 0 = default 10s; Watch progress_notify */
+    bool            warning_apply_set;            /* --experimental-warning-apply-duration given */
+    uint64_t        warning_apply_ms;             /* 0 = disable; unset → 100ms */
 } cetcd_server_config;
 
 /* true|false|1|0. Empty/unknown is INVAL. */

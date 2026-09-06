@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 42 — watch progress interval</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 43 — warning apply duration</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 42 applies
-     <code>--experimental-watch-progress-notify-interval</code> so
-     Watch <code>progress_notify</code> is not stuck at a hardcoded 10s.</p>
+  <p><strong>v0.3.0</strong>. Phase 43 applies
+     <code>--experimental-warning-apply-duration</code> so a slow Raft
+     apply is logged instead of the flag being swallowed.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -95,6 +95,7 @@
       <tr><td>40</td><td>periodic corrupt check</td><td>--experimental-corrupt-check-time HashKV vs backend.hash on tick; mismatch raises CORRUPT — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>41</td><td>compaction batch limit</td><td>--experimental-compaction-batch-limit caps auto-compact revs per tick; 0 unlimited; leftover text fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>42</td><td>watch progress interval</td><td>--experimental-watch-progress-notify-interval sets progress_notify period; 0 = 10s; non-duration fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>43</td><td>warning apply duration</td><td>--experimental-warning-apply-duration warns if apply exceeds duration; 0 disables; omitted 100ms — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

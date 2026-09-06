@@ -10,6 +10,7 @@ cetcd_add_module(v3rpc
         cluster_handler.c
         linearizable.c
         downgrade.c
+        warning_apply.c
     PUBLIC_DEPS
         cetcd_base
     PRIVATE_DEPS

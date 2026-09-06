@@ -4,6 +4,8 @@
 #include "cetcd/raft.h"
 #include "cetcd/peer.h"
 #include "cetcd/auth.h"
+#include "cetcd/clock.h"
+#include "cetcd/log.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -559,7 +561,7 @@ static int apply_lease_revoke_(uint64_t id) {
     return 0;
 }
 
-int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len) {
+static int apply_entry_inner_(const uint8_t *data, size_t len) {
     if (!data || len < 1) return -1;
     uint8_t op = data[0];
     size_t pos = 1;
@@ -856,6 +858,20 @@ int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len) {
         return 0;
     }
     return -1;
+}
+
+int cetcd_v3rpc_apply_entry(const uint8_t *data, size_t len) {
+    uint64_t th = cetcd_v3rpc_warning_apply_ns();
+    uint64_t t0 = th ? cetcd_clock_monotonic_ns() : 0;
+    int rc = apply_entry_inner_(data, len);
+    if (th && t0) {
+        uint64_t elapsed = cetcd_clock_monotonic_ns() - t0;
+        if (cetcd_v3rpc_apply_should_warn(elapsed, th))
+            CETCD_WARN("apply took %llu ns (threshold %llu ns)",
+                       (unsigned long long)elapsed,
+                       (unsigned long long)th);
+    }
+    return rc;
 }
 
 int cetcd_v3rpc_propose_or_apply(const uint8_t *data, size_t len) {

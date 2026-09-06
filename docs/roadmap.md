@@ -384,6 +384,10 @@ Performance-first, fail-closed design:
   (`0` = default 10s). Watch `progress_notify` emits on that period
   (100ms ticks, rounded up). Missing value or a non-duration fail at
   parse (no longer swallowed). Other `--experimental-*` stay no-ops.
+- **`--experimental-warning-apply-duration`** — Go duration (`0`
+  disables; omitted default 100ms). A Raft apply slower than the
+  threshold logs a warning. Missing value or a non-duration fail at
+  parse (no longer swallowed). Other `--experimental-*` stay no-ops.
 
 ## Previously done (auth data plane)
 

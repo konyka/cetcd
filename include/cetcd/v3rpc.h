@@ -219,6 +219,12 @@ CETCD_API int cetcd_v3rpc_linearizable_ok(int serializable);
  * cannot change; no downgrade is ever in progress). */
 CETCD_API int cetcd_v3rpc_downgrade_ok(int action, const char *version);
 
+#define CETCD_DEFAULT_WARNING_APPLY_MS 100
+/* 1 if elapsed >= threshold. threshold 0 never warns. */
+CETCD_API int cetcd_v3rpc_apply_should_warn(uint64_t elapsed_ns, uint64_t threshold_ns);
+CETCD_API void cetcd_v3rpc_set_warning_apply_ns(uint64_t ns);
+CETCD_API uint64_t cetcd_v3rpc_warning_apply_ns(void);
+
 /* Accessors for server wiring (persistence, lease tick). */
 CETCD_API struct cetcd_mvcc_store *cetcd_v3rpc_store(cetcd_v3rpc *rpc);
 CETCD_API struct cetcd_lease_mgr  *cetcd_v3rpc_leases(cetcd_v3rpc *rpc);

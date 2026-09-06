@@ -210,11 +210,13 @@ cetcd accepts several etcd server flags for migration compatibility:
 # (mismatch or a lower current revision fail-closes; periodic raises CORRUPT).
 # --experimental-compaction-batch-limit caps auto-compact revs per tick (0 unlimited).
 # --experimental-watch-progress-notify-interval sets Watch progress_notify (0 = 10s).
+# --experimental-warning-apply-duration warns if apply is slower (0 disables; default 100ms).
 # Other --experimental-* stay no-op.
 ./build/bin/cetcd --experimental-initial-corrupt-check \
   --experimental-corrupt-check-time 10s \
   --experimental-compaction-batch-limit 1000 \
-  --experimental-watch-progress-notify-interval 10s
+  --experimental-watch-progress-notify-interval 10s \
+  --experimental-warning-apply-duration 100ms
 
 # Dedicated WAL directory (empty path fail-closes; requires --data-dir)
 ./build/bin/cetcd --data-dir ./data --wal-dir /var/lib/cetcd/wal
