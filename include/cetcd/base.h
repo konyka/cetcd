@@ -42,6 +42,7 @@ CETCD_API const char *cetcd_version(void);
 #include "cetcd/buf.h"
 #include "cetcd/clock.h"
 #include "cetcd/log.h"
+#include "cetcd/discovery.h"
 #include "cetcd/arena.h"
 #include "cetcd/slab.h"
 #include "cetcd/hash.h"

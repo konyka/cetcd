@@ -2,6 +2,7 @@
 #include "cetcd_test.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static FILE *open_tmpsink(void) {
@@ -78,6 +79,49 @@ CETCD_TEST_CASE(json_format_emits_valid_ish_json) {
     cetcd_log_set_format(CETCD_LOG_FORMAT_TEXT);
 }
 
+CETCD_TEST_CASE(log_outputs_stdio_and_file) {
+    FILE *owned = (FILE *)1;
+    CETCD_ASSERT_EQ_INT(cetcd_log_open_outputs("stderr", &owned), 0);
+    CETCD_ASSERT_TRUE(owned == NULL);
+    CETCD_ASSERT_TRUE(cetcd_log_get_sink() == stderr);
+
+    CETCD_ASSERT_EQ_INT(cetcd_log_open_outputs("stdout", &owned), 0);
+    CETCD_ASSERT_TRUE(cetcd_log_get_sink() == stdout);
+
+    CETCD_ASSERT_EQ_INT(cetcd_log_open_outputs("stderr,stderr", &owned), 0);
+    CETCD_ASSERT_TRUE(cetcd_log_get_sink() == stderr);
+
+    char path[256];
+    snprintf(path, sizeof(path), "cetcd-log-out-%u.txt",
+             (unsigned)((uintptr_t)&path & 0xFFFFFFFFu));
+    remove(path);
+    owned = NULL;
+    CETCD_ASSERT_EQ_INT(cetcd_log_open_outputs(path, &owned), 0);
+    CETCD_ASSERT_NOT_NULL(owned);
+    CETCD_INFO("file-sink");
+    fclose(owned);
+    cetcd_log_set_sink(stderr);
+
+    FILE *fp = fopen(path, "r");
+    CETCD_ASSERT_NOT_NULL(fp);
+    char buf[256] = {0};
+    CETCD_ASSERT_TRUE(fread(buf, 1, sizeof(buf) - 1, fp) > 0);
+    fclose(fp);
+    remove(path);
+    CETCD_ASSERT_TRUE(strstr(buf, "file-sink") != NULL);
+}
+
+CETCD_TEST_CASE(log_outputs_fail_closed) {
+    FILE *owned = NULL;
+    CETCD_ASSERT_TRUE(cetcd_log_open_outputs(NULL, &owned) != 0);
+    CETCD_ASSERT_TRUE(cetcd_log_open_outputs("", &owned) != 0);
+    CETCD_ASSERT_TRUE(cetcd_log_open_outputs("journal", &owned) != 0);
+    CETCD_ASSERT_TRUE(cetcd_log_open_outputs("syslog", &owned) != 0);
+    CETCD_ASSERT_TRUE(cetcd_log_open_outputs("stderr,stdout", &owned) != 0);
+    CETCD_ASSERT_TRUE(cetcd_log_open_outputs("stderr,/tmp/cetcd-mixed.log", &owned) != 0);
+    cetcd_log_set_sink(stderr);
+}
+
 CETCD_TEST_CASE(level_name_lookup) {
     CETCD_ASSERT_EQ_STR(cetcd_log_level_name(CETCD_LOG_TRACE), "TRACE");
     CETCD_ASSERT_EQ_STR(cetcd_log_level_name(CETCD_LOG_DEBUG), "DEBUG");
@@ -92,6 +136,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(filter_below_level_is_dropped),
     CETCD_TEST_ENTRY(emit_at_or_above_level_appears),
     CETCD_TEST_ENTRY(json_format_emits_valid_ish_json),
+    CETCD_TEST_ENTRY(log_outputs_stdio_and_file),
+    CETCD_TEST_ENTRY(log_outputs_fail_closed),
     CETCD_TEST_ENTRY(level_name_lookup),
 CETCD_TEST_LIST_END
 CETCD_TEST_MAIN()

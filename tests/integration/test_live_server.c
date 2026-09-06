@@ -1746,7 +1746,20 @@ CETCD_TEST_CASE(live_cetcd_rejects_unknown_flag) {
     CETCD_ASSERT_EQ_INT(system(cmd), 0);
 
     snprintf(cmd, sizeof(cmd),
-             "'%s' --wal-dir /tmp/cetcd-wal >/dev/null 2>&1",
+             "'%s' --not-a-real-flag >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
+CETCD_TEST_CASE(live_cetcd_wal_dir) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --wal-dir /tmp/cetcd-wal --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --wal-dir '' --help >/dev/null 2>&1",
              CETCD_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
@@ -2026,6 +2039,11 @@ CETCD_TEST_CASE(live_cetcd_log_outputs) {
     snprintf(cmd, sizeof(cmd),
              "'%s' --log-outputs /tmp/cetcd.log --help >/dev/null 2>&1",
              CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --log-outputs journal --help >/dev/null 2>&1",
+             CETCD_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
@@ -2272,11 +2290,50 @@ CETCD_TEST_CASE(live_cetcdctl_restore_cluster_state) {
     unlink(snap);
 }
 
-CETCD_TEST_CASE(live_cetcdctl_discovery_srv_not_implemented) {
+CETCD_TEST_CASE(live_cetcdctl_discovery_srv) {
     char cmd[1024];
+    /* version is local — no DNS */
     snprintf(cmd, sizeof(cmd),
              "'%s' --discovery-srv example.com version >/dev/null 2>&1",
              CETCDCTL_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --discovery-srv -bad version >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --discovery-srv-name east version >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --discovery-srv example.com --endpoints 127.0.0.1:2379 version >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --discovery-srv not-a-real-zone.invalid get k >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
+CETCD_TEST_CASE(live_cetcd_discovery_srv) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --discovery-srv example.com --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --discovery-srv -bad --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --discovery-srv-name east >/dev/null 2>&1",
+             CETCD_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
@@ -2583,6 +2640,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_server_grpc_lease_grant),
     CETCD_TEST_ENTRY(live_server_client_tls_put),
     CETCD_TEST_ENTRY(live_cetcd_rejects_unknown_flag),
+    CETCD_TEST_ENTRY(live_cetcd_wal_dir),
     CETCD_TEST_ENTRY(live_cetcd_port),
     CETCD_TEST_ENTRY(live_cetcd_peer_port),
     CETCD_TEST_ENTRY(live_cetcd_metrics_port),
@@ -2609,7 +2667,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcdctl_https_endpoint_requires_tls),
     CETCD_TEST_ENTRY(live_cetcdctl_restore_cluster_token),
     CETCD_TEST_ENTRY(live_cetcdctl_restore_cluster_state),
-    CETCD_TEST_ENTRY(live_cetcdctl_discovery_srv_not_implemented),
+    CETCD_TEST_ENTRY(live_cetcdctl_discovery_srv),
+    CETCD_TEST_ENTRY(live_cetcd_discovery_srv),
     CETCD_TEST_ENTRY(live_cetcdctl_tcp_keepalive),
     CETCD_TEST_ENTRY(live_cetcdctl_command_timeout),
     CETCD_TEST_ENTRY(live_cetcdctl_dial_timeout),

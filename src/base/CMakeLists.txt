@@ -10,7 +10,14 @@ cetcd_add_module(base
         hash.c
         hashmap.c
         treap.c
-        metrics.c)
+        metrics.c
+        discovery.c)
+
+if(WIN32)
+    target_link_libraries(cetcd_base PUBLIC dnsapi)
+elseif(NOT APPLE)
+    target_link_libraries(cetcd_base PUBLIC resolv)
+endif()
 
 if(NOT WIN32)
     target_link_libraries(cetcd_base PUBLIC m)

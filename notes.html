@@ -31,16 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 24 complete — cetcdctl feature parity + production hardening, 33/33 tests green</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 25 — wal-dir / log file / DNS SRV / endpoint failover</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 24 (<strong>cetcdctl feature parity + production hardening</strong>) complete. 33/33 tests passing (ASan+UBSan+LeakSan clean).
-     <code>cetcdctl</code> now covers the full etcdctl v3 command surface (KV, lease, txn, watch, auth, user, role, member,
-     snapshot, compact, maintenance, cluster, lock, elect, endpoint, check) with <code>-w json|table|fields</code> output and global
-     TLS/auth flags. Hardening fixes this phase: coroutine-name memory leak, event-loop unit-test hang, project version
-     string (0.1.0 → 0.3.0 everywhere via <code>cetcd_version()</code>), and graceful SIGTERM/SIGINT shutdown.
-     Next: TLS-by-default, compaction API polish, multi-node integration coverage.</p>
+  <p><strong>v0.3.0</strong>. Phase 25 adds <code>--wal-dir</code>, file <code>--log-outputs</code>,
+     DNS <code>--discovery-srv</code>, and <code>cetcdctl --endpoints</code> failover (performance-first,
+     fail-closed). Remaining: cluster join (<code>existing</code>), auto-TLS mint, <code>--force-new-cluster</code>, journal sink.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -80,6 +77,7 @@
       <tr><td>22</td><td>Full gRPC CRUD + v0.2.0</td><td>DeleteRange, LeaseGrant via TCP, 12 integration tests, v0.2.0 tagged — 33/33 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>23</td><td>Watch streaming + observability + v0.3.0</td><td>Coroutine-driven Watch bidi streams, metrics HTTP endpoint, pprof endpoints, cetcd-migrate — 37/37 green</td><td><span class="pill done">done</span></td></tr>
       <tr><td>24</td><td>cetcdctl parity + production hardening</td><td>Full etcdctl v3 command surface + <code>-w json|table|fields</code>; fixed co leak, loop-test hang, version string (0.3.0), graceful shutdown — 33/33 green</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>25</td><td>WAL dir + DNS SRV + failover</td><td><code>--wal-dir</code>, file <code>--log-outputs</code>, <code>--discovery-srv</code>, endpoint failover — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

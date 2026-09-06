@@ -1972,6 +1972,19 @@ static int cluster_token_check_(cetcd_server *srv) {
     return CETCD_OK;
 }
 
+static int resolve_wal_dir_(const cetcd_server_config *cfg, char *out, size_t cap) {
+    if (!cfg || !out || cap == 0) return -1;
+    if (cfg->wal_dir[0]) {
+        size_t n = strlen(cfg->wal_dir);
+        if (n == 0 || n >= cap) return -1;
+        memcpy(out, cfg->wal_dir, n + 1);
+        return 0;
+    }
+    int n = snprintf(out, cap, "%s/wal", cfg->data_dir);
+    if (n < 0 || (size_t)n >= cap) return -1;
+    return 0;
+}
+
 static int ensure_dir(const char *path) {
 #if defined(_WIN32)
     struct _stat st;
@@ -2140,6 +2153,8 @@ int cetcd_server_start(cetcd_server *srv) {
         return CETCD_ERR_INVAL;
     if (srv->cfg.peer_listen_https && !srv->cfg.peer_cert_file[0])
         return CETCD_ERR_INVAL;
+    if (srv->cfg.wal_dir[0] && !srv->cfg.data_dir[0])
+        return CETCD_ERR_INVAL;
     if (srv->cfg.force_new_cluster)
         return CETCD_ERR_INVAL;
     if (srv->cfg.initial_cluster_state[0] &&
@@ -2307,7 +2322,8 @@ int cetcd_server_start(cetcd_server *srv) {
         uint64_t applied = load_applied_(srv->backend);
         if (!srv->wal_enc) {
             char wal_dir[600];
-            snprintf(wal_dir, sizeof(wal_dir), "%s/wal", srv->cfg.data_dir);
+            if (resolve_wal_dir_(&srv->cfg, wal_dir, sizeof(wal_dir)) != 0)
+                return CETCD_ERR_INVAL;
             ensure_dir(wal_dir);
             replay_wal_(srv, wal_dir);
             if (srv->raft) {

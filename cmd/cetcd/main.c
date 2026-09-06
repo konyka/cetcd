@@ -23,6 +23,7 @@ static void print_usage(const char *prog) {
     printf("Options:\n");
     printf("  --name NAME      Member name (default: default)\n");
     printf("  --data-dir DIR   Data directory (default: ./data)\n");
+    printf("  --wal-dir DIR    WAL directory (default: {data-dir}/wal; empty fail-closes)\n");
     printf("  --listen ADDR    Client listen address (default: 127.0.0.1)\n");
     printf("  --port PORT      Client listen port (default: 2379; 1..65535)\n");
     printf("  --peer ADDR      Peer listen address (default: 127.0.0.1)\n");
@@ -41,6 +42,8 @@ static void print_usage(const char *prog) {
     printf("  --initial-advertise-peer-urls URL  MemberList peerURLs (https requires --peer-cert-file)\n");
     printf("  --initial-cluster-state STATE  new (default); existing is not implemented\n");
     printf("  --initial-cluster-token TOKEN  Persist in data-dir; mismatch fail-closes\n");
+    printf("  --discovery-srv DOMAIN  Bootstrap peers from DNS SRV (_etcd-server._tcp)\n");
+    printf("  --discovery-srv-name NAME  Optional SRV service suffix\n");
     printf("  --snapshot-count N   Rewrite WAL after N applies (default: 10000; must be > 0)\n");
     printf("  --quota-backend-bytes N  NOSPACE when LMDB size >= N (0 = unlimited; invalid fails)\n");
     printf("  --force-new-cluster  Not implemented (fail-closed; would wipe data_dir)\n");
@@ -65,7 +68,7 @@ static void print_usage(const char *prog) {
     printf("  --peer-auto-tls      Not implemented (fail-closed without --peer-cert-file)\n");
     printf("  --cipher-suites LIST  TLS 1.2/1.3 cipher list (IANA or OpenSSL names; requires TLS)\n");
     printf("  --logger TYPE       zap or capnslog (built-in logger; others fail)\n");
-    printf("  --log-outputs LIST   stderr or stdout; a file path fail-closes\n");
+    printf("  --log-outputs LIST   stderr, stdout, or a file path (journal fail-closes)\n");
     printf("  --experimental-*    Accepted but no-op\n");
     printf("  --help           Show this help\n");
 }
@@ -84,6 +87,7 @@ static int parse_keepalive_sec_(const char *s, int min_v, int *out) {
 int main(int argc, char **argv) {
     const char *name = "default";
     const char *data_dir = "./data";
+    FILE *log_owned = NULL;
 
     cetcd_server_config cfg;
     memset(&cfg, 0, sizeof(cfg));
@@ -101,6 +105,13 @@ int main(int argc, char **argv) {
             name = argv[++i];
         } else if (strcmp(argv[i], "--data-dir") == 0 && i + 1 < argc) {
             data_dir = argv[++i];
+        } else if (strcmp(argv[i], "--wal-dir") == 0 && i + 1 < argc) {
+            const char *wd = argv[++i];
+            if (!wd[0] || strlen(wd) >= sizeof(cfg.wal_dir)) {
+                fprintf(stderr, "--wal-dir must be a non-empty path\n");
+                return 1;
+            }
+            strncpy(cfg.wal_dir, wd, sizeof(cfg.wal_dir) - 1);
         } else if (strcmp(argv[i], "--listen") == 0 && i + 1 < argc) {
             strncpy(cfg.listen_addr, argv[++i], sizeof(cfg.listen_addr) - 1);
         } else if (strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
@@ -410,15 +421,30 @@ int main(int argc, char **argv) {
             }
         } else if (strcmp(argv[i], "--log-outputs") == 0 && i + 1 < argc) {
             const char *out = argv[++i];
-            if (strcmp(out, "stderr") == 0 || strcmp(out, "/dev/stderr") == 0) {
-                cetcd_log_set_sink(stderr);
-            } else if (strcmp(out, "stdout") == 0 || strcmp(out, "/dev/stdout") == 0) {
-                cetcd_log_set_sink(stdout);
-            } else {
-                fprintf(stderr, "--log-outputs %s is not supported (stderr or stdout)\n",
+            if (log_owned) {
+                fclose(log_owned);
+                log_owned = NULL;
+            }
+            if (cetcd_log_open_outputs(out, &log_owned) != 0) {
+                fprintf(stderr, "--log-outputs %s is not supported or cannot be opened\n",
                         out);
                 return 1;
             }
+        } else if (strcmp(argv[i], "--discovery-srv") == 0 && i + 1 < argc) {
+            const char *dom = argv[++i];
+            if (cetcd_discovery_valid_domain(dom) != 0) {
+                fprintf(stderr, "--discovery-srv domain is invalid\n");
+                return 1;
+            }
+            strncpy(cfg.discovery_srv, dom, sizeof(cfg.discovery_srv) - 1);
+        } else if (strcmp(argv[i], "--discovery-srv-name") == 0 && i + 1 < argc) {
+            const char *nm = argv[++i];
+            if (cetcd_discovery_valid_name(nm) != 0 || !nm[0]) {
+                fprintf(stderr, "--discovery-srv-name is invalid\n");
+                return 1;
+            }
+            strncpy(cfg.discovery_srv_name, nm, sizeof(cfg.discovery_srv_name) - 1);
+        }
         } else if (strcmp(argv[i], "--grpc-keepalive-time") == 0 && i + 1 < argc) {
             if (parse_keepalive_sec_(argv[++i], 0, &cfg.keepalive_time) != 0) {
                 fprintf(stderr, "--grpc-keepalive-time must be 0..86400 seconds\n");
@@ -462,11 +488,52 @@ int main(int argc, char **argv) {
     }
     strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
     strncpy(cfg.name, name, sizeof(cfg.name) - 1);
+    if (cfg.discovery_srv_name[0] && !cfg.discovery_srv[0]) {
+        fprintf(stderr, "--discovery-srv-name requires --discovery-srv\n");
+        return 1;
+    }
+    if (cfg.discovery_srv[0]) {
+        if (cfg.n_initial_peers > 0) {
+            fprintf(stderr, "--discovery-srv cannot be mixed with --initial-cluster\n");
+            return 1;
+        }
+        cetcd_discovery_kind kind = (cfg.peer_listen_https || cfg.initial_cluster_https)
+            ? CETCD_DISCOVERY_SERVER_SSL : CETCD_DISCOVERY_SERVER;
+        cetcd_endpoint eps[CETCD_MAX_INITIAL_PEERS];
+        size_t n = 0;
+        const char *nm = cfg.discovery_srv_name[0] ? cfg.discovery_srv_name : NULL;
+        if (cetcd_discovery_resolve(kind, nm, cfg.discovery_srv, 0,
+                                    eps, CETCD_MAX_INITIAL_PEERS, &n) != 0 || n == 0) {
+            fprintf(stderr, "--discovery-srv lookup failed\n");
+            return 1;
+        }
+        for (size_t i = 0; i < n; i++) {
+            uint64_t id = 0;
+            if (cetcd_discovery_peer_id(eps[i].host, eps[i].port, &id) != 0) {
+                fprintf(stderr, "--discovery-srv peer id failed\n");
+                return 1;
+            }
+            for (size_t j = 0; j < i; j++) {
+                if (cfg.initial_peers[j].id == id) {
+                    fprintf(stderr, "--discovery-srv peer id collision\n");
+                    return 1;
+                }
+            }
+            cetcd_peer_info *pi = &cfg.initial_peers[i];
+            memset(pi, 0, sizeof(*pi));
+            pi->id = id;
+            strncpy(pi->addr, eps[i].host, sizeof(pi->addr) - 1);
+            pi->port = eps[i].port;
+        }
+        cfg.n_initial_peers = (uint32_t)n;
+    }
 
     CETCD_INFO("cetcd v%s starting", cetcd_version());
     CETCD_INFO("  name      : %s", name);
     CETCD_INFO("  node-id   : %llu", (unsigned long long)cfg.node_id);
     CETCD_INFO("  data-dir  : %s", cfg.data_dir);
+    if (cfg.wal_dir[0])
+        CETCD_INFO("  wal-dir   : %s", cfg.wal_dir);
     CETCD_INFO("  listen    : %s:%u", cfg.listen_addr, cfg.listen_port);
     CETCD_INFO("  peer      : %s:%u", cfg.peer_addr, cfg.peer_port);
     CETCD_INFO("  metrics   : %s:%u", cfg.listen_addr, cfg.metrics_port);
@@ -506,5 +573,6 @@ int main(int argc, char **argv) {
     g_srv = NULL;
 
     CETCD_INFO("shutdown complete");
+    if (log_owned) fclose(log_owned);
     return 0;
 }

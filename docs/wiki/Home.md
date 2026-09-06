@@ -798,7 +798,8 @@ cert files; `https://` in `--initial-cluster` requires `--peer-cert-file`;
 (and rejects `--insecure-transport`). Plaintext is not a silent fallback.
 `--initial-cluster-state existing` and `--force-new-cluster` fail at start
 (cetcd only bootstraps `new` and does not wipe `data_dir`).
-Unknown server flags (for example `--wal-dir`) fail at parse instead of being ignored.
+`--wal-dir` places the WAL on a dedicated path (default `{data-dir}/wal`; empty fail-closes).
+Unknown server flags fail at parse instead of being ignored.
 `--port` is `1..65535`; a typo fail-closes instead of binding port `0`.
 `--peer-port` is `1..65535`; a typo fail-closes instead of binding the Raft port on `0`.
 `--metrics-port` is `0..65535` (`0` disables); a typo fail-closes instead of silently disabling metrics.
@@ -810,12 +811,13 @@ Unknown server flags (for example `--wal-dir`) fail at parse instead of being ig
 `--max-txn-ops` is `1..128`; a typo or `0` fail-closes instead of becoming the default 128.
 `--max-request-bytes` must be `> 0`; a typo or `0` fail-closes instead of becoming the default 1.5 MiB.
 `--bcrypt-cost` is `0` or `4..31`; a typo fail-closes instead of becoming SHA-256.
-`--log-outputs` is `stderr` or `stdout`; a file path fail-closes.
+`--log-outputs` is `stderr`, `stdout`, or a file path; `journal`/`syslog` fail-close.
 `--logger` is `zap` or `capnslog`; any other type fail-closes.
 `--log-level` is `trace`/`debug`/`info`/`warn`/`error` (etcd `warning`/`dpanic`/`panic`/`fatal` aliases); any other level fail-closes.
 `--log-format` is `json` or `text` (etcd `console` = text); any other format fail-closes.
-`cetcdctl --discovery-srv` is not implemented and fail-closes (it used to ignore
-the flag and still use 127.0.0.1:2379).
+`cetcdctl --discovery-srv` / `--discovery-srv-name` resolve
+`_etcd-client[-ssl]._tcp.<domain>` (0 records, invalid domain, or mix with
+`--endpoints` fail-close). `--endpoints a,b,c` failovers in list order.
 `--keepalive-time` / `--keepalive-timeout` set TCP keepalive on the client socket
 (invalid durations and timeout without time fail-close).
 `--command-timeout` is a duration (`0` = none); a typo fail-closes instead of hanging with no alarm.

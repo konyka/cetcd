@@ -114,6 +114,64 @@ void cetcd_log_vemit(cetcd_log_level lvl,
     else                                    emit_text_(fp, lvl, file, line, func, fmt, ap);
 }
 
+static int same_stdio_(const char *tok, FILE **sink) {
+    if (strcmp(tok, "stderr") == 0 || strcmp(tok, "/dev/stderr") == 0) {
+        *sink = stderr;
+        return 1;
+    }
+    if (strcmp(tok, "stdout") == 0 || strcmp(tok, "/dev/stdout") == 0) {
+        *sink = stdout;
+        return 1;
+    }
+    return 0;
+}
+
+int cetcd_log_open_outputs(const char *spec, FILE **owned) {
+    if (owned) *owned = NULL;
+    if (!spec || !spec[0]) return CETCD_ERR_INVAL;
+    char buf[512];
+    if (strlen(spec) >= sizeof(buf)) return CETCD_ERR_OVERFLOW;
+    memcpy(buf, spec, strlen(spec) + 1);
+
+    FILE *chosen = NULL;
+    int saw_file = 0;
+    int ntok = 0;
+    char *p = buf;
+    while (*p) {
+        char *comma = strchr(p, ',');
+        if (comma) *comma = '\0';
+        char *tok = p;
+        while (*tok == ' ' || *tok == '\t') tok++;
+        size_t tl = strlen(tok);
+        while (tl > 0 && (tok[tl - 1] == ' ' || tok[tl - 1] == '\t'))
+            tok[--tl] = '\0';
+        if (tl == 0) return CETCD_ERR_INVAL;
+        if (strcmp(tok, "journal") == 0 || strcmp(tok, "syslog") == 0)
+            return CETCD_ERR_UNSUPPORT;
+        FILE *stdio = NULL;
+        if (same_stdio_(tok, &stdio)) {
+            if (saw_file) return CETCD_ERR_INVAL;
+            if (chosen && chosen != stdio) return CETCD_ERR_INVAL;
+            chosen = stdio;
+        } else {
+            if (chosen && !saw_file) return CETCD_ERR_INVAL;
+            if (saw_file) return CETCD_ERR_INVAL;
+            FILE *fp = fopen(tok, "a");
+            if (!fp) return CETCD_ERR_IO;
+            chosen = fp;
+            saw_file = 1;
+        }
+        ntok++;
+        if (!comma) break;
+        p = comma + 1;
+        if (*p == '\0') return CETCD_ERR_INVAL;
+    }
+    if (ntok == 0 || !chosen) return CETCD_ERR_INVAL;
+    cetcd_log_set_sink(chosen);
+    if (owned && saw_file) *owned = chosen;
+    return 0;
+}
+
 void cetcd_log_emit(cetcd_log_level lvl,
                     const char *file, int line, const char *func,
                     const char *fmt, ...) {

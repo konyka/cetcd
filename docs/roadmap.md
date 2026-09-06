@@ -273,6 +273,22 @@ Performance-first, fail-closed design:
   reused as a different cluster. Omitted flag stays a no-op.
   `cetcdctl snapshot restore --initial-cluster-token` writes the same file;
   a mismatch without `--force` fail-closes.
+- **`--wal-dir`** — dedicated WAL directory (default `{data-dir}/wal`). Empty
+  path fail-closes. Set without `--data-dir` fail-closes at start. Operators
+  can put the fsync-heavy WAL on a separate NVMe without moving LMDB.
+- **`--log-outputs` file** — `stderr`/`stdout`/`/dev/std{err,out}` or a file
+  path (append). `journal`/`syslog` and mixed comma-lists fail-closed. Open
+  failure fail-closes (no silent stderr).
+- **`--discovery-srv` / `--discovery-srv-name`** — DNS SRV bootstrap.
+  Server looks up `_etcd-server[-ssl][-name]._tcp.<domain>` and fills
+  `--initial-cluster` with stable FNV-1a peer ids. Client looks up
+  `_etcd-client[-ssl][-name]._tcp.<domain>` (SSL first when TLS is on).
+  Invalid domain, 0 records, pointer loops, port 0, and id collisions
+  fail-closed. Mixed with `--initial-cluster` / `--endpoints` fail-closes.
+  `cetcdctl version` stays local (no lookup).
+- **`cetcdctl --endpoints` failover** — the comma list is no longer first-only.
+  Connect tries each endpoint in order (hostname via `getaddrinfo`). All
+  failures fail-closed.
 
 ## Previously done (auth data plane)
 
@@ -283,11 +299,16 @@ Performance-first, fail-closed design:
 
 ### Reliability (cluster correctness)
 
-None remaining in this pass.
+- **`--initial-cluster-state existing`** — join an already-bootstrapped
+  cluster (MemberAdd + catch-up). Still fail-closed so it cannot look like
+  a join while forming a new cluster.
 
 ### Security / ops
 
-None remaining in this pass.
+- **`--auto-tls` / `--peer-auto-tls`** — cetcd does not mint certificates.
+  Either flag still requires the matching cert files.
+- **`--force-new-cluster`** — would wipe `data-dir`. Still fail-closed.
+- **`--log-outputs journal`** — systemd journal is not wired. Fail-closed.
 
 ### Wire compatibility
 

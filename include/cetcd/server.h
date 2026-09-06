@@ -25,6 +25,7 @@ typedef struct cetcd_server cetcd_server;
 typedef struct cetcd_server_config {
     uint64_t        node_id;
     char            data_dir[512];
+    char            wal_dir[512];  /* empty → {data_dir}/wal; dedicated NVMe path */
     char            listen_addr[256];
     uint16_t        listen_port;
     char            peer_addr[256];
@@ -66,6 +67,8 @@ typedef struct cetcd_server_config {
     char            advertise_peer_urls[512];   /* MemberList self peerURLs; empty → peer listen */
     char            name[128];                  /* MemberList self name; empty → "default" */
     char            initial_cluster_token[128]; /* persisted; mismatch fail-closes */
+    char            discovery_srv[256];         /* DNS SRV domain; empty = unused */
+    char            discovery_srv_name[64];     /* optional SRV name suffix */
 } cetcd_server_config;
 
 cetcd_server *cetcd_server_new(const cetcd_server_config *cfg);

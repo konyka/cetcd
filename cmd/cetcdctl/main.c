@@ -77,6 +77,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 
 #include "cetcd/base.h"
 #include "cetcd/auth.h"
@@ -84,6 +85,11 @@
 
 static const char *g_host = "127.0.0.1";
 static uint16_t    g_port = 2379;
+static cetcd_endpoint g_eps[CETCD_DISCOVERY_MAX_ENDPOINTS];
+static size_t      g_n_eps;
+static int         g_endpoints_set;
+static const char *g_discovery_srv;
+static const char *g_discovery_srv_name;
 static int         g_keys_only = 0; /* flag for get --keys-only */
 static int         g_count_only = 0; /* flag for get --count-only */
 static int         g_print_value_only = 0; /* flag for get --print-value-only */
@@ -261,14 +267,7 @@ static int tls_ctx_ensure_(void) {
     return 0;
 }
 
-static int connect_server(void) {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) { perror("socket"); return -1; }
-    struct sockaddr_in sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sin_family = AF_INET;
-    sa.sin_port = htons(g_port);
-    inet_pton(AF_INET, g_host, &sa.sin_addr);
+static int apply_socket_opts_(int fd) {
     if (g_dial_timeout > 0) {
         struct timeval tv;
         tv.tv_sec = g_dial_timeout;
@@ -280,7 +279,6 @@ static int connect_server(void) {
         int on = g_tcp_keepalive_time > 0;
         if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &on, sizeof(on)) != 0) {
             perror("SO_KEEPALIVE");
-            close(fd);
             return -1;
         }
         if (on) {
@@ -288,7 +286,6 @@ static int connect_server(void) {
             if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &g_tcp_keepalive_time,
                            sizeof(g_tcp_keepalive_time)) != 0) {
                 perror("TCP_KEEPIDLE");
-                close(fd);
                 return -1;
             }
 #endif
@@ -297,17 +294,40 @@ static int connect_server(void) {
                 setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &g_tcp_keepalive_timeout,
                            sizeof(g_tcp_keepalive_timeout)) != 0) {
                 perror("TCP_KEEPINTVL");
-                close(fd);
                 return -1;
             }
 #endif
         }
     }
-    if (connect(fd, (struct sockaddr *)&sa, sizeof(sa)) != 0) {
-        perror("connect");
-        close(fd);
+    return 0;
+}
+
+static int connect_one_(const cetcd_endpoint *ep) {
+    struct addrinfo hints, *res = NULL, *rp;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    char portbuf[8];
+    snprintf(portbuf, sizeof(portbuf), "%u", (unsigned)ep->port);
+    if (getaddrinfo(ep->host, portbuf, &hints, &res) != 0 || !res) {
+        perror("getaddrinfo");
         return -1;
     }
+    int fd = -1;
+    for (rp = res; rp; rp = rp->ai_next) {
+        fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (fd < 0) continue;
+        if (apply_socket_opts_(fd) != 0) {
+            close(fd);
+            fd = -1;
+            continue;
+        }
+        if (connect(fd, rp->ai_addr, rp->ai_addrlen) == 0) break;
+        close(fd);
+        fd = -1;
+    }
+    freeaddrinfo(res);
+    if (fd < 0) return -1;
     if (tls_wanted_()) {
         if (tls_ctx_ensure_() != 0) {
             close(fd);
@@ -322,6 +342,53 @@ static int connect_server(void) {
         g_tls_fd = fd;
     }
     return fd;
+}
+
+static int ensure_endpoints_(void) {
+    if (g_n_eps > 0) return 0;
+    if (g_discovery_srv) {
+        int ssl = (g_cacert[0] || g_cert[0] || g_endpoint_https) && !g_insecure_transport;
+        cetcd_discovery_kind first = ssl ? CETCD_DISCOVERY_CLIENT_SSL
+                                         : CETCD_DISCOVERY_CLIENT;
+        cetcd_discovery_kind second = ssl ? CETCD_DISCOVERY_CLIENT
+                                          : CETCD_DISCOVERY_CLIENT_SSL;
+        size_t n = 0;
+        int rc = cetcd_discovery_resolve(first, g_discovery_srv_name, g_discovery_srv,
+                                         ssl ? 1 : 0, g_eps,
+                                         CETCD_DISCOVERY_MAX_ENDPOINTS, &n);
+        if (rc != 0)
+            rc = cetcd_discovery_resolve(second, g_discovery_srv_name, g_discovery_srv,
+                                         ssl ? 1 : 0, g_eps,
+                                         CETCD_DISCOVERY_MAX_ENDPOINTS, &n);
+        if (rc != 0 || n == 0) {
+            fprintf(stderr, "--discovery-srv lookup failed\n");
+            return -1;
+        }
+        g_n_eps = n;
+        if (ssl) g_endpoint_https = 1;
+        return 0;
+    }
+    memset(&g_eps[0], 0, sizeof(g_eps[0]));
+    strncpy(g_eps[0].host, g_host, sizeof(g_eps[0].host) - 1);
+    g_eps[0].port = g_port;
+    g_eps[0].https = g_endpoint_https;
+    g_n_eps = 1;
+    return 0;
+}
+
+static int connect_server(void) {
+    if (ensure_endpoints_() != 0) return -1;
+    int any_https = g_endpoint_https;
+    for (size_t i = 0; i < g_n_eps; i++) {
+        if (g_eps[i].https) any_https = 1;
+        g_endpoint_https = g_eps[i].https || any_https;
+        g_host = g_eps[i].host;
+        g_port = g_eps[i].port;
+        int fd = connect_one_(&g_eps[i]);
+        if (fd >= 0) return fd;
+    }
+    fprintf(stderr, "failed to connect to any endpoint\n");
+    return -1;
 }
 
 static int send_request(int fd, const char *path,
@@ -5518,7 +5585,7 @@ static int cmd_completion(int argc, char **argv) {
         printf("        cword=$COMP_CWORD\n");
         printf("    }\n");
         printf("    local cmds=\"put get del watch lease txn compact status alarm hash hashkv defrag move-leader member auth user role snapshot downgrade version endpoint check lock elect completion\"\n");
-        printf("    local gopts=\"--host --port --endpoints --endpoint --user --password --command-timeout --debug --insecure --insecure-skip-tls-verify --insecure-transport --dial-timeout --keepalive-time --keepalive-timeout --cacert --cert --key --max-call-send-msg-size --max-call-recv-msg-size --discovery-srv\"\n");
+        printf("    local gopts=\"--host --port --endpoints --endpoint --user --password --command-timeout --debug --insecure --insecure-skip-tls-verify --insecure-transport --dial-timeout --keepalive-time --keepalive-timeout --cacert --cert --key --max-call-send-msg-size --max-call-recv-msg-size --discovery-srv --discovery-srv-name\"\n");
         printf("    # Find the subcommand\n");
         printf("    cmd=\"\"\n");
         printf("    for ((i=1; i<cword; i++)); do\n");
@@ -5597,6 +5664,7 @@ static int cmd_completion(int argc, char **argv) {
         printf("        '--insecure-transport[Disable TLS transport]' \\\n");
         printf("        '--password[Password]:pass' \\\n");
         printf("        '--discovery-srv[Discovery SRV]:domain' \\\n");
+        printf("        '--discovery-srv-name[Discovery SRV name]:name' \\\n");
         printf("        '1:command:compadd -a cmds' \\\n");
         printf("        '*::arg:->args'\n");
         printf("    case $state in\n");
@@ -5650,6 +5718,7 @@ static int cmd_completion(int argc, char **argv) {
         printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l insecure-transport -d 'Disable TLS transport'\n");
         printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l password -d 'Password for --user'\n");
         printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l discovery-srv -d 'Discovery service'\n");
+        printf("complete -c cetcdctl -n \"__fish_use_subcommand\" -l discovery-srv-name -d 'Discovery SRV name'\n");
         printf("# Subcommands\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from lease' -a 'grant revoke timetolive list keepalive'\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from txn' -a '-i put cas get del'\n");
@@ -5690,7 +5759,7 @@ static void print_usage(void) {
     printf("Global options:\n");
     printf("  --host ADDR    Server address (default: 127.0.0.1)\n");
     printf("  --port PORT    Server port (default: 2379; 1..65535)\n");
-    printf("  --endpoints EP Server endpoint (https requires --cacert or --insecure; port 1..65535)\n");
+    printf("  --endpoints EP Comma-separated endpoints (failover; https requires --cacert or --insecure; port 1..65535)\n");
     printf("  --user USER:PASS  Authenticate with server before executing command\n");
     printf("  --command-timeout SEC  Timeout for commands (duration; 0 = none; invalid fails)\n");
     printf("  --debug       Print debug info (RPC path and response size)\n");
@@ -5706,7 +5775,8 @@ static void print_usage(void) {
     printf("  --insecure-skip-tls-verify  Same as --insecure\n");
     printf("  --insecure-transport  Force plaintext even if TLS flags are set (fail-closed if mixed)\n");
     printf("  --password PASS  Password for --user authentication\n");
-    printf("  --discovery-srv DOMAIN  Not implemented (fail-closed; would look like DNS discovery)\n\n");
+    printf("  --discovery-srv DOMAIN  DNS SRV (_etcd-client._tcp); fail-closed on 0 records\n");
+    printf("  --discovery-srv-name NAME  Optional SRV service suffix\n\n");
     printf("Commands:\n");
     printf("  put [--prev-kv] [--ignore-value] [--ignore-lease] [--lease ID] [--print-value-only] [-w json|fields] KEY [VALUE|-]  Store a key-value pair\n");
     printf("  get [--prefix] [--from-key] [--range-end KEY] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields|table] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
@@ -5792,39 +5862,19 @@ int main(int argc, char **argv) {
             g_port = (uint16_t)v;
             cmd_start += 2;
         } else if ((strcmp(argv[cmd_start], "--endpoints") == 0 || strcmp(argv[cmd_start], "--endpoint") == 0) && cmd_start + 1 < argc) {
-            /* Parse first endpoint from comma-separated list: host:port or http://host:port format */
-            static char ep_buf[512];
-            strncpy(ep_buf, argv[cmd_start + 1], sizeof(ep_buf) - 1);
-            ep_buf[sizeof(ep_buf) - 1] = '\0';
-            char *comma = strchr(ep_buf, ',');
-            if (comma) *comma = '\0';
-            char *ep_start = ep_buf;
-            if (strncmp(ep_start, "https://", 8) == 0) {
-                g_endpoint_https = 1;
-                ep_start += 8;
-            } else if (strncmp(ep_start, "http://", 7) == 0) {
-                ep_start += 7;
+            size_t n = 0;
+            if (cetcd_endpoint_parse_list(argv[cmd_start + 1], g_eps,
+                                          CETCD_DISCOVERY_MAX_ENDPOINTS, &n) != 0) {
+                fprintf(stderr, "--endpoints is invalid (host:port 1..65535, comma list)\n");
+                return 1;
             }
-            const char *colon = strchr(ep_start, ':');
-            if (colon) {
-                size_t hlen = (size_t)(colon - ep_start);
-                if (hlen > 0 && hlen < 256) {
-                    static char host_buf[256];
-                    memcpy(host_buf, ep_start, hlen);
-                    host_buf[hlen] = '\0';
-                    g_host = host_buf;
-                    char *end = NULL;
-                    errno = 0;
-                    long v = strtol(colon + 1, &end, 10);
-                    if (errno == ERANGE || !end || end == colon + 1 || *end ||
-                        v < 1 || v > 65535) {
-                        fprintf(stderr, "--endpoints port must be 1..65535\n");
-                        return 1;
-                    }
-                    g_port = (uint16_t)v;
-                }
-            } else {
-                g_host = ep_start;
+            g_n_eps = n;
+            g_endpoints_set = 1;
+            g_host = g_eps[0].host;
+            g_port = g_eps[0].port;
+            g_endpoint_https = 0;
+            for (size_t i = 0; i < n; i++) {
+                if (g_eps[i].https) g_endpoint_https = 1;
             }
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--command-timeout") == 0 && cmd_start + 1 < argc) {
@@ -5971,8 +6021,20 @@ int main(int argc, char **argv) {
             g_password[sizeof(g_password) - 1] = '\0';
             cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--discovery-srv") == 0 && cmd_start + 1 < argc) {
-            fprintf(stderr, "--discovery-srv is not implemented\n");
-            return 1;
+            g_discovery_srv = argv[cmd_start + 1];
+            if (cetcd_discovery_valid_domain(g_discovery_srv) != 0) {
+                fprintf(stderr, "--discovery-srv domain is invalid\n");
+                return 1;
+            }
+            cmd_start += 2;
+        } else if (strcmp(argv[cmd_start], "--discovery-srv-name") == 0 && cmd_start + 1 < argc) {
+            g_discovery_srv_name = argv[cmd_start + 1];
+            if (cetcd_discovery_valid_name(g_discovery_srv_name) != 0 ||
+                !g_discovery_srv_name[0]) {
+                fprintf(stderr, "--discovery-srv-name is invalid\n");
+                return 1;
+            }
+            cmd_start += 2;
         } else if (strcmp(argv[cmd_start], "--user") == 0 && cmd_start + 1 < argc) {
             user_cred = argv[cmd_start + 1];
             cmd_start += 2;
@@ -6007,6 +6069,14 @@ int main(int argc, char **argv) {
     }
     if (g_tcp_keepalive_timeout >= 0 && g_tcp_keepalive_time < 0) {
         fprintf(stderr, "--keepalive-timeout requires --keepalive-time\n");
+        return 1;
+    }
+    if (g_discovery_srv_name && !g_discovery_srv) {
+        fprintf(stderr, "--discovery-srv-name requires --discovery-srv\n");
+        return 1;
+    }
+    if (g_discovery_srv && g_endpoints_set) {
+        fprintf(stderr, "--discovery-srv cannot be mixed with --endpoints\n");
         return 1;
     }
     if (user_cred) {

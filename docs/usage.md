@@ -104,8 +104,13 @@ This starts a single-node cetcd server listening on port 2379 for client
 requests and port 2380 for peer-to-peer (Raft) communication.
 
 With `--data-dir` set, Put/DeleteRange are proposed through Raft, fsynced to
-`{data-dir}/wal/0000000000000000.wal`, then applied to MVCC (LMDB). Restart
-reloads live keys from LMDB and replays any WAL entries ahead of `applied_index`.
+`{data-dir}/wal/0000000000000000.wal` (or `--wal-dir`), then applied to MVCC
+(LMDB). Restart reloads live keys from LMDB and replays any WAL entries ahead
+of `applied_index`. Put the WAL on a dedicated disk when fsync latency matters:
+
+```sh
+./build/bin/cetcd --data-dir ./data --wal-dir /fast/wal --listen 127.0.0.1 --port 2379
+```
 
 ### Three-node static cluster
 
@@ -199,8 +204,17 @@ cetcd accepts several etcd server flags for migration compatibility:
 ./build/bin/cetcd --experimental-initial-corrupt-check \
   --experimental-compaction-batch-limit 1000
 
+# Dedicated WAL directory (empty path fail-closes; requires --data-dir)
+./build/bin/cetcd --data-dir ./data --wal-dir /var/lib/cetcd/wal
+
+# DNS SRV bootstrap (cannot mix with --initial-cluster; 0 records fail-close)
+# ./build/bin/cetcd --discovery-srv example.com --discovery-srv-name east
+
+# File log sink (journal/syslog and mixed comma-lists fail-close)
+./build/bin/cetcd --log-outputs /var/log/cetcd.log --data-dir ./data
+
 # Unknown flags fail at parse (not a silent ignore)
-# ./build/bin/cetcd --wal-dir /var/lib/cetcd/wal  → error: unknown flag
+# ./build/bin/cetcd --not-a-real-flag  → error: unknown flag
 
 # Raft timing parameters (actually applied; ticks must be > 0)
 ./build/bin/cetcd --election-tick 10 --heartbeat-tick 1
@@ -566,7 +580,7 @@ Supported operations (in `then`/`else` sections):
 |--------|---------|-------------|
 | `--host ADDR` | 127.0.0.1 | Server address |
 | `--port PORT` | 2379 | Server port (`1..65535`; a typo fail-closes) |
-| `--endpoints EP` | 127.0.0.1:2379 | Server endpoint (host:port `1..65535`; a typo fail-closes; `https://` requires `--cacert` or `--insecure`) |
+| `--endpoints EP` | 127.0.0.1:2379 | Comma-separated endpoints (failover in order; host:port `1..65535`; a typo fail-closes; `https://` requires `--cacert` or `--insecure`) |
 | `--command-timeout SEC` | none | Timeout for commands (integer seconds or Go duration: `5s`, `1m`, `1m30s`, `500ms`; `0` = none; invalid fails) |
 | `--user USER:PASS` | none | Authenticate with server before command |
 | `--password PASS` | none | Password for `--user` (when USER has no `:PASS`) |
@@ -582,7 +596,8 @@ Supported operations (in `then`/`else` sections):
 | `--key FILE` | none | TLS client key (requires `--cert`) |
 | `--max-call-send-msg-size N` | none | Max request payload in bytes (`0` rejected) |
 | `--max-call-recv-msg-size N` | none | Max response payload in bytes (`0` rejected; no silent truncate) |
-| `--discovery-srv DOMAIN` | none | Not implemented (fail-closed) |
+| `--discovery-srv DOMAIN` | none | DNS SRV `_etcd-client[-ssl]._tcp.<domain>` (0 records fail-closed; cannot mix with `--endpoints`) |
+| `--discovery-srv-name NAME` | none | Optional SRV service suffix (requires `--discovery-srv`) |
 
 ### Table output formats
 

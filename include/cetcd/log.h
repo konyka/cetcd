@@ -36,6 +36,11 @@ cetcd_log_format cetcd_log_get_format(void);
 void             cetcd_log_set_sink(FILE *fp);
 FILE            *cetcd_log_get_sink(void);
 
+/* Parse --log-outputs: stderr/stdout (/dev/std{err,out}) or a file path
+ * (append). journal/syslog and mixed comma-lists fail-closed. *owned is
+ * the FILE to fclose at shutdown (NULL for stdio). */
+int              cetcd_log_open_outputs(const char *spec, FILE **owned);
+
 void cetcd_log_emit(cetcd_log_level lvl,
                     const char *file, int line, const char *func,
                     const char *fmt, ...) CETCD_PRINTF_(5, 6);
