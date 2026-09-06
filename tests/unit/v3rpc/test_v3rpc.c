@@ -6101,6 +6101,75 @@ CETCD_TEST_CASE(v3rpc_range_linearizable_follower) {
     cetcd_v3rpc_free(rpc);
 }
 
+static cetcd_rpc_bytes remove_member_(cetcd_v3rpc *rpc, uint64_t id) {
+    uint8_t buf[16];
+    size_t pos = 0;
+    buf[pos++] = 0x08;
+    while (id >= 0x80) {
+        buf[pos++] = (uint8_t)((id & 0x7f) | 0x80);
+        id >>= 7;
+    }
+    buf[pos++] = (uint8_t)id;
+    return cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Cluster/MemberRemove", buf, pos);
+}
+
+CETCD_TEST_CASE(v3rpc_member_remove_last_voter_fail_closed) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    cetcd_cluster *saved = g_rpc_cluster;
+    g_rpc_cluster = cetcd_cluster_new(1);
+    cetcd_rpc_bytes resp = remove_member_(rpc, 1);
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_cluster_free(g_rpc_cluster);
+    g_rpc_cluster = saved;
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_member_remove_unknown_fail_closed) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    cetcd_cluster *saved = g_rpc_cluster;
+    g_rpc_cluster = cetcd_cluster_new(1);
+    cetcd_rpc_bytes resp = remove_member_(rpc, 99);
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_cluster_free(g_rpc_cluster);
+    g_rpc_cluster = saved;
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_member_remove_learner_ok) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    cetcd_cluster *saved = g_rpc_cluster;
+    g_rpc_cluster = cetcd_cluster_new(1);
+    cetcd_peer_info learner = {.id = 7, .addr = "10.0.0.7", .port = 2380, .is_learner = 1};
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_add_peer(g_rpc_cluster, &learner), CETCD_OK);
+    cetcd_rpc_bytes resp = remove_member_(rpc, 7);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+    CETCD_ASSERT_TRUE(cetcd_cluster_get_peer(g_rpc_cluster, 7) == NULL);
+    cetcd_cluster_free(g_rpc_cluster);
+    g_rpc_cluster = saved;
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_member_remove_keeps_quorum) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    cetcd_cluster *saved = g_rpc_cluster;
+    g_rpc_cluster = cetcd_cluster_new(1);
+    cetcd_peer_info a = {.id = 2, .addr = "10.0.0.2", .port = 2380};
+    cetcd_peer_info b = {.id = 3, .addr = "10.0.0.3", .port = 2380};
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_add_peer(g_rpc_cluster, &a), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_cluster_add_peer(g_rpc_cluster, &b), CETCD_OK);
+    cetcd_rpc_bytes resp = remove_member_(rpc, 2);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+    CETCD_ASSERT_TRUE(cetcd_cluster_get_peer(g_rpc_cluster, 2) == NULL);
+    CETCD_ASSERT_NOT_NULL(cetcd_cluster_get_peer(g_rpc_cluster, 3));
+    cetcd_cluster_free(g_rpc_cluster);
+    g_rpc_cluster = saved;
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
@@ -6152,6 +6221,10 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_cluster_member_update),
     CETCD_TEST_ENTRY(v3rpc_cluster_member_promote),
     CETCD_TEST_ENTRY(v3rpc_member_promote_learner_fail_closed),
+    CETCD_TEST_ENTRY(v3rpc_member_remove_last_voter_fail_closed),
+    CETCD_TEST_ENTRY(v3rpc_member_remove_unknown_fail_closed),
+    CETCD_TEST_ENTRY(v3rpc_member_remove_learner_ok),
+    CETCD_TEST_ENTRY(v3rpc_member_remove_keeps_quorum),
     CETCD_TEST_ENTRY(v3rpc_auth_status),
     CETCD_TEST_ENTRY(v3rpc_auth_user_list),
     CETCD_TEST_ENTRY(v3rpc_auth_user_change_password),

@@ -973,7 +973,7 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 | Auth | `/etcdserverpb.Auth/RoleRevokePermission` | `auth_handler.c` | 经 Raft 撤销角色权限 |
 | Cluster | `/etcdserverpb.Cluster/MemberList` | `cluster_handler.c` | 列出集群成员（self 使用 --name 与 advertise/listen URL，peer 省略 clientURLs） |
 | Cluster | `/etcdserverpb.Cluster/MemberAdd` | `cluster_handler.c` | 添加集群成员 |
-| Cluster | `/etcdserverpb.Cluster/MemberRemove` | `cluster_handler.c` | 移除集群成员 |
+| Cluster | `/etcdserverpb.Cluster/MemberRemove` | `cluster_handler.c` | 移除成员；删 voter 若剩余不足原 quorum 则 fail-closed（learner / 未知 id 见实现） |
 | Cluster | `/etcdserverpb.Cluster/MemberUpdate` | `cluster_handler.c` | 更新成员地址（实际更新 cluster 中的 peer 信息） |
 | Cluster | `/etcdserverpb.Cluster/MemberPromote` | `cluster_handler.c` | 提升学习者为投票成员 |
 | Maintenance | `/etcdserverpb.Maintenance/Status` | `maint_handler.c` | 版本/dbSize（LMDB 已分配页）/dbSizeInUse（已用页，与 quota 同源）/leader/raftIndex/raftTerm/raftAppliedIndex/errors/isLearner |
@@ -1093,7 +1093,7 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `move-leader TARGET_ID` | 领导者转移到指定节点 |
 | `member list` | 列出集群成员 |
 | `member add PEER_URL` | 添加集群成员 |
-| `member remove ID` | 移除集群成员 |
+| `member remove ID` | 移除成员（会丢 quorum 的 voter 删除 fail-closed） |
 | `member update ID URL` | 更新成员地址 |
 | `member promote ID` | 提升成员为投票节点 |
 | `auth enable/disable/status` | 认证管理 |

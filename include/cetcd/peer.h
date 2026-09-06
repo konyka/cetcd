@@ -50,6 +50,10 @@ size_t cetcd_cluster_peer_count(const cetcd_cluster *c);
 const cetcd_peer_info *cetcd_cluster_get_peer(const cetcd_cluster *c, uint64_t id);
 const cetcd_peer_info *cetcd_cluster_get_peer_by_index(const cetcd_cluster *c, size_t index);
 uint64_t              cetcd_cluster_self_id(const cetcd_cluster *c);
+/* Self plus non-learner peers (self id in the peer list is not double-counted). */
+uint32_t              cetcd_cluster_voter_count(const cetcd_cluster *c);
+/* 1 if remove is safe. Learners always 1. Remaining voters must keep old quorum. */
+int                   cetcd_reconfig_may_remove(uint32_t voter_count, int target_is_learner);
 int                   cetcd_cluster_update_peer(cetcd_cluster *c, uint64_t id, const cetcd_peer_info *info);
 
 /* Promote a learner to a voter. Returns NOTFOUND if missing, INVAL if already a voter. */

@@ -359,6 +359,11 @@ Performance-first, fail-closed design:
   the local term. A stale log or a live-leader lease (`check_quorum` and
   recent leader) rejects without disrupting the cluster. A majority grant
   then starts a real Vote. `TIMEOUT_NOW` (leader transfer) skips PreVote.
+- **Strict MemberRemove** — removing a voter is fail-closed unless the
+  remaining voters still satisfy the old quorum (`n/2+1`). The last voter
+  and a 2-voter shrink are refused. Learners and a 3+ voter remove still
+  work. Unknown member ids fail-closed. No cluster (unit dispatch) is
+  unchanged.
 
 ## Previously done (auth data plane)
 

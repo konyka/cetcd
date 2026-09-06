@@ -221,6 +221,24 @@ uint64_t cetcd_cluster_self_id(const cetcd_cluster *c) {
     return c->self_id;
 }
 
+uint32_t cetcd_cluster_voter_count(const cetcd_cluster *c) {
+    if (!c || c->self_id == 0) return 0;
+    uint32_t n = 1;
+    for (size_t i = 0; i < c->peer_count; i++) {
+        if (!c->peers[i] || c->peers[i]->id == c->self_id) continue;
+        if (!c->peers[i]->is_learner) n++;
+    }
+    return n;
+}
+
+int cetcd_reconfig_may_remove(uint32_t voter_count, int target_is_learner) {
+    if (target_is_learner) return 1;
+    if (voter_count == 0) return 0;
+    uint32_t after = voter_count - 1;
+    uint32_t quorum = voter_count / 2 + 1;
+    return after >= quorum;
+}
+
 int cetcd_cluster_update_peer(cetcd_cluster *c, uint64_t id, const cetcd_peer_info *info) {
     if (!c || !info) return CETCD_ERR_INVAL;
     for (size_t i = 0; i < c->peer_count; i++) {

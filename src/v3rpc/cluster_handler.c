@@ -361,6 +361,18 @@ cetcd_rpc_bytes cluster_handle_member_remove(cetcd_v3rpc *rpc,
     if (g_rpc_cluster && member_id > 0) {
         if (g_rpc_raft && cetcd_raft_in_joint(g_rpc_raft))
             return (cetcd_rpc_bytes){NULL, 0};
+        int known = (member_id == cetcd_cluster_self_id(g_rpc_cluster)) ||
+                    cetcd_cluster_get_peer(g_rpc_cluster, member_id) != NULL;
+        if (!known) return (cetcd_rpc_bytes){NULL, 0};
+        int is_learner = 0;
+        if (member_id != cetcd_cluster_self_id(g_rpc_cluster)) {
+            const cetcd_peer_info *p = cetcd_cluster_get_peer(g_rpc_cluster, member_id);
+            is_learner = p && p->is_learner;
+        }
+        uint32_t voters = g_rpc_raft ? cetcd_raft_voter_count(g_rpc_raft)
+                                     : cetcd_cluster_voter_count(g_rpc_cluster);
+        if (!cetcd_reconfig_may_remove(voters, is_learner))
+            return (cetcd_rpc_bytes){NULL, 0};
         uint8_t *entry = NULL;
         size_t elen = 0;
         if (cetcd_apply_encode_member_remove(&entry, &elen, member_id) != 0)

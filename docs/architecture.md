@@ -394,6 +394,9 @@ campaigns on `server_new` so the first Put does not wait for election ticks.
   compacted revision. A future or already-compacted revision is fail-closed
   before propose. Apply is idempotent for WAL replay.
 - **Learners** are non-voting: they are excluded from quorum and vote counts.
+  `MemberRemove` of a voter is fail-closed unless remaining voters still
+  meet the old quorum (etcd strict-reconfig). Learners and unknown-without-cluster
+  dispatch are unchanged.
   `MemberPromote` flips a learner to a voter (fail-closed if missing or already
   voting). Membership changes are compact apply tags (5–10) proposed like KV
   writes, persisted to an LMDB `members` bucket, then applied to the cluster
