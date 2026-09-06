@@ -141,6 +141,21 @@ CETCD_TEST_CASE(auto_compact_parse_max_learners) {
     CETCD_ASSERT_EQ_INT(cetcd_parse_max_learners("1", NULL), CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_auth_token_ttl) {
+    uint64_t n = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_token_ttl("300", &n), CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 300);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_token_ttl("1", &n), CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 1);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_token_ttl("0", &n), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_token_ttl("abc", &n), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_token_ttl("10foo", &n), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_token_ttl("-1", &n), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_token_ttl("", &n), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_token_ttl(NULL, &n), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_token_ttl("300", NULL), CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_clamp_batch) {
     CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_clamp(5000, 0, 0), 5000);
     CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_clamp(5000, 0, 1000), 1000);
@@ -242,6 +257,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_duration_ms),
     CETCD_TEST_ENTRY(auto_compact_parse_batch_limit),
     CETCD_TEST_ENTRY(auto_compact_parse_max_learners),
+    CETCD_TEST_ENTRY(auto_compact_parse_auth_token_ttl),
     CETCD_TEST_ENTRY(auto_compact_clamp_batch),
     CETCD_TEST_ENTRY(auto_compact_next_revision_batches),
     CETCD_TEST_ENTRY(auto_compact_next_periodic_drains),

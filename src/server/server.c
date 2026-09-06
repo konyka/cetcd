@@ -2466,6 +2466,12 @@ int cetcd_server_start(cetcd_server *srv) {
         if (mrc != CETCD_OK) return mrc;
     }
 
+    if (srv->cfg.auth_token_ttl_sec) {
+        extern cetcd_auth_store *g_rpc_auth;
+        if (!g_rpc_auth) return CETCD_ERR_INTERNAL;
+        cetcd_auth_set_token_ttl_ns(g_rpc_auth,
+                                    srv->cfg.auth_token_ttl_sec * 1000000000ULL);
+    }
     if (srv->cfg.auth_token[0]) {
         extern cetcd_auth_store *g_rpc_auth;
         if (!g_rpc_auth) return CETCD_ERR_INTERNAL;

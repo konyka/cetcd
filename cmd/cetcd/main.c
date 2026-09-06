@@ -57,6 +57,7 @@ static void print_usage(const char *prog) {
     printf("  --grpc-keepalive-permit-without-stream  Accepted bool (not applied; true|false)\n");
     printf("  --grpc-keepalive-*  Other grpc-keepalive flags accepted as no-op\n");
     printf("  --auth-token TYPE   simple (default) or jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]\n");
+    printf("  --auth-token-ttl SEC  Simple-token lifetime in seconds (default 300; must be > 0)\n");
     printf("  --bcrypt-cost N     Hash new passwords with bcrypt (4..31; 0 = SHA-256; invalid fails)\n");
     printf("  --cert-file FILE    Client TLS certificate (requires --key-file)\n");
     printf("  --key-file FILE     Client TLS private key\n");
@@ -355,6 +356,24 @@ int main(int argc, char **argv) {
             cfg.max_request_bytes = (uint64_t)v;
         } else if (strcmp(argv[i], "--auth-token") == 0 && i + 1 < argc) {
             strncpy(cfg.auth_token, argv[++i], sizeof(cfg.auth_token) - 1);
+        } else if (strcmp(argv[i], "--auth-token-ttl") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--auth-token-ttl requires an integer\n");
+                return 1;
+            }
+            uint64_t sec = 0;
+            if (cetcd_parse_auth_token_ttl(argv[++i], &sec) != CETCD_OK) {
+                fprintf(stderr, "--auth-token-ttl must be an integer > 0\n");
+                return 1;
+            }
+            cfg.auth_token_ttl_sec = sec;
+        } else if (strncmp(argv[i], "--auth-token-ttl=", 17) == 0) {
+            uint64_t sec = 0;
+            if (cetcd_parse_auth_token_ttl(argv[i] + 17, &sec) != CETCD_OK) {
+                fprintf(stderr, "--auth-token-ttl must be an integer > 0\n");
+                return 1;
+            }
+            cfg.auth_token_ttl_sec = sec;
         } else if (strcmp(argv[i], "--bcrypt-cost") == 0 && i + 1 < argc) {
             const char *s = argv[++i];
             char *end = NULL;

@@ -64,6 +64,8 @@ Performance-first, fail-closed design:
   libcrypt; verify accepts both encodings. `--auth-token simple` is the
   default; `--auth-token jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]`
   issues JWTs (username/revision/exp). Other sign-methods fail closed.
+  `--auth-token-ttl SEC` sets simple-token lifetime (default 300s; `> 0`;
+  leftover text fail-closes). JWT `ttl=` in `--auth-token` still wins.
 - **`--max-request-bytes` / `--quota-backend-bytes`** — client read buffer
   grows up to `max-request-bytes` (default 1.5 MiB); a claimed frame larger
   than the cap closes the connection. Puts fail closed with NOSPACE when
@@ -271,6 +273,9 @@ Performance-first, fail-closed design:
   default 1.5 MiB; that now fails at parse. Omitted still defaults.
 - **`--bcrypt-cost`** — `0` (SHA-256) or `4..31`. A typo used to become SHA-256
   via `atoi`; that now fails at parse.
+- **`--auth-token-ttl`** — integer seconds `> 0` (omitted default 300). Sets
+  simple-token lifetime. JWT `--auth-token …,ttl=` still wins. `0`, leftover
+  text, or a missing value fail at parse (no longer an unknown flag).
 - **`--initial-cluster-token`** — written to `{data-dir}/cluster_token` on first
   start. A later start with a different token fail-closes so a data dir is not
   reused as a different cluster. Omitted flag stays a no-op.

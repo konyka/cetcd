@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 48 — unary request warning</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 49 — auth-token-ttl</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 48 warns when a unary RPC
-     exceeds
-     <code>--experimental-warning-unary-request-duration</code>
-     (omitted default 300ms; explicit <code>0</code> disables).</p>
+  <p><strong>v0.3.0</strong>. Phase 49 honors
+     <code>--auth-token-ttl</code> for simple tokens
+     (omitted default 300s; <code>0</code> / leftover text fail-closed).
+     JWT <code>ttl=</code> in <code>--auth-token</code> still wins.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -102,6 +102,7 @@
       <tr><td>46</td><td>memory mlock</td><td>--experimental-memory-mlock calls mlockall at start; Windows / mlock failure fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>47</td><td>bootstrap defrag</td><td>--experimental-bootstrap-defrag-threshold-megabytes compact-copies data.mdb at start; Defragment uses the same path — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>48</td><td>unary request warning</td><td>--experimental-warning-unary-request-duration warns if unary RPC exceeds duration; 0 disables; omitted 300ms — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>49</td><td>auth-token-ttl</td><td>--auth-token-ttl sets simple-token lifetime; 0 / leftover text fail-closed; omitted 300s; JWT ttl= still wins — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

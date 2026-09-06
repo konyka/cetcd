@@ -61,6 +61,8 @@ int64_t cetcd_auto_compact_due(cetcd_auto_compact_state *st,
 int cetcd_parse_compaction_batch_limit(const char *s, uint64_t *out);
 /* Integer >= 0. 0 = unlimited. Leftover text is INVAL. */
 int cetcd_parse_max_learners(const char *s, uint32_t *out);
+/* Integer seconds > 0. 0 / leftover text / overflow (sec*1e9) is INVAL. */
+int cetcd_parse_auth_token_ttl(const char *s, uint64_t *out);
 /* Integer MB >= 0. 0 = off. Overflow (MB*1MiB) is INVAL. */
 int cetcd_parse_bootstrap_defrag_mb(const char *s, uint64_t *out);
 /* 1 if alloc_bytes > threshold_mb MiB. threshold 0 never. */
@@ -102,6 +104,7 @@ typedef struct cetcd_server_config {
     bool            peer_client_cert_auth;
     /* "simple" (default) or jwt,sign-method=HS256|RS256|ES256,priv-key=... */
     char            auth_token[512];
+    uint64_t        auth_token_ttl_sec; /* 0 = unset → 300s; simple tokens only */
     int             bcrypt_cost; /* 0 = SHA-256; 4..31 = bcrypt */
     uint64_t        max_request_bytes;    /* 0 → CETCD_DEFAULT_MAX_REQUEST_BYTES */
     uint64_t        quota_backend_bytes; /* 0 = unlimited */

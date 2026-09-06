@@ -204,6 +204,17 @@ int cetcd_parse_max_learners(const char *s, uint32_t *out) {
     return CETCD_OK;
 }
 
+int cetcd_parse_auth_token_ttl(const char *s, uint64_t *out) {
+    if (!out) return CETCD_ERR_INVAL;
+    uint64_t v = 0;
+    int rc = cetcd_parse_compaction_batch_limit(s, &v);
+    if (rc != CETCD_OK) return rc;
+    if (v == 0) return CETCD_ERR_INVAL;
+    if (v > UINT64_MAX / 1000000000ULL) return CETCD_ERR_INVAL;
+    *out = v;
+    return CETCD_OK;
+}
+
 int64_t cetcd_auto_compact_clamp(int64_t target, int64_t compacted_rev,
                                  uint64_t batch_limit) {
     if (target <= 0) return 0;
