@@ -224,6 +224,44 @@ int cetcd_server_want_tick_advance(int set, int enabled) {
     return set ? (enabled != 0) : 1;
 }
 
+int cetcd_parse_heartbeat_interval_ms(const char *s, uint64_t *out) {
+    if (!out) return CETCD_ERR_INVAL;
+    uint64_t v = 0;
+    int rc = cetcd_parse_compaction_batch_limit(s, &v);
+    if (rc != CETCD_OK) return rc;
+    if (v == 0 || v > CETCD_MAX_ELECTION_MS) return CETCD_ERR_INVAL;
+    *out = v;
+    return CETCD_OK;
+}
+
+int cetcd_parse_election_timeout_ms(const char *s, uint64_t *out) {
+    if (!out) return CETCD_ERR_INVAL;
+    uint64_t v = 0;
+    int rc = cetcd_parse_compaction_batch_limit(s, &v);
+    if (rc != CETCD_OK) return rc;
+    if (v == 0 || v > CETCD_MAX_ELECTION_MS) return CETCD_ERR_INVAL;
+    *out = v;
+    return CETCD_OK;
+}
+
+int cetcd_raft_timing_from_ms(uint64_t tick_ms, uint64_t election_ms,
+                              uint64_t *heartbeat_tick, uint64_t *election_tick) {
+    if (!heartbeat_tick || !election_tick) return CETCD_ERR_INVAL;
+    if (tick_ms == 0) tick_ms = CETCD_DEFAULT_TICK_MS;
+    if (election_ms == 0) election_ms = CETCD_DEFAULT_ELECTION_MS;
+    if (tick_ms > CETCD_MAX_ELECTION_MS || election_ms > CETCD_MAX_ELECTION_MS)
+        return CETCD_ERR_INVAL;
+    if (election_ms < tick_ms) return CETCD_ERR_INVAL;
+    *heartbeat_tick = 1;
+    *election_tick = election_ms / tick_ms;
+    if (*election_tick == 0) return CETCD_ERR_INVAL;
+    return CETCD_OK;
+}
+
+uint64_t cetcd_server_tick_ms(uint64_t tick_ms) {
+    return tick_ms ? tick_ms : CETCD_DEFAULT_TICK_MS;
+}
+
 int cetcd_parse_self_signed_cert_validity(const char *s, uint32_t *out) {
     if (!out) return CETCD_ERR_INVAL;
     uint64_t v = 0;

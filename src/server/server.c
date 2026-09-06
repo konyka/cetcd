@@ -2343,10 +2343,27 @@ cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
     srv->peer_txs = (struct peer_tx_ *)calloc(CETCD_MAX_INITIAL_PEERS, sizeof(peer_tx_));
     if (!srv->peer_txs) { cetcd_v3rpc_free(srv->rpc); free(srv); return NULL; }
 
+    if (srv->cfg.heartbeat_interval_set || srv->cfg.election_timeout_set) {
+        uint64_t tms = srv->cfg.heartbeat_interval_set ? srv->cfg.tick_ms
+                                                       : CETCD_DEFAULT_TICK_MS;
+        uint64_t ems = srv->cfg.election_timeout_set ? srv->cfg.election_ms
+                                                     : CETCD_DEFAULT_ELECTION_MS;
+        uint64_t hb = 0, et = 0;
+        if (cetcd_raft_timing_from_ms(tms, ems, &hb, &et) != CETCD_OK) {
+            free(srv->peer_txs);
+            cetcd_v3rpc_free(srv->rpc);
+            free(srv);
+            return NULL;
+        }
+        srv->cfg.tick_ms = tms;
+        srv->cfg.heartbeat_tick = hb;
+        srv->cfg.election_tick = et;
+    }
+
     cetcd_raft_config raft_cfg = {
         .id = cfg->node_id,
-        .election_tick = cfg->election_tick ? cfg->election_tick : 10,
-        .heartbeat_tick = cfg->heartbeat_tick ? cfg->heartbeat_tick : 1,
+        .election_tick = srv->cfg.election_tick ? srv->cfg.election_tick : 10,
+        .heartbeat_tick = srv->cfg.heartbeat_tick ? srv->cfg.heartbeat_tick : 1,
         .storage = NULL,
         .max_size_per_msg = 1024 * 1024,
         .max_inflight_msgs = 256,
@@ -2504,7 +2521,9 @@ int cetcd_server_start(cetcd_server *srv) {
         return CETCD_ERR_INVAL;
     cetcd_v3rpc_set_quota(srv->cfg.quota_backend_bytes);
     cetcd_v3rpc_set_max_txn_ops(srv->cfg.max_txn_ops);
-    cetcd_v3rpc_set_watch_progress_interval_ms(srv->cfg.watch_progress_interval_ms);
+    cetcd_v3rpc_set_watch_progress_interval(
+        srv->cfg.watch_progress_interval_ms,
+        cetcd_server_tick_ms(srv->cfg.tick_ms));
     {
         uint64_t ms = srv->cfg.warning_apply_set
                           ? srv->cfg.warning_apply_ms
@@ -2950,7 +2969,8 @@ int cetcd_server_serve(cetcd_server *srv) {
 
     srv->tick_timer = cetcd_timer_new(srv->loop);
     if (srv->tick_timer) {
-        cetcd_timer_start(srv->tick_timer, 100, 100, raft_tick_cb_, srv);
+        uint64_t tms = cetcd_server_tick_ms(srv->cfg.tick_ms);
+        cetcd_timer_start(srv->tick_timer, tms, tms, raft_tick_cb_, srv);
     }
 
     srv->started = true;
@@ -3039,10 +3059,11 @@ static void raft_tick_cb_(void *arg) {
     if (!srv->raft) return;
     cetcd_raft_tick(srv->raft);
     if (srv->metrics) cetcd_metrics_counter(srv->metrics, "raft_ticks_total", 1);
-    /* Advance lease deadlines (tick interval is 100ms). */
+    /* Advance lease deadlines by the configured tick period. */
     if (srv->rpc) {
+        int64_t elapsed = (int64_t)cetcd_server_tick_ms(srv->cfg.tick_ms);
         cetcd_lease_mgr *leases = cetcd_v3rpc_leases(srv->rpc);
-        if (leases) cetcd_lease_mgr_tick(leases, 100);
+        if (leases) cetcd_lease_mgr_tick(leases, elapsed);
         cetcd_v3rpc_watch_tick();
     }
     process_ready_(srv);

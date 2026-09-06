@@ -251,6 +251,8 @@ cetcd accepts several etcd server flags for migration compatibility:
 # --pre-vote default on; --pre-vote=false skips PreVote (a non-bool fails)
 # --initial-election-tick-advance default on (first campaign in 1 tick);
 # --initial-election-tick-advance=false waits the full election timeout
+# --heartbeat-interval / --election-timeout are milliseconds (1..50000);
+# they set the Raft timer and election_tick (cannot mix with --*-tick)
 ```
 
 ---

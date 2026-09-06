@@ -384,6 +384,12 @@ Performance-first, fail-closed design:
   is one tick away instead of a full timeout (`election_tick <= 1` is 0).
   `--initial-election-tick-advance=false` waits the full timeout. A
   non-bool fail-closes. Existing 10-tick election tests are unchanged.
+- **`--heartbeat-interval` / `--election-timeout`** — integer milliseconds
+  (`1..50000`; leftover text fail-closes). Omitted defaults are 100ms /
+  1000ms. `election-timeout` must be `>= heartbeat-interval`. Derived
+  `heartbeat_tick=1` and `election_tick=election_ms/tick_ms`; the Raft
+  timer, lease tick, and Watch `progress_notify` use that period. Mixing
+  with `--heartbeat-tick` / `--election-tick` fail-closes.
 - **Downgrade fail-closed** — `Maintenance/Downgrade` VALIDATE of
   `cetcd_version()` succeeds (already at this binary). ENABLE, CANCEL,
   and any other version fail-closed: the on-disk format cannot change

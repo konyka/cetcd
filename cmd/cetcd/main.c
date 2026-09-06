@@ -33,6 +33,8 @@ static void print_usage(const char *prog) {
     printf("  --initial-cluster ID=ADDR:PORT,...  Initial cluster (https requires --peer-cert-file; id > 0; port 1..65535)\n");
     printf("  --election-tick N   Raft election tick (default: 10; must be > 0)\n");
     printf("  --heartbeat-tick N  Raft heartbeat tick (default: 1; must be > 0)\n");
+    printf("  --heartbeat-interval MS  Raft tick period in ms (default 100; 1..50000)\n");
+    printf("  --election-timeout MS  Election timeout in ms (default 1000; 1..50000; >= interval)\n");
     printf("  --initial-election-tick-advance  Fast first campaign (default on; true|false)\n");
     printf("  --pre-vote          Extra Raft election phase (default on; true|false)\n");
     printf("  --log-level LVL  Log level: trace,debug,info,warn,error (default: info)\n");
@@ -285,7 +287,40 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "--election-tick must be > 0\n");
                 return 1;
             }
-            cfg.election_tick = (int)v;
+            cfg.election_tick = (uint64_t)v;
+            cfg.election_tick_set = true;
+        } else if (strcmp(argv[i], "--heartbeat-interval") == 0 && i + 1 < argc) {
+            uint64_t ms = 0;
+            if (cetcd_parse_heartbeat_interval_ms(argv[++i], &ms) != CETCD_OK) {
+                fprintf(stderr, "--heartbeat-interval must be 1..50000 ms\n");
+                return 1;
+            }
+            cfg.heartbeat_interval_set = true;
+            cfg.tick_ms = ms;
+        } else if (strncmp(argv[i], "--heartbeat-interval=", 21) == 0) {
+            uint64_t ms = 0;
+            if (cetcd_parse_heartbeat_interval_ms(argv[i] + 21, &ms) != CETCD_OK) {
+                fprintf(stderr, "--heartbeat-interval must be 1..50000 ms\n");
+                return 1;
+            }
+            cfg.heartbeat_interval_set = true;
+            cfg.tick_ms = ms;
+        } else if (strcmp(argv[i], "--election-timeout") == 0 && i + 1 < argc) {
+            uint64_t ms = 0;
+            if (cetcd_parse_election_timeout_ms(argv[++i], &ms) != CETCD_OK) {
+                fprintf(stderr, "--election-timeout must be 1..50000 ms\n");
+                return 1;
+            }
+            cfg.election_timeout_set = true;
+            cfg.election_ms = ms;
+        } else if (strncmp(argv[i], "--election-timeout=", 19) == 0) {
+            uint64_t ms = 0;
+            if (cetcd_parse_election_timeout_ms(argv[i] + 19, &ms) != CETCD_OK) {
+                fprintf(stderr, "--election-timeout must be 1..50000 ms\n");
+                return 1;
+            }
+            cfg.election_timeout_set = true;
+            cfg.election_ms = ms;
         } else if (strcmp(argv[i], "--initial-election-tick-advance") == 0) {
             cfg.tick_advance_set = true;
             cfg.tick_advance = true;
@@ -332,7 +367,8 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "--heartbeat-tick must be > 0\n");
                 return 1;
             }
-            cfg.heartbeat_tick = (int)v;
+            cfg.heartbeat_tick = (uint64_t)v;
+            cfg.heartbeat_tick_set = true;
         } else if (strcmp(argv[i], "--advertise-client-urls") == 0 && i + 1 < argc) {
             const char *url = argv[++i];
             size_t n = 0;
@@ -798,6 +834,25 @@ int main(int argc, char **argv) {
     }
     strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
     strncpy(cfg.name, name, sizeof(cfg.name) - 1);
+    if ((cfg.heartbeat_interval_set || cfg.election_timeout_set) &&
+        (cfg.election_tick_set || cfg.heartbeat_tick_set)) {
+        fprintf(stderr, "--heartbeat-interval/--election-timeout cannot be mixed with --heartbeat-tick/--election-tick\n");
+        return 1;
+    }
+    if (cfg.heartbeat_interval_set || cfg.election_timeout_set) {
+        uint64_t tms = cfg.heartbeat_interval_set ? cfg.tick_ms
+                                                  : CETCD_DEFAULT_TICK_MS;
+        uint64_t ems = cfg.election_timeout_set ? cfg.election_ms
+                                                : CETCD_DEFAULT_ELECTION_MS;
+        uint64_t hb = 0, et = 0;
+        if (cetcd_raft_timing_from_ms(tms, ems, &hb, &et) != CETCD_OK) {
+            fprintf(stderr, "--election-timeout must be >= --heartbeat-interval and <= 50000ms\n");
+            return 1;
+        }
+        cfg.tick_ms = tms;
+        cfg.heartbeat_tick = hb;
+        cfg.election_tick = et;
+    }
     if (cfg.discovery_srv_name[0] && !cfg.discovery_srv[0]) {
         fprintf(stderr, "--discovery-srv-name requires --discovery-srv\n");
         return 1;

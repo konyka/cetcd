@@ -163,6 +163,54 @@ CETCD_TEST_CASE(auto_compact_want_pre_vote) {
     CETCD_ASSERT_EQ_INT(cetcd_server_want_pre_vote(1, 0), 0);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_raft_timing_ms) {
+    uint64_t n = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_heartbeat_interval_ms("100", &n), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)n, 100);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_heartbeat_interval_ms("50", &n), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)n, 50);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_election_timeout_ms("1000", &n), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)n, 1000);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_election_timeout_ms("50000", &n), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)n, 50000);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_heartbeat_interval_ms("0", &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_election_timeout_ms("0", &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_election_timeout_ms("50001", &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_heartbeat_interval_ms("abc", &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_heartbeat_interval_ms("100ms", &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_heartbeat_interval_ms(NULL, &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_heartbeat_interval_ms("100", NULL),
+                        CETCD_ERR_INVAL);
+}
+
+CETCD_TEST_CASE(auto_compact_raft_timing_from_ms) {
+    uint64_t hb = 0, et = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_raft_timing_from_ms(0, 0, &hb, &et), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)hb, 1);
+    CETCD_ASSERT_EQ_INT((int)et, 10);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_timing_from_ms(50, 1000, &hb, &et),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)hb, 1);
+    CETCD_ASSERT_EQ_INT((int)et, 20);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_timing_from_ms(200, 1000, &hb, &et),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)et, 5);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_timing_from_ms(2000, 1000, &hb, &et),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_timing_from_ms(100, 50, &hb, &et),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_timing_from_ms(100, 1000, NULL, &et),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT((int)cetcd_server_tick_ms(0), 100);
+    CETCD_ASSERT_EQ_INT((int)cetcd_server_tick_ms(50), 50);
+}
+
 CETCD_TEST_CASE(auto_compact_want_tick_advance) {
     CETCD_ASSERT_EQ_INT(cetcd_server_want_tick_advance(0, 0), 1);
     CETCD_ASSERT_EQ_INT(cetcd_server_want_tick_advance(0, 1), 1);
@@ -295,6 +343,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_max_learners),
     CETCD_TEST_ENTRY(auto_compact_parse_auth_token_ttl),
     CETCD_TEST_ENTRY(auto_compact_want_pre_vote),
+    CETCD_TEST_ENTRY(auto_compact_parse_raft_timing_ms),
+    CETCD_TEST_ENTRY(auto_compact_raft_timing_from_ms),
     CETCD_TEST_ENTRY(auto_compact_want_tick_advance),
     CETCD_TEST_ENTRY(auto_compact_parse_self_signed_cert_validity),
     CETCD_TEST_ENTRY(auto_compact_clamp_batch),

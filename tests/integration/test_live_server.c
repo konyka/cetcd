@@ -1895,6 +1895,67 @@ CETCD_TEST_CASE(live_cetcd_initial_election_tick_advance) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_heartbeat_interval) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --heartbeat-interval 100 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --heartbeat-interval=50 --election-timeout=1000 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --heartbeat-interval 0 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --heartbeat-interval abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --heartbeat-interval 2000 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --heartbeat-interval 100 --election-tick 10 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
+CETCD_TEST_CASE(live_cetcd_election_timeout) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --election-timeout 1000 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --election-timeout=500 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --election-timeout 0 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --election-timeout 50001 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --election-timeout 50 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_pre_vote) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -3131,6 +3192,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_node_id),
     CETCD_TEST_ENTRY(live_cetcd_election_tick),
     CETCD_TEST_ENTRY(live_cetcd_heartbeat_tick),
+    CETCD_TEST_ENTRY(live_cetcd_heartbeat_interval),
+    CETCD_TEST_ENTRY(live_cetcd_election_timeout),
     CETCD_TEST_ENTRY(live_cetcd_initial_election_tick_advance),
     CETCD_TEST_ENTRY(live_cetcd_pre_vote),
     CETCD_TEST_ENTRY(live_cetcd_strict_reconfig_check),

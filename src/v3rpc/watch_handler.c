@@ -733,19 +733,34 @@ void cetcd_v3rpc_detach_stream_writer(void *write_ctx) {
 }
 
 /* Periodic progress for watchers created with progress_notify=true.
- * Called from the server 100ms tick. Default interval is 10s (100 ticks). */
+ * Called from the server tick. Default interval is 10s. */
 static int g_watch_progress_ticks = CETCD_WATCH_PROGRESS_TICKS_DEFAULT;
 
-int cetcd_v3rpc_watch_progress_ticks_from_ms(uint64_t interval_ms) {
-    if (interval_ms == 0) return CETCD_WATCH_PROGRESS_TICKS_DEFAULT;
-    uint64_t ticks = (interval_ms + (CETCD_WATCH_TICK_MS - 1)) / CETCD_WATCH_TICK_MS;
+int cetcd_v3rpc_watch_progress_ticks_from_ms_tick(uint64_t interval_ms,
+                                                 uint64_t tick_ms) {
+    if (tick_ms == 0) tick_ms = CETCD_WATCH_TICK_MS;
+    if (interval_ms == 0)
+        interval_ms = (uint64_t)CETCD_WATCH_PROGRESS_TICKS_DEFAULT *
+                      CETCD_WATCH_TICK_MS;
+    uint64_t ticks = (interval_ms + (tick_ms - 1)) / tick_ms;
     if (ticks < 1) ticks = 1;
     if (ticks > 1000000ull) ticks = 1000000ull;
     return (int)ticks;
 }
 
+int cetcd_v3rpc_watch_progress_ticks_from_ms(uint64_t interval_ms) {
+    return cetcd_v3rpc_watch_progress_ticks_from_ms_tick(interval_ms,
+                                                        CETCD_WATCH_TICK_MS);
+}
+
+void cetcd_v3rpc_set_watch_progress_interval(uint64_t interval_ms,
+                                            uint64_t tick_ms) {
+    g_watch_progress_ticks =
+        cetcd_v3rpc_watch_progress_ticks_from_ms_tick(interval_ms, tick_ms);
+}
+
 void cetcd_v3rpc_set_watch_progress_interval_ms(uint64_t interval_ms) {
-    g_watch_progress_ticks = cetcd_v3rpc_watch_progress_ticks_from_ms(interval_ms);
+    cetcd_v3rpc_set_watch_progress_interval(interval_ms, CETCD_WATCH_TICK_MS);
 }
 
 int cetcd_v3rpc_watch_progress_ticks(void) {

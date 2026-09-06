@@ -22,6 +22,9 @@ typedef struct cetcd_server cetcd_server;
 #define CETCD_DEFAULT_MAX_TXN_OPS 128ULL
 #define CETCD_MAX_TXN_OPS 128ULL
 #define CETCD_DEFAULT_MAX_LEARNERS 1U
+#define CETCD_DEFAULT_TICK_MS 100ULL
+#define CETCD_DEFAULT_ELECTION_MS 1000ULL
+#define CETCD_MAX_ELECTION_MS 50000ULL
 
 typedef enum cetcd_auto_compact_mode {
     CETCD_AUTO_COMPACT_OFF = 0,
@@ -91,6 +94,12 @@ typedef struct cetcd_server_config {
     uint16_t        metrics_port;
     uint64_t        election_tick;
     uint64_t        heartbeat_tick;
+    bool            election_tick_set;            /* --election-tick given */
+    bool            heartbeat_tick_set;           /* --heartbeat-tick given */
+    bool            heartbeat_interval_set;       /* --heartbeat-interval given */
+    bool            election_timeout_set;         /* --election-timeout given */
+    uint64_t        tick_ms;                      /* 0 → 100; Raft/lease timer */
+    uint64_t        election_ms;                  /* 0 → 1000 when deriving ticks */
     bool            auth_enabled;
     uint64_t        snapshot_count; /* 0 → CETCD_DEFAULT_SNAPSHOT_COUNT */
     cetcd_peer_info initial_peers[CETCD_MAX_INITIAL_PEERS];
@@ -158,6 +167,15 @@ int cetcd_parse_bool_flag(const char *s, int *out);
 int cetcd_server_want_pre_vote(int set, int enabled);
 /* Unset → 1 (AdvanceTicks on). set uses enabled. */
 int cetcd_server_want_tick_advance(int set, int enabled);
+/* Integer milliseconds > 0 and <= 50000. Leftover text is INVAL. */
+int cetcd_parse_heartbeat_interval_ms(const char *s, uint64_t *out);
+int cetcd_parse_election_timeout_ms(const char *s, uint64_t *out);
+/* heartbeat_tick=1, election_tick=election_ms/tick_ms. 0 ms → defaults.
+ * election_ms < tick_ms or > 50000 is INVAL. */
+int cetcd_raft_timing_from_ms(uint64_t tick_ms, uint64_t election_ms,
+                              uint64_t *heartbeat_tick, uint64_t *election_tick);
+/* Unset → 100. */
+uint64_t cetcd_server_tick_ms(uint64_t tick_ms);
 /* enabled 0 is OK. Unix mlockall; Windows UNSUPPORT. mlockall failure is IO. */
 int cetcd_mlock_apply(int enabled);
 /* Persist / load `{rev} {hash}\n`. Missing file is NOTFOUND; garbage is CORRUPT. */
