@@ -80,6 +80,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **Joint 共识**：voter 增删/提升先进入 C_old,new 联合配置，两边多数派都满足才提交；新成员追上 joint-index 后 leader 提出 `LEAVE_JOINT`。重叠的 voter 变更 fail-closed。联合配置持久化以便重启保持双多数。
 - **WAL 截断**：`--snapshot-count` 次 apply（默认 10000）后，将 WAL 段改写为 `SNAPSHOT` + HardState 并压缩内存 log；写失败则保留原段。
 - **自动压缩**：`--auto-compaction-mode periodic|revision` 与 `--auto-compaction-retention`（0 关闭；periodic 为时长或小时数；revision 为保留修订数）。非法值启动失败。仅 leader 在 tick 上 propose Compact。
+- **启动完整性**：`--experimental-initial-corrupt-check` 在 WAL 回放后对当前库做 HashKV，并与 `{data-dir}/backend.hash` 对照；缺文件则写入，同修订哈希不同或当前修订低于已存修订则 fail-closed。其它 `--experimental-*` 仍为 no-op。
 - **请求上限 / 后端配额**：`--max-request-bytes`（默认 1.5 MiB）限制客户端读缓冲，超限关连接；`--max-txn-ops`（默认 128，上限 128）拒绝过长 Txn，更大值启动 fail-closed；`--quota-backend-bytes` 在 LMDB 体积达到上限时对 Put 返回空帧并激活 NOSPACE，Delete 仍可执行以便回收空间。
 - **JWT**：`--auth-token jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]` 签发带 `username`/`revision`/`exp` 的 JWT；密码变更不撤销已签发 JWT（与 etcd 一致）。其它 sign-method 启动失败。
 - **Peer 发送**：复用 TCP 连接，避免每条 Raft 消息新建短连接。入站可走 HTTP/2 `POST /raft`；peer TLS 协商 ALPN `h2` 时出站同样 POST `/raft`，否则仍为 4 字节长度前缀。
@@ -814,6 +815,7 @@ Unknown server flags fail at parse instead of being ignored.
 `--heartbeat-tick` must be `> 0`; a typo or `0` fail-closes instead of becoming `1`.
 `--snapshot-count` must be `> 0`; a typo or `0` fail-closes instead of becoming the default 10000.
 `--auto-compaction-mode` is `periodic` or `revision`. `--auto-compaction-retention` is `0` (off), a periodic duration / bare hours, or a revision count; invalid values fail-close. The leader compact-proposes on tick.
+`--experimental-initial-corrupt-check` hashes the store after WAL replay and compares `{data-dir}/backend.hash` (mismatch or a lower current revision fail-closes). Other `--experimental-*` stay no-ops.
 `--quota-backend-bytes` is an integer (`0` = unlimited); a typo fail-closes instead of becoming unlimited.
 `--max-txn-ops` is `1..128`; a typo or `0` fail-closes instead of becoming the default 128.
 `--max-request-bytes` must be `> 0`; a typo or `0` fail-closes instead of becoming the default 1.5 MiB.

@@ -71,7 +71,8 @@ static void print_usage(const char *prog) {
     printf("  --cipher-suites LIST  TLS 1.2/1.3 cipher list (IANA or OpenSSL names; requires TLS)\n");
     printf("  --logger TYPE       zap or capnslog (built-in logger; others fail)\n");
     printf("  --log-outputs LIST   stderr, stdout, file path, or journal/syslog (mixed lists fail)\n");
-    printf("  --experimental-*    Accepted but no-op\n");
+    printf("  --experimental-initial-corrupt-check  HashKV vs {data-dir}/backend.hash (fail-closed)\n");
+    printf("  --experimental-*    Other experimental flags accepted as no-op\n");
     printf("  --help           Show this help\n");
 }
 
@@ -444,6 +445,25 @@ int main(int argc, char **argv) {
             ac_mode_s = argv[++i];
         } else if (strcmp(argv[i], "--auto-compaction-retention") == 0 && i + 1 < argc) {
             ac_ret_s = argv[++i];
+        } else if (strcmp(argv[i], "--experimental-initial-corrupt-check") == 0) {
+            cfg.initial_corrupt_check = true;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                int b = 0;
+                if (cetcd_parse_bool_flag(argv[++i], &b) != CETCD_OK) {
+                    fprintf(stderr,
+                            "--experimental-initial-corrupt-check must be true or false\n");
+                    return 1;
+                }
+                cfg.initial_corrupt_check = b != 0;
+            }
+        } else if (strncmp(argv[i], "--experimental-initial-corrupt-check=", 37) == 0) {
+            int b = 0;
+            if (cetcd_parse_bool_flag(argv[i] + 37, &b) != CETCD_OK) {
+                fprintf(stderr,
+                        "--experimental-initial-corrupt-check must be true or false\n");
+                return 1;
+            }
+            cfg.initial_corrupt_check = b != 0;
         } else if (strncmp(argv[i], "--experimental-", 15) == 0) {
             /* no-op, accepted for etcd compatibility */
             if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* skip value if present */

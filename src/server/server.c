@@ -2141,6 +2141,20 @@ static int data_dir_has_cluster_(const cetcd_server_config *cfg) {
     return 0;
 }
 
+static int initial_corrupt_check_(cetcd_server *srv) {
+    if (!srv || !srv->rpc || !srv->cfg.data_dir[0]) return CETCD_ERR_INVAL;
+    cetcd_mvcc_store *store = cetcd_v3rpc_store(srv->rpc);
+    if (!store) return CETCD_ERR_INVAL;
+    uint32_t hash = 0;
+    if (cetcd_mvcc_hash_kv(store, 0, &hash) != CETCD_OK)
+        return CETCD_ERR_CORRUPT;
+    int64_t rev = cetcd_mvcc_revision(store);
+    char path[768];
+    int n = snprintf(path, sizeof(path), "%s/backend.hash", srv->cfg.data_dir);
+    if (n <= 0 || (size_t)n >= sizeof(path)) return CETCD_ERR_INVAL;
+    return cetcd_backend_hash_verify(path, rev, hash);
+}
+
 static int import_snapshot_kv_(cetcd_mvcc_store *store, const char *path) {
     if (!store || !path || !path[0]) return CETCD_ERR_INVAL;
     FILE *f = fopen(path, "rb");
@@ -2677,6 +2691,10 @@ int cetcd_server_start(cetcd_server *srv) {
                 cetcd_raft_set_applied(srv->raft, cetcd_raft_committed(srv->raft));
             }
             srv->wal_enc = cetcd_wal_encoder_create(wal_dir);
+        }
+        if (srv->cfg.initial_corrupt_check) {
+            int crc = initial_corrupt_check_(srv);
+            if (crc != CETCD_OK) return crc;
         }
     }
 

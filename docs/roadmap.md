@@ -348,6 +348,12 @@ Performance-first, fail-closed design:
   as `dbSize`, used pages as `dbSizeInUse` (same source as quota), plus
   `raftAppliedIndex`, `errors` (NOSPACE/CORRUPT), and `isLearner`.
   No backend (unit tests) stays 0. `cetcdctl status` prints the new fields.
+- **`--experimental-initial-corrupt-check`** — after snapshot import and
+  WAL replay, HashKV the current store and compare `{data-dir}/backend.hash`.
+  Missing file writes `rev hash`. Same revision with a different hash, or
+  current revision below the stored one (data loss), fail-closes. A newer
+  revision rewrites the file. Other `--experimental-*` stay no-ops.
+  Invalid `true`/`false` fail at parse.
 
 ## Previously done (auth data plane)
 

@@ -2535,6 +2535,78 @@ CETCD_TEST_CASE(server_start_applies_max_txn_ops) {
     cetcd_server_free(srv);
 }
 
+CETCD_TEST_CASE(server_start_corrupt_check_writes_hash) {
+    char data_dir[] = "/tmp/cetcd-cchk-ok-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    cfg.initial_corrupt_check = true;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+    cetcd_server_stop(srv);
+    cetcd_server_free(srv);
+
+    char path[300];
+    snprintf(path, sizeof(path), "%s/backend.hash", data_dir);
+    int64_t rev = -1;
+    uint32_t hash = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_backend_hash_load(path, &rev, &hash), CETCD_OK);
+    CETCD_ASSERT_TRUE(rev >= 0);
+
+    srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+    cetcd_server_free(srv);
+}
+
+CETCD_TEST_CASE(server_start_corrupt_check_rejects_garbage) {
+    char data_dir[] = "/tmp/cetcd-cchk-bad-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
+    char path[300];
+    snprintf(path, sizeof(path), "%s/backend.hash", data_dir);
+    CETCD_ASSERT_EQ_INT(write_line_(path, "not-a-hash"), 0);
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    cfg.initial_corrupt_check = true;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), CETCD_ERR_CORRUPT);
+    cetcd_server_free(srv);
+}
+
+CETCD_TEST_CASE(server_start_corrupt_check_rejects_data_loss) {
+    char data_dir[] = "/tmp/cetcd-cchk-loss-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
+    char path[300];
+    snprintf(path, sizeof(path), "%s/backend.hash", data_dir);
+    CETCD_ASSERT_EQ_INT(cetcd_backend_hash_store(path, 99, 1), 0);
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    cfg.initial_corrupt_check = true;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), CETCD_ERR_CORRUPT);
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_create_destroy),
     CETCD_TEST_ENTRY(server_handle_rpc_put_range),
@@ -2609,6 +2681,9 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_start_small_max_request_bytes),
     CETCD_TEST_ENTRY(server_start_rejects_huge_max_txn_ops),
     CETCD_TEST_ENTRY(server_start_applies_max_txn_ops),
+    CETCD_TEST_ENTRY(server_start_corrupt_check_writes_hash),
+    CETCD_TEST_ENTRY(server_start_corrupt_check_rejects_garbage),
+    CETCD_TEST_ENTRY(server_start_corrupt_check_rejects_data_loss),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

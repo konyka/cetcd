@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 35 — Status dbSize</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 36 — initial corrupt check</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 35 reports <code>Status</code> <code>dbSize</code>
-     / <code>dbSizeInUse</code> from LMDB (same used-page size as quota) plus
-     <code>raftAppliedIndex</code>, alarm <code>errors</code>, and <code>isLearner</code>.</p>
+  <p><strong>v0.3.0</strong>. Phase 36 fail-closes start when
+     <code>--experimental-initial-corrupt-check</code> sees a HashKV mismatch
+     or a lower revision than <code>{data-dir}/backend.hash</code>.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -88,6 +88,7 @@
       <tr><td>33</td><td>Auto compaction</td><td>--auto-compaction-mode periodic|revision + retention; leader tick compact; invalid fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>34</td><td>Linearizable Range</td><td>default Range/Txn Range require leader; serializable reads local; no Raft still local — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>35</td><td>Status dbSize</td><td>Status dbSize/dbSizeInUse from LMDB; raftAppliedIndex, NOSPACE/CORRUPT errors, isLearner — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>36</td><td>initial corrupt check</td><td>--experimental-initial-corrupt-check HashKV vs backend.hash after WAL replay; data-loss/mismatch fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

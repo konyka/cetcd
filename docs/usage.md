@@ -206,7 +206,8 @@ cetcd accepts several etcd server flags for migration compatibility:
   --grpc-keepalive-min-time 5s --grpc-keepalive-permit-without-stream true \
   --logger zap --log-level info --log-format text --log-outputs stderr
 
-# Experimental flags (accepted as no-op)
+# Initial corrupt check: HashKV vs {data-dir}/backend.hash after WAL replay
+# (mismatch or a lower current revision fail-closes). Other --experimental-* stay no-op.
 ./build/bin/cetcd --experimental-initial-corrupt-check \
   --experimental-compaction-batch-limit 1000
 

@@ -95,7 +95,17 @@ typedef struct cetcd_server_config {
     char            discovery_srv_name[64];     /* optional SRV name suffix */
     cetcd_auto_compact_mode auto_compaction_mode; /* OFF unless retention > 0 */
     uint64_t        auto_compaction_retention;    /* seconds or revisions; 0 = off */
+    bool            initial_corrupt_check;        /* HashKV vs {data-dir}/backend.hash */
 } cetcd_server_config;
+
+/* true|false|1|0. Empty/unknown is INVAL. */
+int cetcd_parse_bool_flag(const char *s, int *out);
+/* Persist / load `{rev} {hash}\n`. Missing file is NOTFOUND; garbage is CORRUPT. */
+int cetcd_backend_hash_store(const char *path, int64_t rev, uint32_t hash);
+int cetcd_backend_hash_load(const char *path, int64_t *rev, uint32_t *hash);
+/* Missing → write. Same rev + hash mismatch or current < stored → CORRUPT.
+ * Same rev + match, or current > stored → rewrite current. */
+int cetcd_backend_hash_verify(const char *path, int64_t rev, uint32_t hash);
 
 cetcd_server *cetcd_server_new(const cetcd_server_config *cfg);
 void          cetcd_server_free(cetcd_server *srv);
