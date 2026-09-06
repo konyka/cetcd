@@ -6,10 +6,19 @@
 
 #include "cetcd/base.h"
 
+#include <ctype.h>
+#include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#if !defined(_WIN32)
+#include <sys/stat.h>
+#if defined(_WIN32)
+#  include <direct.h>
+#  include <io.h>
+#  include <windows.h>
+#else
+#  include <dirent.h>
 #  include <sys/socket.h>
 #  include <sys/un.h>
 #  include <unistd.h>
@@ -18,6 +27,15 @@
 static cetcd_log_level  g_level  = CETCD_LOG_INFO;
 static cetcd_log_format g_format = CETCD_LOG_FORMAT_TEXT;
 static FILE            *g_sink   = NULL;
+
+typedef struct log_rot_state_ {
+    int                    on;
+    cetcd_log_rotation_cfg cfg;
+    char                   path[512];
+    FILE                  *owned;
+} log_rot_state_;
+
+static log_rot_state_ g_rot;
 
 static FILE *log_sink_(void) {
     return g_sink ? g_sink : stderr;
@@ -112,6 +130,8 @@ static void emit_json_(FILE *fp, cetcd_log_level lvl,
     fflush(fp);
 }
 
+static void log_maybe_rotate_(void);
+
 void cetcd_log_vemit(cetcd_log_level lvl,
                      const char *file, int line, const char *func,
                      const char *fmt, va_list ap) {
@@ -119,6 +139,7 @@ void cetcd_log_vemit(cetcd_log_level lvl,
     FILE *fp = log_sink_();
     if (g_format == CETCD_LOG_FORMAT_JSON) emit_json_(fp, lvl, file, line, func, fmt, ap);
     else                                    emit_text_(fp, lvl, file, line, func, fmt, ap);
+    log_maybe_rotate_();
 }
 
 static int same_stdio_(const char *tok, FILE **sink) {
@@ -243,4 +264,326 @@ void cetcd_log_emit(cetcd_log_level lvl,
     va_start(ap, fmt);
     cetcd_log_vemit(lvl, file, line, func, fmt, ap);
     va_end(ap);
+}
+
+void cetcd_log_rotation_cfg_default(cetcd_log_rotation_cfg *cfg) {
+    if (!cfg) return;
+    cfg->maxsize_mb = 100;
+    cfg->maxage_days = 0;
+    cfg->maxbackups = 0;
+    cfg->localtime = 0;
+    cfg->compress = 0;
+}
+
+int cetcd_log_want_rotation(int set, int enabled) {
+    return set ? (enabled != 0) : 0;
+}
+
+static const char *skip_ws_(const char *p) {
+    while (p && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) p++;
+    return p;
+}
+
+static int parse_json_uint_(const char **pp, uint32_t *out) {
+    const char *p = skip_ws_(*pp);
+    if (!p || *p < '0' || *p > '9') return -1;
+    unsigned long v = 0;
+    while (*p >= '0' && *p <= '9') {
+        v = v * 10ul + (unsigned long)(*p - '0');
+        if (v > 0xFFFFFFFFul) return -1;
+        p++;
+    }
+    *out = (uint32_t)v;
+    *pp = p;
+    return 0;
+}
+
+static int parse_json_bool_(const char **pp, int *out) {
+    const char *p = skip_ws_(*pp);
+    if (strncmp(p, "true", 4) == 0 && !isalnum((unsigned char)p[4])) {
+        *out = 1;
+        *pp = p + 4;
+        return 0;
+    }
+    if (strncmp(p, "false", 5) == 0 && !isalnum((unsigned char)p[5])) {
+        *out = 0;
+        *pp = p + 5;
+        return 0;
+    }
+    return -1;
+}
+
+int cetcd_parse_log_rotation_json(const char *s, cetcd_log_rotation_cfg *cfg) {
+    if (!s || !s[0] || !cfg) return CETCD_ERR_INVAL;
+    cetcd_log_rotation_cfg_default(cfg);
+    const char *p = skip_ws_(s);
+    if (*p != '{') return CETCD_ERR_INVAL;
+    p++;
+    p = skip_ws_(p);
+    if (*p == '}') {
+        p = skip_ws_(p + 1);
+        return *p ? CETCD_ERR_INVAL : CETCD_OK;
+    }
+    for (;;) {
+        p = skip_ws_(p);
+        if (*p != '"') return CETCD_ERR_INVAL;
+        p++;
+        char key[32];
+        size_t kn = 0;
+        while (*p && *p != '"' && kn + 1 < sizeof(key)) key[kn++] = *p++;
+        if (*p != '"') return CETCD_ERR_INVAL;
+        key[kn] = '\0';
+        p++;
+        p = skip_ws_(p);
+        if (*p != ':') return CETCD_ERR_INVAL;
+        p++;
+        if (strcmp(key, "maxsize") == 0) {
+            if (parse_json_uint_(&p, &cfg->maxsize_mb) != 0) return CETCD_ERR_INVAL;
+        } else if (strcmp(key, "maxage") == 0) {
+            if (parse_json_uint_(&p, &cfg->maxage_days) != 0) return CETCD_ERR_INVAL;
+        } else if (strcmp(key, "maxbackups") == 0) {
+            if (parse_json_uint_(&p, &cfg->maxbackups) != 0) return CETCD_ERR_INVAL;
+        } else if (strcmp(key, "localtime") == 0) {
+            if (parse_json_bool_(&p, &cfg->localtime) != 0) return CETCD_ERR_INVAL;
+        } else if (strcmp(key, "compress") == 0) {
+            int c = 0;
+            if (parse_json_bool_(&p, &c) != 0) return CETCD_ERR_INVAL;
+            if (c) return CETCD_ERR_UNSUPPORT;
+            cfg->compress = 0;
+        } else {
+            return CETCD_ERR_INVAL;
+        }
+        p = skip_ws_(p);
+        if (*p == ',') {
+            p++;
+            continue;
+        }
+        if (*p == '}') {
+            p = skip_ws_(p + 1);
+            return *p ? CETCD_ERR_INVAL : CETCD_OK;
+        }
+        return CETCD_ERR_INVAL;
+    }
+}
+
+int cetcd_log_outputs_single_file(const char *spec, char *out, size_t cap) {
+    if (!spec || !spec[0] || !out || cap == 0) return CETCD_ERR_INVAL;
+    if (strchr(spec, ',')) return CETCD_ERR_INVAL;
+    const char *tok = spec;
+    while (*tok == ' ' || *tok == '\t') tok++;
+    size_t n = strlen(tok);
+    while (n > 0 && (tok[n - 1] == ' ' || tok[n - 1] == '\t')) n--;
+    if (n == 0 || n >= cap) return CETCD_ERR_INVAL;
+    memcpy(out, tok, n);
+    out[n] = '\0';
+    if (strcmp(out, "stderr") == 0 || strcmp(out, "/dev/stderr") == 0)
+        return CETCD_ERR_INVAL;
+    if (strcmp(out, "stdout") == 0 || strcmp(out, "/dev/stdout") == 0)
+        return CETCD_ERR_INVAL;
+    if (strcmp(out, "journal") == 0 || strcmp(out, "syslog") == 0)
+        return CETCD_ERR_INVAL;
+    return CETCD_OK;
+}
+
+int cetcd_log_should_rotate(uint64_t size_bytes, uint32_t maxsize_mb) {
+    uint64_t mb = maxsize_mb ? maxsize_mb : 100u;
+    return size_bytes >= mb * 1048576ull;
+}
+
+int cetcd_log_rotation_backup_name(const char *path, uint64_t epoch_ns,
+                                   int localtime, char *out, size_t cap) {
+    if (!path || !path[0] || !out || cap < 8) return CETCD_ERR_INVAL;
+    const char *slash = strrchr(path, '/');
+#if defined(_WIN32)
+    const char *bsl = strrchr(path, '\\');
+    if (bsl && (!slash || bsl > slash)) slash = bsl;
+#endif
+    const char *base = slash ? slash + 1 : path;
+    size_t dir_len = (size_t)(base - path);
+    const char *dot = strrchr(base, '.');
+    size_t stem_len = dot ? (size_t)(dot - base) : strlen(base);
+    const char *ext = dot ? dot : "";
+    if (stem_len == 0) return CETCD_ERR_INVAL;
+
+    time_t sec = (time_t)(epoch_ns / 1000000000ull);
+    int msec = (int)((epoch_ns / 1000000ull) % 1000ull);
+    struct tm tmv;
+#if defined(_WIN32)
+    if (localtime) localtime_s(&tmv, &sec);
+    else gmtime_s(&tmv, &sec);
+#else
+    if (localtime) localtime_r(&sec, &tmv);
+    else gmtime_r(&sec, &tmv);
+#endif
+    int n = snprintf(out, cap, "%.*s%.*s-%04d-%02d-%02dT%02d-%02d-%02d.%03d%s",
+                     (int)dir_len, path, (int)stem_len, base,
+                     tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday,
+                     tmv.tm_hour, tmv.tm_min, tmv.tm_sec, msec, ext);
+    if (n <= 0 || (size_t)n >= cap) return CETCD_ERR_OVERFLOW;
+    return CETCD_OK;
+}
+
+typedef struct rot_backup_ {
+    char   path[512];
+    time_t mtime;
+} rot_backup_;
+
+static int rot_backup_cmp_(const void *a, const void *b) {
+    const rot_backup_ *x = (const rot_backup_ *)a;
+    const rot_backup_ *y = (const rot_backup_ *)b;
+    if (x->mtime > y->mtime) return -1;
+    if (x->mtime < y->mtime) return 1;
+    return 0;
+}
+
+static int rot_is_backup_(const char *name, const char *stem, const char *ext) {
+    size_t sl = strlen(stem);
+    size_t el = strlen(ext);
+    size_t nl = strlen(name);
+    if (nl < sl + 1 + el) return 0;
+    if (memcmp(name, stem, sl) != 0 || name[sl] != '-') return 0;
+    if (el && memcmp(name + nl - el, ext, el) != 0) return 0;
+    return 1;
+}
+
+static void rot_prune_(const char *path, const cetcd_log_rotation_cfg *cfg,
+                       time_t now) {
+    if (!path || !cfg) return;
+    if (cfg->maxbackups == 0 && cfg->maxage_days == 0) return;
+
+    const char *slash = strrchr(path, '/');
+#if defined(_WIN32)
+    const char *bsl = strrchr(path, '\\');
+    if (bsl && (!slash || bsl > slash)) slash = bsl;
+#endif
+    const char *base = slash ? slash + 1 : path;
+    char dir[512];
+    if (slash) {
+        size_t dl = (size_t)(slash - path);
+        if (dl == 0) dl = 1;
+        if (dl >= sizeof(dir)) return;
+        memcpy(dir, path, dl);
+        dir[dl] = '\0';
+    } else {
+        memcpy(dir, ".", 2);
+    }
+    const char *dot = strrchr(base, '.');
+    char stem[256];
+    size_t sl = dot ? (size_t)(dot - base) : strlen(base);
+    if (sl == 0 || sl >= sizeof(stem)) return;
+    memcpy(stem, base, sl);
+    stem[sl] = '\0';
+    const char *ext = dot ? dot : "";
+
+    rot_backup_ ents[256];
+    int n = 0;
+#if defined(_WIN32)
+    char pat[560];
+    snprintf(pat, sizeof(pat), "%s\\%s-*%s", dir, stem, ext);
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA(pat, &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        if (n >= 256) break;
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        if (!rot_is_backup_(fd.cFileName, stem, ext)) continue;
+        int wn = snprintf(ents[n].path, sizeof(ents[n].path), "%s\\%s",
+                          dir, fd.cFileName);
+        if (wn <= 0 || (size_t)wn >= sizeof(ents[n].path)) continue;
+        struct stat st;
+        if (stat(ents[n].path, &st) != 0) continue;
+        ents[n].mtime = st.st_mtime;
+        n++;
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+#else
+    DIR *d = opendir(dir);
+    if (!d) return;
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        if (n >= 256) break;
+        if (!rot_is_backup_(de->d_name, stem, ext)) continue;
+        int wn = snprintf(ents[n].path, sizeof(ents[n].path), "%s/%s",
+                          dir, de->d_name);
+        if (wn <= 0 || (size_t)wn >= sizeof(ents[n].path)) continue;
+        struct stat st;
+        if (stat(ents[n].path, &st) != 0) continue;
+        ents[n].mtime = st.st_mtime;
+        n++;
+    }
+    closedir(d);
+#endif
+    if (n <= 0) return;
+    qsort(ents, (size_t)n, sizeof(ents[0]), rot_backup_cmp_);
+    time_t age = (cfg->maxage_days > 0)
+                     ? (time_t)cfg->maxage_days * (time_t)86400
+                     : 0;
+    for (int i = 0; i < n; i++) {
+        int drop = 0;
+        if (cfg->maxbackups > 0 && (uint32_t)i >= cfg->maxbackups) drop = 1;
+        if (age && now >= ents[i].mtime && (now - ents[i].mtime) > age) drop = 1;
+        if (drop) remove(ents[i].path);
+    }
+}
+
+int cetcd_log_enable_rotation(const char *path, const cetcd_log_rotation_cfg *cfg) {
+    if (!path || !path[0] || !cfg) return CETCD_ERR_INVAL;
+    if (cfg->compress) return CETCD_ERR_UNSUPPORT;
+    FILE *fp = log_sink_();
+    if (!fp || fp == stderr || fp == stdout) return CETCD_ERR_INVAL;
+    if (strlen(path) >= sizeof(g_rot.path)) return CETCD_ERR_OVERFLOW;
+    memset(&g_rot, 0, sizeof(g_rot));
+    memcpy(&g_rot.cfg, cfg, sizeof(*cfg));
+    if (g_rot.cfg.maxsize_mb == 0) g_rot.cfg.maxsize_mb = 100;
+    strncpy(g_rot.path, path, sizeof(g_rot.path) - 1);
+    g_rot.owned = fp;
+    g_rot.on = 1;
+    return CETCD_OK;
+}
+
+void cetcd_log_rotation_close(void) {
+    if (g_rot.owned) {
+        fclose(g_rot.owned);
+        if (g_sink == g_rot.owned) g_sink = NULL;
+        g_rot.owned = NULL;
+    }
+    g_rot.on = 0;
+}
+
+int cetcd_log_rotate_now(uint64_t now_ns) {
+    if (!g_rot.on || !g_rot.path[0] || !g_rot.owned) return CETCD_ERR_INVAL;
+    char bak[640];
+    int nrc = cetcd_log_rotation_backup_name(g_rot.path, now_ns, g_rot.cfg.localtime,
+                                             bak, sizeof(bak));
+    if (nrc != CETCD_OK) return nrc;
+    FILE *old = g_rot.owned;
+    fflush(old);
+    fclose(old);
+    g_rot.owned = NULL;
+    if (g_sink == old) g_sink = NULL;
+#if defined(_WIN32)
+    remove(bak);
+#endif
+    if (rename(g_rot.path, bak) != 0) {
+        FILE *again = fopen(g_rot.path, "a");
+        if (again) {
+            g_rot.owned = again;
+            cetcd_log_set_sink(again);
+        }
+        return CETCD_ERR_IO;
+    }
+    FILE *fp = fopen(g_rot.path, "a");
+    if (!fp) return CETCD_ERR_IO;
+    g_rot.owned = fp;
+    cetcd_log_set_sink(fp);
+    rot_prune_(g_rot.path, &g_rot.cfg, (time_t)(now_ns / 1000000000ull));
+    return CETCD_OK;
+}
+
+static void log_maybe_rotate_(void) {
+    if (!g_rot.on || !g_rot.owned) return;
+    long sz = ftell(g_rot.owned);
+    if (sz < 0) return;
+    if (!cetcd_log_should_rotate((uint64_t)sz, g_rot.cfg.maxsize_mb)) return;
+    (void)cetcd_log_rotate_now(cetcd_clock_realtime_ns());
 }

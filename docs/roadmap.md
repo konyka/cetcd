@@ -436,6 +436,13 @@ Performance-first, fail-closed design:
   at start. A non-bool fail-closes. `--socket-reuse-address` is not
   accepted (libuv already sets `SO_REUSEADDR`; a false value would be
   a lie).
+- **`--enable-log-rotation` / `--log-rotation-config-json`** — omitted
+  default off. Requires a single `--log-outputs` file path (stdio /
+  journal / comma-list fail-close). JSON is lumberjack
+  `maxsize`/`maxage`/`maxbackups`/`localtime`/`compress` (`{}` uses
+  100 MiB). `compress:true` fail-closes (no gzip). Invalid JSON or a
+  non-bool fail at parse. Rotation renames the file to a timestamped
+  backup and prunes by count/age.
 - **Downgrade fail-closed** — `Maintenance/Downgrade` VALIDATE of
   `cetcd_version()` succeeds (already at this binary). ENABLE, CANCEL,
   and any other version fail-closed: the on-disk format cannot change

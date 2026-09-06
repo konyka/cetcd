@@ -214,6 +214,8 @@ cetcd accepts several etcd server flags for migration compatibility:
 ./build/bin/cetcd --grpc-keepalive-time 10s --grpc-keepalive-timeout 5s \
   --grpc-keepalive-min-time 5s --grpc-keepalive-permit-without-stream true \
   --logger zap --log-level info --log-format text --log-outputs stderr
+# --enable-log-rotation requires a single file --log-outputs; compress=true fails
+# --log-rotation-config-json '{"maxsize":100,"maxage":0,"maxbackups":0,"localtime":false,"compress":false}'
 
 # Initial + periodic corrupt check: HashKV vs {data-dir}/backend.hash
 # (mismatch or a lower current revision fail-closes; periodic raises CORRUPT).
@@ -244,7 +246,8 @@ cetcd accepts several etcd server flags for migration compatibility:
 # ./build/bin/cetcd --discovery-srv example.com --discovery-srv-name east
 
 # File or journal log sink (mixed comma-lists fail-close)
-./build/bin/cetcd --log-outputs /var/log/cetcd.log --data-dir ./data
+# --enable-log-rotation rotates that file; requires a single file path
+./build/bin/cetcd --log-outputs /var/log/cetcd.log --enable-log-rotation --data-dir ./data
 # ./build/bin/cetcd --log-outputs journal --data-dir ./data
 
 # Unknown flags fail at parse (not a silent ignore)

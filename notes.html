@@ -117,6 +117,7 @@
       <tr><td>61</td><td>host-whitelist</td><td>--host-whitelist restricts metrics HTTP Host; omitted/* allow all; missing/unknown Host is 403 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>62</td><td>metrics level</td><td>--metrics basic|extensive; omitted basic skips unary histograms; extensive observes grpc_server_handling_seconds — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>63</td><td>socket-reuse-port</td><td>--socket-reuse-port sets SO_REUSEPORT on listeners; omitted default off; Windows / non-bool fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>64</td><td>log rotation</td><td>--enable-log-rotation + --log-rotation-config-json rotate a single file sink; compress:true fail-closed (no gzip) — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

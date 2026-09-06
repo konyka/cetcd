@@ -842,6 +842,7 @@ Unknown server flags fail at parse instead of being ignored.
 `--auth-token-ttl` is an integer seconds `> 0` (omitted default 300) for simple tokens; leftover text fail-closes. JWT `ttl=` in `--auth-token` still wins.
 `--bcrypt-cost` is `0` or `4..31`; a typo fail-closes instead of becoming SHA-256.
 `--log-outputs` is `stderr`, `stdout`, a file path, or `journal`/`syslog` (unix dgram); mixed comma-lists fail-close.
+`--enable-log-rotation` (omitted default off) rotates a single file `--log-outputs` to a timestamped backup when size reaches `maxsize` MiB. `--log-rotation-config-json` is lumberjack JSON (`maxsize`/`maxage`/`maxbackups`/`localtime`/`compress`; `{}` is 100 MiB). `compress:true`, stdio/journal, or mixed outputs fail-close.
 `--logger` is `zap` or `capnslog`; any other type fail-closes.
 `--log-level` is `trace`/`debug`/`info`/`warn`/`error` (etcd `warning`/`dpanic`/`panic`/`fatal` aliases); any other level fail-closes.
 `--log-format` is `json` or `text` (etcd `console` = text); any other format fail-closes.

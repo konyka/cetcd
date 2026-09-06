@@ -2611,6 +2611,34 @@ CETCD_TEST_CASE(live_cetcd_cluster_token) {
     CETCD_ASSERT_EQ_INT(system(cmd), 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_log_rotation) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --enable-log-rotation --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --enable-log-rotation=false --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --log-rotation-config-json={} --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --log-rotation-config-json=not-json >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --enable-log-rotation=abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_log_outputs) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -3404,6 +3432,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_log_format),
     CETCD_TEST_ENTRY(live_cetcd_logger),
     CETCD_TEST_ENTRY(live_cetcd_cluster_token),
+    CETCD_TEST_ENTRY(live_cetcd_log_rotation),
     CETCD_TEST_ENTRY(live_cetcd_log_outputs),
     CETCD_TEST_ENTRY(live_cetcd_grpc_keepalive),
     CETCD_TEST_ENTRY(live_cetcd_auto_tls_requires_certs),

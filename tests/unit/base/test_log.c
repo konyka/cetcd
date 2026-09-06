@@ -166,6 +166,108 @@ CETCD_TEST_CASE(log_outputs_journal_unix_socket) {
 }
 #endif
 
+CETCD_TEST_CASE(log_rotation_parse_json) {
+    cetcd_log_rotation_cfg cfg;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_rotation_json(NULL, &cfg), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_rotation_json("", &cfg), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_rotation_json("{}", NULL), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_rotation_json("{}", &cfg), CETCD_OK);
+    CETCD_ASSERT_TRUE(cfg.maxsize_mb == 100);
+    CETCD_ASSERT_TRUE(cfg.maxage_days == 0);
+    CETCD_ASSERT_TRUE(cfg.maxbackups == 0);
+    CETCD_ASSERT_EQ_INT(cfg.localtime, 0);
+    CETCD_ASSERT_EQ_INT(cfg.compress, 0);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_rotation_json(
+        "{\"maxsize\":2,\"maxage\":7,\"maxbackups\":3,\"localtime\":true,\"compress\":false}",
+        &cfg), CETCD_OK);
+    CETCD_ASSERT_TRUE(cfg.maxsize_mb == 2);
+    CETCD_ASSERT_TRUE(cfg.maxage_days == 7);
+    CETCD_ASSERT_TRUE(cfg.maxbackups == 3);
+    CETCD_ASSERT_EQ_INT(cfg.localtime, 1);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_rotation_json(
+        "{\"compress\":true}", &cfg), CETCD_ERR_UNSUPPORT);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_rotation_json(
+        "{\"maxsize\":1,\"unknown\":1}", &cfg), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_rotation_json("not-json", &cfg),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_rotation_json("{\"maxsize\":-1}", &cfg),
+                        CETCD_ERR_INVAL);
+}
+
+CETCD_TEST_CASE(log_rotation_single_file_and_want) {
+    char path[64];
+    CETCD_ASSERT_EQ_INT(cetcd_log_want_rotation(0, 1), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_log_want_rotation(1, 1), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_log_want_rotation(1, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_log_outputs_single_file("stderr", path, sizeof(path)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_log_outputs_single_file("stdout", path, sizeof(path)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_log_outputs_single_file("journal", path, sizeof(path)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_log_outputs_single_file("a.log,b.log", path, sizeof(path)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_log_outputs_single_file("./cetcd.log", path, sizeof(path)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(path, "./cetcd.log");
+}
+
+CETCD_TEST_CASE(log_rotation_should_and_backup_name) {
+    CETCD_ASSERT_EQ_INT(cetcd_log_should_rotate(1048576ull * 100ull - 1, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_log_should_rotate(1048576ull * 100ull, 0), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_log_should_rotate(1048576ull, 1), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_log_should_rotate(1048575ull, 1), 0);
+
+    char name[256];
+    CETCD_ASSERT_EQ_INT(cetcd_log_rotation_backup_name(
+        "cetcd.log", 0, 0, name, sizeof(name)), CETCD_OK);
+    CETCD_ASSERT_TRUE(strstr(name, "cetcd-") == name);
+    CETCD_ASSERT_TRUE(strstr(name, ".log") != NULL);
+    CETCD_ASSERT_TRUE(strchr(name, 'T') != NULL);
+}
+
+CETCD_TEST_CASE(log_rotation_renames_file) {
+    char path[256];
+    snprintf(path, sizeof(path), "cetcd-log-rot-%u.log",
+             (unsigned)((uintptr_t)&path & 0xFFFFFFFFu));
+    remove(path);
+    FILE *fp = fopen(path, "w");
+    CETCD_ASSERT_NOT_NULL(fp);
+    fputs("old-line\n", fp);
+    fflush(fp);
+    cetcd_log_set_sink(fp);
+
+    cetcd_log_rotation_cfg cfg;
+    cetcd_log_rotation_cfg_default(&cfg);
+    cfg.maxsize_mb = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_log_enable_rotation(path, &cfg), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_log_rotate_now(1700000000000000000ull), CETCD_OK);
+
+    FILE *live = fopen(path, "r");
+    CETCD_ASSERT_NOT_NULL(live);
+    char buf[64] = {0};
+    size_t n = fread(buf, 1, sizeof(buf) - 1, live);
+    fclose(live);
+    CETCD_ASSERT_TRUE(n == 0);
+
+    char bak[256];
+    CETCD_ASSERT_EQ_INT(cetcd_log_rotation_backup_name(
+        path, 1700000000000000000ull, 0, bak, sizeof(bak)), CETCD_OK);
+    FILE *bf = fopen(bak, "r");
+    CETCD_ASSERT_NOT_NULL(bf);
+    memset(buf, 0, sizeof(buf));
+    CETCD_ASSERT_TRUE(fread(buf, 1, sizeof(buf) - 1, bf) > 0);
+    fclose(bf);
+    CETCD_ASSERT_TRUE(strstr(buf, "old-line") != NULL);
+
+    cetcd_log_rotation_close();
+    cetcd_log_set_sink(stderr);
+    remove(path);
+    remove(bak);
+}
+
 CETCD_TEST_CASE(level_name_lookup) {
     CETCD_ASSERT_EQ_STR(cetcd_log_level_name(CETCD_LOG_TRACE), "TRACE");
     CETCD_ASSERT_EQ_STR(cetcd_log_level_name(CETCD_LOG_DEBUG), "DEBUG");
@@ -185,6 +287,10 @@ CETCD_TEST_LIST_BEGIN
 #if !defined(_WIN32)
     CETCD_TEST_ENTRY(log_outputs_journal_unix_socket),
 #endif
+    CETCD_TEST_ENTRY(log_rotation_parse_json),
+    CETCD_TEST_ENTRY(log_rotation_single_file_and_want),
+    CETCD_TEST_ENTRY(log_rotation_should_and_backup_name),
+    CETCD_TEST_ENTRY(log_rotation_renames_file),
     CETCD_TEST_ENTRY(level_name_lookup),
 CETCD_TEST_LIST_END
 CETCD_TEST_MAIN()

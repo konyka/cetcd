@@ -87,6 +87,8 @@ static void print_usage(const char *prog) {
     printf("  --tls-max-version VER  Maximum TLS version (TLS1.2 or TLS1.3; omitted open)\n");
     printf("  --logger TYPE       zap or capnslog (built-in logger; others fail)\n");
     printf("  --log-outputs LIST   stderr, stdout, file path, or journal/syslog (mixed lists fail)\n");
+    printf("  --enable-log-rotation  Rotate a single --log-outputs file (default off; compress unsupported)\n");
+    printf("  --log-rotation-config-json JSON  lumberjack maxsize/maxage/maxbackups/localtime (compress=true fails)\n");
     printf("  --experimental-initial-corrupt-check  HashKV vs {data-dir}/backend.hash (fail-closed)\n");
     printf("  --experimental-corrupt-check-time DUR  Periodic HashKV vs backend.hash (0 disables)\n");
     printf("  --experimental-compaction-batch-limit N  Auto-compact at most N revs/tick (0 unlimited)\n");
@@ -119,6 +121,11 @@ int main(int argc, char **argv) {
     const char *ac_mode_s = NULL;
     const char *ac_ret_s = NULL;
     FILE *log_owned = NULL;
+    const char *log_out_spec = NULL;
+    int enable_log_rotation = 0;
+    int enable_log_rotation_set = 0;
+    cetcd_log_rotation_cfg log_rot_cfg;
+    cetcd_log_rotation_cfg_default(&log_rot_cfg);
 
     cetcd_server_config cfg;
     memset(&cfg, 0, sizeof(cfg));
@@ -699,6 +706,40 @@ int main(int argc, char **argv) {
                         out);
                 return 1;
             }
+            log_out_spec = out;
+        } else if (strcmp(argv[i], "--enable-log-rotation") == 0) {
+            enable_log_rotation_set = 1;
+            enable_log_rotation = 1;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                int b = 0;
+                if (cetcd_parse_bool_flag(argv[++i], &b) != CETCD_OK) {
+                    fprintf(stderr, "--enable-log-rotation must be true or false\n");
+                    return 1;
+                }
+                enable_log_rotation = b != 0;
+            }
+        } else if (strncmp(argv[i], "--enable-log-rotation=", 22) == 0) {
+            int b = 0;
+            if (cetcd_parse_bool_flag(argv[i] + 22, &b) != CETCD_OK) {
+                fprintf(stderr, "--enable-log-rotation must be true or false\n");
+                return 1;
+            }
+            enable_log_rotation_set = 1;
+            enable_log_rotation = b != 0;
+        } else if (strcmp(argv[i], "--log-rotation-config-json") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--log-rotation-config-json requires a JSON object\n");
+                return 1;
+            }
+            if (cetcd_parse_log_rotation_json(argv[++i], &log_rot_cfg) != CETCD_OK) {
+                fprintf(stderr, "--log-rotation-config-json is invalid or compress is unsupported\n");
+                return 1;
+            }
+        } else if (strncmp(argv[i], "--log-rotation-config-json=", 27) == 0) {
+            if (cetcd_parse_log_rotation_json(argv[i] + 27, &log_rot_cfg) != CETCD_OK) {
+                fprintf(stderr, "--log-rotation-config-json is invalid or compress is unsupported\n");
+                return 1;
+            }
         } else if (strcmp(argv[i], "--discovery-srv") == 0 && i + 1 < argc) {
             const char *dom = argv[++i];
             if (cetcd_discovery_valid_domain(dom) != 0) {
@@ -1083,6 +1124,21 @@ int main(int argc, char **argv) {
         cfg.n_initial_peers = (uint32_t)n;
     }
 
+    if (cetcd_log_want_rotation(enable_log_rotation_set, enable_log_rotation)) {
+        char rot_path[512];
+        if (cetcd_log_outputs_single_file(log_out_spec ? log_out_spec : "stderr",
+                                          rot_path, sizeof(rot_path)) != CETCD_OK) {
+            fprintf(stderr,
+                    "--enable-log-rotation requires a single --log-outputs file path\n");
+            return 1;
+        }
+        if (cetcd_log_enable_rotation(rot_path, &log_rot_cfg) != CETCD_OK) {
+            fprintf(stderr, "--enable-log-rotation cannot attach to the log file\n");
+            return 1;
+        }
+        log_owned = NULL;
+    }
+
     CETCD_INFO("cetcd v%s starting", cetcd_version());
     CETCD_INFO("  name      : %s", name);
     CETCD_INFO("  node-id   : %llu", (unsigned long long)cfg.node_id);
@@ -1129,6 +1185,7 @@ int main(int argc, char **argv) {
     g_srv = NULL;
 
     CETCD_INFO("shutdown complete");
+    cetcd_log_rotation_close();
     if (log_owned) fclose(log_owned);
     return 0;
 }

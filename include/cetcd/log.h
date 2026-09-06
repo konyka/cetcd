@@ -2,6 +2,8 @@
 #define CETCD_LOG_H_
 
 #include <stdarg.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -45,6 +47,31 @@ int              cetcd_log_open_outputs(const char *spec, FILE **owned);
  * NULL path tries /run/systemd/journal/dev-log then /dev/log.
  * Windows is fail-closed (UNSUPPORT). */
 int              cetcd_log_open_journal(const char *socket_path, FILE **owned);
+
+/* etcd --log-rotation-config-json (lumberjack). maxsize 0 → 100 MiB.
+ * compress true is UNSUPPORT (no gzip). */
+typedef struct cetcd_log_rotation_cfg {
+    uint32_t maxsize_mb;
+    uint32_t maxage_days;
+    uint32_t maxbackups;
+    int      localtime;
+    int      compress;
+} cetcd_log_rotation_cfg;
+
+void cetcd_log_rotation_cfg_default(cetcd_log_rotation_cfg *cfg);
+int  cetcd_parse_log_rotation_json(const char *s, cetcd_log_rotation_cfg *cfg);
+/* Unset → 0 (off). set uses enabled. */
+int  cetcd_log_want_rotation(int set, int enabled);
+/* Single file path only. stderr/stdout/journal/comma is INVAL. */
+int  cetcd_log_outputs_single_file(const char *spec, char *out, size_t cap);
+/* 1 if size >= maxsize MiB. maxsize 0 is 100. */
+int  cetcd_log_should_rotate(uint64_t size_bytes, uint32_t maxsize_mb);
+int  cetcd_log_rotation_backup_name(const char *path, uint64_t epoch_ns,
+                                    int localtime, char *out, size_t cap);
+/* Sink must already be the file. Rotation owns that FILE after this. */
+int  cetcd_log_enable_rotation(const char *path, const cetcd_log_rotation_cfg *cfg);
+int  cetcd_log_rotate_now(uint64_t now_ns);
+void cetcd_log_rotation_close(void);
 
 void cetcd_log_emit(cetcd_log_level lvl,
                     const char *file, int line, const char *func,
