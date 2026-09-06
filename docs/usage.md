@@ -154,6 +154,7 @@ cetcd accepts several etcd server flags for migration compatibility:
   --snapshot-count 10000 --data-dir ./data
 # --snapshot-count must be > 0; a typo or 0 is not the silent default 10000
 # --initial-cluster-state existing: cluster evidence, snapshot.kv, or --initial-cluster peers
+# After WAL compaction the leader sends MsgSnap so a joiner can catch up
 # --force-new-cluster keeps MVCC and drops peers except self (needs cluster evidence)
 
 # Backend quota (NOSPACE on Puts when LMDB size >= N; 0 = unlimited; a typo fails)

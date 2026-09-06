@@ -11,6 +11,7 @@
 typedef struct peer_progress_ {
     uint64_t next_idx;
     uint64_t match_idx;
+    uint8_t  pending_snap;
 } peer_progress_;
 
 /* ── Internal state ─────────────────────────────────────────────── */
@@ -249,8 +250,13 @@ static void add_peer_(cetcd_raft *r, uint64_t id, int is_learner) {
     r->peers[r->n_peers] = id;
     r->peer_learner[r->n_peers] = is_learner ? 1 : 0;
     if (r->n_peers < MAX_PEERS_) {
-        r->progress[r->n_peers].next_idx = r->log_last_index + 1;
+        if (id == r->id)
+            r->progress[r->n_peers].next_idx = r->log_last_index + 1;
+        else
+            r->progress[r->n_peers].next_idx =
+                r->log_compacted > 0 ? r->log_compacted : 1;
         r->progress[r->n_peers].match_idx = 0;
+        r->progress[r->n_peers].pending_snap = 0;
     }
     r->n_peers++;
 }
@@ -293,6 +299,26 @@ static void queue_msg_(cetcd_raft *r, const cetcd_msg *m) {
     }
     r->pending_msgs[r->n_pending_msgs++] = *m;
     r->has_pending = true;
+}
+
+static void maybe_send_snap_(cetcd_raft *r, uint32_t i) {
+    if (!r || i >= MAX_PEERS_ || i >= r->n_peers) return;
+    if (r->peers[i] == r->id) return;
+    if (r->log_compacted == 0) return;
+    if (r->progress[i].next_idx > r->log_compacted) return;
+    if (r->progress[i].pending_snap) return;
+    cetcd_msg snap;
+    memset(&snap, 0, sizeof(snap));
+    snap.type = CETCD_MSG_SNAP;
+    snap.to = r->peers[i];
+    snap.from = r->id;
+    snap.term = r->term;
+    snap.snapshot = r->log_compacted;
+    snap.index = r->log_compacted;
+    snap.log_term = log_term_at_(r, r->log_compacted);
+    snap.commit = r->commit;
+    queue_msg_(r, &snap);
+    r->progress[i].pending_snap = 1;
 }
 
 /* ── Commit advancement ─────────────────────────────────────────── */
@@ -396,6 +422,7 @@ static void become_leader_(cetcd_raft *r) {
     for (uint32_t i = 0; i < r->n_peers && i < MAX_PEERS_; i++) {
         r->progress[i].next_idx  = r->log_last_index + 1;
         r->progress[i].match_idx = 0;
+        r->progress[i].pending_snap = 0;
     }
 }
 
@@ -636,6 +663,7 @@ static int handle_app_resp_(cetcd_raft *r, cetcd_msg *msg) {
         if (r->progress[slot].next_idx > 1) {
             r->progress[slot].next_idx--;
         }
+        maybe_send_snap_(r, (uint32_t)slot);
     }
     return 0;
 }
@@ -671,6 +699,63 @@ static int handle_heartbeat_(cetcd_raft *r, cetcd_msg *msg) {
     resp.from   = r->id;
     resp.term   = r->term;
     queue_msg_(r, &resp);
+    return 0;
+}
+
+static int handle_snap_(cetcd_raft *r, cetcd_msg *msg) {
+    if (msg->term < r->term) return 0;
+    if (msg->term > r->term) {
+        become_follower_(r, msg->term, msg->from);
+        queue_hard_state_(r);
+    }
+    cetcd_msg st;
+    memset(&st, 0, sizeof(st));
+    st.type = CETCD_MSG_SNAP_STATUS;
+    st.to = msg->from;
+    st.from = r->id;
+    st.term = r->term;
+    st.snapshot = msg->snapshot;
+    st.index = msg->snapshot;
+    if (msg->snapshot == 0) {
+        st.reject = 1;
+        queue_msg_(r, &st);
+        return 0;
+    }
+    if (r->role != ROLE_FOLLOWER)
+        become_follower_(r, r->term, msg->from);
+    r->leader_id = msg->from;
+    r->elapsed_ticks = 0;
+    if (msg->snapshot > r->log_compacted) {
+        if (cetcd_raft_compact(r, msg->snapshot, msg->log_term) != 0) {
+            st.reject = 1;
+            queue_msg_(r, &st);
+            return 0;
+        }
+    }
+    if (msg->snapshot > r->commit) {
+        r->commit = msg->snapshot;
+        queue_hard_state_(r);
+    }
+    if (msg->snapshot > r->applied)
+        r->applied = msg->snapshot;
+    st.reject = 0;
+    queue_msg_(r, &st);
+    return 0;
+}
+
+static int handle_snap_status_(cetcd_raft *r, cetcd_msg *msg) {
+    if (r->role != ROLE_LEADER) return 0;
+    int slot = -1;
+    for (uint32_t i = 0; i < r->n_peers && i < MAX_PEERS_; i++) {
+        if (r->peers[i] == msg->from) { slot = (int)i; break; }
+    }
+    if (slot < 0) return 0;
+    r->progress[slot].pending_snap = 0;
+    if (!msg->reject && msg->snapshot > 0) {
+        r->progress[slot].match_idx = msg->snapshot;
+        r->progress[slot].next_idx = msg->snapshot + 1;
+        maybe_advance_commit_(r);
+    }
     return 0;
 }
 
@@ -724,6 +809,11 @@ int cetcd_raft_step(cetcd_raft *r, cetcd_msg *msg) {
             for (uint32_t i = 0; i < r->n_peers; i++) {
                 if (r->peers[i] == r->id) continue;
                 if (i >= MAX_PEERS_) break;
+                if (r->log_compacted > 0 &&
+                    r->progress[i].next_idx <= r->log_compacted) {
+                    maybe_send_snap_(r, i);
+                    continue;
+                }
                 cetcd_msg app;
                 memset(&app, 0, sizeof(app));
                 app.type      = CETCD_MSG_APP;
@@ -760,8 +850,15 @@ int cetcd_raft_step(cetcd_raft *r, cetcd_msg *msg) {
             hb.term   = r->term;
             hb.commit = r->commit;
             queue_msg_(r, &hb);
+            maybe_send_snap_(r, i);
         }
         break;
+
+    case CETCD_MSG_SNAP:
+        return handle_snap_(r, msg);
+
+    case CETCD_MSG_SNAP_STATUS:
+        return handle_snap_status_(r, msg);
 
     case CETCD_MSG_TRANSFER_LEADER:
         if (r->role != ROLE_LEADER) break;
@@ -851,6 +948,11 @@ int cetcd_raft_propose_conf_change(cetcd_raft *r, const uint8_t *data, size_t le
     for (uint32_t i = 0; i < r->n_peers; i++) {
         if (r->peers[i] == r->id) continue;
         if (i >= MAX_PEERS_) break;
+        if (r->log_compacted > 0 &&
+            r->progress[i].next_idx <= r->log_compacted) {
+            maybe_send_snap_(r, i);
+            continue;
+        }
         cetcd_msg app;
         memset(&app, 0, sizeof(app));
         app.type      = CETCD_MSG_APP;
@@ -1061,6 +1163,10 @@ uint64_t cetcd_raft_last_index(cetcd_raft *r) {
     return r->log_last_index;
 }
 
+uint64_t cetcd_raft_compacted(const cetcd_raft *r) {
+    return r ? r->log_compacted : 0;
+}
+
 uint32_t cetcd_raft_voter_count(const cetcd_raft *r) {
     if (!r) return 0;
     uint32_t n = 0;
@@ -1128,6 +1234,7 @@ void cetcd_ready_free(cetcd_ready *rd) {
     if (rd->messages) {
         for (uint32_t i = 0; i < rd->n_messages; i++) {
             free(rd->messages[i].entries);
+            free(rd->messages[i].context);
         }
     }
     free(rd->messages);

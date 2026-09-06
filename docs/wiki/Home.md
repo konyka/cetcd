@@ -851,6 +851,7 @@ URLs (empty defaults from listen; `https://` requires the matching cert file).
 `--initial-cluster-token` is persisted in `data-dir`; a mismatch fail-closes.
 `cetcdctl snapshot restore --initial-cluster-token` writes the same file (mismatch without `--force` fail-closes).
 `cetcdctl snapshot restore --initial-cluster-state` is `new` or `existing` (writes `snapshot.kv`; server imports it into empty MVCC). A blank `--initial-cluster-state existing` start needs `snapshot.kv` or `--initial-cluster` peers.
+After WAL compaction the leader sends one `MsgSnap` (KV blob) to a joiner whose `next_idx` is at or below the compacted index; `snapshot==0` or a corrupt blob fail-closes.
 
 ---
 

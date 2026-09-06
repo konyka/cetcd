@@ -286,8 +286,9 @@ Performance-first, fail-closed design:
   journal and fail-closes.
 - **`--initial-cluster-state existing`** — restart from cluster evidence, or
   join from a blank dir when `--initial-cluster` lists peers (follower, no
-  campaign). `snapshot.kv` is imported into empty MVCC (corrupt blob
-  fail-closes). This is not live raft MsgSnap catch-up after WAL compaction.
+  campaign).   `snapshot.kv` is imported into empty MVCC (corrupt blob
+  fail-closes). After WAL compaction the leader sends `MsgSnap` to a
+  joiner whose `next_idx` is at or below the compacted index.
 - **`--force-new-cluster`** — disaster recovery: keep MVCC, drop every peer
   except self, clear joint config, then campaign as a single voter. Empty
   dir fail-closes (not a data wipe).
@@ -309,6 +310,11 @@ Performance-first, fail-closed design:
   `existing` imports that blob into empty MVCC, or starts as a follower when
   `--initial-cluster` has peers. Truncated `snapshot.kv` fail-closes. A blank
   dir with neither snapshot nor peers still fail-closes.
+- **Live raft `MsgSnap` catch-up** — after WAL compaction a new peer's
+  `next_idx` is the compacted index. The leader sends one `MsgSnap` (KV blob
+  in context) per in-flight window; `snapshot==0` or a corrupt blob
+  fail-closes. The follower installs the dummy last-included index and acks
+  `MsgSnapStatus`.
 
 ## Previously done (auth data plane)
 
@@ -319,9 +325,7 @@ Performance-first, fail-closed design:
 
 ### Reliability (cluster correctness)
 
-- **Live raft MsgSnap catch-up** — after WAL compaction the leader does not
-  yet ship a full raft snapshot to a lagging joiner. Uncompacted logs and
-  offline `snapshot.kv` import cover the operator join path.
+None remaining in this pass.
 
 ### Security / ops
 

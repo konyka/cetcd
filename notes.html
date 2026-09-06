@@ -31,13 +31,12 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 27 — empty-dir join / snapshot restore existing</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 28 — MsgSnap catch-up</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 27 adds empty-dir join via <code>snapshot.kv</code> import
-     and <code>cetcdctl snapshot restore --initial-cluster-state existing</code> (performance-first,
-     fail-closed). Remaining: live raft <code>MsgSnap</code> catch-up after WAL compaction.</p>
+  <p><strong>v0.3.0</strong>. Phase 28 adds live raft <code>MsgSnap</code> catch-up after WAL
+     compaction (one in-flight snap per joiner; corrupt blob fail-closes).</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -80,6 +79,7 @@
       <tr><td>25</td><td>WAL dir + DNS SRV + failover</td><td><code>--wal-dir</code>, file <code>--log-outputs</code>, <code>--discovery-srv</code>, endpoint failover — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>26</td><td>existing + force-new + auto-tls + journal</td><td><code>existing</code> restart, <code>--force-new-cluster</code>, auto-TLS mint, journal/syslog sink — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>27</td><td>empty-dir join + restore existing</td><td><code>snapshot.kv</code> import, restore <code>existing</code>, follower start with peers — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>28</td><td>MsgSnap catch-up</td><td>Leader ships compacted snapshot to lagging joiner; follower install + ack — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

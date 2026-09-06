@@ -2,6 +2,7 @@
 #include "cetcd/snap.h"
 #include "cetcd_test.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 CETCD_TEST_CASE(snap_create_destroy) {
@@ -130,6 +131,24 @@ CETCD_TEST_CASE(snap_decode_kv_pairs_and_header) {
     cetcd_snap_free(s);
 }
 
+CETCD_TEST_CASE(snap_encode_kv_roundtrip) {
+    cetcd_snap *s = cetcd_snap_new();
+    CETCD_ASSERT_EQ_INT(cetcd_snap_add_entry(s, (const uint8_t *)"a", 1,
+                                            (const uint8_t *)"b", 1, 0), 0);
+    size_t len = 0;
+    uint8_t *buf = cetcd_snap_encode_kv(s, &len);
+    CETCD_ASSERT_NOT_NULL(buf);
+    CETCD_ASSERT_TRUE(len > 0);
+    cetcd_snap *s2 = cetcd_snap_decode_kv(buf, len);
+    CETCD_ASSERT_NOT_NULL(s2);
+    CETCD_ASSERT_EQ_INT((int)cetcd_snap_entry_count(s2), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_snap_get_entry(s2, 0)->key[0], 'a');
+    CETCD_ASSERT_EQ_INT(cetcd_snap_get_entry(s2, 0)->value[0], 'b');
+    free(buf);
+    cetcd_snap_free(s);
+    cetcd_snap_free(s2);
+}
+
 CETCD_TEST_CASE(snap_decode_kv_fail_closed) {
     uint8_t trunc[] = {0x01, 'a', 0x02};
     CETCD_ASSERT_TRUE(cetcd_snap_decode_kv(trunc, sizeof(trunc)) == NULL);
@@ -146,6 +165,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(snap_empty_roundtrip),
     CETCD_TEST_ENTRY(snap_decode_corrupt),
     CETCD_TEST_ENTRY(snap_decode_kv_pairs_and_header),
+    CETCD_TEST_ENTRY(snap_encode_kv_roundtrip),
     CETCD_TEST_ENTRY(snap_decode_kv_fail_closed),
 CETCD_TEST_LIST_END
 

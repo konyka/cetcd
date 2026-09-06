@@ -25,7 +25,7 @@ internals are organised. For deeper rationale on individual decisions, see
 | WAL replay | Restart restuffs the Raft log and applies NORMAL entries past `applied_index`. `--wal-dir` may place the segment on a dedicated disk. |
 | DNS discovery | `--discovery-srv` / `--discovery-srv-name` resolve `_etcd-client` / `_etcd-server` SRV records (fail-closed). |
 | TLS | Memory-BIO termination on client/peer listen and on outbound `peer_tx_`. Client and peer listen select ALPN `h2` when offered. Cert without key, missing files, or `--client-cert-auth` without CA fail closed. `--auto-tls` / `--peer-auto-tls` mint ECDSA P-256 into `{data-dir}/fixtures/`. Plaintext remains the default. |
-| Cluster join | `--initial-cluster-state existing` restarts from evidence or starts as a follower with `--initial-cluster` peers. `snapshot.kv` is imported into empty MVCC. Live raft MsgSnap after compaction is not implemented. |
+| Cluster join | `--initial-cluster-state existing` restarts from evidence or starts as a follower with `--initial-cluster` peers. `snapshot.kv` is imported into empty MVCC. After WAL compaction the leader sends `MsgSnap` (KV blob) to a lagging joiner. |
 
 Remaining work is tracked in [`docs/roadmap.md`](./roadmap.md).
 

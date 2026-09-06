@@ -37,6 +37,8 @@ cetcd_snap *cetcd_snap_decode(const uint8_t *data, size_t len);
  * repeated (varint key_len + key + varint val_len + val). Truncated or
  * leftover bytes fail-closed (NULL). Empty blob is a valid empty snap. */
 cetcd_snap *cetcd_snap_decode_kv(const uint8_t *data, size_t len);
+/* Inverse of decode_kv (no CTS1 header). Caller frees the buffer. */
+uint8_t *cetcd_snap_encode_kv(const cetcd_snap *s, size_t *out_len);
 
 void cetcd_snap_free_entries(cetcd_snap_entry *entries, size_t count);
 

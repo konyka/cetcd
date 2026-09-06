@@ -1666,6 +1666,13 @@ static int peer_apply_encoded_(cetcd_server *srv, const uint8_t *encoded, size_t
     cetcd_msg *rmsg = cetcd_msg_decode_wire(raft_wire, raft_wire_len);
     free(raft_wire);
     if (!rmsg) return -1;
+    if (rmsg->type == CETCD_MSG_SNAP) {
+        int irc = apply_snap_context_(srv, rmsg);
+        if (irc != 0) {
+            cetcd_msg_free(rmsg);
+            return -1;
+        }
+    }
     cetcd_raft_step(srv->raft, rmsg);
     cetcd_msg_free(rmsg);
     process_ready_(srv);
@@ -2059,6 +2066,59 @@ static int import_snapshot_kv_(cetcd_mvcc_store *store, const char *path) {
         }
     }
     cetcd_snap_free(snap);
+    return CETCD_OK;
+}
+
+static int fill_snap_context_(cetcd_server *srv, cetcd_msg *msg) {
+    if (!srv || !msg || msg->type != CETCD_MSG_SNAP) return 0;
+    if (msg->context && msg->context_len) return 0;
+    if (!srv->rpc) return 0;
+    cetcd_mvcc_store *store = cetcd_v3rpc_store(srv->rpc);
+    if (!store) return 0;
+    cetcd_kv *kvs = NULL;
+    size_t n = 0;
+    if (cetcd_mvcc_range(store, 0, (const uint8_t *)"", 0,
+                         (const uint8_t *)"\xff", 1, &kvs, &n) != 0)
+        return 0;
+    cetcd_snap *s = cetcd_snap_new();
+    if (!s) {
+        cetcd_kv_free_contents(kvs, n);
+        return CETCD_ERR_NOMEM;
+    }
+    for (size_t i = 0; i < n; i++) {
+        (void)cetcd_snap_add_entry(s, kvs[i].key.data, kvs[i].key.len,
+                                   kvs[i].value.data, kvs[i].value.len, 0);
+    }
+    cetcd_kv_free_contents(kvs, n);
+    size_t blen = 0;
+    uint8_t *blob = cetcd_snap_encode_kv(s, &blen);
+    cetcd_snap_free(s);
+    if (!blob) return CETCD_ERR_NOMEM;
+    msg->context = blob;
+    msg->context_len = blen;
+    return 0;
+}
+
+static int apply_snap_context_(cetcd_server *srv, const cetcd_msg *msg) {
+    if (!srv || !msg || msg->type != CETCD_MSG_SNAP) return 0;
+    if (!msg->context || msg->context_len == 0) return 0;
+    if (!srv->rpc) return 0;
+    cetcd_mvcc_store *store = cetcd_v3rpc_store(srv->rpc);
+    if (!store) return 0;
+    if (cetcd_mvcc_revision(store) != 0) return 0;
+    cetcd_snap *s = cetcd_snap_decode_kv(msg->context, msg->context_len);
+    if (!s) return CETCD_ERR_CORRUPT;
+    for (size_t i = 0; i < cetcd_snap_entry_count(s); i++) {
+        cetcd_snap_entry *e = cetcd_snap_get_entry(s, i);
+        if (!e) continue;
+        cetcd_revision rev = cetcd_mvcc_put(store, e->key, e->key_len,
+                                            e->value, e->value_len, 0);
+        if (rev.main == 0 && rev.sub == 0) {
+            cetcd_snap_free(s);
+            return CETCD_ERR_IO;
+        }
+    }
+    cetcd_snap_free(s);
     return CETCD_OK;
 }
 
@@ -2799,6 +2859,8 @@ static void process_ready_(cetcd_server *srv) {
     /* Send outgoing messages to peers (only after a durable WAL). */
     if (persisted && rd.messages && rd.n_messages > 0) {
         for (uint32_t i = 0; i < rd.n_messages; i++) {
+            if (rd.messages[i].type == CETCD_MSG_SNAP)
+                (void)fill_snap_context_(srv, &rd.messages[i]);
             uint8_t *wire = NULL;
             size_t wire_len = cetcd_msg_encode_wire(&rd.messages[i], &wire);
             if (wire && wire_len > 0) {

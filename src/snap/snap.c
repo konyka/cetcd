@@ -274,3 +274,41 @@ cetcd_snap *cetcd_snap_decode_kv(const uint8_t *data, size_t len) {
     }
     return s;
 }
+
+static size_t write_varint_kv_(uint8_t *p, uint64_t v) {
+    size_t n = 0;
+    do {
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        p[n++] = b;
+    } while (v);
+    return n;
+}
+
+uint8_t *cetcd_snap_encode_kv(const cetcd_snap *s, size_t *out_len) {
+    if (out_len) *out_len = 0;
+    if (!s || !out_len) return NULL;
+    size_t need = 1;
+    for (size_t i = 0; i < s->count; i++) {
+        need += 10 + s->entries[i].key_len + 10 + s->entries[i].value_len;
+    }
+    uint8_t *buf = (uint8_t *)malloc(need);
+    if (!buf) return NULL;
+    size_t pos = 0;
+    for (size_t i = 0; i < s->count; i++) {
+        const cetcd_snap_entry *e = &s->entries[i];
+        pos += write_varint_kv_(buf + pos, (uint64_t)e->key_len);
+        if (e->key_len && e->key) {
+            memcpy(buf + pos, e->key, e->key_len);
+            pos += e->key_len;
+        }
+        pos += write_varint_kv_(buf + pos, (uint64_t)e->value_len);
+        if (e->value_len && e->value) {
+            memcpy(buf + pos, e->value, e->value_len);
+            pos += e->value_len;
+        }
+    }
+    *out_len = pos;
+    return buf;
+}
