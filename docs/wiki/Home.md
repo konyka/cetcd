@@ -391,7 +391,7 @@ typedef struct cetcd_ready {
 - **心跳超时**：默认 1 tick
 - **PreVote**：启用，避免分区节点干扰
 - **CheckQuorum**：启用，Leader 主动检查存活
-- **日志复制**：Leader 为每个 Follower 维护 `next_idx` 和 `match_idx`，通过 `AppResp` 推进
+- **日志复制**：Leader 为每个 Follower 维护 `next_idx` 和 `match_idx`，心跳或拒绝后从 `next_idx` 批量 `App`（`max_size_per_msg`），通过 `AppResp` 推进；拒绝使用 Follower 的 last-index hint
 - **提交推进**：Leader 计算多数派 `match_idx` 的中位数，且仅提交当前 Term 的条目
 
 #### 线路编码
@@ -852,6 +852,7 @@ URLs (empty defaults from listen; `https://` requires the matching cert file).
 `cetcdctl snapshot restore --initial-cluster-token` writes the same file (mismatch without `--force` fail-closes).
 `cetcdctl snapshot restore --initial-cluster-state` is `new` or `existing` (writes `snapshot.kv`; server imports it into empty MVCC). A blank `--initial-cluster-state existing` start needs `snapshot.kv` or `--initial-cluster` peers.
 After WAL compaction the leader sends one `MsgSnap` (KV blob) to a joiner whose `next_idx` is at or below the compacted index; `snapshot==0` or a corrupt blob fail-closes.
+While the log is still live the leader sends `App` from `next_idx` (batch capped by `max_size_per_msg`); an `AppResp` reject uses the follower's last-index hint.
 
 ---
 

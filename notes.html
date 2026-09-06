@@ -31,12 +31,12 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 28 — MsgSnap catch-up</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 29 — App catch-up from next_idx</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 28 adds live raft <code>MsgSnap</code> catch-up after WAL
-     compaction (one in-flight snap per joiner; corrupt blob fail-closes).</p>
+  <p><strong>v0.3.0</strong>. Phase 29 replicates from <code>next_idx</code> so a joiner
+     catches up without a snapshot (batched <code>App</code>, reject hint, one in-flight).</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -80,6 +80,7 @@
       <tr><td>26</td><td>existing + force-new + auto-tls + journal</td><td><code>existing</code> restart, <code>--force-new-cluster</code>, auto-TLS mint, journal/syslog sink — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>27</td><td>empty-dir join + restore existing</td><td><code>snapshot.kv</code> import, restore <code>existing</code>, follower start with peers — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>28</td><td>MsgSnap catch-up</td><td>Leader ships compacted snapshot to lagging joiner; follower install + ack — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>29</td><td>App catch-up from next_idx</td><td>Uncompacted joiner gets batched App; reject uses last-index hint — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

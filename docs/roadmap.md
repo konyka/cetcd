@@ -288,7 +288,8 @@ Performance-first, fail-closed design:
   join from a blank dir when `--initial-cluster` lists peers (follower, no
   campaign).   `snapshot.kv` is imported into empty MVCC (corrupt blob
   fail-closes). After WAL compaction the leader sends `MsgSnap` to a
-  joiner whose `next_idx` is at or below the compacted index.
+  joiner whose `next_idx` is at or below the compacted index. While the
+  log is still live the leader sends `App` from `next_idx` instead.
 - **`--force-new-cluster`** — disaster recovery: keep MVCC, drop every peer
   except self, clear joint config, then campaign as a single voter. Empty
   dir fail-closes (not a data wipe).
@@ -315,6 +316,12 @@ Performance-first, fail-closed design:
   in context) per in-flight window; `snapshot==0` or a corrupt blob
   fail-closes. The follower installs the dummy last-included index and acks
   `MsgSnapStatus`.
+- **Uncompacted App catch-up** — a joiner whose `next_idx` is still in the
+  live log gets an `App` batch from `next_idx` (capped by `max_size_per_msg`
+  and 256 entries). Heartbeat retries one in-flight App; `AppResp` reject
+  uses the follower's last-index hint so a blank joiner is not probed
+  decrement-by-one. A missing prev that is not the snapshot index is
+  fail-closed (no hole). After `MsgSnapStatus` the suffix is sent the same way.
 
 ## Previously done (auth data plane)
 

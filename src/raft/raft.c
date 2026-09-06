@@ -12,6 +12,7 @@ typedef struct peer_progress_ {
     uint64_t next_idx;
     uint64_t match_idx;
     uint8_t  pending_snap;
+    uint8_t  pending_app;
 } peer_progress_;
 
 /* ── Internal state ─────────────────────────────────────────────── */
@@ -257,6 +258,7 @@ static void add_peer_(cetcd_raft *r, uint64_t id, int is_learner) {
                 r->log_compacted > 0 ? r->log_compacted : 1;
         r->progress[r->n_peers].match_idx = 0;
         r->progress[r->n_peers].pending_snap = 0;
+        r->progress[r->n_peers].pending_app = 0;
     }
     r->n_peers++;
 }
@@ -319,6 +321,68 @@ static void maybe_send_snap_(cetcd_raft *r, uint32_t i) {
     snap.commit = r->commit;
     queue_msg_(r, &snap);
     r->progress[i].pending_snap = 1;
+}
+
+/* Send App from progress.next_idx, capped by max_size_per_msg and the
+ * wire entry limit (256). One in-flight App per peer; heartbeat clears
+ * the inflight so a dropped ack is retried. A missing prev (and not a
+ * snapshot index) is fail-closed: do not advertise a hole. */
+static void maybe_send_app_(cetcd_raft *r, uint32_t i) {
+    if (!r || i >= MAX_PEERS_ || i >= r->n_peers) return;
+    if (r->peers[i] == r->id) return;
+    if (r->progress[i].pending_snap) return;
+    if (r->progress[i].pending_app) return;
+
+    uint64_t next = r->progress[i].next_idx;
+    if (next == 0) next = 1;
+    if (r->log_compacted > 0 && next <= r->log_compacted) {
+        maybe_send_snap_(r, i);
+        return;
+    }
+    if (next > r->log_last_index) return;
+
+    uint64_t prev = next - 1;
+    if (prev > 0 && !log_at_(r, prev) && prev != r->log_compacted)
+        return;
+
+    uint64_t max_sz = r->max_size_per_msg ? r->max_size_per_msg : (1024ull * 1024ull);
+    uint32_t max_n = 256;
+    uint32_t n = 0;
+    uint64_t bytes = 0;
+    for (uint64_t idx = next; idx <= r->log_last_index && n < max_n; idx++) {
+        cetcd_entry *e = log_at_(r, idx);
+        if (!e) break;
+        uint64_t add = (uint64_t)e->data.len + 16ull;
+        if (n > 0 && bytes + add > max_sz) break;
+        bytes += add;
+        n++;
+    }
+    if (n == 0) return;
+
+    cetcd_entry *ecopy = (cetcd_entry *)malloc((size_t)n * sizeof(cetcd_entry));
+    if (!ecopy) return;
+    for (uint32_t k = 0; k < n; k++) {
+        cetcd_entry *e = log_at_(r, next + k);
+        if (!e) {
+            free(ecopy);
+            return;
+        }
+        ecopy[k] = *e;
+    }
+
+    cetcd_msg app;
+    memset(&app, 0, sizeof(app));
+    app.type = CETCD_MSG_APP;
+    app.to = r->peers[i];
+    app.from = r->id;
+    app.term = r->term;
+    app.index = prev;
+    app.log_term = log_term_at_(r, prev);
+    app.commit = r->commit;
+    app.entries = ecopy;
+    app.n_entries = n;
+    queue_msg_(r, &app);
+    r->progress[i].pending_app = 1;
 }
 
 /* ── Commit advancement ─────────────────────────────────────────── */
@@ -423,6 +487,7 @@ static void become_leader_(cetcd_raft *r) {
         r->progress[i].next_idx  = r->log_last_index + 1;
         r->progress[i].match_idx = 0;
         r->progress[i].pending_snap = 0;
+        r->progress[i].pending_app = 0;
     }
 }
 
@@ -655,15 +720,23 @@ static int handle_app_resp_(cetcd_raft *r, cetcd_msg *msg) {
     }
     if (slot < 0) return 0;
 
+    r->progress[slot].pending_app = 0;
     if (!msg->reject) {
         r->progress[slot].match_idx = msg->index;
         r->progress[slot].next_idx  = msg->index + 1;
         maybe_advance_commit_(r);
+        maybe_send_app_(r, (uint32_t)slot);
     } else {
-        if (r->progress[slot].next_idx > 1) {
-            r->progress[slot].next_idx--;
-        }
+        /* RejectHint: follower's last index. One probe instead of
+         * decrement-by-one from an optimistic next_idx. */
+        uint64_t hint = msg->index + 1;
+        if (hint < 1) hint = 1;
+        if (hint < r->progress[slot].next_idx)
+            r->progress[slot].next_idx = hint;
+        if (msg->index < r->progress[slot].match_idx)
+            r->progress[slot].match_idx = msg->index;
         maybe_send_snap_(r, (uint32_t)slot);
+        maybe_send_app_(r, (uint32_t)slot);
     }
     return 0;
 }
@@ -751,10 +824,12 @@ static int handle_snap_status_(cetcd_raft *r, cetcd_msg *msg) {
     }
     if (slot < 0) return 0;
     r->progress[slot].pending_snap = 0;
+    r->progress[slot].pending_app = 0;
     if (!msg->reject && msg->snapshot > 0) {
         r->progress[slot].match_idx = msg->snapshot;
         r->progress[slot].next_idx = msg->snapshot + 1;
         maybe_advance_commit_(r);
+        maybe_send_app_(r, (uint32_t)slot);
     }
     return 0;
 }
@@ -809,29 +884,7 @@ int cetcd_raft_step(cetcd_raft *r, cetcd_msg *msg) {
             for (uint32_t i = 0; i < r->n_peers; i++) {
                 if (r->peers[i] == r->id) continue;
                 if (i >= MAX_PEERS_) break;
-                if (r->log_compacted > 0 &&
-                    r->progress[i].next_idx <= r->log_compacted) {
-                    maybe_send_snap_(r, i);
-                    continue;
-                }
-                cetcd_msg app;
-                memset(&app, 0, sizeof(app));
-                app.type      = CETCD_MSG_APP;
-                app.to        = r->peers[i];
-                app.from      = r->id;
-                app.term      = r->term;
-                app.log_term  = r->log_last_term;
-                app.index     = r->log_last_index - 1;
-                app.commit    = r->commit;
-                cetcd_entry *ecopy = (cetcd_entry *)malloc(sizeof(cetcd_entry));
-                if (ecopy) {
-                    cetcd_entry *stored = log_at_(r, e.index);
-                    if (stored) *ecopy = *stored;
-                    else *ecopy = e;
-                }
-                app.entries   = ecopy;
-                app.n_entries = 1;
-                queue_msg_(r, &app);
+                maybe_send_app_(r, i);
             }
 
             maybe_advance_commit_(r);
@@ -840,7 +893,7 @@ int cetcd_raft_step(cetcd_raft *r, cetcd_msg *msg) {
 
     case CETCD_MSG_BEAT:
         if (r->role != ROLE_LEADER) break;
-        for (uint32_t i = 0; i < r->n_peers; i++) {
+        for (uint32_t i = 0; i < r->n_peers && i < MAX_PEERS_; i++) {
             if (r->peers[i] == r->id) continue;
             cetcd_msg hb;
             memset(&hb, 0, sizeof(hb));
@@ -850,7 +903,9 @@ int cetcd_raft_step(cetcd_raft *r, cetcd_msg *msg) {
             hb.term   = r->term;
             hb.commit = r->commit;
             queue_msg_(r, &hb);
+            r->progress[i].pending_app = 0;
             maybe_send_snap_(r, i);
+            maybe_send_app_(r, i);
         }
         break;
 
@@ -944,33 +999,11 @@ int cetcd_raft_propose_conf_change(cetcd_raft *r, const uint8_t *data, size_t le
     }
     queue_hard_state_(r);
 
-    /* Broadcast to followers */
+    /* Broadcast to followers from each peer's next_idx. */
     for (uint32_t i = 0; i < r->n_peers; i++) {
         if (r->peers[i] == r->id) continue;
         if (i >= MAX_PEERS_) break;
-        if (r->log_compacted > 0 &&
-            r->progress[i].next_idx <= r->log_compacted) {
-            maybe_send_snap_(r, i);
-            continue;
-        }
-        cetcd_msg app;
-        memset(&app, 0, sizeof(app));
-        app.type      = CETCD_MSG_APP;
-        app.to        = r->peers[i];
-        app.from      = r->id;
-        app.term      = r->term;
-        app.log_term  = r->log_last_term;
-        app.index     = r->log_last_index - 1;
-        app.commit    = r->commit;
-        cetcd_entry *ecopy = (cetcd_entry *)malloc(sizeof(cetcd_entry));
-        if (ecopy) {
-            cetcd_entry *stored = log_at_(r, e.index);
-            if (stored) *ecopy = *stored;
-            else *ecopy = e;
-        }
-        app.entries   = ecopy;
-        app.n_entries = 1;
-        queue_msg_(r, &app);
+        maybe_send_app_(r, i);
     }
 
     maybe_advance_commit_(r);
