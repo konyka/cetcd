@@ -78,7 +78,8 @@ Performance-first, fail-closed design:
   (`uv_queue_work`) so the Raft reactor is not stalled. Linux samples
   on-CPU RIP/PC via `ITIMER_PROF`/`SIGPROF`; concurrent collections return
   409. Output is folded-stack text (not protobuf). Heap and coroutine
-  endpoints stay instant.
+  endpoints stay instant. `--enable-pprof` (omitted default off) is required
+  or those paths 404.
 - **HTTP/2 gRPC accept** — client connections that send the `PRI * HTTP/2`
   preface are demuxed from `cetcdctl` frames and fed to nghttp2. Unary
   `:path` + DATA map to `cetcd_v3rpc_dispatch_ex`; `authorization` is the
@@ -407,6 +408,10 @@ Performance-first, fail-closed design:
   `SETTINGS_MAX_CONCURRENT_STREAMS` on each new session. Omitted leaves
   nghttp2's default (no extra SETTINGS entry). `0`, leftover text, or a
   value above `UINT32_MAX` fail-closes (deny-all is useless).
+- **`--enable-pprof`** — bool (omitted default off; bare / `true` on).
+  `/debug/pprof/profile|heap|coroutines` on the metrics port require it;
+  otherwise those paths 404. `/metrics` is unchanged. A non-bool
+  fail-closes (no longer an unknown flag).
 - **Downgrade fail-closed** — `Maintenance/Downgrade` VALIDATE of
   `cetcd_version()` succeeds (already at this binary). ENABLE, CANCEL,
   and any other version fail-closed: the on-disk format cannot change

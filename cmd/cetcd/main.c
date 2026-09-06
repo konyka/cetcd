@@ -30,6 +30,7 @@ static void print_usage(const char *prog) {
     printf("  --peer-port PORT Peer listen port (default: 2380; 1..65535)\n");
     printf("  --metrics-port PORT Metrics listen port (default: 2381; 0 disables; 0..65535)\n");
     printf("  --listen-metrics-urls URL  Metrics listen URL (http://host:port; https/multi fail)\n");
+    printf("  --enable-pprof     Expose /debug/pprof/* on the metrics port (default off; true|false)\n");
     printf("  --node-id ID     Node ID (default: 1; must be > 0)\n");
     printf("  --initial-cluster ID=ADDR:PORT,...  Initial cluster (https requires --peer-cert-file; id > 0; port 1..65535)\n");
     printf("  --election-tick N   Raft election tick (default: 10; must be > 0)\n");
@@ -168,6 +169,25 @@ int main(int argc, char **argv) {
             }
             cfg.metrics_port = (uint16_t)v;
             cfg.metrics_port_set = true;
+        } else if (strcmp(argv[i], "--enable-pprof") == 0) {
+            cfg.enable_pprof_set = true;
+            cfg.enable_pprof = true;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                int b = 0;
+                if (cetcd_parse_bool_flag(argv[++i], &b) != CETCD_OK) {
+                    fprintf(stderr, "--enable-pprof must be true or false\n");
+                    return 1;
+                }
+                cfg.enable_pprof = b != 0;
+            }
+        } else if (strncmp(argv[i], "--enable-pprof=", 15) == 0) {
+            int b = 0;
+            if (cetcd_parse_bool_flag(argv[i] + 15, &b) != CETCD_OK) {
+                fprintf(stderr, "--enable-pprof must be true or false\n");
+                return 1;
+            }
+            cfg.enable_pprof_set = true;
+            cfg.enable_pprof = b != 0;
         } else if (strcmp(argv[i], "--listen-metrics-urls") == 0 && i + 1 < argc) {
             char host[256];
             uint16_t port = 0;

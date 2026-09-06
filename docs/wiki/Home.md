@@ -48,7 +48,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 | **性能对等** | 3 节点 70/30 Put/Range 工作负载下达到或超过 Go 版 etcd |
 | **纯 C** | C99 基准，需要 C11 原子操作，公共头文件无 GNU/MSVC 扩展 |
 | **可测试** | 全程 TDD，通过可注入时钟/网络实现确定性 Raft 测试 |
-| **可观测** | 结构化 JSON 日志、Prometheus `/metrics`（默认 2381）、pprof 性能分析端点 |
+| **可观测** | 结构化 JSON 日志、Prometheus `/metrics`（默认 2381）、`--enable-pprof` 才开的 pprof 端点 |
 
 ### 当前实现要点（v0.3.x）
 
@@ -100,7 +100,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **协程驱动的 Watch 双向流**：每个 watcher 运行在独立的 libco 协程中，事件到达时通过 `uv_async_send` 唤醒协程并推送 `WatchResponse`，支持单连接多 watcher 多路复用。详见 [ADR 0004](../adr/0004-watch-streaming-coroutines.md) 与 [架构设计 §Watch streaming](../architecture.md#watch-streaming-architecture)。
 - **Prometheus metrics HTTP 端点**：默认监听 2381 端口，`GET /metrics` 返回 Prometheus 文本格式。详见 [usage.md §Observability](../usage.md#observability)。
 - **etcd 迁移工具 `cetcd-migrate`**：离线读取 etcd 数据目录（bbolt + WAL + snap），转换为 cetcd 原生的 LMDB 环境与 WAL。详见 [usage.md §Migrating from etcd](../usage.md#migrating-from-etcd)。
-- **pprof 性能分析端点**：在 metrics 端口提供 `/debug/pprof/profile`、`/debug/pprof/heap`、`/debug/pprof/coroutines`。CPU profile 在 libuv 工作线程采集（`SIGPROF` 采样 on-CPU 线程），不阻塞 Raft reactor；并发采集返回 409。输出为 folded-stack 文本。详见 [usage.md §Profiling](../usage.md#profiling)。
+- **pprof 性能分析端点**：`--enable-pprof`（省略默认关）才在 metrics 端口提供 `/debug/pprof/profile`、`/debug/pprof/heap`、`/debug/pprof/coroutines`；未开启则 404。CPU profile 在 libuv 工作线程采集（`SIGPROF` 采样 on-CPU 线程），不阻塞 Raft reactor；并发采集返回 409。输出为 folded-stack 文本。详见 [usage.md §Profiling](../usage.md#profiling)。
 
 ---
 
@@ -817,6 +817,7 @@ Unknown server flags fail at parse instead of being ignored.
 `--peer-port` is `1..65535`; a typo fail-closes instead of binding the Raft port on `0`.
 `--metrics-port` is `0..65535` (`0` disables); a typo fail-closes instead of silently disabling metrics.
 `--listen-metrics-urls` is a single `http://host:port` (port `1..65535`). It binds metrics on that address. `https` / comma-list / leftover text / mix with `--metrics-port` fail-closes.
+`--enable-pprof` is `true`/`false`/`1`/`0` (bare flag is on; omitted default off). A non-bool fail-closes. Without it `/debug/pprof/*` on the metrics port is 404.
 `--node-id` must be `> 0`; a typo fail-closes instead of becoming Raft id `0`.
 `--election-tick` must be `> 0`; a typo or `0` fail-closes instead of becoming `10`.
 `--heartbeat-tick` must be `> 0`; a typo or `0` fail-closes instead of becoming `1`.

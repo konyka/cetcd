@@ -228,6 +228,22 @@ int cetcd_server_want_wait_cluster_ready(int set, int enabled) {
     return set ? (enabled != 0) : 0;
 }
 
+int cetcd_server_want_enable_pprof(int set, int enabled) {
+    return set ? (enabled != 0) : 0;
+}
+
+int cetcd_server_metrics_route(const char *path, size_t path_len, int enable_pprof) {
+    if (!path || path_len == 0) return 2;
+    if (path_len == 8 && memcmp(path, "/metrics", 8) == 0) return 1;
+    if (path_len >= 20 && memcmp(path, "/debug/pprof/profile", 20) == 0)
+        return enable_pprof ? 3 : 2;
+    if (path_len == 18 && memcmp(path, "/debug/pprof/heap", 18) == 0)
+        return enable_pprof ? 4 : 2;
+    if (path_len == 24 && memcmp(path, "/debug/pprof/coroutines", 24) == 0)
+        return enable_pprof ? 5 : 2;
+    return 2;
+}
+
 int cetcd_server_should_listen_clients(int wait_ready, uint64_t leader_id) {
     return wait_ready ? (leader_id != 0) : 1;
 }

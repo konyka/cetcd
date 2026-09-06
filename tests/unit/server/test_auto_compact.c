@@ -316,6 +316,25 @@ CETCD_TEST_CASE(auto_compact_metrics_addr) {
     CETCD_ASSERT_TRUE(cetcd_server_metrics_addr(NULL) == NULL);
 }
 
+CETCD_TEST_CASE(auto_compact_enable_pprof) {
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_enable_pprof(0, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_enable_pprof(0, 1), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_enable_pprof(1, 1), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_enable_pprof(1, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route("/metrics", 8, 0), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route("/metrics", 8, 1), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route("/debug/pprof/heap", 18, 0), 2);
+    CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route("/debug/pprof/heap", 18, 1), 4);
+    CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route("/debug/pprof/coroutines", 24, 0), 2);
+    CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route("/debug/pprof/coroutines", 24, 1), 5);
+    CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route("/debug/pprof/profile", 20, 0), 2);
+    CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route("/debug/pprof/profile", 20, 1), 3);
+    CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route("/debug/pprof/profile?seconds=10", 31, 1), 3);
+    CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route("/debug/pprof/profile?seconds=10", 31, 0), 2);
+    CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route("/health", 7, 1), 2);
+    CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route(NULL, 0, 1), 2);
+}
+
 CETCD_TEST_CASE(auto_compact_wait_cluster_ready) {
     CETCD_ASSERT_EQ_INT(cetcd_server_want_wait_cluster_ready(0, 0), 0);
     CETCD_ASSERT_EQ_INT(cetcd_server_want_wait_cluster_ready(0, 1), 0);
@@ -465,6 +484,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_listen_url),
     CETCD_TEST_ENTRY(auto_compact_parse_metrics_listen_url),
     CETCD_TEST_ENTRY(auto_compact_metrics_addr),
+    CETCD_TEST_ENTRY(auto_compact_enable_pprof),
     CETCD_TEST_ENTRY(auto_compact_wait_cluster_ready),
     CETCD_TEST_ENTRY(auto_compact_want_tick_advance),
     CETCD_TEST_ENTRY(auto_compact_parse_self_signed_cert_validity),

@@ -1846,6 +1846,29 @@ CETCD_TEST_CASE(live_cetcd_listen_metrics_urls) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_enable_pprof) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --enable-pprof --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --enable-pprof=false --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --enable-pprof=abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --enable-pprof yes >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_node_id) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -3264,6 +3287,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_peer_port),
     CETCD_TEST_ENTRY(live_cetcd_metrics_port),
     CETCD_TEST_ENTRY(live_cetcd_listen_metrics_urls),
+    CETCD_TEST_ENTRY(live_cetcd_enable_pprof),
     CETCD_TEST_ENTRY(live_cetcd_node_id),
     CETCD_TEST_ENTRY(live_cetcd_election_tick),
     CETCD_TEST_ENTRY(live_cetcd_heartbeat_tick),

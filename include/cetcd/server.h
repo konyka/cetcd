@@ -95,6 +95,8 @@ typedef struct cetcd_server_config {
     char            metrics_addr[256];            /* empty → listen_addr */
     bool            metrics_port_set;             /* --metrics-port given */
     bool            metrics_urls_set;             /* --listen-metrics-urls given */
+    bool            enable_pprof_set;             /* --enable-pprof given */
+    bool            enable_pprof;                 /* unset → off (etcd 3.5) */
     uint64_t        election_tick;
     uint64_t        heartbeat_tick;
     bool            election_tick_set;            /* --election-tick given */
@@ -175,6 +177,10 @@ int cetcd_server_want_pre_vote(int set, int enabled);
 int cetcd_server_want_tick_advance(int set, int enabled);
 /* Unset → 0 (do not wait). set uses enabled. */
 int cetcd_server_want_wait_cluster_ready(int set, int enabled);
+/* Unset → 0 (pprof off). set uses enabled. */
+int cetcd_server_want_enable_pprof(int set, int enabled);
+/* 1=/metrics 2=404 3=profile 4=heap 5=coroutines. enable_pprof 0 → pprof is 404. */
+int cetcd_server_metrics_route(const char *path, size_t path_len, int enable_pprof);
 /* 1 if clients may listen. wait 0 always. wait 1 requires leader_id != 0. */
 int cetcd_server_should_listen_clients(int wait_ready, uint64_t leader_id);
 /* Integer milliseconds > 0 and <= 50000. Leftover text is INVAL. */

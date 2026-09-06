@@ -933,10 +933,11 @@ static int metrics_parse_request_(metrics_conn_ctx_ *ctx) {
     size_t path_len = (size_t)(space2 - space1 - 1);
     const char *path = space1 + 1;
 
-    if (path_len == 8 && memcmp(path, "/metrics", 8) == 0) {
-        return 1;  /* /metrics */
-    }
-    if (path_len >= 20 && memcmp(path, "/debug/pprof/profile", 20) == 0) {
+    int enable_pprof = cetcd_server_want_enable_pprof(
+        ctx->srv && ctx->srv->cfg.enable_pprof_set,
+        ctx->srv && ctx->srv->cfg.enable_pprof);
+    int route = cetcd_server_metrics_route(path, path_len, enable_pprof);
+    if (route == 3) {
         /* Parse ?seconds=N query parameter */
         ctx->pprof_seconds = 30;  /* etcd default */
         if (path_len > 20 && path[20] == '?') {
@@ -947,15 +948,8 @@ static int metrics_parse_request_(metrics_conn_ctx_ *ctx) {
                 if (secs > 0 && secs <= 300) ctx->pprof_seconds = secs;
             }
         }
-        return 3;  /* /debug/pprof/profile */
     }
-    if (path_len == 18 && memcmp(path, "/debug/pprof/heap", 18) == 0) {
-        return 4;  /* /debug/pprof/heap */
-    }
-    if (path_len == 24 && memcmp(path, "/debug/pprof/coroutines", 24) == 0) {
-        return 5;  /* /debug/pprof/coroutines */
-    }
-    return 2; /* not found */
+    return route;
 }
 
 static void on_metrics_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {

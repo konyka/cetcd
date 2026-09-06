@@ -740,8 +740,9 @@ text format. Key families include:
 
 ### Profiling
 
-pprof-style profiling endpoints are exposed on the metrics port (`2381` by default)
-under `/debug/pprof/`.
+`--enable-pprof` exposes pprof-style endpoints on the metrics port (`2381` by default)
+under `/debug/pprof/`. Omitted default is off (etcd 3.5); a non-bool fail-closes.
+Without the flag those paths return 404. `/metrics` stays available.
 
 | Endpoint | Description |
 |----------|-------------|
@@ -750,6 +751,9 @@ under `/debug/pprof/`.
 | `GET /debug/pprof/coroutines` | Snapshot of active libco coroutines and their states |
 
 ```sh
+# Start with pprof enabled
+./build/bin/cetcd --enable-pprof --data-dir ./data
+
 # 10-second CPU profile
 curl -o cpu.prof http://127.0.0.1:2381/debug/pprof/profile?seconds=10
 
