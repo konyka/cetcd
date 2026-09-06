@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 60 — tls-min/max-version</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 61 — host-whitelist</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 60 honors
-     <code>--tls-min-version</code> / <code>--tls-max-version</code>
-     (<code>TLS1.2</code> or <code>TLS1.3</code>). Omitted min is TLS1.2;
-     omitted max is open. <code>TLS1.1</code> or min &gt; max fail-closes.</p>
+  <p><strong>v0.3.0</strong>. Phase 61 honors
+     <code>--host-whitelist</code> on the metrics HTTP port.
+     Omitted / <code>*</code> allows all. A restricted list returns
+     403 when <code>Host</code> is missing or not listed.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -114,6 +114,7 @@
       <tr><td>58</td><td>enable-pprof</td><td>--enable-pprof gates /debug/pprof/* on the metrics port; omitted default off; non-bool fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>59</td><td>/health</td><td>GET /health on the metrics port returns etcd JSON; 503 on NOSPACE/CORRUPT/no leader; serializable/exclude match etcd — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>60</td><td>tls-min/max-version</td><td>--tls-min-version / --tls-max-version are TLS1.2 or TLS1.3; omitted min TLS1.2; min&gt;max / TLS1.1 fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>61</td><td>host-whitelist</td><td>--host-whitelist restricts metrics HTTP Host; omitted/* allow all; missing/unknown Host is 403 — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

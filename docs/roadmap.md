@@ -421,6 +421,10 @@ Performance-first, fail-closed design:
   only. Omitted min is TLS1.2; omitted max is open. `TLS1.1`, leftover
   text, or min > max fail-closes. Applied after `--cipher-suites` on
   client and peer contexts.
+- **`--host-whitelist`** — comma-separated Host names on the metrics
+  HTTP port. Empty / `*` (omitted default) allows all. A restricted list
+  waits for headers and returns 403 if Host is missing or not listed
+  (port stripped). Default `*` stays a fast path (request-line only).
 - **Downgrade fail-closed** — `Maintenance/Downgrade` VALIDATE of
   `cetcd_version()` succeeds (already at this binary). ENABLE, CANCEL,
   and any other version fail-closed: the on-disk format cannot change

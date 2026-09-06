@@ -32,6 +32,7 @@ static void print_usage(const char *prog) {
     printf("  --metrics-port PORT Metrics listen port (default: 2381; 0 disables; 0..65535; /metrics + /health)\n");
     printf("  --listen-metrics-urls URL  Metrics listen URL (http://host:port; https/multi fail)\n");
     printf("  --enable-pprof     Expose /debug/pprof/* on the metrics port (default off; true|false)\n");
+    printf("  --host-whitelist LIST  Allowed Host names on metrics HTTP (* or empty = all)\n");
     printf("  --node-id ID     Node ID (default: 1; must be > 0)\n");
     printf("  --initial-cluster ID=ADDR:PORT,...  Initial cluster (https requires --peer-cert-file; id > 0; port 1..65535)\n");
     printf("  --election-tick N   Raft election tick (default: 10; must be > 0)\n");
@@ -191,6 +192,14 @@ int main(int argc, char **argv) {
             }
             cfg.enable_pprof_set = true;
             cfg.enable_pprof = b != 0;
+        } else if (strcmp(argv[i], "--host-whitelist") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--host-whitelist requires a host list\n");
+                return 1;
+            }
+            strncpy(cfg.host_whitelist, argv[++i], sizeof(cfg.host_whitelist) - 1);
+        } else if (strncmp(argv[i], "--host-whitelist=", 17) == 0) {
+            strncpy(cfg.host_whitelist, argv[i] + 17, sizeof(cfg.host_whitelist) - 1);
         } else if (strcmp(argv[i], "--listen-metrics-urls") == 0 && i + 1 < argc) {
             char host[256];
             uint16_t port = 0;

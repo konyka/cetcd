@@ -385,6 +385,53 @@ CETCD_TEST_CASE(auto_compact_health) {
     CETCD_ASSERT_EQ_INT(cetcd_server_health_json(1, NULL, NULL, 64), CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_host_whitelist) {
+    CETCD_ASSERT_EQ_INT(cetcd_server_host_whitelist_open(NULL), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_host_whitelist_open(""), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_host_whitelist_open("*"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_host_whitelist_open("localhost, *"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_host_whitelist_open("localhost"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_server_host_allowed(NULL, "evil"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_host_allowed("*", "evil"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_host_allowed("localhost,127.0.0.1",
+                                                 "localhost"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_host_allowed("localhost,127.0.0.1",
+                                                 "127.0.0.1"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_host_allowed("localhost", "evil"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_server_host_allowed("localhost", NULL), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_server_host_allowed(" localhost , 127.0.0.1 ",
+                                                 "127.0.0.1"), 1);
+
+    char name[64];
+    CETCD_ASSERT_EQ_INT(cetcd_http_host_name("localhost:2381", name, sizeof(name)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(name, "localhost");
+    CETCD_ASSERT_EQ_INT(cetcd_http_host_name("127.0.0.1", name, sizeof(name)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(name, "127.0.0.1");
+    CETCD_ASSERT_EQ_INT(cetcd_http_host_name("[::1]:2381", name, sizeof(name)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(name, "::1");
+    CETCD_ASSERT_EQ_INT(cetcd_http_host_name("", name, sizeof(name)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_http_host_name(NULL, name, sizeof(name)),
+                        CETCD_ERR_INVAL);
+
+    const char *req =
+        "GET /metrics HTTP/1.1\r\nHost: localhost:2381\r\n\r\n";
+    CETCD_ASSERT_EQ_INT(cetcd_http_headers_complete(req, strlen(req)), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_http_headers_complete("GET /metrics HTTP/1.1\r\n",
+                                                    22), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_http_header_get(req, strlen(req), "Host",
+                                             name, sizeof(name)), CETCD_OK);
+    CETCD_ASSERT_EQ_STR(name, "localhost:2381");
+    CETCD_ASSERT_EQ_INT(cetcd_http_header_get(req, strlen(req), "X-No",
+                                             name, sizeof(name)),
+                        CETCD_ERR_NOTFOUND);
+    CETCD_ASSERT_EQ_INT(cetcd_http_header_get(req, strlen(req), "Host",
+                                             NULL, 8), CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_wait_cluster_ready) {
     CETCD_ASSERT_EQ_INT(cetcd_server_want_wait_cluster_ready(0, 0), 0);
     CETCD_ASSERT_EQ_INT(cetcd_server_want_wait_cluster_ready(0, 1), 0);
@@ -536,6 +583,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_metrics_addr),
     CETCD_TEST_ENTRY(auto_compact_enable_pprof),
     CETCD_TEST_ENTRY(auto_compact_health),
+    CETCD_TEST_ENTRY(auto_compact_host_whitelist),
     CETCD_TEST_ENTRY(auto_compact_wait_cluster_ready),
     CETCD_TEST_ENTRY(auto_compact_want_tick_advance),
     CETCD_TEST_ENTRY(auto_compact_parse_self_signed_cert_validity),

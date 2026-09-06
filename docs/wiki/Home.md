@@ -819,6 +819,7 @@ Unknown server flags fail at parse instead of being ignored.
 `--peer-port` is `1..65535`; a typo fail-closes instead of binding the Raft port on `0`.
 `--metrics-port` is `0..65535` (`0` disables); a typo fail-closes instead of silently disabling metrics.
 `--listen-metrics-urls` is a single `http://host:port` (port `1..65535`). It binds `/metrics` and `/health` on that address. `https` / comma-list / leftover text / mix with `--metrics-port` fail-closes.
+`--host-whitelist` is a comma-separated Host list on that port (omitted / `*` / empty = allow all). A restricted list 403s a missing or unknown Host (port stripped).
 `GET /health` returns etcd JSON (`health` as a string). NOSPACE, CORRUPT, or no Raft leader is HTTP 503. `?serializable=true` skips the leader check; `exclude=NOSPACE|CORRUPT` skips that alarm.
 `--enable-pprof` is `true`/`false`/`1`/`0` (bare flag is on; omitted default off). A non-bool fail-closes. Without it `/debug/pprof/*` on the metrics port is 404.
 `--node-id` must be `> 0`; a typo fail-closes instead of becoming Raft id `0`.

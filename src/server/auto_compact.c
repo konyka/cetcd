@@ -309,6 +309,130 @@ int cetcd_server_health_json(int ok, const char *reason, char *out, size_t cap) 
     return CETCD_OK;
 }
 
+int cetcd_server_host_whitelist_open(const char *list) {
+    if (!list || !list[0]) return 1;
+    const char *p = list;
+    while (*p) {
+        while (*p == ' ' || *p == '\t' || *p == ',') p++;
+        if (!*p) break;
+        const char *s = p;
+        while (*p && *p != ',') p++;
+        const char *e = p;
+        while (e > s && (e[-1] == ' ' || e[-1] == '\t')) e--;
+        if (e == s + 1 && s[0] == '*') return 1;
+        if (*p == ',') p++;
+    }
+    return 0;
+}
+
+int cetcd_server_host_allowed(const char *list, const char *host) {
+    if (cetcd_server_host_whitelist_open(list)) return 1;
+    if (!host || !host[0]) return 0;
+    const char *p = list;
+    while (*p) {
+        while (*p == ' ' || *p == '\t' || *p == ',') p++;
+        if (!*p) break;
+        const char *s = p;
+        while (*p && *p != ',') p++;
+        const char *e = p;
+        while (e > s && (e[-1] == ' ' || e[-1] == '\t')) e--;
+        size_t n = (size_t)(e - s);
+        if (n && strlen(host) == n && memcmp(s, host, n) == 0) return 1;
+        if (*p == ',') p++;
+    }
+    return 0;
+}
+
+int cetcd_http_host_name(const char *hdr, char *out, size_t cap) {
+    if (!hdr || !out || cap < 2) return CETCD_ERR_INVAL;
+    while (*hdr == ' ' || *hdr == '\t') hdr++;
+    if (!*hdr) return CETCD_ERR_INVAL;
+    if (*hdr == '[') {
+        const char *rb = strchr(hdr, ']');
+        if (!rb || rb == hdr + 1) return CETCD_ERR_INVAL;
+        size_t n = (size_t)(rb - hdr - 1);
+        if (n >= cap) return CETCD_ERR_OVERFLOW;
+        memcpy(out, hdr + 1, n);
+        out[n] = '\0';
+        return CETCD_OK;
+    }
+    const char *colon = strrchr(hdr, ':');
+    size_t n;
+    if (colon && colon[1]) {
+        int digits = 1;
+        for (const char *d = colon + 1; *d; d++) {
+            if (*d < '0' || *d > '9') {
+                digits = 0;
+                break;
+            }
+        }
+        n = digits ? (size_t)(colon - hdr) : strlen(hdr);
+    } else {
+        n = strlen(hdr);
+    }
+    if (n == 0 || n >= cap) return CETCD_ERR_INVAL;
+    memcpy(out, hdr, n);
+    out[n] = '\0';
+    return CETCD_OK;
+}
+
+int cetcd_http_headers_complete(const char *req, size_t len) {
+    if (!req || len < 2) return 0;
+    size_t i;
+    for (i = 0; i + 3 < len; i++) {
+        if (req[i] == '\r' && req[i + 1] == '\n' &&
+            req[i + 2] == '\r' && req[i + 3] == '\n')
+            return 1;
+    }
+    for (i = 0; i + 1 < len; i++) {
+        if (req[i] == '\n' && req[i + 1] == '\n') return 1;
+    }
+    return 0;
+}
+
+int cetcd_http_header_get(const char *req, size_t len, const char *name,
+                          char *out, size_t cap) {
+    if (!req || !name || !name[0] || !out || cap < 2) return CETCD_ERR_INVAL;
+    out[0] = '\0';
+    size_t nlen = strlen(name);
+    const char *p = req;
+    const char *end = req + len;
+    while (p < end && *p != '\n') p++;
+    if (p < end) p++;
+    while (p < end) {
+        if (*p == '\r' || *p == '\n') break;
+        const char *line = p;
+        while (p < end && *p != '\n') p++;
+        size_t linelen = (size_t)(p - line);
+        if (p < end) p++;
+        if (linelen > 0 && line[linelen - 1] == '\r') linelen--;
+        if (linelen <= nlen + 1) continue;
+        size_t i;
+        int match = 1;
+        for (i = 0; i < nlen; i++) {
+            char a = line[i], b = name[i];
+            if (a >= 'A' && a <= 'Z') a = (char)(a + 32);
+            if (b >= 'A' && b <= 'Z') b = (char)(b + 32);
+            if (a != b) {
+                match = 0;
+                break;
+            }
+        }
+        if (!match || line[nlen] != ':') continue;
+        const char *v = line + nlen + 1;
+        size_t vl = linelen - nlen - 1;
+        while (vl && (*v == ' ' || *v == '\t')) {
+            v++;
+            vl--;
+        }
+        if (vl >= cap) return CETCD_ERR_OVERFLOW;
+        memcpy(out, v, vl);
+        out[vl] = '\0';
+        return CETCD_OK;
+    }
+    return CETCD_ERR_NOTFOUND;
+}
+
 int cetcd_server_should_listen_clients(int wait_ready, uint64_t leader_id) {
     return wait_ready ? (leader_id != 0) : 1;
 }

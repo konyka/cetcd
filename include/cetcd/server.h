@@ -97,6 +97,7 @@ typedef struct cetcd_server_config {
     bool            metrics_urls_set;             /* --listen-metrics-urls given */
     bool            enable_pprof_set;             /* --enable-pprof given */
     bool            enable_pprof;                 /* unset → off (etcd 3.5) */
+    char            host_whitelist[512];          /* empty or * = all; metrics Host */
     uint64_t        election_tick;
     uint64_t        heartbeat_tick;
     bool            election_tick_set;            /* --election-tick given */
@@ -194,6 +195,17 @@ int cetcd_parse_health_query(const char *qs, int *serializable,
                              int *exclude_nospace, int *exclude_corrupt);
 /* etcd strings: {"health":"true"} or {"health":"false","reason":"..."}. */
 int cetcd_server_health_json(int ok, const char *reason, char *out, size_t cap);
+/* 1 if empty or a `*` token (etcd default allow-all). */
+int cetcd_server_host_whitelist_open(const char *list);
+/* 1 if list is open or host matches a comma token. Missing host is denied. */
+int cetcd_server_host_allowed(const char *list, const char *host);
+/* Strip :port. [ipv6] keeps the inside. */
+int cetcd_http_host_name(const char *hdr, char *out, size_t cap);
+/* 1 if \r\n\r\n or \n\n is present. */
+int cetcd_http_headers_complete(const char *req, size_t len);
+/* Case-insensitive header name. Missing is NOTFOUND. */
+int cetcd_http_header_get(const char *req, size_t len, const char *name,
+                          char *out, size_t cap);
 /* 1 if clients may listen. wait 0 always. wait 1 requires leader_id != 0. */
 int cetcd_server_should_listen_clients(int wait_ready, uint64_t leader_id);
 /* Integer milliseconds > 0 and <= 50000. Leftover text is INVAL. */

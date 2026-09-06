@@ -728,6 +728,8 @@ fail-closes).
 
 # Scrape metrics
 curl http://127.0.0.1:2381/metrics
+# --host-whitelist localhost,127.0.0.1 rejects other Host headers (403)
+# omitted / * / empty allows all (etcd default)
 
 # etcd-compatible health (200 + {"health":"true"} or 503 + reason)
 # ?serializable=true skips the leader check; exclude=NOSPACE|CORRUPT skips that alarm

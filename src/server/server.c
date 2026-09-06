@@ -967,6 +967,18 @@ static int metrics_parse_request_(metrics_conn_ctx_ *ctx) {
     size_t path_len = (size_t)(space2 - space1 - 1);
     const char *path = space1 + 1;
 
+    const char *wl = ctx->srv ? ctx->srv->cfg.host_whitelist : NULL;
+    if (!cetcd_server_host_whitelist_open(wl)) {
+        if (!cetcd_http_headers_complete(ctx->req, ctx->req_len)) return 0;
+        char raw[256], host[256];
+        if (cetcd_http_header_get(ctx->req, ctx->req_len, "Host",
+                                  raw, sizeof(raw)) != CETCD_OK)
+            return -2;
+        if (cetcd_http_host_name(raw, host, sizeof(host)) != CETCD_OK)
+            return -2;
+        if (!cetcd_server_host_allowed(wl, host)) return -2;
+    }
+
     int enable_pprof = cetcd_server_want_enable_pprof(
         ctx->srv && ctx->srv->cfg.enable_pprof_set,
         ctx->srv && ctx->srv->cfg.enable_pprof);
@@ -1028,6 +1040,13 @@ static void on_metrics_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t 
     int parsed = metrics_parse_request_(ctx);
     if (parsed == 0) {
         /* Need more data; keep reading. */
+        return;
+    }
+    if (parsed == -2) {
+        const char *msg = "Invalid host header\n";
+        metrics_send_response_(ctx, 403, "Forbidden",
+                               "text/plain",
+                               (const uint8_t *)msg, strlen(msg));
         return;
     }
     if (parsed < 0) {
