@@ -80,6 +80,8 @@ const char       *g_rpc_auth_user = NULL;
 cetcd_backend    *g_rpc_auth_backend = NULL;
 uint64_t          g_rpc_quota_bytes = 0;
 uint64_t          g_rpc_max_txn_ops = 128;
+uint32_t          g_rpc_max_learners = 0;
+int               g_rpc_max_learners_set = 0;
 
 /* Streaming support: event loop and write callback for streaming RPCs */
 cetcd_loop           *g_rpc_loop = NULL;
@@ -309,6 +311,16 @@ void cetcd_v3rpc_set_max_txn_ops(uint64_t n) {
     if (n == 0) n = 128;
     if (n > 128) n = 128;
     g_rpc_max_txn_ops = n;
+}
+
+void cetcd_v3rpc_set_max_learners(uint32_t n) {
+    g_rpc_max_learners = n;
+    g_rpc_max_learners_set = 1;
+}
+
+void cetcd_v3rpc_clear_max_learners(void) {
+    g_rpc_max_learners = 0;
+    g_rpc_max_learners_set = 0;
 }
 
 void cetcd_v3rpc_auth_persist(void) {

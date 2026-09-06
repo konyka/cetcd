@@ -125,6 +125,22 @@ CETCD_TEST_CASE(auto_compact_parse_batch_limit) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_max_learners) {
+    uint32_t n = 99;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_learners("0", &n), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)n, 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_learners("1", &n), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)n, 1);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_learners("8", &n), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)n, 8);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_learners("abc", &n), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_learners("1foo", &n), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_learners("-1", &n), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_learners("", &n), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_learners(NULL, &n), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_learners("1", NULL), CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_clamp_batch) {
     CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_clamp(5000, 0, 0), 5000);
     CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_clamp(5000, 0, 1000), 1000);
@@ -177,6 +193,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_due_periodic),
     CETCD_TEST_ENTRY(auto_compact_parse_duration_ms),
     CETCD_TEST_ENTRY(auto_compact_parse_batch_limit),
+    CETCD_TEST_ENTRY(auto_compact_parse_max_learners),
     CETCD_TEST_ENTRY(auto_compact_clamp_batch),
     CETCD_TEST_ENTRY(auto_compact_next_revision_batches),
     CETCD_TEST_ENTRY(auto_compact_next_periodic_drains),

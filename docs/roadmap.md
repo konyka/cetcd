@@ -388,6 +388,12 @@ Performance-first, fail-closed design:
   disables; omitted default 100ms). A Raft apply slower than the
   threshold logs a warning. Missing value or a non-duration fail at
   parse (no longer swallowed). Other `--experimental-*` stay no-ops.
+- **`--experimental-max-learners`** — integer (`0` = no new learners;
+  omitted default 1). Learner `MemberAdd` fail-closes once the cluster
+  already has that many learners. Voter add is unchanged. Missing
+  value or leftover text fail at parse (no longer swallowed). WAL
+  apply of an already-committed add still applies. Other
+  `--experimental-*` stay no-ops.
 
 ## Previously done (auth data plane)
 

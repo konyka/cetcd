@@ -21,6 +21,7 @@ typedef struct cetcd_server cetcd_server;
 #define CETCD_DEFAULT_MAX_REQUEST_BYTES (1572864ULL) /* etcd 1.5 MiB */
 #define CETCD_DEFAULT_MAX_TXN_OPS 128ULL
 #define CETCD_MAX_TXN_OPS 128ULL
+#define CETCD_DEFAULT_MAX_LEARNERS 1U
 
 typedef enum cetcd_auto_compact_mode {
     CETCD_AUTO_COMPACT_OFF = 0,
@@ -56,6 +57,8 @@ int64_t cetcd_auto_compact_due(cetcd_auto_compact_state *st,
                                uint64_t now_ms);
 /* Integer >= 0. 0 = unlimited. Leftover text is INVAL. */
 int cetcd_parse_compaction_batch_limit(const char *s, uint64_t *out);
+/* Integer >= 0. 0 = unlimited. Leftover text is INVAL. */
+int cetcd_parse_max_learners(const char *s, uint32_t *out);
 /* Cap `target` to compacted+batch_limit. batch_limit 0 leaves target. */
 int64_t cetcd_auto_compact_clamp(int64_t target, int64_t compacted_rev,
                                  uint64_t batch_limit);
@@ -119,6 +122,8 @@ typedef struct cetcd_server_config {
     uint64_t        watch_progress_interval_ms;   /* 0 = default 10s; Watch progress_notify */
     bool            warning_apply_set;            /* --experimental-warning-apply-duration given */
     uint64_t        warning_apply_ms;             /* 0 = disable; unset → 100ms */
+    bool            max_learners_set;             /* --experimental-max-learners given */
+    uint32_t        max_learners;                 /* 0 = unlimited; unset → 1 */
 } cetcd_server_config;
 
 /* true|false|1|0. Empty/unknown is INVAL. */

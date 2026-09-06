@@ -48,6 +48,8 @@
 
 extern cetcd_cluster *g_rpc_cluster;
 extern uint64_t       g_rpc_node_id;
+extern uint32_t       g_rpc_max_learners;
+extern int            g_rpc_max_learners_set;
 extern char           g_rpc_advertise_client[512];
 extern char           g_rpc_advertise_peer[512];
 extern char           g_rpc_member_name[128];
@@ -279,6 +281,13 @@ cetcd_rpc_bytes cluster_handle_member_add(cetcd_v3rpc *rpc,
     uint64_t new_id = 0;
     if (g_rpc_cluster && peer_url) {
         if (g_rpc_raft && cetcd_raft_in_joint(g_rpc_raft)) {
+            free(peer_url);
+            return (cetcd_rpc_bytes){NULL, 0};
+        }
+        if (is_learner && g_rpc_max_learners_set &&
+            !cetcd_reconfig_may_add_learner(
+                cetcd_cluster_learner_count(g_rpc_cluster),
+                g_rpc_max_learners)) {
             free(peer_url);
             return (cetcd_rpc_bytes){NULL, 0};
         }

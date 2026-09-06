@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 43 — warning apply duration</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 44 — max learners</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 43 applies
-     <code>--experimental-warning-apply-duration</code> so a slow Raft
-     apply is logged instead of the flag being swallowed.</p>
+  <p><strong>v0.3.0</strong>. Phase 44 applies
+     <code>--experimental-max-learners</code> so a second learner
+     MemberAdd fail-closes instead of the flag being swallowed.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -96,6 +96,7 @@
       <tr><td>41</td><td>compaction batch limit</td><td>--experimental-compaction-batch-limit caps auto-compact revs per tick; 0 unlimited; leftover text fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>42</td><td>watch progress interval</td><td>--experimental-watch-progress-notify-interval sets progress_notify period; 0 = 10s; non-duration fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>43</td><td>warning apply duration</td><td>--experimental-warning-apply-duration warns if apply exceeds duration; 0 disables; omitted 100ms — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>44</td><td>max learners</td><td>--experimental-max-learners caps learner MemberAdd; 0 = none; omitted default 1 — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

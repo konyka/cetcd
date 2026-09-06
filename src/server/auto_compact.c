@@ -178,6 +178,16 @@ int cetcd_parse_compaction_batch_limit(const char *s, uint64_t *out) {
     return CETCD_OK;
 }
 
+int cetcd_parse_max_learners(const char *s, uint32_t *out) {
+    if (!out) return CETCD_ERR_INVAL;
+    uint64_t v = 0;
+    int rc = cetcd_parse_compaction_batch_limit(s, &v);
+    if (rc != CETCD_OK) return rc;
+    if (v > (uint64_t)UINT32_MAX) return CETCD_ERR_INVAL;
+    *out = (uint32_t)v;
+    return CETCD_OK;
+}
+
 int64_t cetcd_auto_compact_clamp(int64_t target, int64_t compacted_rev,
                                  uint64_t batch_limit) {
     if (target <= 0) return 0;

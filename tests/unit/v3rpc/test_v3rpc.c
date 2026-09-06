@@ -6238,6 +6238,48 @@ CETCD_TEST_CASE(v3rpc_member_remove_keeps_quorum) {
     cetcd_v3rpc_free(rpc);
 }
 
+static cetcd_rpc_bytes add_member_(cetcd_v3rpc *rpc, const char *url, int is_learner) {
+    uint8_t buf[64];
+    size_t pos = 0;
+    size_t n = strlen(url);
+    buf[pos++] = 0x0a;
+    buf[pos++] = (uint8_t)n;
+    memcpy(buf + pos, url, n);
+    pos += n;
+    if (is_learner) {
+        buf[pos++] = 0x10;
+        buf[pos++] = 0x01;
+    }
+    return cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Cluster/MemberAdd", buf, pos);
+}
+
+CETCD_TEST_CASE(v3rpc_member_add_learner_cap) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    cetcd_cluster *saved = g_rpc_cluster;
+    g_rpc_cluster = cetcd_cluster_new(1);
+    cetcd_v3rpc_set_max_learners(1);
+
+    cetcd_rpc_bytes resp = add_member_(rpc, "10.0.0.7:2380", 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+    CETCD_ASSERT_EQ_INT((int)cetcd_cluster_learner_count(g_rpc_cluster), 1);
+
+    resp = add_member_(rpc, "10.0.0.8:2380", 1);
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+    CETCD_ASSERT_EQ_INT((int)cetcd_cluster_learner_count(g_rpc_cluster), 1);
+
+    resp = add_member_(rpc, "10.0.0.9:2380", 0);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+    CETCD_ASSERT_EQ_INT((int)cetcd_cluster_voter_count(g_rpc_cluster), 2);
+
+    cetcd_v3rpc_clear_max_learners();
+    cetcd_cluster_free(g_rpc_cluster);
+    g_rpc_cluster = saved;
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
@@ -6293,6 +6335,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_member_remove_unknown_fail_closed),
     CETCD_TEST_ENTRY(v3rpc_member_remove_learner_ok),
     CETCD_TEST_ENTRY(v3rpc_member_remove_keeps_quorum),
+    CETCD_TEST_ENTRY(v3rpc_member_add_learner_cap),
     CETCD_TEST_ENTRY(v3rpc_auth_status),
     CETCD_TEST_ENTRY(v3rpc_auth_user_list),
     CETCD_TEST_ENTRY(v3rpc_auth_user_change_password),
