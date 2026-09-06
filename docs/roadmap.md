@@ -238,6 +238,8 @@ Performance-first, fail-closed design:
   `{data-dir}/fixtures/` when the matching cert flag is empty. Reuse if both
   files exist; one-without-the-other fail-closes. Requires `--data-dir`.
   Existing `--cert-file` / `--peer-cert-file` skip mint.
+  `--self-signed-cert-validity N` sets mint lifetime in years (omitted
+  default 1, etcd-compatible; `0` / leftover text fail-closes).
 - **`--advertise-client-urls` / `--initial-advertise-peer-urls`** — MemberList
   self `clientURLs` / `peerURLs`. Omitted flags default from the listen address
   (scheme follows TLS). `https://` without the matching cert file fail-closes.
@@ -301,6 +303,10 @@ Performance-first, fail-closed design:
 - **`--auto-tls` / `--peer-auto-tls`** — mint `{data-dir}/fixtures/client.{crt,key}`
   or `peer.{crt,key}` (ECDSA P-256, SAN localhost + 127.0.0.1). Reuse when
   both files exist. Key mode 0600 on POSIX.
+- **`--self-signed-cert-validity`** — integer years `> 0` (omitted default 1).
+  Lifetime of a newly minted auto-TLS cert. Existing fixture files are
+  reused unchanged. `0`, leftover text, or a missing value fail at parse
+  (no longer an unknown flag). Previously minted 10-year certs.
 - **`--discovery-srv` / `--discovery-srv-name`** — DNS SRV bootstrap.
   Server looks up `_etcd-server[-ssl][-name]._tcp.<domain>` and fills
   `--initial-cluster` with stable FNV-1a peer ids. Client looks up

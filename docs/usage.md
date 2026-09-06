@@ -171,7 +171,9 @@ cetcd accepts several etcd server flags for migration compatibility:
   --peer-trusted-ca-file peer-ca.crt --peer-client-cert-auth
 
 # Self-signed ECDSA P-256 into {data-dir}/fixtures/ (requires --data-dir)
-./build/bin/cetcd --auto-tls --peer-auto-tls --data-dir ./data
+# --self-signed-cert-validity is years (default 1; must be > 0)
+./build/bin/cetcd --auto-tls --peer-auto-tls --self-signed-cert-validity 1 \
+  --data-dir ./data
 
 # TLS cipher list (IANA or OpenSSL names, including TLS 1.3; requires certs)
 # a TLS 1.3-only list disables TLS 1.2 (and a TLS 1.2-only list disables TLS 1.3)

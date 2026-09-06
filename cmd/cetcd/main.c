@@ -64,6 +64,7 @@ static void print_usage(const char *prog) {
     printf("  --trusted-ca-file FILE  Client TLS CA (required with --client-cert-auth)\n");
     printf("  --client-cert-auth  Require a client certificate (fail-closed)\n");
     printf("  --auto-tls           Mint {data-dir}/fixtures/client.{crt,key} if --cert-file omitted\n");
+    printf("  --self-signed-cert-validity N  Auto-TLS cert lifetime in years (default 1; must be > 0)\n");
     printf("  --peer-cert-file FILE    Peer accept TLS certificate (requires --peer-key-file)\n");
     printf("  --peer-key-file FILE     Peer accept TLS private key\n");
     printf("  --peer-trusted-ca-file FILE  Peer TLS CA (required with --peer-client-cert-auth)\n");
@@ -395,6 +396,24 @@ int main(int argc, char **argv) {
             cfg.client_cert_auth = true;
         } else if (strcmp(argv[i], "--auto-tls") == 0) {
             cfg.auto_tls = true;
+        } else if (strcmp(argv[i], "--self-signed-cert-validity") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--self-signed-cert-validity requires an integer\n");
+                return 1;
+            }
+            uint32_t years = 0;
+            if (cetcd_parse_self_signed_cert_validity(argv[++i], &years) != CETCD_OK) {
+                fprintf(stderr, "--self-signed-cert-validity must be an integer > 0\n");
+                return 1;
+            }
+            cfg.self_signed_cert_validity = years;
+        } else if (strncmp(argv[i], "--self-signed-cert-validity=", 28) == 0) {
+            uint32_t years = 0;
+            if (cetcd_parse_self_signed_cert_validity(argv[i] + 28, &years) != CETCD_OK) {
+                fprintf(stderr, "--self-signed-cert-validity must be an integer > 0\n");
+                return 1;
+            }
+            cfg.self_signed_cert_validity = years;
         } else if (strcmp(argv[i], "--peer-cert-file") == 0 && i + 1 < argc) {
             strncpy(cfg.peer_cert_file, argv[++i], sizeof(cfg.peer_cert_file) - 1);
         } else if (strcmp(argv[i], "--peer-key-file") == 0 && i + 1 < argc) {

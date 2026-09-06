@@ -63,6 +63,8 @@ int cetcd_parse_compaction_batch_limit(const char *s, uint64_t *out);
 int cetcd_parse_max_learners(const char *s, uint32_t *out);
 /* Integer seconds > 0. 0 / leftover text / overflow (sec*1e9) is INVAL. */
 int cetcd_parse_auth_token_ttl(const char *s, uint64_t *out);
+/* Integer years > 0. 0 / leftover text / overflow (years*365 days) is INVAL. */
+int cetcd_parse_self_signed_cert_validity(const char *s, uint32_t *out);
 /* Integer MB >= 0. 0 = off. Overflow (MB*1MiB) is INVAL. */
 int cetcd_parse_bootstrap_defrag_mb(const char *s, uint64_t *out);
 /* 1 if alloc_bytes > threshold_mb MiB. threshold 0 never. */
@@ -120,6 +122,7 @@ typedef struct cetcd_server_config {
     int             keepalive_timeout;     /* 0 = libuv default interval; else TCP_KEEPINTVL */
     bool            auto_tls;              /* mint {data-dir}/fixtures/client.{crt,key} */
     bool            peer_auto_tls;         /* mint {data-dir}/fixtures/peer.{crt,key} */
+    uint32_t        self_signed_cert_validity; /* 0 = unset → 1 year; auto-tls mint */
     char            advertise_client_urls[512]; /* MemberList clientURLs; empty → listen */
     char            advertise_peer_urls[512];   /* MemberList self peerURLs; empty → peer listen */
     char            name[128];                  /* MemberList self name; empty → "default" */

@@ -1,6 +1,7 @@
 #include "cetcd/server.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -212,6 +213,18 @@ int cetcd_parse_auth_token_ttl(const char *s, uint64_t *out) {
     if (v == 0) return CETCD_ERR_INVAL;
     if (v > UINT64_MAX / 1000000000ULL) return CETCD_ERR_INVAL;
     *out = v;
+    return CETCD_OK;
+}
+
+int cetcd_parse_self_signed_cert_validity(const char *s, uint32_t *out) {
+    if (!out) return CETCD_ERR_INVAL;
+    uint64_t v = 0;
+    int rc = cetcd_parse_compaction_batch_limit(s, &v);
+    if (rc != CETCD_OK) return rc;
+    if (v == 0) return CETCD_ERR_INVAL;
+    if (v > (uint64_t)(INT_MAX / 365)) return CETCD_ERR_INVAL;
+    if (v > (uint64_t)UINT32_MAX) return CETCD_ERR_INVAL;
+    *out = (uint32_t)v;
     return CETCD_OK;
 }
 

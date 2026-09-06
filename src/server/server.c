@@ -2269,13 +2269,17 @@ static int apply_auto_tls_(cetcd_server *srv) {
     ensure_dir(srv->cfg.data_dir);
     ensure_dir(fixtures);
     const char *cn = srv->cfg.name[0] ? srv->cfg.name : "localhost";
+    uint32_t years = srv->cfg.self_signed_cert_validity
+                         ? srv->cfg.self_signed_cert_validity
+                         : 1;
     if (need_client) {
         char cert[600], key[600];
         n = snprintf(cert, sizeof(cert), "%s/client.crt", fixtures);
         if (n < 0 || (size_t)n >= sizeof(cert)) return CETCD_ERR_OVERFLOW;
         n = snprintf(key, sizeof(key), "%s/client.key", fixtures);
         if (n < 0 || (size_t)n >= sizeof(key)) return CETCD_ERR_OVERFLOW;
-        int rc = cetcd_tls_auto_cert(cert, key, cn, srv->cfg.listen_addr);
+        int rc = cetcd_tls_auto_cert_years(cert, key, cn, srv->cfg.listen_addr,
+                                           years);
         if (rc != CETCD_OK) return rc;
         strncpy(srv->cfg.cert_file, cert, sizeof(srv->cfg.cert_file) - 1);
         strncpy(srv->cfg.key_file, key, sizeof(srv->cfg.key_file) - 1);
@@ -2286,7 +2290,8 @@ static int apply_auto_tls_(cetcd_server *srv) {
         if (n < 0 || (size_t)n >= sizeof(cert)) return CETCD_ERR_OVERFLOW;
         n = snprintf(key, sizeof(key), "%s/peer.key", fixtures);
         if (n < 0 || (size_t)n >= sizeof(key)) return CETCD_ERR_OVERFLOW;
-        int rc = cetcd_tls_auto_cert(cert, key, cn, srv->cfg.peer_addr);
+        int rc = cetcd_tls_auto_cert_years(cert, key, cn, srv->cfg.peer_addr,
+                                           years);
         if (rc != CETCD_OK) return rc;
         strncpy(srv->cfg.peer_cert_file, cert, sizeof(srv->cfg.peer_cert_file) - 1);
         strncpy(srv->cfg.peer_key_file, key, sizeof(srv->cfg.peer_key_file) - 1);

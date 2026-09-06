@@ -539,9 +539,26 @@ static int write_pem_pair_(const char *cert_path, const char *key_path,
     return 0;
 }
 
+int cetcd_tls_self_signed_days(uint32_t years, int *out_days) {
+    if (!out_days) return CETCD_ERR_INVAL;
+    if (years == 0) years = 1;
+    if (years > (uint32_t)(INT_MAX / 365)) return CETCD_ERR_INVAL;
+    *out_days = (int)years * 365;
+    return CETCD_OK;
+}
+
 int cetcd_tls_auto_cert(const char *cert_path, const char *key_path,
                         const char *cn, const char *extra_ip) {
+    return cetcd_tls_auto_cert_years(cert_path, key_path, cn, extra_ip, 0);
+}
+
+int cetcd_tls_auto_cert_years(const char *cert_path, const char *key_path,
+                              const char *cn, const char *extra_ip,
+                              uint32_t years) {
     if (!cert_path || !cert_path[0] || !key_path || !key_path[0])
+        return CETCD_ERR_INVAL;
+    int days = 0;
+    if (cetcd_tls_self_signed_days(years, &days) != CETCD_OK)
         return CETCD_ERR_INVAL;
     int have_c = file_readable_(cert_path);
     int have_k = file_readable_(key_path);
@@ -560,7 +577,7 @@ int cetcd_tls_auto_cert(const char *cert_path, const char *key_path,
     if (X509_set_version(cert, 2) != 1 ||
         ASN1_INTEGER_set(X509_get_serialNumber(cert), 1) != 1 ||
         !X509_gmtime_adj(X509_get_notBefore(cert), 0) ||
-        !X509_gmtime_adj(X509_get_notAfter(cert), 60L * 60 * 24 * 3650) ||
+        !X509_time_adj_ex(X509_get_notAfter(cert), days, 0, NULL) ||
         X509_set_pubkey(cert, pkey) != 1) {
         X509_free(cert);
         EVP_PKEY_free(pkey);
@@ -680,9 +697,23 @@ int cetcd_tls_write(cetcd_tls_conn *conn, const void *buf, size_t len) {
     (void)conn; (void)buf; (void)len; return CETCD_ERR_UNSUPPORT;
 }
 void cetcd_tls_shutdown(cetcd_tls_conn *conn) { (void)conn; }
+int cetcd_tls_self_signed_days(uint32_t years, int *out_days) {
+    if (!out_days) return CETCD_ERR_INVAL;
+    if (years == 0) years = 1;
+    if (years > (uint32_t)(INT_MAX / 365)) return CETCD_ERR_INVAL;
+    *out_days = (int)years * 365;
+    return CETCD_OK;
+}
+
 int cetcd_tls_auto_cert(const char *cert_path, const char *key_path,
                         const char *cn, const char *extra_ip) {
-    (void)cert_path; (void)key_path; (void)cn; (void)extra_ip;
+    return cetcd_tls_auto_cert_years(cert_path, key_path, cn, extra_ip, 0);
+}
+
+int cetcd_tls_auto_cert_years(const char *cert_path, const char *key_path,
+                              const char *cn, const char *extra_ip,
+                              uint32_t years) {
+    (void)cert_path; (void)key_path; (void)cn; (void)extra_ip; (void)years;
     return CETCD_ERR_UNSUPPORT;
 }
 #endif

@@ -793,6 +793,8 @@ or `--insecure-transport` mixed with cert flags fail closed. `--auto-tls` /
 `--peer-auto-tls` mint `{data-dir}/fixtures/client.{crt,key}` or `peer.{crt,key}`
 (ECDSA P-256) when the matching cert flag is empty. Reuse if both files exist;
 one-without-the-other or missing `--data-dir` fail-closes.
+`--self-signed-cert-validity` is mint lifetime in years (`> 0`; omitted default 1);
+`0` or leftover text fail-closes.
 `--cipher-suites` restricts TLS (IANA or OpenSSL names; TLS 1.3 IANA names use
 `SSL_CTX_set_ciphersuites`); unknown names or the flag without certs fail closed.
 A TLS 1.3-only list disables TLS 1.2 (and a TLS 1.2-only list disables TLS 1.3)

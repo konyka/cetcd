@@ -2396,6 +2396,34 @@ CETCD_TEST_CASE(live_cetcd_auto_tls_requires_certs) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_self_signed_cert_validity) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --self-signed-cert-validity 1 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --self-signed-cert-validity=2 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --self-signed-cert-validity 0 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --self-signed-cert-validity abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --self-signed-cert-validity >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_advertise_https_requires_certs) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -3057,6 +3085,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_log_outputs),
     CETCD_TEST_ENTRY(live_cetcd_grpc_keepalive),
     CETCD_TEST_ENTRY(live_cetcd_auto_tls_requires_certs),
+    CETCD_TEST_ENTRY(live_cetcd_self_signed_cert_validity),
     CETCD_TEST_ENTRY(live_cetcd_advertise_https_requires_certs),
     CETCD_TEST_ENTRY(live_cetcd_listen_client_urls_port),
     CETCD_TEST_ENTRY(live_cetcd_listen_peer_urls_port),
