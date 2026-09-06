@@ -2493,6 +2493,34 @@ CETCD_TEST_CASE(live_cetcd_tls_version) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_cert_allowed) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --peer-cert-allowed-cn etcd --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --peer-cert-allowed-hostname=*.example.com --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --client-cert-allowed-hostname=localhost --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --peer-cert-allowed-cn >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --client-cert-allowed-hostname --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_bcrypt_cost) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -3477,6 +3505,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_max_request_bytes),
     CETCD_TEST_ENTRY(live_cetcd_max_concurrent_streams),
     CETCD_TEST_ENTRY(live_cetcd_tls_version),
+    CETCD_TEST_ENTRY(live_cetcd_cert_allowed),
     CETCD_TEST_ENTRY(live_cetcd_bcrypt_cost),
     CETCD_TEST_ENTRY(live_cetcd_auth_token_ttl),
     CETCD_TEST_ENTRY(live_cetcd_log_level),

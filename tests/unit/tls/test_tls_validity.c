@@ -46,6 +46,41 @@ CETCD_TEST_CASE(tls_version_range) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(tls_peer_identity_lists) {
+    CETCD_ASSERT_EQ_INT(cetcd_tls_name_list_open(NULL), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_name_list_open(""), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_name_list_open("etcd"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_name_list_has(NULL, "x"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_name_list_has("etcd,root", "etcd"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_name_list_has("etcd,root", "root"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_name_list_has(" etcd , root ", "etcd"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_name_list_has("etcd", "Etcd"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_name_list_has("etcd", NULL), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_hostname_matches("example.com", "EXAMPLE.COM"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_hostname_matches("*.example.com", "foo.example.com"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_hostname_matches("*.example.com", "FOO.Example.COM"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_hostname_matches("*.example.com", "foo.bar.example.com"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_hostname_matches("*.example.com", "example.com"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_hostname_matches("", "example.com"), 0);
+    const char *sans[] = { "foo.example.com", "127.0.0.1" };
+    CETCD_ASSERT_EQ_INT(cetcd_tls_peer_identity_ok(NULL, NULL, "x", NULL, 0), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_peer_identity_ok("etcd", NULL, "etcd", NULL, 0), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_peer_identity_ok("etcd", NULL, "other", NULL, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_peer_identity_ok(NULL, "foo.example.com", "cn",
+                                                   sans, 2), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_peer_identity_ok(NULL, "*.example.com", "cn",
+                                                   sans, 2), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_peer_identity_ok(NULL, "evil.com", "cn",
+                                                   sans, 2), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_peer_identity_ok(NULL, "cn.only", "cn.only",
+                                                   NULL, 0), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_peer_identity_ok("etcd", "evil.com", "etcd",
+                                                   sans, 2), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_peer_identity_ok("nope", "foo.example.com",
+                                                   "etcd", sans, 2), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_check_peer_identity(NULL, NULL, NULL), CETCD_OK);
+}
+
 CETCD_TEST_CASE(tls_self_signed_days_overflow_and_null) {
     int days = 0;
     CETCD_ASSERT_EQ_INT(cetcd_tls_self_signed_days((uint32_t)(INT_MAX / 365) + 1,
@@ -58,6 +93,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(tls_self_signed_days_default_and_years),
     CETCD_TEST_ENTRY(tls_parse_version),
     CETCD_TEST_ENTRY(tls_version_range),
+    CETCD_TEST_ENTRY(tls_peer_identity_lists),
     CETCD_TEST_ENTRY(tls_self_signed_days_overflow_and_null),
 CETCD_TEST_LIST_END
 

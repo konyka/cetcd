@@ -30,6 +30,91 @@ int cetcd_tls_version_range_ok(int min_ver, int max_ver) {
     return CETCD_OK;
 }
 
+int cetcd_tls_name_list_open(const char *list) {
+    return !list || !list[0];
+}
+
+int cetcd_tls_name_list_has(const char *list, const char *name) {
+    if (cetcd_tls_name_list_open(list)) return 1;
+    if (!name || !name[0]) return 0;
+    const char *p = list;
+    while (*p) {
+        while (*p == ' ' || *p == '\t' || *p == ',') p++;
+        if (!*p) break;
+        const char *s = p;
+        while (*p && *p != ',') p++;
+        const char *e = p;
+        while (e > s && (e[-1] == ' ' || e[-1] == '\t')) e--;
+        size_t n = (size_t)(e - s);
+        if (n && strlen(name) == n && memcmp(s, name, n) == 0) return 1;
+        if (*p == ',') p++;
+    }
+    return 0;
+}
+
+static int ci_eq_(const char *a, const char *b) {
+    if (!a || !b) return 0;
+    while (*a && *b) {
+        char ca = *a, cb = *b;
+        if (ca >= 'A' && ca <= 'Z') ca = (char)(ca + 32);
+        if (cb >= 'A' && cb <= 'Z') cb = (char)(cb + 32);
+        if (ca != cb) return 0;
+        a++;
+        b++;
+    }
+    return *a == 0 && *b == 0;
+}
+
+int cetcd_tls_hostname_matches(const char *pattern, const char *name) {
+    if (!pattern || !pattern[0] || !name || !name[0]) return 0;
+    if (pattern[0] == '*' && pattern[1] == '.') {
+        const char *dot = strchr(name, '.');
+        if (!dot || dot == name) return 0;
+        return ci_eq_(dot, pattern + 1);
+    }
+    return ci_eq_(pattern, name);
+}
+
+static int host_list_matches_(const char *list, const char *cn,
+                              const char *const *sans, size_t n_sans) {
+    if (!list) return 0;
+    const char *p = list;
+    while (*p) {
+        while (*p == ' ' || *p == '\t' || *p == ',') p++;
+        if (!*p) break;
+        const char *s = p;
+        while (*p && *p != ',') p++;
+        const char *e = p;
+        while (e > s && (e[-1] == ' ' || e[-1] == '\t')) e--;
+        size_t n = (size_t)(e - s);
+        if (n && n < 256) {
+            char tok[256];
+            memcpy(tok, s, n);
+            tok[n] = '\0';
+            if (n_sans == 0) {
+                if (cetcd_tls_hostname_matches(tok, cn)) return 1;
+            } else {
+                for (size_t i = 0; i < n_sans; i++) {
+                    if (cetcd_tls_hostname_matches(tok, sans[i])) return 1;
+                }
+            }
+        }
+        if (*p == ',') p++;
+    }
+    return 0;
+}
+
+int cetcd_tls_peer_identity_ok(const char *cn_list, const char *host_list,
+                               const char *cn, const char *const *sans,
+                               size_t n_sans) {
+    int cn_open = cetcd_tls_name_list_open(cn_list);
+    int host_open = cetcd_tls_name_list_open(host_list);
+    if (cn_open && host_open) return 1;
+    if (!cn_open && cetcd_tls_name_list_has(cn_list, cn)) return 1;
+    if (!host_open && host_list_matches_(host_list, cn, sans, n_sans)) return 1;
+    return 0;
+}
+
 #if CETCD_HAS_OPENSSL
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -44,11 +129,13 @@ int cetcd_tls_version_range_ok(int min_ver, int max_ver) {
 
 #if defined(_WIN32)
 #  include <io.h>
+#  include <ws2tcpip.h>
 #  define cetcd_access _access
 #  define CETCD_R_OK 4
 #else
 #  include <unistd.h>
 #  include <sys/stat.h>
+#  include <arpa/inet.h>
 #  define cetcd_access access
 #  define CETCD_R_OK R_OK
 #endif
@@ -450,6 +537,62 @@ int cetcd_tls_handshake(cetcd_tls_conn *conn) {
     return -1;
 }
 
+int cetcd_tls_check_peer_identity(const cetcd_tls_conn *conn,
+                                  const char *cn_list, const char *host_list) {
+    if (cetcd_tls_name_list_open(cn_list) && cetcd_tls_name_list_open(host_list))
+        return CETCD_OK;
+    if (!conn || !conn->ssl) return CETCD_ERR_INVAL;
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    X509 *cert = SSL_get1_peer_certificate(conn->ssl);
+#else
+    X509 *cert = SSL_get_peer_certificate(conn->ssl);
+#endif
+    if (!cert) return CETCD_ERR_INVAL;
+    char cn[256];
+    cn[0] = '\0';
+    X509_NAME *nm = X509_get_subject_name(cert);
+    if (nm)
+        X509_NAME_get_text_by_NID(nm, NID_commonName, cn, (int)sizeof(cn));
+    const char *sans[32];
+    char san_buf[32][256];
+    size_t n_sans = 0;
+    GENERAL_NAMES *gns = X509_get_ext_d2i(cert, NID_subject_alt_name, NULL, NULL);
+    if (gns) {
+        int n = sk_GENERAL_NAME_num(gns);
+        for (int i = 0; i < n && n_sans < 32; i++) {
+            GENERAL_NAME *gn = sk_GENERAL_NAME_value(gns, i);
+            if (!gn) continue;
+            if (gn->type == GEN_DNS && gn->d.dNSName && gn->d.dNSName->data &&
+                gn->d.dNSName->length > 0 &&
+                (size_t)gn->d.dNSName->length < sizeof(san_buf[0])) {
+                memcpy(san_buf[n_sans], gn->d.dNSName->data,
+                       (size_t)gn->d.dNSName->length);
+                san_buf[n_sans][gn->d.dNSName->length] = '\0';
+                sans[n_sans] = san_buf[n_sans];
+                n_sans++;
+            } else if (gn->type == GEN_IPADD && gn->d.iPAddress &&
+                       gn->d.iPAddress->data) {
+                san_buf[n_sans][0] = '\0';
+                if (gn->d.iPAddress->length == 4)
+                    inet_ntop(AF_INET, gn->d.iPAddress->data, san_buf[n_sans],
+                              sizeof(san_buf[0]));
+                else if (gn->d.iPAddress->length == 16)
+                    inet_ntop(AF_INET6, gn->d.iPAddress->data, san_buf[n_sans],
+                              sizeof(san_buf[0]));
+                if (san_buf[n_sans][0]) {
+                    sans[n_sans] = san_buf[n_sans];
+                    n_sans++;
+                }
+            }
+        }
+        GENERAL_NAMES_free(gns);
+    }
+    X509_free(cert);
+    return cetcd_tls_peer_identity_ok(cn_list, host_list,
+                                      cn[0] ? cn : NULL, sans, n_sans)
+               ? CETCD_OK : CETCD_ERR_INVAL;
+}
+
 int cetcd_tls_pending_out(cetcd_tls_conn *conn, uint8_t *buf, size_t cap) {
     if (conn == NULL || conn->ssl == NULL || buf == NULL) return CETCD_ERR_INVAL;
     if (cap == 0) return 0;
@@ -738,6 +881,13 @@ int cetcd_tls_feed(cetcd_tls_conn *conn, const void *data, size_t len) {
 }
 int cetcd_tls_handshake(cetcd_tls_conn *conn) {
     (void)conn; return -1;
+}
+int cetcd_tls_check_peer_identity(const cetcd_tls_conn *conn,
+                                  const char *cn_list, const char *host_list) {
+    (void)conn;
+    if (cetcd_tls_name_list_open(cn_list) && cetcd_tls_name_list_open(host_list))
+        return CETCD_OK;
+    return CETCD_ERR_UNSUPPORT;
 }
 int cetcd_tls_pending_out(cetcd_tls_conn *conn, uint8_t *buf, size_t cap) {
     (void)conn; (void)buf; (void)cap; return CETCD_ERR_UNSUPPORT;

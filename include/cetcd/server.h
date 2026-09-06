@@ -123,6 +123,9 @@ typedef struct cetcd_server_config {
     char            peer_key_file[512];
     char            peer_trusted_ca_file[512];
     bool            peer_client_cert_auth;
+    char            peer_cert_allowed_cn[512];        /* empty = no extra peer CN check */
+    char            peer_cert_allowed_hostname[512];  /* empty = no extra peer SAN check */
+    char            client_cert_allowed_hostname[512]; /* empty = no extra client SAN check */
     /* "simple" (default) or jwt,sign-method=HS256|RS256|ES256,priv-key=... */
     char            auth_token[512];
     uint64_t        auth_token_ttl_sec; /* 0 = unset → 300s; simple tokens only */

@@ -179,9 +179,12 @@ cetcd accepts several etcd server flags for migration compatibility:
 # TLS cipher list (IANA or OpenSSL names, including TLS 1.3; requires certs)
 # a TLS 1.3-only list disables TLS 1.2 (and a TLS 1.2-only list disables TLS 1.3)
 # --tls-min-version / --tls-max-version are TLS1.2 or TLS1.3 (min default TLS1.2)
+# --peer-cert-allowed-cn / --*-allowed-hostname require cert+CA; mismatch closes
 ./build/bin/cetcd --cert-file server.crt --key-file server.key \
   --tls-min-version TLS1.2 --tls-max-version TLS1.3 \
-  --cipher-suites TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+  --cipher-suites TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 \
+  --peer-cert-file peer.crt --peer-key-file peer.key \
+  --peer-trusted-ca-file ca.crt --peer-cert-allowed-cn etcd
 
 # https listen URLs require TLS certs (plaintext is not a silent fallback)
 ./build/bin/cetcd --listen-client-urls https://127.0.0.1:2379 \

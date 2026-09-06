@@ -47,6 +47,19 @@ int cetcd_tls_auto_cert_years(const char *cert_path, const char *key_path,
                               uint32_t years);
 /* 0 years → 365. Overflow is INVAL. */
 int cetcd_tls_self_signed_days(uint32_t years, int *out_days);
+/* Empty/NULL = no extra identity restriction. */
+int cetcd_tls_name_list_open(const char *list);
+/* Exact CN match. Open list is 1. Missing name is 0 if restricted. */
+int cetcd_tls_name_list_has(const char *list, const char *name);
+/* Case-insensitive. `*.example.com` matches one label. Empty is 0. */
+int cetcd_tls_hostname_matches(const char *pattern, const char *name);
+/* Restricted CN or hostname must match (OR if both set). Open+open is 1. */
+int cetcd_tls_peer_identity_ok(const char *cn_list, const char *host_list,
+                               const char *cn, const char *const *sans,
+                               size_t n_sans);
+/* After handshake. Open lists are OK. No peer cert / mismatch is INVAL. */
+int cetcd_tls_check_peer_identity(const cetcd_tls_conn *conn,
+                                  const char *cn_list, const char *host_list);
 
 /* Blocking handshake on an fd. The caller still owns the fd. */
 cetcd_tls_conn *cetcd_tls_accept(cetcd_tls_ctx *ctx, int fd);

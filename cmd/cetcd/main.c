@@ -83,6 +83,9 @@ static void print_usage(const char *prog) {
     printf("  --peer-key-file FILE     Peer accept TLS private key\n");
     printf("  --peer-trusted-ca-file FILE  Peer TLS CA (required with --peer-client-cert-auth)\n");
     printf("  --peer-client-cert-auth  Require a peer certificate on accept (fail-closed)\n");
+    printf("  --peer-cert-allowed-cn LIST  Allowed peer cert CNs (requires peer TLS + CA; empty = off)\n");
+    printf("  --peer-cert-allowed-hostname LIST  Allowed peer SAN hostnames (requires peer TLS + CA)\n");
+    printf("  --client-cert-allowed-hostname LIST  Allowed client SAN hostnames (requires client TLS + CA)\n");
     printf("  --peer-auto-tls      Mint {data-dir}/fixtures/peer.{crt,key} if --peer-cert-file omitted\n");
     printf("  --cipher-suites LIST  TLS 1.2/1.3 cipher list (IANA or OpenSSL names; requires TLS)\n");
     printf("  --tls-min-version VER  Minimum TLS version (TLS1.2 default; TLS1.3)\n");
@@ -687,6 +690,36 @@ int main(int argc, char **argv) {
             strncpy(cfg.peer_trusted_ca_file, argv[++i], sizeof(cfg.peer_trusted_ca_file) - 1);
         } else if (strcmp(argv[i], "--peer-client-cert-auth") == 0) {
             cfg.peer_client_cert_auth = true;
+        } else if (strcmp(argv[i], "--peer-cert-allowed-cn") == 0) {
+            if (i + 1 >= argc || argv[i + 1][0] == '-') {
+                fprintf(stderr, "--peer-cert-allowed-cn requires a list\n");
+                return 1;
+            }
+            strncpy(cfg.peer_cert_allowed_cn, argv[++i],
+                    sizeof(cfg.peer_cert_allowed_cn) - 1);
+        } else if (strncmp(argv[i], "--peer-cert-allowed-cn=", 23) == 0) {
+            strncpy(cfg.peer_cert_allowed_cn, argv[i] + 23,
+                    sizeof(cfg.peer_cert_allowed_cn) - 1);
+        } else if (strcmp(argv[i], "--peer-cert-allowed-hostname") == 0) {
+            if (i + 1 >= argc || argv[i + 1][0] == '-') {
+                fprintf(stderr, "--peer-cert-allowed-hostname requires a list\n");
+                return 1;
+            }
+            strncpy(cfg.peer_cert_allowed_hostname, argv[++i],
+                    sizeof(cfg.peer_cert_allowed_hostname) - 1);
+        } else if (strncmp(argv[i], "--peer-cert-allowed-hostname=", 29) == 0) {
+            strncpy(cfg.peer_cert_allowed_hostname, argv[i] + 29,
+                    sizeof(cfg.peer_cert_allowed_hostname) - 1);
+        } else if (strcmp(argv[i], "--client-cert-allowed-hostname") == 0) {
+            if (i + 1 >= argc || argv[i + 1][0] == '-') {
+                fprintf(stderr, "--client-cert-allowed-hostname requires a list\n");
+                return 1;
+            }
+            strncpy(cfg.client_cert_allowed_hostname, argv[++i],
+                    sizeof(cfg.client_cert_allowed_hostname) - 1);
+        } else if (strncmp(argv[i], "--client-cert-allowed-hostname=", 31) == 0) {
+            strncpy(cfg.client_cert_allowed_hostname, argv[i] + 31,
+                    sizeof(cfg.client_cert_allowed_hostname) - 1);
         } else if (strcmp(argv[i], "--peer-auto-tls") == 0) {
             cfg.peer_auto_tls = true;
         } else if (strcmp(argv[i], "--cipher-suites") == 0 && i + 1 < argc) {

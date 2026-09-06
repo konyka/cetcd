@@ -421,6 +421,13 @@ Performance-first, fail-closed design:
   only. Omitted min is TLS1.2; omitted max is open. `TLS1.1`, leftover
   text, or min > max fail-closes. Applied after `--cipher-suites` on
   client and peer contexts.
+- **`--peer-cert-allowed-cn` / `--peer-cert-allowed-hostname` /
+  `--client-cert-allowed-hostname`** — comma-separated identity
+  allow-lists checked after TLS handshake (CN exact; hostname
+  case-insensitive, `*.example.com` is one label). Empty omitted is
+  off. A restricted list requires that side's cert + CA and requires a
+  peer/client certificate. Missing value fail-closes. No match closes
+  the socket. Accepting the flags as a no-op is rejected.
 - **`--host-whitelist`** — comma-separated Host names on the metrics
   HTTP port. Empty / `*` (omitted default) allows all. A restricted list
   waits for headers and returns 403 if Host is missing or not listed
