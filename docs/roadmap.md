@@ -457,6 +457,12 @@ Performance-first, fail-closed design:
   (`ETCD_LISTEN_CLIENT_URL`) becomes an unknown flag instead of a
   silent default. When a config file is set, all other `ETCD_*` are
   ignored.
+- **`--listen-client-urls` / `--listen-peer-urls` lists** — etcd
+  UniqueURLs comma lists bind every `http(s)://host:port` (same scheme;
+  unique host:port; port `1..65535`). A comma list is no longer parsed
+  as one garbage host. Mixed http/https, a duplicate, a trailing comma,
+  leftover text, or a missing value fail-close. Accepting a list as a
+  single URL is rejected.
 - **`--host-whitelist`** — comma-separated Host names on the metrics
   HTTP port. Empty / `*` (omitted default) allows all. A restricted list
   waits for headers and returns 403 if Host is missing or not listed

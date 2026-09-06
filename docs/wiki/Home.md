@@ -817,7 +817,7 @@ Omitted empty is off. A restricted list requires that side's cert + CA; a
 missing value or a mismatch fail-closes.
 `https://` on `--listen-client-urls` / `--listen-peer-urls` requires the matching
 cert files; `https://` in `--initial-cluster` requires `--peer-cert-file`;
-`--listen-client-urls` / `--listen-peer-urls` / `--initial-cluster` peer URL port must be `1..65535` (a typo fail-closes instead of binding `0`).
+`--listen-client-urls` / `--listen-peer-urls` are UniqueURLs comma lists (same scheme; unique host:port; port `1..65535`). A comma list binds every URL. Mixed http/https, a duplicate, leftover text, or a missing value fail-close. `--initial-cluster` peer URL port must be `1..65535` (a typo fail-closes instead of binding `0`).
 `--initial-cluster` member ids must be `> 0`; an etcd-style name is not Raft id `0`.
 `cetcdctl --endpoints https://...` requires `--cacert` or `--insecure`
 (and rejects `--insecure-transport`). Plaintext is not a silent fallback.

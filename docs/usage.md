@@ -159,7 +159,10 @@ cetcd accepts several etcd server flags for migration compatibility:
 # Using etcd-style URL flags
 ./build/bin/cetcd --listen-client-urls http://127.0.0.1:2379 \
   --listen-peer-urls http://127.0.0.1:2380 --data-dir ./data
-# --listen-client-urls / --listen-peer-urls port must be 1..65535; a typo is not a silent bind on 0
+# --listen-client-urls / --listen-peer-urls are UniqueURLs lists (same scheme; port 1..65535)
+# a comma list binds every URL; mixed http/https, a duplicate, or a typo fail-closes
+./build/bin/cetcd --listen-client-urls http://127.0.0.1:2379,http://10.0.0.1:2379 \
+  --listen-peer-urls http://127.0.0.1:2380 --data-dir ./data
 
 # Advertise URLs go into MemberList (https requires matching cert files)
 # --initial-cluster-token is persisted; a later mismatch fail-closes

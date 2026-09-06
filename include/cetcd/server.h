@@ -31,6 +31,13 @@ typedef struct cetcd_server cetcd_server;
 #define CETCD_CONFIG_MAX_PAIRS 128
 #define CETCD_CONFIG_KEY_MAX 96
 #define CETCD_CONFIG_VAL_MAX 1024
+#define CETCD_MAX_LISTEN_URLS 8
+
+typedef struct cetcd_listen_url {
+    char host[256];
+    uint16_t port;
+    int https;
+} cetcd_listen_url;
 
 typedef struct cetcd_config_pair {
     char key[CETCD_CONFIG_KEY_MAX];
@@ -133,8 +140,12 @@ typedef struct cetcd_server_config {
     char            wal_dir[512];  /* empty → {data_dir}/wal; dedicated NVMe path */
     char            listen_addr[256];
     uint16_t        listen_port;
+    cetcd_listen_url extra_client_urls[CETCD_MAX_LISTEN_URLS];
+    uint32_t        n_extra_client_urls;
     char            peer_addr[256];
     uint16_t        peer_port;
+    cetcd_listen_url extra_peer_urls[CETCD_MAX_LISTEN_URLS];
+    uint32_t        n_extra_peer_urls;
     uint16_t        metrics_port;
     char            metrics_addr[256];            /* empty → listen_addr */
     bool            metrics_port_set;             /* --metrics-port given */
@@ -309,6 +320,15 @@ int cetcd_parse_max_concurrent_streams(const char *s, uint32_t *out);
 /* http:// or https:// host:port (1..65535). No IPv6. Leftover is INVAL. */
 int cetcd_parse_listen_url(const char *s, char *host, size_t host_cap,
                            uint16_t *port, int *https);
+/* Comma-separated UniqueURLs. Empty token, duplicate host:port, mixed
+ * http/https, or leftover is INVAL. */
+int cetcd_parse_listen_urls(const char *s, cetcd_listen_url *out, size_t cap,
+                            size_t *n);
+/* First URL → host/port/https; the rest → extra. */
+int cetcd_apply_listen_urls(const char *s, char *host, size_t host_cap,
+                            uint16_t *port, int *https,
+                            cetcd_listen_url *extra, size_t extra_cap,
+                            uint32_t *n_extra);
 /* Single http:// URL. https / comma / leftover is INVAL (no metrics TLS). */
 int cetcd_parse_metrics_listen_url(const char *s, char *host, size_t host_cap,
                                    uint16_t *port);

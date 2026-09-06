@@ -54,7 +54,11 @@ struct cetcd_server {
     cetcd_wal_encoder   *wal_enc;
     cetcd_loop          *loop;
     cetcd_tcp           *listener;
+    cetcd_tcp           *extra_client_listeners[CETCD_MAX_LISTEN_URLS];
+    uint32_t             n_extra_client_listeners;
     cetcd_tcp           *peer_listener;
+    cetcd_tcp           *extra_peer_listeners[CETCD_MAX_LISTEN_URLS];
+    uint32_t             n_extra_peer_listeners;
     uv_tcp_t             metrics_listener;
     cetcd_timer         *tick_timer;
     cetcd_metrics       *metrics;
@@ -2568,7 +2572,21 @@ void cetcd_server_free(cetcd_server *srv) {
     peer_tx_shutdown_all_(srv);
     if (srv->tick_timer) { cetcd_timer_stop(srv->tick_timer); cetcd_timer_free(srv->tick_timer); }
     if (srv->peer_listener) { cetcd_tcp_free(srv->peer_listener); srv->peer_listener = NULL; }
+    for (uint32_t i = 0; i < srv->n_extra_peer_listeners; i++) {
+        if (srv->extra_peer_listeners[i]) {
+            cetcd_tcp_free(srv->extra_peer_listeners[i]);
+            srv->extra_peer_listeners[i] = NULL;
+        }
+    }
+    srv->n_extra_peer_listeners = 0;
     if (srv->listener) { cetcd_tcp_free(srv->listener); srv->listener = NULL; }
+    for (uint32_t i = 0; i < srv->n_extra_client_listeners; i++) {
+        if (srv->extra_client_listeners[i]) {
+            cetcd_tcp_free(srv->extra_client_listeners[i]);
+            srv->extra_client_listeners[i] = NULL;
+        }
+    }
+    srv->n_extra_client_listeners = 0;
     if (srv->metrics_listener_init) {
         uv_close((uv_handle_t *)&srv->metrics_listener, NULL);
         srv->metrics_listener_init = false;
@@ -3176,26 +3194,42 @@ cetcd_snap *cetcd_server_snapshot(cetcd_server *srv) {
     return snap;
 }
 
-static int bind_client_listener_(cetcd_server *srv) {
-    if (!srv || !srv->loop) return CETCD_ERR_INVAL;
-    if (srv->listener) return 0;
-    srv->listener = cetcd_tcp_new(srv->loop);
-    if (!srv->listener) return CETCD_ERR_INTERNAL;
+static int bind_one_listener_(cetcd_server *srv, const char *addr, uint16_t port,
+                              cetcd_tcp_conn_cb cb, cetcd_tcp **out) {
+    if (!srv || !srv->loop || !addr || !addr[0] || !out) return CETCD_ERR_INVAL;
+    *out = cetcd_tcp_new(srv->loop);
+    if (!*out) return CETCD_ERR_INTERNAL;
     unsigned bf = cetcd_socket_reuse_port_bind_flags(
         cetcd_server_want_socket_reuse_port(srv->cfg.socket_reuse_port_set,
                                             srv->cfg.socket_reuse_port));
-    int rc = cetcd_tcp_bind_ex(srv->listener, srv->cfg.listen_addr,
-                               srv->cfg.listen_port, bf);
+    int rc = cetcd_tcp_bind_ex(*out, addr, port, bf);
     if (rc != 0) {
-        cetcd_tcp_free(srv->listener);
-        srv->listener = NULL;
+        cetcd_tcp_free(*out);
+        *out = NULL;
         return CETCD_ERR_IO;
     }
-    rc = cetcd_tcp_listen(srv->listener, on_client_conn_, srv);
+    rc = cetcd_tcp_listen(*out, cb, srv);
     if (rc != 0) {
-        cetcd_tcp_free(srv->listener);
-        srv->listener = NULL;
+        cetcd_tcp_free(*out);
+        *out = NULL;
         return CETCD_ERR_IO;
+    }
+    return 0;
+}
+
+static int bind_client_listener_(cetcd_server *srv) {
+    if (!srv || !srv->loop) return CETCD_ERR_INVAL;
+    if (srv->listener) return 0;
+    int rc = bind_one_listener_(srv, srv->cfg.listen_addr, srv->cfg.listen_port,
+                                on_client_conn_, &srv->listener);
+    if (rc != 0) return rc;
+    for (uint32_t i = 0; i < srv->cfg.n_extra_client_urls; i++) {
+        rc = bind_one_listener_(srv, srv->cfg.extra_client_urls[i].host,
+                                srv->cfg.extra_client_urls[i].port,
+                                on_client_conn_,
+                                &srv->extra_client_listeners[i]);
+        if (rc != 0) return rc;
+        srv->n_extra_client_listeners = i + 1;
     }
     return 0;
 }
@@ -3213,6 +3247,10 @@ static void maybe_bind_client_after_ready_(cetcd_server *srv) {
     srv->client_listen_pending = 0;
     CETCD_INFO("client listening on %s:%u (cluster ready)",
                srv->cfg.listen_addr, srv->cfg.listen_port);
+    for (uint32_t i = 0; i < srv->cfg.n_extra_client_urls; i++)
+        CETCD_INFO("client listening on %s:%u (cluster ready)",
+                   srv->cfg.extra_client_urls[i].host,
+                   srv->cfg.extra_client_urls[i].port);
 }
 
 int cetcd_server_serve(cetcd_server *srv) {
@@ -3238,15 +3276,24 @@ int cetcd_server_serve(cetcd_server *srv) {
 
     if (srv->cfg.peer_port > 0) {
         const char *peer_addr = srv->cfg.peer_addr[0] ? srv->cfg.peer_addr : srv->cfg.listen_addr;
-        srv->peer_listener = cetcd_tcp_new(srv->loop);
-        if (srv->peer_listener) {
-            unsigned pbf = cetcd_socket_reuse_port_bind_flags(
-                cetcd_server_want_socket_reuse_port(srv->cfg.socket_reuse_port_set,
-                                                    srv->cfg.socket_reuse_port));
-            rc = cetcd_tcp_bind_ex(srv->peer_listener, peer_addr, srv->cfg.peer_port,
-                                   pbf);
-            if (rc == 0) {
-                cetcd_tcp_listen(srv->peer_listener, on_peer_incoming_, srv);
+        if (bind_one_listener_(srv, peer_addr, srv->cfg.peer_port,
+                               on_peer_incoming_, &srv->peer_listener) != 0) {
+            CETCD_WARN("failed to start peer listener on %s:%u",
+                       peer_addr, srv->cfg.peer_port);
+        } else {
+            for (uint32_t i = 0; i < srv->cfg.n_extra_peer_urls; i++) {
+                if (bind_one_listener_(srv, srv->cfg.extra_peer_urls[i].host,
+                                       srv->cfg.extra_peer_urls[i].port,
+                                       on_peer_incoming_,
+                                       &srv->extra_peer_listeners[i]) != 0) {
+                    CETCD_WARN("failed to start extra peer listener on %s:%u",
+                               srv->cfg.extra_peer_urls[i].host,
+                               srv->cfg.extra_peer_urls[i].port);
+                    cetcd_loop_free(srv->loop);
+                    srv->loop = NULL;
+                    return CETCD_ERR_IO;
+                }
+                srv->n_extra_peer_listeners = i + 1;
             }
         }
     }

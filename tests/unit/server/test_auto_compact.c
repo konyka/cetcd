@@ -284,6 +284,62 @@ CETCD_TEST_CASE(auto_compact_parse_listen_url) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_listen_urls) {
+    cetcd_listen_url urls[4];
+    size_t n = 99;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_urls(
+        "http://127.0.0.1:2379,http://10.0.0.1:2379", urls, 4, &n), CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 2);
+    CETCD_ASSERT_EQ_INT(strcmp(urls[0].host, "127.0.0.1"), 0);
+    CETCD_ASSERT_EQ_INT((int)urls[0].port, 2379);
+    CETCD_ASSERT_EQ_INT(urls[0].https, 0);
+    CETCD_ASSERT_EQ_INT(strcmp(urls[1].host, "10.0.0.1"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_urls(
+        " http://127.0.0.1:2379 , http://10.0.0.1:12379 ", urls, 4, &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 2);
+    CETCD_ASSERT_EQ_INT((int)urls[1].port, 12379);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_urls(
+        "https://10.0.0.1:2379", urls, 4, &n), CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 1);
+    CETCD_ASSERT_EQ_INT(urls[0].https, 1);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_urls(
+        "http://127.0.0.1:2379,https://10.0.0.1:2379", urls, 4, &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_urls(
+        "http://127.0.0.1:2379,http://127.0.0.1:2379", urls, 4, &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_urls(
+        "http://127.0.0.1:2379,", urls, 4, &n), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_urls(
+        ",http://127.0.0.1:2379", urls, 4, &n), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_urls("", urls, 4, &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_urls(
+        "http://127.0.0.1:2379,http://10.0.0.1:2379", urls, 1, &n),
+                        CETCD_ERR_OVERFLOW);
+
+    char host[64];
+    uint16_t port = 0;
+    int https = 0;
+    uint32_t n_extra = 99;
+    cetcd_listen_url extra[4];
+    CETCD_ASSERT_EQ_INT(cetcd_apply_listen_urls(
+        "http://127.0.0.1:2379,http://10.0.0.1:12379",
+        host, sizeof(host), &port, &https, extra, 4, &n_extra), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(strcmp(host, "127.0.0.1"), 0);
+    CETCD_ASSERT_EQ_INT((int)port, 2379);
+    CETCD_ASSERT_EQ_INT(https, 0);
+    CETCD_ASSERT_EQ_INT((int)n_extra, 1);
+    CETCD_ASSERT_EQ_INT(strcmp(extra[0].host, "10.0.0.1"), 0);
+    CETCD_ASSERT_EQ_INT((int)extra[0].port, 12379);
+    CETCD_ASSERT_EQ_INT(cetcd_apply_listen_urls(
+        "https://10.0.0.1:2379", host, sizeof(host), &port, &https,
+        extra, 4, &n_extra), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(https, 1);
+    CETCD_ASSERT_EQ_INT((int)n_extra, 0);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_metrics_listen_url) {
     char host[64];
     uint16_t port = 0;
@@ -821,6 +877,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_raft_timing_ms),
     CETCD_TEST_ENTRY(auto_compact_raft_timing_from_ms),
     CETCD_TEST_ENTRY(auto_compact_parse_listen_url),
+    CETCD_TEST_ENTRY(auto_compact_parse_listen_urls),
     CETCD_TEST_ENTRY(auto_compact_parse_metrics_listen_url),
     CETCD_TEST_ENTRY(auto_compact_metrics_addr),
     CETCD_TEST_ENTRY(auto_compact_raft_io_timeout),
