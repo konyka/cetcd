@@ -25,6 +25,7 @@ typedef struct cetcd_server cetcd_server;
 #define CETCD_DEFAULT_TICK_MS 100ULL
 #define CETCD_DEFAULT_ELECTION_MS 1000ULL
 #define CETCD_MAX_ELECTION_MS 50000ULL
+#define CETCD_DEFAULT_RAFT_IO_TIMEOUT_MS 5000ULL
 
 typedef enum cetcd_auto_compact_mode {
     CETCD_AUTO_COMPACT_OFF = 0,
@@ -176,6 +177,10 @@ typedef struct cetcd_server_config {
     bool            wait_cluster_ready;           /* --experimental-wait-cluster-ready */
     bool            socket_reuse_port_set;        /* --socket-reuse-port given */
     bool            socket_reuse_port;            /* unset → off; Windows enable fail-closes */
+    bool            raft_read_timeout_set;        /* --raft-read-timeout given */
+    uint64_t        raft_read_timeout_ms;         /* applied via floor helper */
+    bool            raft_write_timeout_set;       /* --raft-write-timeout given */
+    uint64_t        raft_write_timeout_ms;
 } cetcd_server_config;
 
 /* true|false|1|0. Empty/unknown is INVAL. */
@@ -222,6 +227,12 @@ int cetcd_http_header_get(const char *req, size_t len, const char *name,
                           char *out, size_t cap);
 /* 1 if clients may listen. wait 0 always. wait 1 requires leader_id != 0. */
 int cetcd_server_should_listen_clients(int wait_ready, uint64_t leader_id);
+/* Go duration to ms. Bare 0 is 0. Leftover text is INVAL. */
+int cetcd_parse_raft_io_timeout_ms(const char *s, uint64_t *out);
+/* Unset → 5000. set uses max(ms, 5000) (etcd 3.5 floor). */
+uint64_t cetcd_server_raft_io_timeout_ms(int set, uint64_t ms);
+/* 1 if last_ms started and now-last >= timeout. timeout 0 or last 0 never. */
+int cetcd_raft_io_timed_out(uint64_t last_ms, uint64_t now_ms, uint64_t timeout_ms);
 /* Integer milliseconds > 0 and <= 50000. Leftover text is INVAL. */
 int cetcd_parse_heartbeat_interval_ms(const char *s, uint64_t *out);
 int cetcd_parse_election_timeout_ms(const char *s, uint64_t *out);

@@ -471,6 +471,22 @@ int cetcd_server_should_listen_clients(int wait_ready, uint64_t leader_id) {
     return wait_ready ? (leader_id != 0) : 1;
 }
 
+int cetcd_parse_raft_io_timeout_ms(const char *s, uint64_t *out) {
+    return cetcd_parse_go_duration_ms(s, out);
+}
+
+uint64_t cetcd_server_raft_io_timeout_ms(int set, uint64_t ms) {
+    uint64_t v = set ? ms : CETCD_DEFAULT_RAFT_IO_TIMEOUT_MS;
+    if (v < CETCD_DEFAULT_RAFT_IO_TIMEOUT_MS)
+        return CETCD_DEFAULT_RAFT_IO_TIMEOUT_MS;
+    return v;
+}
+
+int cetcd_raft_io_timed_out(uint64_t last_ms, uint64_t now_ms, uint64_t timeout_ms) {
+    if (!last_ms || !timeout_ms) return 0;
+    return now_ms >= last_ms && (now_ms - last_ms) >= timeout_ms;
+}
+
 int cetcd_parse_heartbeat_interval_ms(const char *s, uint64_t *out) {
     if (!out) return CETCD_ERR_INVAL;
     uint64_t v = 0;

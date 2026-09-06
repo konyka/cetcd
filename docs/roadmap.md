@@ -441,8 +441,14 @@ Performance-first, fail-closed design:
   journal / comma-list fail-close). JSON is lumberjack
   `maxsize`/`maxage`/`maxbackups`/`localtime`/`compress` (`{}` uses
   100 MiB). `compress:true` fail-closes (no gzip). Invalid JSON or a
-  non-bool fail at parse. Rotation renames the file to a timestamped
+  non-bool fail at parse.   Rotation renames the file to a timestamped
   backup and prunes by count/age.
+- **`--raft-read-timeout` / `--raft-write-timeout`** — Go duration on
+  each rafthttp connection (omitted default 5s). etcd 3.5 floors
+  values `< 5s` (including `0`) to 5s. A stale inbound/outbound peer
+  read or an in-flight outbound write is closed on the Raft tick.
+  Missing value or leftover text fail at parse. Accepting the flags
+  as a no-op is rejected (a hung peer socket would stay open).
 - **Downgrade fail-closed** — `Maintenance/Downgrade` VALIDATE of
   `cetcd_version()` succeeds (already at this binary). ENABLE, CANCEL,
   and any other version fail-closed: the on-disk format cannot change

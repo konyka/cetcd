@@ -2611,6 +2611,34 @@ CETCD_TEST_CASE(live_cetcd_cluster_token) {
     CETCD_ASSERT_EQ_INT(system(cmd), 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_raft_io_timeout) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --raft-read-timeout 5s --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --raft-write-timeout=10s --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --raft-read-timeout=0 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --raft-read-timeout=abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --raft-write-timeout >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_log_rotation) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -3432,6 +3460,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_log_format),
     CETCD_TEST_ENTRY(live_cetcd_logger),
     CETCD_TEST_ENTRY(live_cetcd_cluster_token),
+    CETCD_TEST_ENTRY(live_cetcd_raft_io_timeout),
     CETCD_TEST_ENTRY(live_cetcd_log_rotation),
     CETCD_TEST_ENTRY(live_cetcd_log_outputs),
     CETCD_TEST_ENTRY(live_cetcd_grpc_keepalive),

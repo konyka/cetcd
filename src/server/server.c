@@ -13,6 +13,7 @@
 #include "cetcd/log.h"
 #include "cetcd/tls.h"
 #include "cetcd/http2.h"
+#include "cetcd/clock.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -71,6 +72,7 @@ struct cetcd_server {
     cetcd_auto_compact_state ac;
     uint64_t             last_corrupt_check_ms;
     bool                 client_listen_pending;
+    struct peer_ctx_    *peer_in;
 };
 
 static void raft_tick_cb_(void *arg);
@@ -229,7 +231,13 @@ typedef struct peer_tx_ {
     int               tls_ready;
     cetcd_h2_session *h2;
     int               h2_out;
+    uint64_t          last_read_ms;
+    uint64_t          write_started_ms;
 } peer_tx_;
+
+static uint64_t mono_ms_(void) {
+    return cetcd_clock_monotonic_ns() / 1000000ull;
+}
 
 static void on_peer_tx_connect_(uv_connect_t *req, int status);
 static void on_peer_tx_write_(uv_write_t *req, int status);
@@ -344,6 +352,7 @@ static void peer_tx_maybe_start_h2_(peer_tx_ *tx) {
 
 static void peer_tx_emit_plain_(peer_tx_ *tx, uint8_t *data, size_t len) {
     tx->write_inflight = true;
+    tx->write_started_ms = mono_ms_();
     tx->write_req.data = tx;
     if (!tx->tls) {
         uv_buf_t wb = uv_buf_init((char *)data, (unsigned int)len);
@@ -444,6 +453,7 @@ static void peer_tx_drain_(peer_tx_ *tx) {
     if (!tx->head) tx->tail = NULL;
     tx->writing = f;
     tx->write_inflight = true;
+    tx->write_started_ms = mono_ms_();
     tx->write_req.data = tx;
     if (tx->tls) {
         int w = cetcd_tls_write(tx->tls, f->data, f->len);
@@ -518,6 +528,7 @@ static void on_peer_tx_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t 
         if (buf->base) free(buf->base);
         return;
     }
+    tx->last_read_ms = mono_ms_();
     if (!tx->tls) { if (buf->base) free(buf->base); return; }
     int rc = cetcd_tls_feed(tx->tls, buf->base, (size_t)nread);
     if (buf->base) free(buf->base);
@@ -564,6 +575,7 @@ static void on_peer_tx_connect_(uv_connect_t *req, int status) {
             peer_tx_close_(tx);
             return;
         }
+        tx->last_read_ms = mono_ms_();
         tx->state = PEER_TX_HANDSHAKE;
         int hs = cetcd_tls_handshake(tx->tls);
         if (tls_flush_uv_((uv_stream_t *)&tx->tcp, tx->tls) < 0 || hs < 0) {
@@ -587,6 +599,7 @@ static void on_peer_tx_write_(uv_write_t *req, int status) {
     if (!tx) return;
     if (tx->writing) { free(tx->writing->data); free(tx->writing); tx->writing = NULL; }
     tx->write_inflight = false;
+    tx->write_started_ms = 0;
     if (status < 0 || tx->shutting_down) {
         peer_tx_close_(tx);
         return;
@@ -1697,11 +1710,23 @@ typedef struct peer_ctx_ {
     size_t            h2_body_cap;
     int               h2_fail;
     int               h2_replied;
+    uint64_t          last_read_ms;
+    struct peer_ctx_ *next;
 } peer_ctx_;
 
 static void on_peer_close_(uv_handle_t *handle) {
     peer_ctx_ *ctx = (peer_ctx_ *)handle->data;
     if (ctx) {
+        if (ctx->srv) {
+            peer_ctx_ **pp = &ctx->srv->peer_in;
+            while (*pp) {
+                if (*pp == ctx) {
+                    *pp = ctx->next;
+                    break;
+                }
+                pp = &(*pp)->next;
+            }
+        }
         cetcd_tls_conn_free(ctx->tls);
         cetcd_h2_session_free(ctx->h2);
         if (ctx->h2_body) free(ctx->h2_body);
@@ -1871,6 +1896,7 @@ static void on_peer_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *bu
         if (buf->base) free(buf->base);
         return;
     }
+    ctx->last_read_ms = mono_ms_();
 
     if (ctx->tls) {
         int rc = cetcd_tls_feed(ctx->tls, buf->base, (size_t)nread);
@@ -2004,6 +2030,9 @@ static void on_peer_incoming_(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
         }
         stream->data = ctx;
         ctx->stream = stream;
+        ctx->last_read_ms = mono_ms_();
+        ctx->next = srv->peer_in;
+        srv->peer_in = ctx;
         uv_read_start(stream, on_peer_alloc_, on_peer_read_);
     } else {
         free(ctx);
@@ -3187,6 +3216,36 @@ static void maybe_snapshot_truncate_(cetcd_server *srv) {
     (void)cetcd_raft_compact(srv->raft, applied, e->term);
 }
 
+static void peer_io_timeout_tick_(cetcd_server *srv) {
+    if (!srv) return;
+    uint64_t now = mono_ms_();
+    uint64_t rto = cetcd_server_raft_io_timeout_ms(srv->cfg.raft_read_timeout_set,
+                                                   srv->cfg.raft_read_timeout_ms);
+    uint64_t wto = cetcd_server_raft_io_timeout_ms(srv->cfg.raft_write_timeout_set,
+                                                   srv->cfg.raft_write_timeout_ms);
+    if (srv->peer_txs) {
+        for (uint32_t i = 0; i < srv->n_peer_txs; i++) {
+            peer_tx_ *tx = &srv->peer_txs[i];
+            if (tx->state != PEER_TX_CONNECTED && tx->state != PEER_TX_HANDSHAKE)
+                continue;
+            int stale_r = cetcd_raft_io_timed_out(tx->last_read_ms, now, rto);
+            int stale_w = tx->write_inflight &&
+                          cetcd_raft_io_timed_out(tx->write_started_ms, now, wto);
+            if (stale_r || stale_w) peer_tx_close_(tx);
+        }
+    }
+    peer_ctx_ *ctx = srv->peer_in;
+    while (ctx) {
+        peer_ctx_ *next = ctx->next;
+        if (ctx->stream && !uv_is_closing((uv_handle_t *)ctx->stream) &&
+            cetcd_raft_io_timed_out(ctx->last_read_ms, now, rto)) {
+            ctx->last_read_ms = 0;
+            uv_close((uv_handle_t *)ctx->stream, on_peer_close_);
+        }
+        ctx = next;
+    }
+}
+
 static void raft_tick_cb_(void *arg) {
     cetcd_server *srv = (cetcd_server *)arg;
     if (!srv) return;
@@ -3195,6 +3254,7 @@ static void raft_tick_cb_(void *arg) {
         return;
     }
     if (!srv->raft) return;
+    peer_io_timeout_tick_(srv);
     cetcd_raft_tick(srv->raft);
     if (srv->metrics) cetcd_metrics_counter(srv->metrics, "raft_ticks_total", 1);
     /* Advance lease deadlines by the configured tick period. */

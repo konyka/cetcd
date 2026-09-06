@@ -41,6 +41,8 @@ static void print_usage(const char *prog) {
     printf("  --heartbeat-tick N  Raft heartbeat tick (default: 1; must be > 0)\n");
     printf("  --heartbeat-interval MS  Raft tick period in ms (default 100; 1..50000)\n");
     printf("  --election-timeout MS  Election timeout in ms (default 1000; 1..50000; >= interval)\n");
+    printf("  --raft-read-timeout DUR   Recycle a hung peer socket (default 5s; values <5s floor to 5s)\n");
+    printf("  --raft-write-timeout DUR  Recycle a hung peer write (default 5s; values <5s floor to 5s)\n");
     printf("  --initial-election-tick-advance  Fast first campaign (default on; true|false)\n");
     printf("  --pre-vote          Extra Raft election phase (default on; true|false)\n");
     printf("  --log-level LVL  Log level: trace,debug,info,warn,error (default: info)\n");
@@ -427,6 +429,46 @@ int main(int argc, char **argv) {
             }
             cfg.election_timeout_set = true;
             cfg.election_ms = ms;
+        } else if (strcmp(argv[i], "--raft-read-timeout") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--raft-read-timeout requires a duration\n");
+                return 1;
+            }
+            uint64_t ms = 0;
+            if (cetcd_parse_raft_io_timeout_ms(argv[++i], &ms) != CETCD_OK) {
+                fprintf(stderr, "--raft-read-timeout must be a duration\n");
+                return 1;
+            }
+            cfg.raft_read_timeout_set = true;
+            cfg.raft_read_timeout_ms = ms;
+        } else if (strncmp(argv[i], "--raft-read-timeout=", 20) == 0) {
+            uint64_t ms = 0;
+            if (cetcd_parse_raft_io_timeout_ms(argv[i] + 20, &ms) != CETCD_OK) {
+                fprintf(stderr, "--raft-read-timeout must be a duration\n");
+                return 1;
+            }
+            cfg.raft_read_timeout_set = true;
+            cfg.raft_read_timeout_ms = ms;
+        } else if (strcmp(argv[i], "--raft-write-timeout") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--raft-write-timeout requires a duration\n");
+                return 1;
+            }
+            uint64_t ms = 0;
+            if (cetcd_parse_raft_io_timeout_ms(argv[++i], &ms) != CETCD_OK) {
+                fprintf(stderr, "--raft-write-timeout must be a duration\n");
+                return 1;
+            }
+            cfg.raft_write_timeout_set = true;
+            cfg.raft_write_timeout_ms = ms;
+        } else if (strncmp(argv[i], "--raft-write-timeout=", 21) == 0) {
+            uint64_t ms = 0;
+            if (cetcd_parse_raft_io_timeout_ms(argv[i] + 21, &ms) != CETCD_OK) {
+                fprintf(stderr, "--raft-write-timeout must be a duration\n");
+                return 1;
+            }
+            cfg.raft_write_timeout_set = true;
+            cfg.raft_write_timeout_ms = ms;
         } else if (strcmp(argv[i], "--initial-election-tick-advance") == 0) {
             cfg.tick_advance_set = true;
             cfg.tick_advance = true;

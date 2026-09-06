@@ -316,6 +316,28 @@ CETCD_TEST_CASE(auto_compact_metrics_addr) {
     CETCD_ASSERT_TRUE(cetcd_server_metrics_addr(NULL) == NULL);
 }
 
+CETCD_TEST_CASE(auto_compact_raft_io_timeout) {
+    uint64_t v = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_raft_io_timeout_ms("5s", &v), CETCD_OK);
+    CETCD_ASSERT_TRUE(v == 5000);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_raft_io_timeout_ms("10s", &v), CETCD_OK);
+    CETCD_ASSERT_TRUE(v == 10000);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_raft_io_timeout_ms("0", &v), CETCD_OK);
+    CETCD_ASSERT_TRUE(v == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_raft_io_timeout_ms("abc", &v), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_raft_io_timeout_ms("5sx", &v), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_raft_io_timeout_ms("", &v), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_raft_io_timeout_ms(NULL, &v), CETCD_ERR_INVAL);
+    CETCD_ASSERT_TRUE(cetcd_server_raft_io_timeout_ms(0, 0) == 5000);
+    CETCD_ASSERT_TRUE(cetcd_server_raft_io_timeout_ms(1, 0) == 5000);
+    CETCD_ASSERT_TRUE(cetcd_server_raft_io_timeout_ms(1, 1000) == 5000);
+    CETCD_ASSERT_TRUE(cetcd_server_raft_io_timeout_ms(1, 10000) == 10000);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_io_timed_out(0, 9000, 5000), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_io_timed_out(100, 5099, 5000), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_io_timed_out(100, 5100, 5000), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_io_timed_out(100, 200, 0), 0);
+}
+
 CETCD_TEST_CASE(auto_compact_socket_reuse_port) {
     CETCD_ASSERT_EQ_INT(cetcd_server_want_socket_reuse_port(0, 0), 0);
     CETCD_ASSERT_EQ_INT(cetcd_server_want_socket_reuse_port(0, 1), 0);
@@ -613,6 +635,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_listen_url),
     CETCD_TEST_ENTRY(auto_compact_parse_metrics_listen_url),
     CETCD_TEST_ENTRY(auto_compact_metrics_addr),
+    CETCD_TEST_ENTRY(auto_compact_raft_io_timeout),
     CETCD_TEST_ENTRY(auto_compact_socket_reuse_port),
     CETCD_TEST_ENTRY(auto_compact_metrics_level),
     CETCD_TEST_ENTRY(auto_compact_enable_pprof),
