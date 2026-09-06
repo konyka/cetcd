@@ -56,6 +56,10 @@ uint32_t              cetcd_cluster_voter_count(const cetcd_cluster *c);
 uint32_t              cetcd_cluster_learner_count(const cetcd_cluster *c);
 /* 1 if remove is safe. Learners always 1. Remaining voters must keep old quorum. */
 int                   cetcd_reconfig_may_remove(uint32_t voter_count, int target_is_learner);
+/* strict 0 always allows. strict 1 uses may_remove. */
+int                   cetcd_reconfig_check_remove(uint32_t voter_count,
+                                                  int target_is_learner,
+                                                  int strict);
 /* 1 if current_learners < max_learners. max_learners 0 refuses all. */
 int                   cetcd_reconfig_may_add_learner(uint32_t current_learners,
                                                      uint32_t max_learners);

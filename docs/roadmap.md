@@ -376,7 +376,9 @@ Performance-first, fail-closed design:
   remaining voters still satisfy the old quorum (`n/2+1`). The last voter
   and a 2-voter shrink are refused. Learners and a 3+ voter remove still
   work. Unknown member ids fail-closed. No cluster (unit dispatch) is
-  unchanged.
+  unchanged. `--strict-reconfig-check` / `--strict-reconfig-check=false`
+  is no longer an unknown flag (omitted default on; a non-bool
+  fail-closes). WAL apply of an already-committed remove still applies.
 - **Downgrade fail-closed** — `Maintenance/Downgrade` VALIDATE of
   `cetcd_version()` succeeds (already at this binary). ENABLE, CANCEL,
   and any other version fail-closed: the on-disk format cannot change

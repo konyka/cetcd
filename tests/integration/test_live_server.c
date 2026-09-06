@@ -1895,6 +1895,29 @@ CETCD_TEST_CASE(live_cetcd_pre_vote) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_strict_reconfig_check) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --strict-reconfig-check --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --strict-reconfig-check=false --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --strict-reconfig-check=abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --strict-reconfig-check yes >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_snapshot_count) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -3086,6 +3109,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_election_tick),
     CETCD_TEST_ENTRY(live_cetcd_heartbeat_tick),
     CETCD_TEST_ENTRY(live_cetcd_pre_vote),
+    CETCD_TEST_ENTRY(live_cetcd_strict_reconfig_check),
     CETCD_TEST_ENTRY(live_cetcd_snapshot_count),
     CETCD_TEST_ENTRY(live_cetcd_auto_compaction),
     CETCD_TEST_ENTRY(live_cetcd_corrupt_check_time),

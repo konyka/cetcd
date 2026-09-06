@@ -238,6 +238,9 @@ CETCD_API void cetcd_v3rpc_set_max_txn_ops(uint64_t n);
 /* Cap learner MemberAdd. Unset (unit tests) is unlimited; 0 refuses new learners. */
 CETCD_API void cetcd_v3rpc_set_max_learners(uint32_t n);
 CETCD_API void cetcd_v3rpc_clear_max_learners(void);
+/* Unset (unit tests) stays strict. 0 allows a quorum-losing MemberRemove. */
+CETCD_API void cetcd_v3rpc_set_strict_reconfig(int enabled);
+CETCD_API void cetcd_v3rpc_clear_strict_reconfig(void);
 CETCD_API void cetcd_v3rpc_alarm_activate(int alarm_type, uint64_t member_id);
 CETCD_API void cetcd_v3rpc_alarm_deactivate(int alarm_type, uint64_t member_id);
 CETCD_API int  cetcd_v3rpc_alarm_is_active(int alarm_type);

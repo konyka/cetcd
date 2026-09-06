@@ -50,6 +50,8 @@ extern cetcd_cluster *g_rpc_cluster;
 extern uint64_t       g_rpc_node_id;
 extern uint32_t       g_rpc_max_learners;
 extern int            g_rpc_max_learners_set;
+extern int            g_rpc_strict_reconfig;
+extern int            g_rpc_strict_reconfig_set;
 extern char           g_rpc_advertise_client[512];
 extern char           g_rpc_advertise_peer[512];
 extern char           g_rpc_member_name[128];
@@ -380,7 +382,8 @@ cetcd_rpc_bytes cluster_handle_member_remove(cetcd_v3rpc *rpc,
         }
         uint32_t voters = g_rpc_raft ? cetcd_raft_voter_count(g_rpc_raft)
                                      : cetcd_cluster_voter_count(g_rpc_cluster);
-        if (!cetcd_reconfig_may_remove(voters, is_learner))
+        int strict = !g_rpc_strict_reconfig_set || g_rpc_strict_reconfig;
+        if (!cetcd_reconfig_check_remove(voters, is_learner, strict))
             return (cetcd_rpc_bytes){NULL, 0};
         uint8_t *entry = NULL;
         size_t elen = 0;

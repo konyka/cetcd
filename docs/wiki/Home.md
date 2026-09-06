@@ -818,6 +818,7 @@ Unknown server flags fail at parse instead of being ignored.
 `--election-tick` must be `> 0`; a typo or `0` fail-closes instead of becoming `10`.
 `--heartbeat-tick` must be `> 0`; a typo or `0` fail-closes instead of becoming `1`.
 `--pre-vote` is `true`/`false`/`1`/`0` (bare flag is on; omitted default on). A non-bool fail-closes.
+`--strict-reconfig-check` is `true`/`false`/`1`/`0` (bare flag is on; omitted default on). A non-bool fail-closes. `--strict-reconfig-check=false` allows a quorum-losing MemberRemove.
 `--snapshot-count` must be `> 0`; a typo or `0` fail-closes instead of becoming the default 10000.
 `--auto-compaction-mode` is `periodic` or `revision`. `--auto-compaction-retention` is `0` (off), a periodic duration / bare hours, or a revision count; invalid values fail-close. The leader compact-proposes on tick.
 `--experimental-initial-corrupt-check` hashes the store after WAL replay and compares `{data-dir}/backend.hash` (mismatch or a lower current revision fail-closes). `--experimental-corrupt-check-time` repeats that HashKV on the tick (`0` disables; mismatch raises CORRUPT; a non-duration fail-closes). `--experimental-compaction-batch-limit` caps auto-compact to N revisions per tick (`0` unlimited; leftover text fail-closes). `--experimental-compaction-sleep-interval` waits between those batches (`0` = none; a non-duration fail-closes). `--experimental-watch-progress-notify-interval` sets Watch `progress_notify` (`0` = 10s; a non-duration fail-closes). `--experimental-warning-apply-duration` warns if apply is slower (`0` disables; omitted default 100ms). `--experimental-warning-unary-request-duration` warns if unary RPC is slower (`0` disables; omitted default 300ms). `--experimental-max-learners` caps learner `MemberAdd` (`0` = none; omitted default 1; leftover text fail-closes). `--experimental-memory-mlock` calls `mlockall` at start (Windows fail-closes; a non-bool fail-closes). `--experimental-bootstrap-defrag-threshold-megabytes` compact-copies `data.mdb` at start if alloc exceeds N MiB (`0` off; leftover text fail-closes). `Maintenance/Defragment` does the same when a backend is attached. Other `--experimental-*` stay no-ops.
@@ -978,7 +979,7 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 | Auth | `/etcdserverpb.Auth/RoleRevokePermission` | `auth_handler.c` | 经 Raft 撤销角色权限 |
 | Cluster | `/etcdserverpb.Cluster/MemberList` | `cluster_handler.c` | 列出集群成员（self 使用 --name 与 advertise/listen URL，peer 省略 clientURLs） |
 | Cluster | `/etcdserverpb.Cluster/MemberAdd` | `cluster_handler.c` | 添加集群成员 |
-| Cluster | `/etcdserverpb.Cluster/MemberRemove` | `cluster_handler.c` | 移除成员；删 voter 若剩余不足原 quorum 则 fail-closed（learner / 未知 id 见实现） |
+| Cluster | `/etcdserverpb.Cluster/MemberRemove` | `cluster_handler.c` | 移除成员；删 voter 若剩余不足原 quorum 则 fail-closed（`--strict-reconfig-check=false` 可关；learner / 未知 id 见实现） |
 | Cluster | `/etcdserverpb.Cluster/MemberUpdate` | `cluster_handler.c` | 更新成员地址（实际更新 cluster 中的 peer 信息） |
 | Cluster | `/etcdserverpb.Cluster/MemberPromote` | `cluster_handler.c` | 提升学习者为投票成员 |
 | Maintenance | `/etcdserverpb.Maintenance/Status` | `maint_handler.c` | 版本/dbSize（LMDB 已分配页）/dbSizeInUse（已用页，与 quota 同源）/leader/raftIndex/raftTerm/raftAppliedIndex/errors/isLearner |

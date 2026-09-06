@@ -159,6 +159,7 @@ cetcd accepts several etcd server flags for migration compatibility:
 # --initial-cluster-state existing: cluster evidence, snapshot.kv, persisted initial-cluster, or --initial-cluster peers
 # After WAL compaction the leader sends MsgSnap; otherwise App from next_idx
 # --force-new-cluster keeps MVCC and drops peers except self (needs cluster evidence)
+# --strict-reconfig-check default on; --strict-reconfig-check=false allows a quorum-losing MemberRemove
 
 # Backend quota (NOSPACE on Puts when LMDB size >= N; 0 = unlimited; a typo fails)
 ./build/bin/cetcd --quota-backend-bytes 2147483648 --max-request-bytes 1572864 \

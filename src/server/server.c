@@ -2514,6 +2514,9 @@ int cetcd_server_start(cetcd_server *srv) {
     cetcd_v3rpc_set_max_learners(srv->cfg.max_learners_set
                                      ? srv->cfg.max_learners
                                      : CETCD_DEFAULT_MAX_LEARNERS);
+    cetcd_v3rpc_set_strict_reconfig(srv->cfg.strict_reconfig_set
+                                        ? (srv->cfg.strict_reconfig ? 1 : 0)
+                                        : 1);
 
     if (srv->cfg.wal_dir[0] && !srv->cfg.data_dir[0])
         return CETCD_ERR_INVAL;

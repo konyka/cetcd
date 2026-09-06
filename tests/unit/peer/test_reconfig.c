@@ -18,6 +18,15 @@ CETCD_TEST_CASE(reconfig_may_remove_keeps_quorum) {
     CETCD_ASSERT_EQ_INT(cetcd_reconfig_may_remove(5, 0), 1);
 }
 
+CETCD_TEST_CASE(reconfig_check_remove_strict_off) {
+    CETCD_ASSERT_EQ_INT(cetcd_reconfig_check_remove(1, 0, 1), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_reconfig_check_remove(2, 0, 1), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_reconfig_check_remove(3, 0, 1), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_reconfig_check_remove(1, 0, 0), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_reconfig_check_remove(2, 0, 0), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_reconfig_check_remove(2, 1, 1), 1);
+}
+
 CETCD_TEST_CASE(cluster_voter_count_self_and_peers) {
     cetcd_cluster *c = cetcd_cluster_new(1);
     CETCD_ASSERT_EQ_INT((int)cetcd_cluster_voter_count(c), 1);
@@ -54,6 +63,7 @@ CETCD_TEST_CASE(reconfig_may_add_learner_cap) {
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(reconfig_may_remove_learner_always),
     CETCD_TEST_ENTRY(reconfig_may_remove_keeps_quorum),
+    CETCD_TEST_ENTRY(reconfig_check_remove_strict_off),
     CETCD_TEST_ENTRY(cluster_voter_count_self_and_peers),
     CETCD_TEST_ENTRY(cluster_learner_count_peers),
     CETCD_TEST_ENTRY(reconfig_may_add_learner_cap),

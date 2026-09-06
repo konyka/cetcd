@@ -146,6 +146,8 @@ typedef struct cetcd_server_config {
     uint64_t        bootstrap_defrag_mb;          /* 0 = off; else compact if alloc > N MiB */
     bool            pre_vote_set;                 /* --pre-vote given */
     bool            pre_vote;                     /* unset → true (etcd 3.5) */
+    bool            strict_reconfig_set;          /* --strict-reconfig-check given */
+    bool            strict_reconfig;              /* unset → true */
 } cetcd_server_config;
 
 /* true|false|1|0. Empty/unknown is INVAL. */

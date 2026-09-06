@@ -50,6 +50,7 @@ static void print_usage(const char *prog) {
     printf("  --auto-compaction-retention N  0 disables; periodic: duration or hours; revision: revs to keep\n");
     printf("  --quota-backend-bytes N  NOSPACE when LMDB size >= N (0 = unlimited; invalid fails)\n");
     printf("  --force-new-cluster  Keep MVCC; drop peers except self (requires persisted cluster)\n");
+    printf("  --strict-reconfig-check  Reject MemberRemove that loses old quorum (default on; true|false)\n");
     printf("  --max-txn-ops N     Max compare/success/failure ops per Txn (default 128; 1..128)\n");
     printf("  --max-request-bytes N  Max client frame (default 1572864; must be > 0)\n");
     printf("  --grpc-keepalive-time SEC   TCP keepalive idle on client and peer sockets (0 disables)\n");
@@ -355,6 +356,25 @@ int main(int argc, char **argv) {
             cfg.quota_backend_bytes = (uint64_t)v;
         } else if (strcmp(argv[i], "--force-new-cluster") == 0) {
             cfg.force_new_cluster = true;
+        } else if (strcmp(argv[i], "--strict-reconfig-check") == 0) {
+            cfg.strict_reconfig_set = true;
+            cfg.strict_reconfig = true;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                int b = 0;
+                if (cetcd_parse_bool_flag(argv[++i], &b) != CETCD_OK) {
+                    fprintf(stderr, "--strict-reconfig-check must be true or false\n");
+                    return 1;
+                }
+                cfg.strict_reconfig = b != 0;
+            }
+        } else if (strncmp(argv[i], "--strict-reconfig-check=", 24) == 0) {
+            int b = 0;
+            if (cetcd_parse_bool_flag(argv[i] + 24, &b) != CETCD_OK) {
+                fprintf(stderr, "--strict-reconfig-check must be true or false\n");
+                return 1;
+            }
+            cfg.strict_reconfig_set = true;
+            cfg.strict_reconfig = b != 0;
         } else if (strcmp(argv[i], "--max-txn-ops") == 0 && i + 1 < argc) {
             const char *s = argv[++i];
             char *end = NULL;

@@ -84,6 +84,8 @@ uint64_t          g_rpc_quota_bytes = 0;
 uint64_t          g_rpc_max_txn_ops = 128;
 uint32_t          g_rpc_max_learners = 0;
 int               g_rpc_max_learners_set = 0;
+int               g_rpc_strict_reconfig = 1;
+int               g_rpc_strict_reconfig_set = 0;
 
 /* Streaming support: event loop and write callback for streaming RPCs */
 cetcd_loop           *g_rpc_loop = NULL;
@@ -323,6 +325,16 @@ void cetcd_v3rpc_set_max_learners(uint32_t n) {
 void cetcd_v3rpc_clear_max_learners(void) {
     g_rpc_max_learners = 0;
     g_rpc_max_learners_set = 0;
+}
+
+void cetcd_v3rpc_set_strict_reconfig(int enabled) {
+    g_rpc_strict_reconfig = enabled != 0;
+    g_rpc_strict_reconfig_set = 1;
+}
+
+void cetcd_v3rpc_clear_strict_reconfig(void) {
+    g_rpc_strict_reconfig = 1;
+    g_rpc_strict_reconfig_set = 0;
 }
 
 void cetcd_v3rpc_auth_persist(void) {

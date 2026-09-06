@@ -249,6 +249,12 @@ int cetcd_reconfig_may_remove(uint32_t voter_count, int target_is_learner) {
     return after >= quorum;
 }
 
+int cetcd_reconfig_check_remove(uint32_t voter_count, int target_is_learner,
+                                int strict) {
+    if (!strict) return 1;
+    return cetcd_reconfig_may_remove(voter_count, target_is_learner);
+}
+
 int cetcd_reconfig_may_add_learner(uint32_t current_learners, uint32_t max_learners) {
     return current_learners < max_learners;
 }

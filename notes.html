@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 51 — pre-vote flag</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 52 — strict-reconfig-check</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 51 honors
-     <code>--pre-vote</code> (omitted default on; explicit
-     <code>false</code> campaigns without PreVote).
-     A non-bool fail-closes.</p>
+  <p><strong>v0.3.0</strong>. Phase 52 honors
+     <code>--strict-reconfig-check</code> (omitted default on;
+     explicit <code>false</code> allows a quorum-losing
+     <code>MemberRemove</code>). A non-bool fail-closes.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -105,6 +105,7 @@
       <tr><td>49</td><td>auth-token-ttl</td><td>--auth-token-ttl sets simple-token lifetime; 0 / leftover text fail-closed; omitted 300s; JWT ttl= still wins — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>50</td><td>self-signed cert validity</td><td>--self-signed-cert-validity sets auto-TLS mint years; 0 / leftover text fail-closed; omitted 1 year — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>51</td><td>pre-vote flag</td><td>--pre-vote honors Raft PreVote; omitted default on; false skips PreVote; non-bool fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>52</td><td>strict-reconfig-check</td><td>--strict-reconfig-check honors MemberRemove quorum gate; omitted default on; false allows shrink; non-bool fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>
