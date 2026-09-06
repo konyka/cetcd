@@ -155,6 +155,19 @@ CETCD_TEST_CASE(corrupt_check_verify_fail_closed) {
     rmdir(dir);
 }
 
+CETCD_TEST_CASE(mlock_apply_disabled_ok) {
+    CETCD_ASSERT_EQ_INT(cetcd_mlock_apply(0), CETCD_OK);
+}
+
+CETCD_TEST_CASE(mlock_apply_unsupported_on_win) {
+#if defined(_WIN32)
+    CETCD_ASSERT_EQ_INT(cetcd_mlock_apply(1), CETCD_ERR_UNSUPPORT);
+#else
+    int rc = cetcd_mlock_apply(1);
+    CETCD_ASSERT_TRUE(rc == CETCD_OK || rc == CETCD_ERR_IO);
+#endif
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(corrupt_check_parse_duration),
     CETCD_TEST_ENTRY(corrupt_check_due_window),
@@ -163,6 +176,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(corrupt_check_load_rejects_garbage),
     CETCD_TEST_ENTRY(corrupt_check_verify_missing_writes),
     CETCD_TEST_ENTRY(corrupt_check_verify_fail_closed),
+    CETCD_TEST_ENTRY(mlock_apply_disabled_ok),
+    CETCD_TEST_ENTRY(mlock_apply_unsupported_on_win),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

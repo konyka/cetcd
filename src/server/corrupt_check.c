@@ -10,6 +10,7 @@
 #  include <io.h>
 #  define cetcd_unlink(p) _unlink(p)
 #else
+#  include <sys/mman.h>
 #  include <unistd.h>
 #  define cetcd_unlink(p) unlink(p)
 #endif
@@ -25,6 +26,17 @@ int cetcd_parse_bool_flag(const char *s, int *out) {
         return CETCD_OK;
     }
     return CETCD_ERR_INVAL;
+}
+
+int cetcd_mlock_apply(int enabled) {
+    if (!enabled) return CETCD_OK;
+#if defined(_WIN32)
+    return CETCD_ERR_UNSUPPORT;
+#else
+    if (mlockall(MCL_CURRENT | MCL_FUTURE) != 0)
+        return CETCD_ERR_IO;
+    return CETCD_OK;
+#endif
 }
 
 int cetcd_backend_hash_store(const char *path, int64_t rev, uint32_t hash) {

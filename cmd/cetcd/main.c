@@ -78,6 +78,7 @@ static void print_usage(const char *prog) {
     printf("  --experimental-watch-progress-notify-interval DUR  Watch progress_notify period (0 = 10s)\n");
     printf("  --experimental-warning-apply-duration DUR  Warn if apply exceeds duration (0 disables; default 100ms)\n");
     printf("  --experimental-max-learners N  Cap learner MemberAdd (0 = none; omitted default 1)\n");
+    printf("  --experimental-memory-mlock  Lock process memory (Unix mlockall; Windows fail-closed)\n");
     printf("  --experimental-*    Other experimental flags accepted as no-op\n");
     printf("  --help           Show this help\n");
 }
@@ -598,6 +599,25 @@ int main(int argc, char **argv) {
             }
             cfg.max_learners_set = true;
             cfg.max_learners = n;
+        } else if (strcmp(argv[i], "--experimental-memory-mlock") == 0) {
+            cfg.memory_mlock = true;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                int b = 0;
+                if (cetcd_parse_bool_flag(argv[++i], &b) != CETCD_OK) {
+                    fprintf(stderr,
+                            "--experimental-memory-mlock must be true or false\n");
+                    return 1;
+                }
+                cfg.memory_mlock = b != 0;
+            }
+        } else if (strncmp(argv[i], "--experimental-memory-mlock=", 28) == 0) {
+            int b = 0;
+            if (cetcd_parse_bool_flag(argv[i] + 28, &b) != CETCD_OK) {
+                fprintf(stderr,
+                        "--experimental-memory-mlock must be true or false\n");
+                return 1;
+            }
+            cfg.memory_mlock = b != 0;
         } else if (strncmp(argv[i], "--experimental-", 15) == 0) {
             /* no-op, accepted for etcd compatibility */
             if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* skip value if present */

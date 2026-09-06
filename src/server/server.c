@@ -2461,6 +2461,10 @@ static int load_tls_ctx_(cetcd_tls_ctx **out,
 
 int cetcd_server_start(cetcd_server *srv) {
     if (!srv) return CETCD_ERR_INVAL;
+    if (srv->cfg.memory_mlock) {
+        int mrc = cetcd_mlock_apply(1);
+        if (mrc != CETCD_OK) return mrc;
+    }
 
     if (srv->cfg.auth_token[0]) {
         extern cetcd_auth_store *g_rpc_auth;

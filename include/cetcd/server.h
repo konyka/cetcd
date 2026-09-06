@@ -130,10 +130,13 @@ typedef struct cetcd_server_config {
     uint64_t        warning_apply_ms;             /* 0 = disable; unset → 100ms */
     bool            max_learners_set;             /* --experimental-max-learners given */
     uint32_t        max_learners;                 /* 0 = unlimited; unset → 1 */
+    bool            memory_mlock;                 /* --experimental-memory-mlock */
 } cetcd_server_config;
 
 /* true|false|1|0. Empty/unknown is INVAL. */
 int cetcd_parse_bool_flag(const char *s, int *out);
+/* enabled 0 is OK. Unix mlockall; Windows UNSUPPORT. mlockall failure is IO. */
+int cetcd_mlock_apply(int enabled);
 /* Persist / load `{rev} {hash}\n`. Missing file is NOTFOUND; garbage is CORRUPT. */
 int cetcd_backend_hash_store(const char *path, int64_t rev, uint32_t hash);
 int cetcd_backend_hash_load(const char *path, int64_t *rev, uint32_t *hash);

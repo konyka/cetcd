@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 45 — compaction sleep interval</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 46 — memory mlock</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 45 applies
-     <code>--experimental-compaction-sleep-interval</code> so
-     auto-compact batches wait instead of the flag being swallowed.</p>
+  <p><strong>v0.3.0</strong>. Phase 46 applies
+     <code>--experimental-memory-mlock</code> so process pages stay
+     locked instead of the flag being swallowed.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -98,6 +98,7 @@
       <tr><td>43</td><td>warning apply duration</td><td>--experimental-warning-apply-duration warns if apply exceeds duration; 0 disables; omitted 100ms — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>44</td><td>max learners</td><td>--experimental-max-learners caps learner MemberAdd; 0 = none; omitted default 1 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>45</td><td>compaction sleep interval</td><td>--experimental-compaction-sleep-interval waits between auto-compact batches; 0 = none — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>46</td><td>memory mlock</td><td>--experimental-memory-mlock calls mlockall at start; Windows / mlock failure fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

@@ -399,6 +399,11 @@ Performance-first, fail-closed design:
   least that long (ticks are skipped; the apply loop is not blocked).
   Missing value or a non-duration fail at parse (no longer swallowed).
   Other `--experimental-*` stay no-ops.
+- **`--experimental-memory-mlock`** — bool (`true`/`false`/`1`/`0`;
+  bare flag is true). Unix `mlockall(MCL_CURRENT|MCL_FUTURE)` at start
+  (failure fail-closes). Windows is UNSUPPORT (start fail-closes).
+  Invalid value fail at parse (no longer swallowed). Other
+  `--experimental-*` stay no-ops.
 
 ## Previously done (auth data plane)
 
