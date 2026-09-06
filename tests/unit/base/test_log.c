@@ -4,6 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if !defined(_WIN32)
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+#include <sys/time.h>
+#endif
 
 static FILE *open_tmpsink(void) {
     FILE *fp = tmpfile();
@@ -115,12 +121,50 @@ CETCD_TEST_CASE(log_outputs_fail_closed) {
     FILE *owned = NULL;
     CETCD_ASSERT_TRUE(cetcd_log_open_outputs(NULL, &owned) != 0);
     CETCD_ASSERT_TRUE(cetcd_log_open_outputs("", &owned) != 0);
+    CETCD_ASSERT_TRUE(cetcd_log_open_journal("/no/such/cetcd-journal.sock", &owned) != 0);
+#if defined(_WIN32)
     CETCD_ASSERT_TRUE(cetcd_log_open_outputs("journal", &owned) != 0);
     CETCD_ASSERT_TRUE(cetcd_log_open_outputs("syslog", &owned) != 0);
+#endif
     CETCD_ASSERT_TRUE(cetcd_log_open_outputs("stderr,stdout", &owned) != 0);
     CETCD_ASSERT_TRUE(cetcd_log_open_outputs("stderr,/tmp/cetcd-mixed.log", &owned) != 0);
+    CETCD_ASSERT_TRUE(cetcd_log_open_outputs("stderr,journal", &owned) != 0);
     cetcd_log_set_sink(stderr);
 }
+
+#if !defined(_WIN32)
+CETCD_TEST_CASE(log_outputs_journal_unix_socket) {
+    char path[128];
+    snprintf(path, sizeof(path), "/tmp/cetcd-jnl-%u.sock", (unsigned)getpid());
+    unlink(path);
+    int srv = socket(AF_UNIX, SOCK_DGRAM, 0);
+    CETCD_ASSERT_TRUE(srv >= 0);
+    struct sockaddr_un un;
+    memset(&un, 0, sizeof(un));
+    un.sun_family = AF_UNIX;
+    strncpy(un.sun_path, path, sizeof(un.sun_path) - 1);
+    CETCD_ASSERT_EQ_INT(bind(srv, (struct sockaddr *)&un, sizeof(un)), 0);
+    struct timeval tv = { .tv_sec = 1, .tv_usec = 0 };
+    CETCD_ASSERT_EQ_INT(setsockopt(srv, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)), 0);
+
+    FILE *owned = NULL;
+    CETCD_ASSERT_EQ_INT(cetcd_log_open_journal(path, &owned), 0);
+    CETCD_ASSERT_NOT_NULL(owned);
+    CETCD_INFO("journal-line");
+    fflush(owned);
+
+    char buf[256] = {0};
+    ssize_t n = recv(srv, buf, sizeof(buf) - 1, 0);
+    CETCD_ASSERT_TRUE(n > 0);
+    buf[n] = '\0';
+    CETCD_ASSERT_TRUE(strstr(buf, "journal-line") != NULL);
+
+    fclose(owned);
+    cetcd_log_set_sink(stderr);
+    close(srv);
+    unlink(path);
+}
+#endif
 
 CETCD_TEST_CASE(level_name_lookup) {
     CETCD_ASSERT_EQ_STR(cetcd_log_level_name(CETCD_LOG_TRACE), "TRACE");
@@ -138,6 +182,9 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(json_format_emits_valid_ish_json),
     CETCD_TEST_ENTRY(log_outputs_stdio_and_file),
     CETCD_TEST_ENTRY(log_outputs_fail_closed),
+#if !defined(_WIN32)
+    CETCD_TEST_ENTRY(log_outputs_journal_unix_socket),
+#endif
     CETCD_TEST_ENTRY(level_name_lookup),
 CETCD_TEST_LIST_END
 CETCD_TEST_MAIN()

@@ -2022,6 +2022,16 @@ CETCD_TEST_CASE(live_cetcd_cluster_token) {
              "'%s' --initial-cluster-token etcd-cluster --help >/dev/null 2>&1",
              CETCD_BIN);
     CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --initial-cluster-state existing --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --force-new-cluster --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
 }
 
 CETCD_TEST_CASE(live_cetcd_log_outputs) {
@@ -2042,7 +2052,7 @@ CETCD_TEST_CASE(live_cetcd_log_outputs) {
     CETCD_ASSERT_EQ_INT(system(cmd), 0);
 
     snprintf(cmd, sizeof(cmd),
-             "'%s' --log-outputs journal --help >/dev/null 2>&1",
+             "'%s' --log-outputs journal,stderr >/dev/null 2>&1",
              CETCD_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
@@ -2103,12 +2113,17 @@ CETCD_TEST_CASE(live_cetcd_grpc_keepalive) {
 CETCD_TEST_CASE(live_cetcd_auto_tls_requires_certs) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
-             "'%s' --auto-tls >/dev/null 2>&1",
+             "'%s' --auto-tls --help >/dev/null 2>&1",
              CETCD_BIN);
-    CETCD_ASSERT_TRUE(system(cmd) != 0);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
 
     snprintf(cmd, sizeof(cmd),
-             "'%s' --peer-auto-tls >/dev/null 2>&1",
+             "'%s' --peer-auto-tls --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --auto-tls --data-dir /dev/null >/dev/null 2>&1",
              CETCD_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }

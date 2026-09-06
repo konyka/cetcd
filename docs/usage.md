@@ -153,6 +153,8 @@ cetcd accepts several etcd server flags for migration compatibility:
   --initial-cluster-state new --initial-cluster-token etcd-cluster \
   --snapshot-count 10000 --data-dir ./data
 # --snapshot-count must be > 0; a typo or 0 is not the silent default 10000
+# --initial-cluster-state existing requires cluster_token / data.mdb / WAL
+# --force-new-cluster keeps MVCC and drops peers except self (needs cluster evidence)
 
 # Backend quota (NOSPACE on Puts when LMDB size >= N; 0 = unlimited; a typo fails)
 ./build/bin/cetcd --quota-backend-bytes 2147483648 --max-request-bytes 1572864 \
@@ -164,8 +166,8 @@ cetcd accepts several etcd server flags for migration compatibility:
   --peer-cert-file peer.crt --peer-key-file peer.key \
   --peer-trusted-ca-file peer-ca.crt --peer-client-cert-auth
 
-# --auto-tls without certs fails (cetcd does not mint certificates)
-# ./build/bin/cetcd --auto-tls  → error
+# Self-signed ECDSA P-256 into {data-dir}/fixtures/ (requires --data-dir)
+./build/bin/cetcd --auto-tls --peer-auto-tls --data-dir ./data
 
 # TLS cipher list (IANA or OpenSSL names, including TLS 1.3; requires certs)
 # a TLS 1.3-only list disables TLS 1.2 (and a TLS 1.2-only list disables TLS 1.3)
@@ -210,8 +212,9 @@ cetcd accepts several etcd server flags for migration compatibility:
 # DNS SRV bootstrap (cannot mix with --initial-cluster; 0 records fail-close)
 # ./build/bin/cetcd --discovery-srv example.com --discovery-srv-name east
 
-# File log sink (journal/syslog and mixed comma-lists fail-close)
+# File or journal log sink (mixed comma-lists fail-close)
 ./build/bin/cetcd --log-outputs /var/log/cetcd.log --data-dir ./data
+# ./build/bin/cetcd --log-outputs journal --data-dir ./data
 
 # Unknown flags fail at parse (not a silent ignore)
 # ./build/bin/cetcd --not-a-real-flag  → error: unknown flag

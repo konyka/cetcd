@@ -36,10 +36,15 @@ cetcd_log_format cetcd_log_get_format(void);
 void             cetcd_log_set_sink(FILE *fp);
 FILE            *cetcd_log_get_sink(void);
 
-/* Parse --log-outputs: stderr/stdout (/dev/std{err,out}) or a file path
- * (append). journal/syslog and mixed comma-lists fail-closed. *owned is
+/* Parse --log-outputs: stderr/stdout (/dev/std{err,out}), a file path
+ * (append), or journal/syslog. Mixed comma-lists fail-closed. *owned is
  * the FILE to fclose at shutdown (NULL for stdio). */
 int              cetcd_log_open_outputs(const char *spec, FILE **owned);
+
+/* Connect a SOCK_DGRAM client to a syslog/journal unix socket.
+ * NULL path tries /run/systemd/journal/dev-log then /dev/log.
+ * Windows is fail-closed (UNSUPPORT). */
+int              cetcd_log_open_journal(const char *socket_path, FILE **owned);
 
 void cetcd_log_emit(cetcd_log_level lvl,
                     const char *file, int line, const char *func,

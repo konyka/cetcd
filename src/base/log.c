@@ -1,5 +1,7 @@
-#if !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
-#  define _POSIX_C_SOURCE 200809L
+#if !defined(_WIN32)
+#  ifndef _DEFAULT_SOURCE
+#    define _DEFAULT_SOURCE
+#  endif
 #endif
 
 #include "cetcd/base.h"
@@ -7,6 +9,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#if !defined(_WIN32)
+#  include <sys/socket.h>
+#  include <sys/un.h>
+#  include <unistd.h>
+#endif
 
 static cetcd_log_level  g_level  = CETCD_LOG_INFO;
 static cetcd_log_format g_format = CETCD_LOG_FORMAT_TEXT;
@@ -146,8 +153,19 @@ int cetcd_log_open_outputs(const char *spec, FILE **owned) {
         while (tl > 0 && (tok[tl - 1] == ' ' || tok[tl - 1] == '\t'))
             tok[--tl] = '\0';
         if (tl == 0) return CETCD_ERR_INVAL;
-        if (strcmp(tok, "journal") == 0 || strcmp(tok, "syslog") == 0)
-            return CETCD_ERR_UNSUPPORT;
+        if (strcmp(tok, "journal") == 0 || strcmp(tok, "syslog") == 0) {
+            if (chosen || saw_file) return CETCD_ERR_INVAL;
+            FILE *j = NULL;
+            int jc = cetcd_log_open_journal(NULL, &j);
+            if (jc != 0) return jc;
+            chosen = j;
+            saw_file = 1; /* owned sink */
+            ntok++;
+            if (!comma) break;
+            p = comma + 1;
+            if (*p == '\0') return CETCD_ERR_INVAL;
+            continue;
+        }
         FILE *stdio = NULL;
         if (same_stdio_(tok, &stdio)) {
             if (saw_file) return CETCD_ERR_INVAL;
@@ -170,6 +188,51 @@ int cetcd_log_open_outputs(const char *spec, FILE **owned) {
     cetcd_log_set_sink(chosen);
     if (owned && saw_file) *owned = chosen;
     return 0;
+}
+
+int cetcd_log_open_journal(const char *socket_path, FILE **owned) {
+    if (owned) *owned = NULL;
+#if defined(_WIN32)
+    (void)socket_path;
+    return CETCD_ERR_UNSUPPORT;
+#else
+    const char *cands[3];
+    int nc = 0;
+    if (socket_path && socket_path[0]) {
+        cands[nc++] = socket_path;
+    } else {
+        cands[nc++] = "/run/systemd/journal/dev-log";
+        cands[nc++] = "/dev/log";
+    }
+    int fd = -1;
+    for (int i = 0; i < nc; i++) {
+        fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+        if (fd < 0) return CETCD_ERR_IO;
+        struct sockaddr_un un;
+        memset(&un, 0, sizeof(un));
+        un.sun_family = AF_UNIX;
+        size_t pl = strlen(cands[i]);
+        if (pl == 0 || pl >= sizeof(un.sun_path)) {
+            close(fd);
+            fd = -1;
+            continue;
+        }
+        memcpy(un.sun_path, cands[i], pl + 1);
+        if (connect(fd, (struct sockaddr *)&un, sizeof(un)) == 0) break;
+        close(fd);
+        fd = -1;
+    }
+    if (fd < 0) return CETCD_ERR_IO;
+    FILE *fp = fdopen(fd, "w");
+    if (!fp) {
+        close(fd);
+        return CETCD_ERR_IO;
+    }
+    setvbuf(fp, NULL, _IOLBF, 0);
+    cetcd_log_set_sink(fp);
+    if (owned) *owned = fp;
+    return 0;
+#endif
 }
 
 void cetcd_log_emit(cetcd_log_level lvl,

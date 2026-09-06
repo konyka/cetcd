@@ -483,6 +483,39 @@ CETCD_TEST_CASE(tls_set_ciphers_tls12_only_rejects_tls13) {
     cleanup_selfsigned_(dir);
 }
 
+CETCD_TEST_CASE(tls_auto_cert_mints_reuses_and_fail_closes) {
+    char dir[] = "/tmp/cetcd-autotls-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(dir));
+    char cert[300], key[300];
+    snprintf(cert, sizeof(cert), "%s/cert.pem", dir);
+    snprintf(key, sizeof(key), "%s/key.pem", dir);
+
+    int rc = cetcd_tls_auto_cert(cert, key, "localhost", "127.0.0.1");
+    if (rc == CETCD_ERR_UNSUPPORT) {
+        rmdir(dir);
+        return;
+    }
+    CETCD_ASSERT_EQ_INT(rc, CETCD_OK);
+    FILE *cf = fopen(cert, "rb");
+    CETCD_ASSERT_NOT_NULL(cf);
+    fclose(cf);
+    FILE *kf = fopen(key, "rb");
+    CETCD_ASSERT_NOT_NULL(kf);
+    fclose(kf);
+
+    CETCD_ASSERT_EQ_INT(cetcd_tls_auto_cert(cert, key, "other", NULL), CETCD_OK);
+    cetcd_tls_ctx *ctx = cetcd_tls_ctx_new();
+    CETCD_ASSERT_NOT_NULL(ctx);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_set_cert(ctx, cert, key), CETCD_OK);
+    cetcd_tls_ctx_free(ctx);
+
+    unlink(key);
+    CETCD_ASSERT_TRUE(cetcd_tls_auto_cert(cert, key, "localhost", NULL) != CETCD_OK);
+    unlink(cert);
+    CETCD_ASSERT_TRUE(cetcd_tls_auto_cert("", key, "localhost", NULL) != CETCD_OK);
+    rmdir(dir);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(tls_ctx_create_destroy),
     CETCD_TEST_ENTRY(tls_ctx_set_alpn),
@@ -503,6 +536,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(tls_set_ciphers_tls13_handshake),
     CETCD_TEST_ENTRY(tls_set_ciphers_tls13_only_rejects_tls12),
     CETCD_TEST_ENTRY(tls_set_ciphers_tls12_only_rejects_tls13),
+    CETCD_TEST_ENTRY(tls_auto_cert_mints_reuses_and_fail_closes),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

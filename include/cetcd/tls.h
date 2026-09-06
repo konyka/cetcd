@@ -26,6 +26,12 @@ int cetcd_tls_alpn_selected(const cetcd_tls_conn *conn,
 int cetcd_tls_set_verify_peer(cetcd_tls_ctx *ctx, int require_cert);
 int cetcd_tls_set_ciphers(cetcd_tls_ctx *ctx, const char *list);
 
+/* Mint or reuse a self-signed ECDSA P-256 cert/key pair.
+ * If both files exist they are reused. One-without-the-other fail-closes.
+ * cn/extra_ip become SAN entries (localhost + 127.0.0.1 always added). */
+int cetcd_tls_auto_cert(const char *cert_path, const char *key_path,
+                        const char *cn, const char *extra_ip);
+
 /* Blocking handshake on an fd. The caller still owns the fd. */
 cetcd_tls_conn *cetcd_tls_accept(cetcd_tls_ctx *ctx, int fd);
 cetcd_tls_conn *cetcd_tls_connect(cetcd_tls_ctx *ctx, int fd);

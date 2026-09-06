@@ -10,7 +10,24 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/x509.h>
+#include <openssl/x509v3.h>
+#include <openssl/pem.h>
+#include <openssl/evp.h>
 #include <openssl/bio.h>
+#if OPENSSL_VERSION_NUMBER < 0x30000000L
+#include <openssl/ec.h>
+#endif
+
+#if defined(_WIN32)
+#  include <io.h>
+#  define cetcd_access _access
+#  define CETCD_R_OK 4
+#else
+#  include <unistd.h>
+#  include <sys/stat.h>
+#  define cetcd_access access
+#  define CETCD_R_OK R_OK
+#endif
 
 struct cetcd_tls_ctx {
     SSL_CTX        *ssl_ctx;
@@ -427,6 +444,180 @@ void cetcd_tls_shutdown(cetcd_tls_conn *conn) {
     (void)SSL_shutdown(conn->ssl);
 }
 
+static int file_readable_(const char *path) {
+    return path && path[0] && cetcd_access(path, CETCD_R_OK) == 0;
+}
+
+static int looks_like_ip_(const char *s) {
+    int digits = 0, seps = 0;
+    for (const char *p = s; *p; p++) {
+        if (*p >= '0' && *p <= '9') { digits++; continue; }
+        if ((*p >= 'a' && *p <= 'f') || (*p >= 'A' && *p <= 'F')) continue;
+        if (*p == '.' || *p == ':') { seps++; continue; }
+        return 0;
+    }
+    return digits > 0 && seps > 0;
+}
+
+static EVP_PKEY *gen_p256_(void) {
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    return EVP_EC_gen("P-256");
+#else
+    EC_KEY *ec = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+    if (!ec) return NULL;
+    if (EC_KEY_generate_key(ec) != 1) {
+        EC_KEY_free(ec);
+        return NULL;
+    }
+    EVP_PKEY *pkey = EVP_PKEY_new();
+    if (!pkey || EVP_PKEY_assign_EC_KEY(pkey, ec) != 1) {
+        EVP_PKEY_free(pkey);
+        EC_KEY_free(ec);
+        return NULL;
+    }
+    return pkey;
+#endif
+}
+
+static int write_bio_file_(const char *path, BIO *bio) {
+    char *data = NULL;
+    long len = BIO_get_mem_data(bio, &data);
+    if (len <= 0 || !data) return -1;
+    FILE *fp = fopen(path, "wb");
+    if (!fp) return -1;
+    size_t wr = fwrite(data, 1, (size_t)len, fp);
+    int fc = fclose(fp);
+    if (wr != (size_t)len || fc != 0) {
+        remove(path);
+        return -1;
+    }
+    return 0;
+}
+
+static int write_pem_pair_(const char *cert_path, const char *key_path,
+                           X509 *cert, EVP_PKEY *pkey) {
+    char ktmp[768], ctmp[768];
+    int n = snprintf(ktmp, sizeof(ktmp), "%s.tmp", key_path);
+    if (n < 0 || (size_t)n >= sizeof(ktmp)) return -1;
+    n = snprintf(ctmp, sizeof(ctmp), "%s.tmp", cert_path);
+    if (n < 0 || (size_t)n >= sizeof(ctmp)) return -1;
+
+    BIO *kb = BIO_new(BIO_s_mem());
+    BIO *cb = BIO_new(BIO_s_mem());
+    if (!kb || !cb ||
+        PEM_write_bio_PrivateKey(kb, pkey, NULL, NULL, 0, NULL, NULL) != 1 ||
+        PEM_write_bio_X509(cb, cert) != 1 ||
+        write_bio_file_(ktmp, kb) != 0) {
+        BIO_free(kb);
+        BIO_free(cb);
+        remove(ktmp);
+        return -1;
+    }
+    BIO_free(kb);
+#if !defined(_WIN32)
+    (void)chmod(ktmp, 0600);
+#endif
+    if (write_bio_file_(ctmp, cb) != 0) {
+        BIO_free(cb);
+        remove(ktmp);
+        return -1;
+    }
+    BIO_free(cb);
+    if (rename(ktmp, key_path) != 0) {
+        remove(ktmp);
+        remove(ctmp);
+        return -1;
+    }
+    if (rename(ctmp, cert_path) != 0) {
+        remove(key_path);
+        remove(ctmp);
+        return -1;
+    }
+#if !defined(_WIN32)
+    (void)chmod(key_path, 0600);
+#endif
+    return 0;
+}
+
+int cetcd_tls_auto_cert(const char *cert_path, const char *key_path,
+                        const char *cn, const char *extra_ip) {
+    if (!cert_path || !cert_path[0] || !key_path || !key_path[0])
+        return CETCD_ERR_INVAL;
+    int have_c = file_readable_(cert_path);
+    int have_k = file_readable_(key_path);
+    if (have_c && have_k) return CETCD_OK;
+    if (have_c || have_k) return CETCD_ERR_INVAL;
+
+    const char *name = (cn && cn[0]) ? cn : "localhost";
+    EVP_PKEY *pkey = gen_p256_();
+    if (!pkey) return CETCD_ERR_INTERNAL;
+
+    X509 *cert = X509_new();
+    if (!cert) {
+        EVP_PKEY_free(pkey);
+        return CETCD_ERR_NOMEM;
+    }
+    if (X509_set_version(cert, 2) != 1 ||
+        ASN1_INTEGER_set(X509_get_serialNumber(cert), 1) != 1 ||
+        !X509_gmtime_adj(X509_get_notBefore(cert), 0) ||
+        !X509_gmtime_adj(X509_get_notAfter(cert), 60L * 60 * 24 * 3650) ||
+        X509_set_pubkey(cert, pkey) != 1) {
+        X509_free(cert);
+        EVP_PKEY_free(pkey);
+        return CETCD_ERR_INTERNAL;
+    }
+    X509_NAME *nm = X509_NAME_new();
+    if (!nm ||
+        X509_NAME_add_entry_by_txt(nm, "CN", MBSTRING_ASC,
+                                   (const unsigned char *)name, -1, -1, 0) != 1 ||
+        X509_set_subject_name(cert, nm) != 1 ||
+        X509_set_issuer_name(cert, nm) != 1) {
+        X509_NAME_free(nm);
+        X509_free(cert);
+        EVP_PKEY_free(pkey);
+        return CETCD_ERR_INTERNAL;
+    }
+    X509_NAME_free(nm);
+
+    char san[768];
+    int used = snprintf(san, sizeof(san), "DNS:localhost,DNS:%s,IP:127.0.0.1", name);
+    if (used < 0 || (size_t)used >= sizeof(san)) {
+        X509_free(cert);
+        EVP_PKEY_free(pkey);
+        return CETCD_ERR_OVERFLOW;
+    }
+    if (extra_ip && extra_ip[0] && looks_like_ip_(extra_ip) &&
+        strcmp(extra_ip, "127.0.0.1") != 0) {
+        int add = snprintf(san + used, sizeof(san) - (size_t)used,
+                           ",IP:%s", extra_ip);
+        if (add < 0 || (size_t)add >= sizeof(san) - (size_t)used) {
+            X509_free(cert);
+            EVP_PKEY_free(pkey);
+            return CETCD_ERR_OVERFLOW;
+        }
+    }
+    X509V3_CTX v3;
+    X509V3_set_ctx_nodb(&v3);
+    X509V3_set_ctx(&v3, cert, cert, NULL, NULL, 0);
+    X509_EXTENSION *ex = X509V3_EXT_conf_nid(NULL, &v3, NID_subject_alt_name, san);
+    if (!ex || X509_add_ext(cert, ex, -1) != 1) {
+        X509_EXTENSION_free(ex);
+        X509_free(cert);
+        EVP_PKEY_free(pkey);
+        return CETCD_ERR_INTERNAL;
+    }
+    X509_EXTENSION_free(ex);
+    if (X509_sign(cert, pkey, EVP_sha256()) <= 0) {
+        X509_free(cert);
+        EVP_PKEY_free(pkey);
+        return CETCD_ERR_INTERNAL;
+    }
+    int rc = write_pem_pair_(cert_path, key_path, cert, pkey);
+    X509_free(cert);
+    EVP_PKEY_free(pkey);
+    return rc == 0 ? CETCD_OK : CETCD_ERR_IO;
+}
+
 #else /* CETCD_HAS_OPENSSL */
 typedef struct cetcd_tls_ctx cetcd_tls_ctx;
 typedef struct cetcd_tls_conn cetcd_tls_conn;
@@ -489,4 +680,9 @@ int cetcd_tls_write(cetcd_tls_conn *conn, const void *buf, size_t len) {
     (void)conn; (void)buf; (void)len; return CETCD_ERR_UNSUPPORT;
 }
 void cetcd_tls_shutdown(cetcd_tls_conn *conn) { (void)conn; }
+int cetcd_tls_auto_cert(const char *cert_path, const char *key_path,
+                        const char *cn, const char *extra_ip) {
+    (void)cert_path; (void)key_path; (void)cn; (void)extra_ip;
+    return CETCD_ERR_UNSUPPORT;
+}
 #endif

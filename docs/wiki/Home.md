@@ -785,7 +785,9 @@ BIOs so libuv keeps the socket; blocking `SSL_accept` is not used on the reactor
 client in a blocking TLS handshake and omits ALPN so the server keeps the
 length-prefixed path. `--insecure` skips verify; missing files, cert-without-key,
 or `--insecure-transport` mixed with cert flags fail closed. `--auto-tls` /
-`--peer-auto-tls` without matching cert files fail closed (cetcd does not mint).
+`--peer-auto-tls` mint `{data-dir}/fixtures/client.{crt,key}` or `peer.{crt,key}`
+(ECDSA P-256) when the matching cert flag is empty. Reuse if both files exist;
+one-without-the-other or missing `--data-dir` fail-closes.
 `--cipher-suites` restricts TLS (IANA or OpenSSL names; TLS 1.3 IANA names use
 `SSL_CTX_set_ciphersuites`); unknown names or the flag without certs fail closed.
 A TLS 1.3-only list disables TLS 1.2 (and a TLS 1.2-only list disables TLS 1.3)
@@ -796,8 +798,10 @@ cert files; `https://` in `--initial-cluster` requires `--peer-cert-file`;
 `--initial-cluster` member ids must be `> 0`; an etcd-style name is not Raft id `0`.
 `cetcdctl --endpoints https://...` requires `--cacert` or `--insecure`
 (and rejects `--insecure-transport`). Plaintext is not a silent fallback.
-`--initial-cluster-state existing` and `--force-new-cluster` fail at start
-(cetcd only bootstraps `new` and does not wipe `data_dir`).
+`--initial-cluster-state existing` restarts a member that already has cluster
+evidence (`cluster_token` / `data.mdb` / WAL); an empty dir fail-closes.
+`--force-new-cluster` keeps MVCC and drops all peers except self (empty dir
+fail-closes; not a wipe).
 `--wal-dir` places the WAL on a dedicated path (default `{data-dir}/wal`; empty fail-closes).
 Unknown server flags fail at parse instead of being ignored.
 `--port` is `1..65535`; a typo fail-closes instead of binding port `0`.
@@ -811,7 +815,7 @@ Unknown server flags fail at parse instead of being ignored.
 `--max-txn-ops` is `1..128`; a typo or `0` fail-closes instead of becoming the default 128.
 `--max-request-bytes` must be `> 0`; a typo or `0` fail-closes instead of becoming the default 1.5 MiB.
 `--bcrypt-cost` is `0` or `4..31`; a typo fail-closes instead of becoming SHA-256.
-`--log-outputs` is `stderr`, `stdout`, or a file path; `journal`/`syslog` fail-close.
+`--log-outputs` is `stderr`, `stdout`, a file path, or `journal`/`syslog` (unix dgram); mixed comma-lists fail-close.
 `--logger` is `zap` or `capnslog`; any other type fail-closes.
 `--log-level` is `trace`/`debug`/`info`/`warn`/`error` (etcd `warning`/`dpanic`/`panic`/`fatal` aliases); any other level fail-closes.
 `--log-format` is `json` or `text` (etcd `console` = text); any other format fail-closes.

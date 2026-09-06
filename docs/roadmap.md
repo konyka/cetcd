@@ -168,20 +168,22 @@ Performance-first, fail-closed design:
   an https endpoint also fails. A non-port in `--listen-client-urls` used to
   bind port `0`; that now fails at parse. The same check applies to
   `--listen-peer-urls` and to `--initial-cluster` peer URLs.
-- **`--initial-cluster-state` / `--force-new-cluster`** — `new` (or omitted) is
-  the only cluster bootstrap. `existing` would look like a join while still
-  forming a new cluster; `--force-new-cluster` would look like a wipe. Both
-  fail-close at start instead of no-op. `cetcdctl snapshot restore
-  --initial-cluster-state` other than `new` fail-closes the same way.
+- **`--initial-cluster-state` / `--force-new-cluster`** — `new` (or omitted)
+  bootstraps. `existing` requires persisted cluster evidence (`cluster_token`,
+  `data.mdb`, or a WAL segment); an empty dir fail-closes so it cannot look
+  like a join. `--force-new-cluster` keeps MVCC and drops all peers except
+  self (not a wipe); empty dir fail-closes. `cetcdctl snapshot restore
+  --initial-cluster-state` other than `new` still fail-closes (empty-dir join
+  is not implemented).
 - **`--initial-cluster https://`** — a peer URL with an https scheme requires
   `--peer-cert-file`. Stripping the scheme and dialing plaintext is fail-open.
   Member ids must be `> 0`; an etcd-style name used to become Raft id `0` via
   `atol`.
 - **Unknown server flags** — a typo or an unimplemented etcd flag such as
   `--wal-dir` fails at parse instead of starting with the option ignored.
-- **`--log-outputs`** — `stderr`/`stdout` (and `/dev/std{err,out}`) are applied
-  via the log sink. A file path, journal, or comma-list would look like logs
-  left stderr; those fail at parse.
+- **`--log-outputs`** — `stderr`/`stdout` (and `/dev/std{err,out}`), a file
+  path (append), or `journal`/`syslog` (unix dgram). Mixed comma-lists and
+  open failure fail-close (no silent stderr).
 - **`--discovery-srv`** — DNS SRV lookup is not implemented. The flag used to
   be ignored while the client still used `--host`/`--endpoints` (default
   127.0.0.1:2379). It now fails at parse.
@@ -230,9 +232,10 @@ Performance-first, fail-closed design:
   a non-boolean value now fails at parse. A bare flag is accepted.
   Other `--grpc-keepalive-*` stay a no-op and do not swallow a following flag
   such as `--help`.
-- **`--auto-tls` / `--peer-auto-tls`** — cetcd does not mint certificates.
-  Either flag without the matching `--cert-file` / `--peer-cert-file` fail-closes
-  at start instead of listening in plaintext.
+- **`--auto-tls` / `--peer-auto-tls`** — mint self-signed ECDSA P-256 into
+  `{data-dir}/fixtures/` when the matching cert flag is empty. Reuse if both
+  files exist; one-without-the-other fail-closes. Requires `--data-dir`.
+  Existing `--cert-file` / `--peer-cert-file` skip mint.
 - **`--advertise-client-urls` / `--initial-advertise-peer-urls`** — MemberList
   self `clientURLs` / `peerURLs`. Omitted flags default from the listen address
   (scheme follows TLS). `https://` without the matching cert file fail-closes.
@@ -276,9 +279,20 @@ Performance-first, fail-closed design:
 - **`--wal-dir`** — dedicated WAL directory (default `{data-dir}/wal`). Empty
   path fail-closes. Set without `--data-dir` fail-closes at start. Operators
   can put the fsync-heavy WAL on a separate NVMe without moving LMDB.
-- **`--log-outputs` file** — `stderr`/`stdout`/`/dev/std{err,out}` or a file
-  path (append). `journal`/`syslog` and mixed comma-lists fail-closed. Open
-  failure fail-closes (no silent stderr).
+- **`--log-outputs` file / journal** — `stderr`/`stdout`/`/dev/std{err,out}`,
+  a file path (append), or `journal`/`syslog` (unix dgram to
+  `/run/systemd/journal/dev-log` then `/dev/log`). Mixed comma-lists and
+  open failure fail-closed (no silent stderr). Windows has no unix dgram
+  journal and fail-closes.
+- **`--initial-cluster-state existing`** — restart a member that already has
+  cluster evidence. Empty dir fail-closes. This is not empty-dir MemberAdd
+  + snapshot join.
+- **`--force-new-cluster`** — disaster recovery: keep MVCC, drop every peer
+  except self, clear joint config, then campaign as a single voter. Empty
+  dir fail-closes (not a data wipe).
+- **`--auto-tls` / `--peer-auto-tls`** — mint `{data-dir}/fixtures/client.{crt,key}`
+  or `peer.{crt,key}` (ECDSA P-256, SAN localhost + 127.0.0.1). Reuse when
+  both files exist. Key mode 0600 on POSIX.
 - **`--discovery-srv` / `--discovery-srv-name`** — DNS SRV bootstrap.
   Server looks up `_etcd-server[-ssl][-name]._tcp.<domain>` and fills
   `--initial-cluster` with stable FNV-1a peer ids. Client looks up
@@ -299,16 +313,14 @@ Performance-first, fail-closed design:
 
 ### Reliability (cluster correctness)
 
-- **`--initial-cluster-state existing`** — join an already-bootstrapped
-  cluster (MemberAdd + catch-up). Still fail-closed so it cannot look like
-  a join while forming a new cluster.
+- **Empty-dir join** — MemberAdd + snapshot catch-up from a blank `data-dir`.
+  `--initial-cluster-state existing` only restarts a member that already has
+  cluster evidence. `cetcdctl snapshot restore --initial-cluster-state existing`
+  stays fail-closed.
 
 ### Security / ops
 
-- **`--auto-tls` / `--peer-auto-tls`** — cetcd does not mint certificates.
-  Either flag still requires the matching cert files.
-- **`--force-new-cluster`** — would wipe `data-dir`. Still fail-closed.
-- **`--log-outputs journal`** — systemd journal is not wired. Fail-closed.
+None remaining in this pass.
 
 ### Wire compatibility
 

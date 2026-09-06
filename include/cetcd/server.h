@@ -55,14 +55,14 @@ typedef struct cetcd_server_config {
     char            cipher_suites[512];   /* empty = OpenSSL default; requires TLS */
     bool            listen_https;         /* https:// client URL requires cert_file */
     bool            peer_listen_https;    /* https:// peer URL requires peer_cert_file */
-    char            initial_cluster_state[16]; /* empty or "new"; others fail-closed */
-    bool            force_new_cluster;    /* not implemented; start fails if set */
+    char            initial_cluster_state[16]; /* empty, "new", or "existing" */
+    bool            force_new_cluster;    /* disaster recover: single-voter, keep MVCC */
     bool            initial_cluster_https; /* https:// peer URL requires peer_cert_file */
     bool            keepalive_set;         /* --grpc-keepalive-time was given */
     int             keepalive_time;        /* 0 disables; else TCP_KEEPIDLE seconds */
     int             keepalive_timeout;     /* 0 = libuv default interval; else TCP_KEEPINTVL */
-    bool            auto_tls;              /* not implemented; requires cert_file */
-    bool            peer_auto_tls;         /* not implemented; requires peer_cert_file */
+    bool            auto_tls;              /* mint {data-dir}/fixtures/client.{crt,key} */
+    bool            peer_auto_tls;         /* mint {data-dir}/fixtures/peer.{crt,key} */
     char            advertise_client_urls[512]; /* MemberList clientURLs; empty → listen */
     char            advertise_peer_urls[512];   /* MemberList self peerURLs; empty → peer listen */
     char            name[128];                  /* MemberList self name; empty → "default" */

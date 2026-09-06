@@ -1985,6 +1985,89 @@ static int resolve_wal_dir_(const cetcd_server_config *cfg, char *out, size_t ca
     return 0;
 }
 
+static int file_readable_(const char *path) {
+    if (!path || !path[0]) return 0;
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    fclose(f);
+    return 1;
+}
+
+static int ensure_dir(const char *path);
+
+static int data_dir_has_cluster_(const cetcd_server_config *cfg) {
+    if (!cfg || !cfg->data_dir[0]) return 0;
+    char p[768];
+    int n = snprintf(p, sizeof(p), "%s/cluster_token", cfg->data_dir);
+    if (n > 0 && (size_t)n < sizeof(p) && file_readable_(p)) return 1;
+    n = snprintf(p, sizeof(p), "%s/data.mdb", cfg->data_dir);
+    if (n > 0 && (size_t)n < sizeof(p) && file_readable_(p)) return 1;
+    if (cfg->wal_dir[0]) {
+        n = snprintf(p, sizeof(p), "%s/0000000000000000.wal", cfg->wal_dir);
+        if (n > 0 && (size_t)n < sizeof(p) && file_readable_(p)) return 1;
+    }
+    n = snprintf(p, sizeof(p), "%s/wal/0000000000000000.wal", cfg->data_dir);
+    if (n > 0 && (size_t)n < sizeof(p) && file_readable_(p)) return 1;
+    return 0;
+}
+
+static int apply_auto_tls_(cetcd_server *srv) {
+    if (!srv) return CETCD_ERR_INVAL;
+    int need_client = srv->cfg.auto_tls && !srv->cfg.cert_file[0];
+    int need_peer = srv->cfg.peer_auto_tls && !srv->cfg.peer_cert_file[0];
+    if (!need_client && !need_peer) return CETCD_OK;
+    if (!srv->cfg.data_dir[0]) return CETCD_ERR_INVAL;
+    char fixtures[600];
+    int n = snprintf(fixtures, sizeof(fixtures), "%s/fixtures", srv->cfg.data_dir);
+    if (n < 0 || (size_t)n >= sizeof(fixtures)) return CETCD_ERR_OVERFLOW;
+    ensure_dir(srv->cfg.data_dir);
+    ensure_dir(fixtures);
+    const char *cn = srv->cfg.name[0] ? srv->cfg.name : "localhost";
+    if (need_client) {
+        char cert[600], key[600];
+        n = snprintf(cert, sizeof(cert), "%s/client.crt", fixtures);
+        if (n < 0 || (size_t)n >= sizeof(cert)) return CETCD_ERR_OVERFLOW;
+        n = snprintf(key, sizeof(key), "%s/client.key", fixtures);
+        if (n < 0 || (size_t)n >= sizeof(key)) return CETCD_ERR_OVERFLOW;
+        int rc = cetcd_tls_auto_cert(cert, key, cn, srv->cfg.listen_addr);
+        if (rc != CETCD_OK) return rc;
+        strncpy(srv->cfg.cert_file, cert, sizeof(srv->cfg.cert_file) - 1);
+        strncpy(srv->cfg.key_file, key, sizeof(srv->cfg.key_file) - 1);
+    }
+    if (need_peer) {
+        char cert[600], key[600];
+        n = snprintf(cert, sizeof(cert), "%s/peer.crt", fixtures);
+        if (n < 0 || (size_t)n >= sizeof(cert)) return CETCD_ERR_OVERFLOW;
+        n = snprintf(key, sizeof(key), "%s/peer.key", fixtures);
+        if (n < 0 || (size_t)n >= sizeof(key)) return CETCD_ERR_OVERFLOW;
+        int rc = cetcd_tls_auto_cert(cert, key, cn, srv->cfg.peer_addr);
+        if (rc != CETCD_OK) return rc;
+        strncpy(srv->cfg.peer_cert_file, cert, sizeof(srv->cfg.peer_cert_file) - 1);
+        strncpy(srv->cfg.peer_key_file, key, sizeof(srv->cfg.peer_key_file) - 1);
+    }
+    return CETCD_OK;
+}
+
+static int force_new_cluster_(cetcd_server *srv) {
+    if (!srv || !srv->cluster) return CETCD_ERR_INVAL;
+    uint64_t self = srv->cfg.node_id;
+    uint64_t drop[64];
+    uint32_t nd = 0;
+    size_t n = cetcd_cluster_peer_count(srv->cluster);
+    for (size_t i = 0; i < n && nd < 64; i++) {
+        const cetcd_peer_info *pi = cetcd_cluster_get_peer_by_index(srv->cluster, i);
+        if (pi && pi->id != self) drop[nd++] = pi->id;
+    }
+    for (uint32_t i = 0; i < nd; i++) {
+        (void)cetcd_cluster_remove_peer(srv->cluster, drop[i]);
+        (void)cetcd_cluster_persist_del(srv->cluster, drop[i]);
+        if (srv->raft) (void)cetcd_raft_remove_peer(srv->raft, drop[i]);
+    }
+    (void)cetcd_cluster_persist_clear_joint(srv->cluster);
+    srv->cfg.n_initial_peers = 0;
+    return CETCD_OK;
+}
+
 static int ensure_dir(const char *path) {
 #if defined(_WIN32)
     struct _stat st;
@@ -2146,6 +2229,21 @@ int cetcd_server_start(cetcd_server *srv) {
     cetcd_v3rpc_set_quota(srv->cfg.quota_backend_bytes);
     cetcd_v3rpc_set_max_txn_ops(srv->cfg.max_txn_ops);
 
+    if (srv->cfg.wal_dir[0] && !srv->cfg.data_dir[0])
+        return CETCD_ERR_INVAL;
+    if (srv->cfg.initial_cluster_state[0] &&
+        strcmp(srv->cfg.initial_cluster_state, "new") != 0 &&
+        strcmp(srv->cfg.initial_cluster_state, "existing") != 0)
+        return CETCD_ERR_INVAL;
+    if (strcmp(srv->cfg.initial_cluster_state, "existing") == 0 &&
+        !data_dir_has_cluster_(&srv->cfg))
+        return CETCD_ERR_INVAL;
+    if (srv->cfg.force_new_cluster && !data_dir_has_cluster_(&srv->cfg))
+        return CETCD_ERR_INVAL;
+    {
+        int at = apply_auto_tls_(srv);
+        if (at != CETCD_OK) return at;
+    }
     if (srv->cfg.cipher_suites[0] &&
         !(srv->cfg.cert_file[0] || srv->cfg.peer_cert_file[0]))
         return CETCD_ERR_INVAL;
@@ -2153,20 +2251,9 @@ int cetcd_server_start(cetcd_server *srv) {
         return CETCD_ERR_INVAL;
     if (srv->cfg.peer_listen_https && !srv->cfg.peer_cert_file[0])
         return CETCD_ERR_INVAL;
-    if (srv->cfg.wal_dir[0] && !srv->cfg.data_dir[0])
-        return CETCD_ERR_INVAL;
-    if (srv->cfg.force_new_cluster)
-        return CETCD_ERR_INVAL;
-    if (srv->cfg.initial_cluster_state[0] &&
-        strcmp(srv->cfg.initial_cluster_state, "new") != 0)
-        return CETCD_ERR_INVAL;
     if (srv->cfg.initial_cluster_https && !srv->cfg.peer_cert_file[0])
         return CETCD_ERR_INVAL;
     if (srv->cfg.keepalive_timeout > 0 && !srv->cfg.keepalive_set)
-        return CETCD_ERR_INVAL;
-    if (srv->cfg.auto_tls && !srv->cfg.cert_file[0])
-        return CETCD_ERR_INVAL;
-    if (srv->cfg.peer_auto_tls && !srv->cfg.peer_cert_file[0])
         return CETCD_ERR_INVAL;
     if (strncmp(srv->cfg.advertise_client_urls, "https://", 8) == 0 &&
         !srv->cfg.cert_file[0])
@@ -2316,6 +2403,10 @@ int cetcd_server_start(cetcd_server *srv) {
                     if (jn > 0)
                         (void)cetcd_raft_restore_joint(srv->raft, jids, jn, jidx);
                 }
+            }
+            if (srv->cfg.force_new_cluster) {
+                int frc = force_new_cluster_(srv);
+                if (frc != CETCD_OK) return frc;
             }
         }
 

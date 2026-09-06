@@ -1779,6 +1779,106 @@ CETCD_TEST_CASE(server_start_rejects_cluster_state_existing) {
     cetcd_server_free(srv);
 }
 
+static int write_token_(const char *dir, const char *tok) {
+    char path[300];
+    snprintf(path, sizeof(path), "%s/cluster_token", dir);
+    FILE *f = fopen(path, "w");
+    if (!f) return -1;
+    int rc = fprintf(f, "%s\n", tok) > 0 ? 0 : -1;
+    fclose(f);
+    return rc;
+}
+
+CETCD_TEST_CASE(server_start_existing_requires_persisted_state) {
+    char data_dir[] = "/tmp/cetcd-existing-empty-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+    strncpy(cfg.initial_cluster_state, "existing",
+            sizeof(cfg.initial_cluster_state) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), CETCD_ERR_INVAL);
+    cetcd_server_free(srv);
+
+    CETCD_ASSERT_EQ_INT(write_token_(data_dir, "etcd-cluster"), 0);
+    strncpy(cfg.initial_cluster_token, "etcd-cluster",
+            sizeof(cfg.initial_cluster_token) - 1);
+    srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+    cetcd_server_free(srv);
+}
+
+CETCD_TEST_CASE(server_start_force_new_cluster_with_state) {
+    char data_dir[] = "/tmp/cetcd-force-new-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
+    CETCD_ASSERT_EQ_INT(write_token_(data_dir, "etcd-cluster"), 0);
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    cfg.force_new_cluster = true;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+    strncpy(cfg.initial_cluster_token, "etcd-cluster",
+            sizeof(cfg.initial_cluster_token) - 1);
+
+    cetcd_peer_info *pi = &cfg.initial_peers[0];
+    pi->id = 2;
+    strncpy(pi->addr, "127.0.0.1", sizeof(pi->addr) - 1);
+    pi->port = 2382;
+    cfg.n_initial_peers = 1;
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+    CETCD_ASSERT_TRUE(cetcd_server_is_leader(srv));
+    CETCD_ASSERT_EQ_INT((int)cetcd_server_peer_count(srv), 0);
+    cetcd_server_free(srv);
+}
+
+CETCD_TEST_CASE(server_start_auto_tls_mints_into_data_dir) {
+    char data_dir[] = "/tmp/cetcd-autotls-srv-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    cfg.auto_tls = true;
+    cfg.peer_auto_tls = true;
+    cfg.listen_https = true;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+    strncpy(cfg.name, "n1", sizeof(cfg.name) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    int rc = cetcd_server_start(srv);
+    if (rc == CETCD_ERR_UNSUPPORT) {
+        cetcd_server_free(srv);
+        return;
+    }
+    CETCD_ASSERT_EQ_INT(rc, 0);
+    char cert[300];
+    snprintf(cert, sizeof(cert), "%s/fixtures/client.crt", data_dir);
+    FILE *f = fopen(cert, "rb");
+    CETCD_ASSERT_NOT_NULL(f);
+    fclose(f);
+    snprintf(cert, sizeof(cert), "%s/fixtures/peer.key", data_dir);
+    f = fopen(cert, "rb");
+    CETCD_ASSERT_NOT_NULL(f);
+    fclose(f);
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_CASE(server_start_accepts_cluster_state_new) {
     cetcd_server_config cfg;
     memset(&cfg, 0, sizeof(cfg));
@@ -2309,6 +2409,9 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_start_accepts_https_listen_with_certs),
     CETCD_TEST_ENTRY(server_start_rejects_force_new_cluster),
     CETCD_TEST_ENTRY(server_start_rejects_cluster_state_existing),
+    CETCD_TEST_ENTRY(server_start_existing_requires_persisted_state),
+    CETCD_TEST_ENTRY(server_start_force_new_cluster_with_state),
+    CETCD_TEST_ENTRY(server_start_auto_tls_mints_into_data_dir),
     CETCD_TEST_ENTRY(server_start_accepts_cluster_state_new),
     CETCD_TEST_ENTRY(server_start_rejects_https_initial_cluster_without_peer_tls),
     CETCD_TEST_ENTRY(server_start_accepts_https_initial_cluster_with_peer_tls),

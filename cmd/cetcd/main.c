@@ -40,13 +40,13 @@ static void print_usage(const char *prog) {
     printf("  --listen-peer-urls URL      Peer listen URL (https requires --peer-cert-file; port 1..65535)\n");
     printf("  --advertise-client-urls URL  MemberList clientURLs (https requires --cert-file)\n");
     printf("  --initial-advertise-peer-urls URL  MemberList peerURLs (https requires --peer-cert-file)\n");
-    printf("  --initial-cluster-state STATE  new (default); existing is not implemented\n");
+    printf("  --initial-cluster-state STATE  new (default) or existing (requires persisted cluster)\n");
     printf("  --initial-cluster-token TOKEN  Persist in data-dir; mismatch fail-closes\n");
     printf("  --discovery-srv DOMAIN  Bootstrap peers from DNS SRV (_etcd-server._tcp)\n");
     printf("  --discovery-srv-name NAME  Optional SRV service suffix\n");
     printf("  --snapshot-count N   Rewrite WAL after N applies (default: 10000; must be > 0)\n");
     printf("  --quota-backend-bytes N  NOSPACE when LMDB size >= N (0 = unlimited; invalid fails)\n");
-    printf("  --force-new-cluster  Not implemented (fail-closed; would wipe data_dir)\n");
+    printf("  --force-new-cluster  Keep MVCC; drop peers except self (requires persisted cluster)\n");
     printf("  --max-txn-ops N     Max compare/success/failure ops per Txn (default 128; 1..128)\n");
     printf("  --max-request-bytes N  Max client frame (default 1572864; must be > 0)\n");
     printf("  --grpc-keepalive-time SEC   TCP keepalive idle on client and peer sockets (0 disables)\n");
@@ -60,15 +60,15 @@ static void print_usage(const char *prog) {
     printf("  --key-file FILE     Client TLS private key\n");
     printf("  --trusted-ca-file FILE  Client TLS CA (required with --client-cert-auth)\n");
     printf("  --client-cert-auth  Require a client certificate (fail-closed)\n");
-    printf("  --auto-tls           Not implemented (fail-closed without --cert-file)\n");
+    printf("  --auto-tls           Mint {data-dir}/fixtures/client.{crt,key} if --cert-file omitted\n");
     printf("  --peer-cert-file FILE    Peer accept TLS certificate (requires --peer-key-file)\n");
     printf("  --peer-key-file FILE     Peer accept TLS private key\n");
     printf("  --peer-trusted-ca-file FILE  Peer TLS CA (required with --peer-client-cert-auth)\n");
     printf("  --peer-client-cert-auth  Require a peer certificate on accept (fail-closed)\n");
-    printf("  --peer-auto-tls      Not implemented (fail-closed without --peer-cert-file)\n");
+    printf("  --peer-auto-tls      Mint {data-dir}/fixtures/peer.{crt,key} if --peer-cert-file omitted\n");
     printf("  --cipher-suites LIST  TLS 1.2/1.3 cipher list (IANA or OpenSSL names; requires TLS)\n");
     printf("  --logger TYPE       zap or capnslog (built-in logger; others fail)\n");
-    printf("  --log-outputs LIST   stderr, stdout, or a file path (journal fail-closes)\n");
+    printf("  --log-outputs LIST   stderr, stdout, file path, or journal/syslog (mixed lists fail)\n");
     printf("  --experimental-*    Accepted but no-op\n");
     printf("  --help           Show this help\n");
 }
