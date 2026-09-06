@@ -319,7 +319,7 @@ void         cetcd_async_send(cetcd_async *async);   // 线程安全
 **依赖**：仅 `libcetcd_base`
 
 这是项目最核心也最复杂的模块，从零实现 Raft 共识算法，API 镜像 `go.etcd.io/raft`。
-服务器默认 `pre_vote=true`：选举先发 `MsgPreVote`（本地 term 不变），多数同意后再加 term 拉正式票；日志落后或 leader 租约未过期则拒绝。`TIMEOUT_NOW`（leader transfer）跳过 PreVote。
+服务器默认 `pre_vote=true`：选举先发 `MsgPreVote`（本地 term 不变），多数同意后再加 term 拉正式票；日志落后或 leader 租约未过期则拒绝。`TIMEOUT_NOW`（leader transfer）跳过 PreVote。`--pre-vote` / `--pre-vote=false` 可关（非法 bool 启动失败；省略仍开启）。
 
 #### 核心设计原则
 
@@ -394,7 +394,7 @@ typedef struct cetcd_ready {
 
 - **选举超时**：默认 10 tick，每 tick 100ms
 - **心跳超时**：默认 1 tick
-- **PreVote**：启用，避免分区节点干扰
+- **PreVote**：默认启用（`--pre-vote=false` 可关），避免分区节点干扰
 - **CheckQuorum**：启用，Leader 主动检查存活
 - **日志复制**：Leader 为每个 Follower 维护 `next_idx` 和 `match_idx`，心跳或拒绝后从 `next_idx` 批量 `App`（`max_size_per_msg`），通过 `AppResp` 推进；拒绝使用 Follower 的 last-index hint
 - **提交推进**：Leader 计算多数派 `match_idx` 的中位数，且仅提交当前 Term 的条目
@@ -817,6 +817,7 @@ Unknown server flags fail at parse instead of being ignored.
 `--node-id` must be `> 0`; a typo fail-closes instead of becoming Raft id `0`.
 `--election-tick` must be `> 0`; a typo or `0` fail-closes instead of becoming `10`.
 `--heartbeat-tick` must be `> 0`; a typo or `0` fail-closes instead of becoming `1`.
+`--pre-vote` is `true`/`false`/`1`/`0` (bare flag is on; omitted default on). A non-bool fail-closes.
 `--snapshot-count` must be `> 0`; a typo or `0` fail-closes instead of becoming the default 10000.
 `--auto-compaction-mode` is `periodic` or `revision`. `--auto-compaction-retention` is `0` (off), a periodic duration / bare hours, or a revision count; invalid values fail-close. The leader compact-proposes on tick.
 `--experimental-initial-corrupt-check` hashes the store after WAL replay and compares `{data-dir}/backend.hash` (mismatch or a lower current revision fail-closes). `--experimental-corrupt-check-time` repeats that HashKV on the tick (`0` disables; mismatch raises CORRUPT; a non-duration fail-closes). `--experimental-compaction-batch-limit` caps auto-compact to N revisions per tick (`0` unlimited; leftover text fail-closes). `--experimental-compaction-sleep-interval` waits between those batches (`0` = none; a non-duration fail-closes). `--experimental-watch-progress-notify-interval` sets Watch `progress_notify` (`0` = 10s; a non-duration fail-closes). `--experimental-warning-apply-duration` warns if apply is slower (`0` disables; omitted default 100ms). `--experimental-warning-unary-request-duration` warns if unary RPC is slower (`0` disables; omitted default 300ms). `--experimental-max-learners` caps learner `MemberAdd` (`0` = none; omitted default 1; leftover text fail-closes). `--experimental-memory-mlock` calls `mlockall` at start (Windows fail-closes; a non-bool fail-closes). `--experimental-bootstrap-defrag-threshold-megabytes` compact-copies `data.mdb` at start if alloc exceeds N MiB (`0` off; leftover text fail-closes). `Maintenance/Defragment` does the same when a backend is attached. Other `--experimental-*` stay no-ops.

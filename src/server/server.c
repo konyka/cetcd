@@ -2351,7 +2351,8 @@ cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
         .max_size_per_msg = 1024 * 1024,
         .max_inflight_msgs = 256,
         .check_quorum = true,
-        .pre_vote = true,
+        .pre_vote = cetcd_server_want_pre_vote(cfg->pre_vote_set ? 1 : 0,
+                                               cfg->pre_vote ? 1 : 0) != 0,
         .disable_proposal_forwarding = false,
     };
     srv->raft = cetcd_raft_new(&raft_cfg);

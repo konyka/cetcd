@@ -33,6 +33,7 @@ static void print_usage(const char *prog) {
     printf("  --initial-cluster ID=ADDR:PORT,...  Initial cluster (https requires --peer-cert-file; id > 0; port 1..65535)\n");
     printf("  --election-tick N   Raft election tick (default: 10; must be > 0)\n");
     printf("  --heartbeat-tick N  Raft heartbeat tick (default: 1; must be > 0)\n");
+    printf("  --pre-vote          Extra Raft election phase (default on; true|false)\n");
     printf("  --log-level LVL  Log level: trace,debug,info,warn,error (default: info)\n");
     printf("  --log-format FMT Log format: text,json (etcd console = text; others fail)\n");
     printf("\n  etcd-compatible flags (accepted for compatibility):\n");
@@ -283,6 +284,25 @@ int main(int argc, char **argv) {
                 return 1;
             }
             cfg.election_tick = (int)v;
+        } else if (strcmp(argv[i], "--pre-vote") == 0) {
+            cfg.pre_vote_set = true;
+            cfg.pre_vote = true;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                int b = 0;
+                if (cetcd_parse_bool_flag(argv[++i], &b) != CETCD_OK) {
+                    fprintf(stderr, "--pre-vote must be true or false\n");
+                    return 1;
+                }
+                cfg.pre_vote = b != 0;
+            }
+        } else if (strncmp(argv[i], "--pre-vote=", 11) == 0) {
+            int b = 0;
+            if (cetcd_parse_bool_flag(argv[i] + 11, &b) != CETCD_OK) {
+                fprintf(stderr, "--pre-vote must be true or false\n");
+                return 1;
+            }
+            cfg.pre_vote_set = true;
+            cfg.pre_vote = b != 0;
         } else if (strcmp(argv[i], "--heartbeat-tick") == 0 && i + 1 < argc) {
             char *end = NULL;
             errno = 0;

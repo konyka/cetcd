@@ -144,10 +144,14 @@ typedef struct cetcd_server_config {
     uint32_t        max_learners;                 /* 0 = unlimited; unset → 1 */
     bool            memory_mlock;                 /* --experimental-memory-mlock */
     uint64_t        bootstrap_defrag_mb;          /* 0 = off; else compact if alloc > N MiB */
+    bool            pre_vote_set;                 /* --pre-vote given */
+    bool            pre_vote;                     /* unset → true (etcd 3.5) */
 } cetcd_server_config;
 
 /* true|false|1|0. Empty/unknown is INVAL. */
 int cetcd_parse_bool_flag(const char *s, int *out);
+/* Unset → 1 (PreVote on). set uses enabled. */
+int cetcd_server_want_pre_vote(int set, int enabled);
 /* enabled 0 is OK. Unix mlockall; Windows UNSUPPORT. mlockall failure is IO. */
 int cetcd_mlock_apply(int enabled);
 /* Persist / load `{rev} {hash}\n`. Missing file is NOTFOUND; garbage is CORRUPT. */

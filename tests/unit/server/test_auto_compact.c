@@ -156,6 +156,13 @@ CETCD_TEST_CASE(auto_compact_parse_auth_token_ttl) {
     CETCD_ASSERT_EQ_INT(cetcd_parse_auth_token_ttl("300", NULL), CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_want_pre_vote) {
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_pre_vote(0, 0), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_pre_vote(0, 1), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_pre_vote(1, 1), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_pre_vote(1, 0), 0);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_self_signed_cert_validity) {
     uint32_t n = 0;
     CETCD_ASSERT_EQ_INT(cetcd_parse_self_signed_cert_validity("1", &n), CETCD_OK);
@@ -280,6 +287,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_batch_limit),
     CETCD_TEST_ENTRY(auto_compact_parse_max_learners),
     CETCD_TEST_ENTRY(auto_compact_parse_auth_token_ttl),
+    CETCD_TEST_ENTRY(auto_compact_want_pre_vote),
     CETCD_TEST_ENTRY(auto_compact_parse_self_signed_cert_validity),
     CETCD_TEST_ENTRY(auto_compact_clamp_batch),
     CETCD_TEST_ENTRY(auto_compact_next_revision_batches),

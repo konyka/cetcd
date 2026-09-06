@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 50 — self-signed cert validity</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 51 — pre-vote flag</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 50 honors
-     <code>--self-signed-cert-validity</code> for auto-TLS mint
-     (omitted default 1 year; <code>0</code> / leftover text fail-closed).
-     Existing fixture files are reused unchanged.</p>
+  <p><strong>v0.3.0</strong>. Phase 51 honors
+     <code>--pre-vote</code> (omitted default on; explicit
+     <code>false</code> campaigns without PreVote).
+     A non-bool fail-closes.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -104,6 +104,7 @@
       <tr><td>48</td><td>unary request warning</td><td>--experimental-warning-unary-request-duration warns if unary RPC exceeds duration; 0 disables; omitted 300ms — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>49</td><td>auth-token-ttl</td><td>--auth-token-ttl sets simple-token lifetime; 0 / leftover text fail-closed; omitted 300s; JWT ttl= still wins — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>50</td><td>self-signed cert validity</td><td>--self-signed-cert-validity sets auto-TLS mint years; 0 / leftover text fail-closed; omitted 1 year — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>51</td><td>pre-vote flag</td><td>--pre-vote honors Raft PreVote; omitted default on; false skips PreVote; non-bool fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

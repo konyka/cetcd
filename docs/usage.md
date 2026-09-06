@@ -246,7 +246,8 @@ cetcd accepts several etcd server flags for migration compatibility:
 # ./build/bin/cetcd --not-a-real-flag  → error: unknown flag
 
 # Raft timing parameters (actually applied; ticks must be > 0)
-./build/bin/cetcd --election-tick 10 --heartbeat-tick 1
+./build/bin/cetcd --election-tick 10 --heartbeat-tick 1 --pre-vote
+# --pre-vote default on; --pre-vote=false skips PreVote (a non-bool fails)
 ```
 
 ---
