@@ -121,6 +121,7 @@
       <tr><td>65</td><td>raft-read/write-timeout</td><td>--raft-read-timeout / --raft-write-timeout recycle hung peer sockets; omitted / &lt;5s floor to 5s; leftover fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>66</td><td>snapshot-catchup-entries</td><td>--experimental-snapshot-catchup-entries keeps N raft entries after compact (default 5000; 0 = applied); leftover fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>67</td><td>cert allowed-cn/hostname</td><td>--peer-cert-allowed-cn / --peer-cert-allowed-hostname / --client-cert-allowed-hostname close a mismatched peer cert after handshake; require cert+CA — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>68</td><td>compact-hash-check</td><td>--experimental-compact-hash-check-enabled / -time compare follower compact HashKV over the peer path; mismatch raises CORRUPT — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

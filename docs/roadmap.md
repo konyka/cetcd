@@ -462,6 +462,13 @@ Performance-first, fail-closed design:
   Compact index is `applied - N` (floor 1). Missing value or leftover
   text fail at parse (no longer swallowed). Accepting the flag as a
   no-op is rejected.
+- **`--experimental-compact-hash-check-enabled` /
+  `--experimental-compact-hash-check-time`** — omitted default off /
+  1m. When enabled, members HashKV the compacted revision and send it
+  over the peer path. The leader raises CORRUPT if a follower's hash
+  at the same rev differs. Missing value or leftover text fail at
+  parse (no longer swallowed). A local-only file compare is rejected
+  (that would not check followers).
 - **Downgrade fail-closed** — `Maintenance/Downgrade` VALIDATE of
   `cetcd_version()` succeeds (already at this binary). ENABLE, CANCEL,
   and any other version fail-closed: the on-disk format cannot change

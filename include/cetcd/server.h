@@ -27,6 +27,7 @@ typedef struct cetcd_server cetcd_server;
 #define CETCD_MAX_ELECTION_MS 50000ULL
 #define CETCD_DEFAULT_RAFT_IO_TIMEOUT_MS 5000ULL
 #define CETCD_DEFAULT_SNAPSHOT_CATCHUP_ENTRIES 5000ULL
+#define CETCD_DEFAULT_COMPACT_HASH_CHECK_MS 60000ULL
 
 typedef enum cetcd_auto_compact_mode {
     CETCD_AUTO_COMPACT_OFF = 0,
@@ -58,6 +59,16 @@ int cetcd_parse_go_duration_ms(const char *s, uint64_t *out);
 /* 1 if a periodic check should run. interval 0 never. First call starts the window. */
 int cetcd_corrupt_check_due(uint64_t *last_ms, uint64_t interval_sec,
                             uint64_t now_ms);
+/* Unset → 0 (off). set uses enabled. */
+int cetcd_server_want_compact_hash_check(int set, int enabled);
+/* Unset → 60000. set uses ms (0 = every subsequent due). */
+uint64_t cetcd_server_compact_hash_check_ms(int set, uint64_t ms);
+/* 1 if a compact-hash pass should run. First call starts the window. interval 0 then always. */
+int cetcd_compact_hash_check_due(uint64_t *last_ms, uint64_t interval_ms,
+                                 uint64_t now_ms);
+/* 1 if both revs match and are > 0 but hashes differ. */
+int cetcd_compact_hash_mismatch(int64_t local_rev, uint32_t local_hash,
+                                int64_t remote_rev, uint32_t remote_hash);
 /* Compact target, or 0 if not due. Updates periodic window. */
 int64_t cetcd_auto_compact_due(cetcd_auto_compact_state *st,
                                int64_t current_rev, int64_t compacted_rev,
@@ -161,6 +172,10 @@ typedef struct cetcd_server_config {
     uint64_t        auto_compaction_retention;    /* seconds or revisions; 0 = off */
     bool            initial_corrupt_check;        /* HashKV vs {data-dir}/backend.hash */
     uint64_t        corrupt_check_interval_sec;   /* 0 = off; periodic HashKV vs backend.hash */
+    bool            compact_hash_check_set;       /* --experimental-compact-hash-check-enabled */
+    bool            compact_hash_check;           /* unset → off */
+    bool            compact_hash_check_time_set;  /* --experimental-compact-hash-check-time */
+    uint64_t        compact_hash_check_ms;        /* unset → 60s; 0 = every tick after first */
     uint64_t        compaction_batch_limit;       /* 0 = unlimited auto-compact step */
     uint64_t        compaction_sleep_interval_ms; /* 0 = no wait between compact batches */
     uint64_t        watch_progress_interval_ms;   /* 0 = default 10s; Watch progress_notify */

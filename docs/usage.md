@@ -232,6 +232,8 @@ cetcd accepts several etcd server flags for migration compatibility:
 # --experimental-bootstrap-defrag-threshold-megabytes compact-copies data.mdb at start (0 off).
 # --experimental-snapshot-catchup-entries keeps N raft entries after compact
 # (omitted default 5000; 0 = compact to applied; leftover text fails).
+# --experimental-compact-hash-check-enabled compares follower compact HashKV
+# (omitted default off; time default 1m; mismatch raises CORRUPT).
 # Other --experimental-* stay no-op.
 ./build/bin/cetcd --experimental-initial-corrupt-check \
   --experimental-corrupt-check-time 10s \
@@ -243,7 +245,9 @@ cetcd accepts several etcd server flags for migration compatibility:
   --experimental-max-learners 1 \
   --experimental-memory-mlock=false \
   --experimental-bootstrap-defrag-threshold-megabytes 0 \
-  --experimental-snapshot-catchup-entries 5000
+  --experimental-snapshot-catchup-entries 5000 \
+  --experimental-compact-hash-check-enabled=false \
+  --experimental-compact-hash-check-time 1m
 
 # Dedicated WAL directory (empty path fail-closes; requires --data-dir)
 ./build/bin/cetcd --data-dir ./data --wal-dir /var/lib/cetcd/wal

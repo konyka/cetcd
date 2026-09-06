@@ -46,6 +46,7 @@ typedef enum cetcd_msg_type {
     CETCD_MSG_READ_INDEX_RESP= 16,
     CETCD_MSG_PRE_VOTE       = 17,
     CETCD_MSG_PRE_VOTE_RESP  = 18,
+    CETCD_MSG_COMPACT_HASH   = 19, /* peer compact HashKV advertise (not Raft) */
 } cetcd_msg_type;
 
 typedef struct cetcd_msg {

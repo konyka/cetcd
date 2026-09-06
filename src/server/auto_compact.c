@@ -501,6 +501,38 @@ uint64_t cetcd_server_raft_compact_index(uint64_t applied, uint64_t catchup) {
     return 1;
 }
 
+int cetcd_server_want_compact_hash_check(int set, int enabled) {
+    return set ? (enabled ? 1 : 0) : 0;
+}
+
+uint64_t cetcd_server_compact_hash_check_ms(int set, uint64_t ms) {
+    return set ? ms : CETCD_DEFAULT_COMPACT_HASH_CHECK_MS;
+}
+
+int cetcd_compact_hash_check_due(uint64_t *last_ms, uint64_t interval_ms,
+                                 uint64_t now_ms) {
+    if (!last_ms) return 0;
+    uint64_t start = now_ms ? now_ms : 1;
+    if (*last_ms == 0) {
+        *last_ms = start;
+        return 0;
+    }
+    if (interval_ms == 0) {
+        *last_ms = start;
+        return 1;
+    }
+    if (now_ms < *last_ms + interval_ms) return 0;
+    *last_ms = start;
+    return 1;
+}
+
+int cetcd_compact_hash_mismatch(int64_t local_rev, uint32_t local_hash,
+                                int64_t remote_rev, uint32_t remote_hash) {
+    if (local_rev <= 0 || remote_rev <= 0) return 0;
+    if (local_rev != remote_rev) return 0;
+    return local_hash != remote_hash;
+}
+
 int cetcd_parse_heartbeat_interval_ms(const char *s, uint64_t *out) {
     if (!out) return CETCD_ERR_INVAL;
     uint64_t v = 0;

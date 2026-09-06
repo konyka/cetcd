@@ -359,6 +359,26 @@ CETCD_TEST_CASE(auto_compact_snapshot_catchup) {
     CETCD_ASSERT_TRUE(cetcd_server_raft_compact_index(5000, 5000) == 1);
 }
 
+CETCD_TEST_CASE(auto_compact_compact_hash_check) {
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_compact_hash_check(0, 1), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_compact_hash_check(1, 1), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_compact_hash_check(1, 0), 0);
+    CETCD_ASSERT_TRUE(cetcd_server_compact_hash_check_ms(0, 0) == 60000);
+    CETCD_ASSERT_TRUE(cetcd_server_compact_hash_check_ms(1, 0) == 0);
+    CETCD_ASSERT_TRUE(cetcd_server_compact_hash_check_ms(1, 10000) == 10000);
+    uint64_t last = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_compact_hash_check_due(NULL, 1000, 5000), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_compact_hash_check_due(&last, 1000, 1000), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_compact_hash_check_due(&last, 1000, 1999), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_compact_hash_check_due(&last, 1000, 2000), 1);
+    last = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_compact_hash_check_due(&last, 0, 2), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_compact_hash_mismatch(0, 1, 0, 2), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_compact_hash_mismatch(5, 1, 6, 2), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_compact_hash_mismatch(5, 1, 5, 1), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_compact_hash_mismatch(5, 1, 5, 2), 1);
+}
+
 CETCD_TEST_CASE(auto_compact_socket_reuse_port) {
     CETCD_ASSERT_EQ_INT(cetcd_server_want_socket_reuse_port(0, 0), 0);
     CETCD_ASSERT_EQ_INT(cetcd_server_want_socket_reuse_port(0, 1), 0);
@@ -658,6 +678,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_metrics_addr),
     CETCD_TEST_ENTRY(auto_compact_raft_io_timeout),
     CETCD_TEST_ENTRY(auto_compact_snapshot_catchup),
+    CETCD_TEST_ENTRY(auto_compact_compact_hash_check),
     CETCD_TEST_ENTRY(auto_compact_socket_reuse_port),
     CETCD_TEST_ENTRY(auto_compact_metrics_level),
     CETCD_TEST_ENTRY(auto_compact_enable_pprof),

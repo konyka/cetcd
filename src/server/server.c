@@ -71,6 +71,7 @@ struct cetcd_server {
     cetcd_tls_ctx       *tls_peer_out;
     cetcd_auto_compact_state ac;
     uint64_t             last_corrupt_check_ms;
+    uint64_t             last_compact_hash_check_ms;
     bool                 client_listen_pending;
     struct peer_ctx_    *peer_in;
 };
@@ -1777,6 +1778,27 @@ static int peer_apply_encoded_(cetcd_server *srv, const uint8_t *encoded, size_t
     cetcd_msg *rmsg = cetcd_msg_decode_wire(raft_wire, raft_wire_len);
     free(raft_wire);
     if (!rmsg) return -1;
+    if (rmsg->type == CETCD_MSG_COMPACT_HASH) {
+        if (cetcd_server_want_compact_hash_check(srv->cfg.compact_hash_check_set,
+                                                 srv->cfg.compact_hash_check) &&
+            cetcd_server_is_leader(srv) && rmsg->from != srv->cfg.node_id) {
+            extern cetcd_mvcc_store *g_rpc_store;
+            int64_t local_rev = g_rpc_store
+                ? cetcd_mvcc_compacted_revision(g_rpc_store) : 0;
+            uint32_t local_hash = 0;
+            if (g_rpc_store && local_rev > 0 &&
+                cetcd_mvcc_hash_kv(g_rpc_store, local_rev, &local_hash) == CETCD_OK &&
+                cetcd_compact_hash_mismatch(local_rev, local_hash,
+                                            (int64_t)rmsg->index,
+                                            (uint32_t)rmsg->commit)) {
+                CETCD_WARN("compact hash check mismatch from peer %llu rev=%lld",
+                           (unsigned long long)rmsg->from, (long long)rmsg->index);
+                cetcd_v3rpc_alarm_activate(2, rmsg->from);
+            }
+        }
+        cetcd_msg_free(rmsg);
+        return 0;
+    }
     if (rmsg->type == CETCD_MSG_SNAP) {
         int irc = apply_snap_context_(srv, rmsg);
         if (irc != 0) {
@@ -3014,6 +3036,48 @@ static void maybe_periodic_corrupt_check_(cetcd_server *srv) {
     }
 }
 
+static void send_compact_hash_(cetcd_server *srv, int64_t rev, uint32_t hash) {
+    if (!srv || !srv->cluster || rev <= 0) return;
+    cetcd_msg msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.type = CETCD_MSG_COMPACT_HASH;
+    msg.from = srv->cfg.node_id;
+    msg.index = (uint64_t)rev;
+    msg.commit = hash;
+    uint8_t *wire = NULL;
+    size_t wire_len = cetcd_msg_encode_wire(&msg, &wire);
+    if (!wire || wire_len == 0) return;
+    uint8_t *framed = NULL;
+    size_t framed_len = cetcd_msg_encode(wire, wire_len, &framed);
+    free(wire);
+    if (!framed || framed_len == 0) return;
+    size_t n = cetcd_cluster_peer_count(srv->cluster);
+    for (size_t i = 0; i < n; i++) {
+        const cetcd_peer_info *pi = cetcd_cluster_get_peer_by_index(srv->cluster, i);
+        if (!pi || pi->id == srv->cfg.node_id) continue;
+        cetcd_cluster_send_msg(srv->cluster, framed, framed_len, pi->id);
+    }
+    free(framed);
+}
+
+static void maybe_compact_hash_check_(cetcd_server *srv) {
+    if (!srv || !cetcd_server_want_compact_hash_check(srv->cfg.compact_hash_check_set,
+                                                      srv->cfg.compact_hash_check))
+        return;
+    uint64_t now_ms = cetcd_clock_monotonic_ns() / 1000000ULL;
+    uint64_t interval = cetcd_server_compact_hash_check_ms(
+        srv->cfg.compact_hash_check_time_set, srv->cfg.compact_hash_check_ms);
+    if (!cetcd_compact_hash_check_due(&srv->last_compact_hash_check_ms, interval, now_ms))
+        return;
+    extern cetcd_mvcc_store *g_rpc_store;
+    if (!g_rpc_store) return;
+    int64_t rev = cetcd_mvcc_compacted_revision(g_rpc_store);
+    if (rev <= 0) return;
+    uint32_t hash = 0;
+    if (cetcd_mvcc_hash_kv(g_rpc_store, rev, &hash) != CETCD_OK) return;
+    send_compact_hash_(srv, rev, hash);
+}
+
 void cetcd_server_tick(cetcd_server *srv) {
     if (!srv || !srv->raft) return;
     cetcd_raft_tick(srv->raft);
@@ -3021,6 +3085,7 @@ void cetcd_server_tick(cetcd_server *srv) {
     process_ready_(srv);
     maybe_auto_compact_(srv);
     maybe_periodic_corrupt_check_(srv);
+    maybe_compact_hash_check_(srv);
 }
 
 int cetcd_server_compact(cetcd_server *srv, int64_t rev) {
@@ -3312,6 +3377,9 @@ static void raft_tick_cb_(void *arg) {
         cetcd_v3rpc_watch_tick();
     }
     process_ready_(srv);
+    maybe_auto_compact_(srv);
+    maybe_periodic_corrupt_check_(srv);
+    maybe_compact_hash_check_(srv);
     maybe_bind_client_after_ready_(srv);
 }
 

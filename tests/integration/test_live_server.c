@@ -2639,6 +2639,34 @@ CETCD_TEST_CASE(live_cetcd_cluster_token) {
     CETCD_ASSERT_EQ_INT(system(cmd), 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_compact_hash_check) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-compact-hash-check-enabled --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-compact-hash-check-enabled=false --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-compact-hash-check-time=1m --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-compact-hash-check-enabled=abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-compact-hash-check-time >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_snapshot_catchup) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -3512,6 +3540,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_log_format),
     CETCD_TEST_ENTRY(live_cetcd_logger),
     CETCD_TEST_ENTRY(live_cetcd_cluster_token),
+    CETCD_TEST_ENTRY(live_cetcd_compact_hash_check),
     CETCD_TEST_ENTRY(live_cetcd_snapshot_catchup),
     CETCD_TEST_ENTRY(live_cetcd_raft_io_timeout),
     CETCD_TEST_ENTRY(live_cetcd_log_rotation),

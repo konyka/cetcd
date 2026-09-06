@@ -106,6 +106,8 @@ static void print_usage(const char *prog) {
     printf("  --experimental-bootstrap-defrag-threshold-megabytes N  Compact data.mdb at start if larger (0 off)\n");
     printf("  --experimental-wait-cluster-ready  Delay client listen until a Raft leader exists (true|false)\n");
     printf("  --experimental-snapshot-catchup-entries N  Raft entries kept after compact (default 5000; 0 = none)\n");
+    printf("  --experimental-compact-hash-check-enabled  Leader compares follower compact HashKV (default off)\n");
+    printf("  --experimental-compact-hash-check-time DUR  Compact HashKV compare period (default 1m; 0 = every tick)\n");
     printf("  --experimental-*    Other experimental flags accepted as no-op\n");
     printf("  --help           Show this help\n");
 }
@@ -1116,6 +1118,50 @@ int main(int argc, char **argv) {
             }
             cfg.snapshot_catchup_set = true;
             cfg.snapshot_catchup_entries = n;
+        } else if (strcmp(argv[i], "--experimental-compact-hash-check-enabled") == 0) {
+            cfg.compact_hash_check_set = true;
+            cfg.compact_hash_check = true;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                int b = 0;
+                if (cetcd_parse_bool_flag(argv[++i], &b) != CETCD_OK) {
+                    fprintf(stderr,
+                            "--experimental-compact-hash-check-enabled must be true or false\n");
+                    return 1;
+                }
+                cfg.compact_hash_check = b != 0;
+            }
+        } else if (strncmp(argv[i], "--experimental-compact-hash-check-enabled=", 42) == 0) {
+            int b = 0;
+            if (cetcd_parse_bool_flag(argv[i] + 42, &b) != CETCD_OK) {
+                fprintf(stderr,
+                        "--experimental-compact-hash-check-enabled must be true or false\n");
+                return 1;
+            }
+            cfg.compact_hash_check_set = true;
+            cfg.compact_hash_check = b != 0;
+        } else if (strcmp(argv[i], "--experimental-compact-hash-check-time") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr,
+                        "--experimental-compact-hash-check-time requires a duration\n");
+                return 1;
+            }
+            uint64_t ms = 0;
+            if (cetcd_parse_go_duration_ms(argv[++i], &ms) != CETCD_OK) {
+                fprintf(stderr,
+                        "--experimental-compact-hash-check-time must be a duration\n");
+                return 1;
+            }
+            cfg.compact_hash_check_time_set = true;
+            cfg.compact_hash_check_ms = ms;
+        } else if (strncmp(argv[i], "--experimental-compact-hash-check-time=", 39) == 0) {
+            uint64_t ms = 0;
+            if (cetcd_parse_go_duration_ms(argv[i] + 39, &ms) != CETCD_OK) {
+                fprintf(stderr,
+                        "--experimental-compact-hash-check-time must be a duration\n");
+                return 1;
+            }
+            cfg.compact_hash_check_time_set = true;
+            cfg.compact_hash_check_ms = ms;
         } else if (strncmp(argv[i], "--experimental-", 15) == 0) {
             /* no-op, accepted for etcd compatibility */
             if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* skip value if present */
