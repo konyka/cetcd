@@ -153,6 +153,9 @@ cetcd accepts several etcd server flags for migration compatibility:
   --initial-cluster-state new --initial-cluster-token etcd-cluster \
   --snapshot-count 10000 --data-dir ./data
 # --snapshot-count must be > 0; a typo or 0 is not the silent default 10000
+# --auto-compaction-mode periodic|revision; --auto-compaction-retention 0 disables
+# periodic: 1h / 30m / bare hours; revision: revisions to keep; invalid values fail at parse
+./build/bin/cetcd --auto-compaction-mode periodic --auto-compaction-retention 1h --data-dir ./data
 # --initial-cluster-state existing: cluster evidence, snapshot.kv, persisted initial-cluster, or --initial-cluster peers
 # After WAL compaction the leader sends MsgSnap; otherwise App from next_idx
 # --force-new-cluster keeps MVCC and drops peers except self (needs cluster evidence)

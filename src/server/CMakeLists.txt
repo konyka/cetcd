@@ -1,6 +1,7 @@
 cetcd_add_module(server
     SOURCES
         server.c
+        auto_compact.c)
     PUBLIC_DEPS
         cetcd_base
     PRIVATE_DEPS

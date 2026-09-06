@@ -1890,6 +1890,39 @@ CETCD_TEST_CASE(live_cetcd_snapshot_count) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_auto_compaction) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --auto-compaction-mode periodic --auto-compaction-retention 1h --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --auto-compaction-retention 1 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --auto-compaction-mode revision --auto-compaction-retention 1000 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --auto-compaction-mode foo --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --auto-compaction-retention abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --auto-compaction-mode revision --auto-compaction-retention 1h >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_quota_backend_bytes) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -2767,6 +2800,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_election_tick),
     CETCD_TEST_ENTRY(live_cetcd_heartbeat_tick),
     CETCD_TEST_ENTRY(live_cetcd_snapshot_count),
+    CETCD_TEST_ENTRY(live_cetcd_auto_compaction),
     CETCD_TEST_ENTRY(live_cetcd_quota_backend_bytes),
     CETCD_TEST_ENTRY(live_cetcd_max_txn_ops),
     CETCD_TEST_ENTRY(live_cetcd_max_request_bytes),

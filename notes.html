@@ -31,12 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 32 — Snapshot CTS2 CRC32C</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 33 — Auto compaction</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 32 writes CTS2 snapshot hashes so restore
-     fail-closes on a CRC mismatch unless <code>--skip-hash-check</code>.</p>
+  <p><strong>v0.3.0</strong>. Phase 33 applies
+     <code>--auto-compaction-mode</code> / <code>--auto-compaction-retention</code>
+     on the leader tick so MVCC history does not grow unbounded.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -84,6 +85,7 @@
       <tr><td>30</td><td>persist restore cluster spec</td><td>restore --initial-cluster/--name/--advertise written to data-dir; start loads them — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>31</td><td>HashKV CRC32C</td><td>Hash/HashKV hash live key+value pairs (Castagnoli); compacted/future fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>32</td><td>Snapshot CTS2 CRC32C</td><td>save writes CTS2+CRC32C; restore fail-closes unless --skip-hash-check; CTS1 still restores — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>33</td><td>Auto compaction</td><td>--auto-compaction-mode periodic|revision + retention; leader tick compact; invalid fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

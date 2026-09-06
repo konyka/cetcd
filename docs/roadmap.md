@@ -336,6 +336,10 @@ Performance-first, fail-closed design:
   CRC32C of the kv blob. Restore fail-closes on a mismatch unless
   `--skip-hash-check`. Legacy `CTS1` (no stored hash) still restores.
   A truncated CTS2 header fail-closes even with skip.
+- **Auto compaction** — `--auto-compaction-mode periodic|revision` and
+  `--auto-compaction-retention` (0 disables; periodic is a duration or
+  bare hours; revision is revisions to keep). Invalid mode or retention
+  fail-closes. The leader compact-proposes on tick; followers do not.
 
 ## Previously done (auth data plane)
 

@@ -22,6 +22,30 @@ typedef struct cetcd_server cetcd_server;
 #define CETCD_DEFAULT_MAX_TXN_OPS 128ULL
 #define CETCD_MAX_TXN_OPS 128ULL
 
+typedef enum cetcd_auto_compact_mode {
+    CETCD_AUTO_COMPACT_OFF = 0,
+    CETCD_AUTO_COMPACT_PERIODIC = 1,
+    CETCD_AUTO_COMPACT_REVISION = 2
+} cetcd_auto_compact_mode;
+
+typedef struct cetcd_auto_compact_state {
+    cetcd_auto_compact_mode mode;
+    uint64_t retention;       /* periodic: seconds; revision: revs to keep */
+    uint64_t window_start_ms;
+    int64_t  window_rev;
+} cetcd_auto_compact_state;
+
+/* periodic | revision. Empty/unknown is INVAL. */
+int cetcd_parse_auto_compaction_mode(const char *s, cetcd_auto_compact_mode *out);
+/* 0 disables. periodic: Go duration or bare hours. revision: integer only. */
+int cetcd_parse_auto_compaction_retention(const char *s,
+                                          cetcd_auto_compact_mode mode,
+                                          uint64_t *out);
+/* Compact target, or 0 if not due. Updates periodic window. */
+int64_t cetcd_auto_compact_due(cetcd_auto_compact_state *st,
+                               int64_t current_rev, int64_t compacted_rev,
+                               uint64_t now_ms);
+
 typedef struct cetcd_server_config {
     uint64_t        node_id;
     char            data_dir[512];
@@ -69,6 +93,8 @@ typedef struct cetcd_server_config {
     char            initial_cluster_token[128]; /* persisted; mismatch fail-closes */
     char            discovery_srv[256];         /* DNS SRV domain; empty = unused */
     char            discovery_srv_name[64];     /* optional SRV name suffix */
+    cetcd_auto_compact_mode auto_compaction_mode; /* OFF unless retention > 0 */
+    uint64_t        auto_compaction_retention;    /* seconds or revisions; 0 = off */
 } cetcd_server_config;
 
 cetcd_server *cetcd_server_new(const cetcd_server_config *cfg);

@@ -68,6 +68,7 @@ struct cetcd_server {
     cetcd_tls_ctx       *tls_client;
     cetcd_tls_ctx       *tls_peer;
     cetcd_tls_ctx       *tls_peer_out;
+    cetcd_auto_compact_state ac;
 };
 
 static void raft_tick_cb_(void *arg);
@@ -2359,6 +2360,12 @@ cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
     }
 
     srv->started = false;
+    if (cfg->auto_compaction_retention > 0 &&
+        (cfg->auto_compaction_mode == CETCD_AUTO_COMPACT_PERIODIC ||
+         cfg->auto_compaction_mode == CETCD_AUTO_COMPACT_REVISION)) {
+        srv->ac.mode = cfg->auto_compaction_mode;
+        srv->ac.retention = cfg->auto_compaction_retention;
+    }
     return srv;
 }
 
@@ -2731,11 +2738,27 @@ void cetcd_server_rpc_result_free(cetcd_server_rpc_result *r) {
     r->len = 0;
 }
 
+static void maybe_auto_compact_(cetcd_server *srv) {
+    if (!srv || srv->ac.mode == CETCD_AUTO_COMPACT_OFF ||
+        srv->ac.retention == 0)
+        return;
+    if (!cetcd_server_is_leader(srv)) return;
+    extern cetcd_mvcc_store *g_rpc_store;
+    if (!g_rpc_store) return;
+    int64_t cur = cetcd_mvcc_revision(g_rpc_store);
+    int64_t compacted = cetcd_mvcc_compacted_revision(g_rpc_store);
+    uint64_t now_ms = cetcd_clock_monotonic_ns() / 1000000ULL;
+    int64_t target = cetcd_auto_compact_due(&srv->ac, cur, compacted, now_ms);
+    if (target > 0)
+        (void)cetcd_server_compact(srv, target);
+}
+
 void cetcd_server_tick(cetcd_server *srv) {
     if (!srv || !srv->raft) return;
     cetcd_raft_tick(srv->raft);
     if (srv->metrics) cetcd_metrics_counter(srv->metrics, "raft_ticks_total", 1);
     process_ready_(srv);
+    maybe_auto_compact_(srv);
 }
 
 int cetcd_server_compact(cetcd_server *srv, int64_t rev) {

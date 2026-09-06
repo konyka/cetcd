@@ -45,6 +45,8 @@ static void print_usage(const char *prog) {
     printf("  --discovery-srv DOMAIN  Bootstrap peers from DNS SRV (_etcd-server._tcp)\n");
     printf("  --discovery-srv-name NAME  Optional SRV service suffix\n");
     printf("  --snapshot-count N   Rewrite WAL after N applies (default: 10000; must be > 0)\n");
+    printf("  --auto-compaction-mode MODE  periodic (default) or revision\n");
+    printf("  --auto-compaction-retention N  0 disables; periodic: duration or hours; revision: revs to keep\n");
     printf("  --quota-backend-bytes N  NOSPACE when LMDB size >= N (0 = unlimited; invalid fails)\n");
     printf("  --force-new-cluster  Keep MVCC; drop peers except self (requires persisted cluster)\n");
     printf("  --max-txn-ops N     Max compare/success/failure ops per Txn (default 128; 1..128)\n");
@@ -87,6 +89,8 @@ static int parse_keepalive_sec_(const char *s, int min_v, int *out) {
 int main(int argc, char **argv) {
     const char *name = "default";
     const char *data_dir = "./data";
+    const char *ac_mode_s = NULL;
+    const char *ac_ret_s = NULL;
     FILE *log_owned = NULL;
 
     cetcd_server_config cfg;
@@ -436,6 +440,10 @@ int main(int argc, char **argv) {
             }
         } else if (strncmp(argv[i], "--grpc-keepalive-", 17) == 0) {
             if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* no-op other grpc-keepalive flags */
+        } else if (strcmp(argv[i], "--auto-compaction-mode") == 0 && i + 1 < argc) {
+            ac_mode_s = argv[++i];
+        } else if (strcmp(argv[i], "--auto-compaction-retention") == 0 && i + 1 < argc) {
+            ac_ret_s = argv[++i];
         } else if (strncmp(argv[i], "--experimental-", 15) == 0) {
             /* no-op, accepted for etcd compatibility */
             if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* skip value if present */
@@ -447,6 +455,28 @@ int main(int argc, char **argv) {
     if (cfg.keepalive_timeout > 0 && !cfg.keepalive_set) {
         fprintf(stderr, "--grpc-keepalive-timeout requires --grpc-keepalive-time\n");
         return 1;
+    }
+    {
+        cetcd_auto_compact_mode ac_mode = CETCD_AUTO_COMPACT_PERIODIC;
+        if (ac_mode_s) {
+            if (cetcd_parse_auto_compaction_mode(ac_mode_s, &ac_mode) != CETCD_OK) {
+                fprintf(stderr,
+                        "--auto-compaction-mode %s is invalid (periodic or revision)\n",
+                        ac_mode_s);
+                return 1;
+            }
+        }
+        if (ac_ret_s) {
+            uint64_t ret = 0;
+            if (cetcd_parse_auto_compaction_retention(ac_ret_s, ac_mode, &ret) != CETCD_OK) {
+                fprintf(stderr, "--auto-compaction-retention %s is invalid\n", ac_ret_s);
+                return 1;
+            }
+            if (ret > 0) {
+                cfg.auto_compaction_mode = ac_mode;
+                cfg.auto_compaction_retention = ret;
+            }
+        }
     }
     strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
     strncpy(cfg.name, name, sizeof(cfg.name) - 1);
