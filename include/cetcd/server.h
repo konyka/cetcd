@@ -179,8 +179,17 @@ int cetcd_server_want_tick_advance(int set, int enabled);
 int cetcd_server_want_wait_cluster_ready(int set, int enabled);
 /* Unset → 0 (pprof off). set uses enabled. */
 int cetcd_server_want_enable_pprof(int set, int enabled);
-/* 1=/metrics 2=404 3=profile 4=heap 5=coroutines. enable_pprof 0 → pprof is 404. */
+/* 1=/metrics 2=404 3=profile 4=heap 5=coroutines 6=/health. enable_pprof 0 → pprof is 404. */
 int cetcd_server_metrics_route(const char *path, size_t path_len, int enable_pprof);
+/* 1 healthy. Alarms then leader. serializable skips leader. exclude skips that alarm. */
+int cetcd_server_health_ok(int has_leader, int nospace, int corrupt,
+                           int serializable, int exclude_nospace, int exclude_corrupt,
+                           char *reason, size_t reason_cap);
+/* Query after '?'. serializable=true|1; exclude=NOSPACE|CORRUPT. Unknown keys ignored. */
+int cetcd_parse_health_query(const char *qs, int *serializable,
+                             int *exclude_nospace, int *exclude_corrupt);
+/* etcd strings: {"health":"true"} or {"health":"false","reason":"..."}. */
+int cetcd_server_health_json(int ok, const char *reason, char *out, size_t cap);
 /* 1 if clients may listen. wait 0 always. wait 1 requires leader_id != 0. */
 int cetcd_server_should_listen_clients(int wait_ready, uint64_t leader_id);
 /* Integer milliseconds > 0 and <= 50000. Leftover text is INVAL. */

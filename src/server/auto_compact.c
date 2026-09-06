@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -235,6 +236,8 @@ int cetcd_server_want_enable_pprof(int set, int enabled) {
 int cetcd_server_metrics_route(const char *path, size_t path_len, int enable_pprof) {
     if (!path || path_len == 0) return 2;
     if (path_len == 8 && memcmp(path, "/metrics", 8) == 0) return 1;
+    if (path_len == 7 && memcmp(path, "/health", 7) == 0) return 6;
+    if (path_len >= 8 && memcmp(path, "/health?", 8) == 0) return 6;
     if (path_len >= 20 && memcmp(path, "/debug/pprof/profile", 20) == 0)
         return enable_pprof ? 3 : 2;
     if (path_len == 18 && memcmp(path, "/debug/pprof/heap", 18) == 0)
@@ -242,6 +245,68 @@ int cetcd_server_metrics_route(const char *path, size_t path_len, int enable_ppr
     if (path_len == 24 && memcmp(path, "/debug/pprof/coroutines", 24) == 0)
         return enable_pprof ? 5 : 2;
     return 2;
+}
+
+int cetcd_server_health_ok(int has_leader, int nospace, int corrupt,
+                           int serializable, int exclude_nospace, int exclude_corrupt,
+                           char *reason, size_t reason_cap) {
+    if (reason && reason_cap) reason[0] = '\0';
+    if (nospace && !exclude_nospace) {
+        if (reason && reason_cap >= 8) snprintf(reason, reason_cap, "NOSPACE");
+        return 0;
+    }
+    if (corrupt && !exclude_corrupt) {
+        if (reason && reason_cap >= 8) snprintf(reason, reason_cap, "CORRUPT");
+        return 0;
+    }
+    if (!serializable && !has_leader) {
+        if (reason && reason_cap >= 15)
+            snprintf(reason, reason_cap, "RAFT NO LEADER");
+        return 0;
+    }
+    return 1;
+}
+
+int cetcd_parse_health_query(const char *qs, int *serializable,
+                             int *exclude_nospace, int *exclude_corrupt) {
+    if (!serializable || !exclude_nospace || !exclude_corrupt)
+        return CETCD_ERR_INVAL;
+    *serializable = 0;
+    *exclude_nospace = 0;
+    *exclude_corrupt = 0;
+    if (!qs || !qs[0]) return CETCD_OK;
+    const char *p = qs;
+    while (*p) {
+        const char *amp = strchr(p, '&');
+        size_t n = amp ? (size_t)(amp - p) : strlen(p);
+        if (n >= 13 && memcmp(p, "serializable=", 13) == 0) {
+            const char *v = p + 13;
+            size_t vn = n - 13;
+            if ((vn == 4 && memcmp(v, "true", 4) == 0) ||
+                (vn == 1 && v[0] == '1'))
+                *serializable = 1;
+        } else if (n == 15 && memcmp(p, "exclude=NOSPACE", 15) == 0) {
+            *exclude_nospace = 1;
+        } else if (n == 15 && memcmp(p, "exclude=CORRUPT", 15) == 0) {
+            *exclude_corrupt = 1;
+        }
+        if (!amp) break;
+        p = amp + 1;
+    }
+    return CETCD_OK;
+}
+
+int cetcd_server_health_json(int ok, const char *reason, char *out, size_t cap) {
+    if (!out || cap < 18) return CETCD_ERR_INVAL;
+    int n;
+    if (ok) {
+        n = snprintf(out, cap, "{\"health\":\"true\"}");
+    } else {
+        if (!reason) reason = "";
+        n = snprintf(out, cap, "{\"health\":\"false\",\"reason\":\"%s\"}", reason);
+    }
+    if (n < 0 || (size_t)n >= cap) return CETCD_ERR_OVERFLOW;
+    return CETCD_OK;
 }
 
 int cetcd_server_should_listen_clients(int wait_ready, uint64_t leader_id) {

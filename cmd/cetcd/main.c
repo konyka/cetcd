@@ -28,7 +28,7 @@ static void print_usage(const char *prog) {
     printf("  --port PORT      Client listen port (default: 2379; 1..65535)\n");
     printf("  --peer ADDR      Peer listen address (default: 127.0.0.1)\n");
     printf("  --peer-port PORT Peer listen port (default: 2380; 1..65535)\n");
-    printf("  --metrics-port PORT Metrics listen port (default: 2381; 0 disables; 0..65535)\n");
+    printf("  --metrics-port PORT Metrics listen port (default: 2381; 0 disables; 0..65535; /metrics + /health)\n");
     printf("  --listen-metrics-urls URL  Metrics listen URL (http://host:port; https/multi fail)\n");
     printf("  --enable-pprof     Expose /debug/pprof/* on the metrics port (default off; true|false)\n");
     printf("  --node-id ID     Node ID (default: 1; must be > 0)\n");

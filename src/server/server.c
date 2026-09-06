@@ -815,6 +815,7 @@ typedef struct metrics_conn_ctx_ {
     int           pprof_rc;
     int           pprof_pending;
     int           pprof_abandoned;
+    char          health_query[256];
 } metrics_conn_ctx_;
 
 static void on_metrics_close_(uv_handle_t *handle) {
@@ -908,6 +909,39 @@ static void metrics_serve_metrics_(metrics_conn_ctx_ *ctx) {
     cetcd_buf_free(&body);
 }
 
+static void metrics_serve_health_(metrics_conn_ctx_ *ctx) {
+    int serializable = 0, exclude_nospace = 0, exclude_corrupt = 0;
+    if (cetcd_parse_health_query(ctx->health_query, &serializable,
+                                 &exclude_nospace, &exclude_corrupt) != CETCD_OK) {
+        const char *msg = "Bad Request\n";
+        metrics_send_response_(ctx, 400, "Bad Request",
+                               "text/plain",
+                               (const uint8_t *)msg, strlen(msg));
+        return;
+    }
+    int nospace = cetcd_v3rpc_alarm_is_active(1);
+    int corrupt = cetcd_v3rpc_alarm_is_active(2);
+    uint64_t leader = (ctx->srv && ctx->srv->raft)
+                          ? cetcd_raft_leader(ctx->srv->raft)
+                          : 0;
+    char reason[32] = {0};
+    int ok = cetcd_server_health_ok(leader != 0, nospace, corrupt,
+                                    serializable, exclude_nospace, exclude_corrupt,
+                                    reason, sizeof(reason));
+    char json[128];
+    if (cetcd_server_health_json(ok, reason, json, sizeof(json)) != CETCD_OK) {
+        const char *msg = "Internal Server Error\n";
+        metrics_send_response_(ctx, 500, "Internal Server Error",
+                               "text/plain",
+                               (const uint8_t *)msg, strlen(msg));
+        return;
+    }
+    metrics_send_response_(ctx, ok ? 200 : 503,
+                           ok ? "OK" : "Service Unavailable",
+                           "application/json",
+                           (const uint8_t *)json, strlen(json));
+}
+
 static int metrics_parse_request_(metrics_conn_ctx_ *ctx) {
     /* Minimal parser: find the end of the request line. */
     char *end = NULL;
@@ -937,6 +971,16 @@ static int metrics_parse_request_(metrics_conn_ctx_ *ctx) {
         ctx->srv && ctx->srv->cfg.enable_pprof_set,
         ctx->srv && ctx->srv->cfg.enable_pprof);
     int route = cetcd_server_metrics_route(path, path_len, enable_pprof);
+    if (route == 6) {
+        ctx->health_query[0] = '\0';
+        if (path_len >= 8 && path[7] == '?') {
+            size_t qn = path_len - 8;
+            if (qn >= sizeof(ctx->health_query))
+                qn = sizeof(ctx->health_query) - 1;
+            memcpy(ctx->health_query, path + 8, qn);
+            ctx->health_query[qn] = '\0';
+        }
+    }
     if (route == 3) {
         /* Parse ?seconds=N query parameter */
         ctx->pprof_seconds = 30;  /* etcd default */
@@ -995,6 +1039,8 @@ static void on_metrics_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t 
     }
     if (parsed == 1) {
         metrics_serve_metrics_(ctx);
+    } else if (parsed == 6) {
+        metrics_serve_health_(ctx);
     } else if (parsed == 3) {
         /* /debug/pprof/profile — collect off the uv loop so Raft is not stalled. */
         uv_read_stop(stream);

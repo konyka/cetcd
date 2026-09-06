@@ -726,6 +726,10 @@ fail-closes).
 
 # Scrape metrics
 curl http://127.0.0.1:2381/metrics
+
+# etcd-compatible health (200 + {"health":"true"} or 503 + reason)
+# ?serializable=true skips the leader check; exclude=NOSPACE|CORRUPT skips that alarm
+curl http://127.0.0.1:2381/health
 ```
 
 The `/metrics` endpoint returns counters, gauges, and histograms in Prometheus

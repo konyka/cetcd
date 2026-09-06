@@ -412,6 +412,11 @@ Performance-first, fail-closed design:
   `/debug/pprof/profile|heap|coroutines` on the metrics port require it;
   otherwise those paths 404. `/metrics` is unchanged. A non-bool
   fail-closes (no longer an unknown flag).
+- **`GET /health`** — metrics port returns etcd JSON
+  (`{"health":"true"}` or `{"health":"false","reason":"..."}`). Unhealthy
+  is HTTP 503. NOSPACE / CORRUPT then `RAFT NO LEADER`.
+  `?serializable=true` skips the leader check; `exclude=NOSPACE|CORRUPT`
+  skips that alarm.
 - **Downgrade fail-closed** — `Maintenance/Downgrade` VALIDATE of
   `cetcd_version()` succeeds (already at this binary). ENABLE, CANCEL,
   and any other version fail-closed: the on-disk format cannot change

@@ -98,7 +98,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 ### v0.3.0 新特性
 
 - **协程驱动的 Watch 双向流**：每个 watcher 运行在独立的 libco 协程中，事件到达时通过 `uv_async_send` 唤醒协程并推送 `WatchResponse`，支持单连接多 watcher 多路复用。详见 [ADR 0004](../adr/0004-watch-streaming-coroutines.md) 与 [架构设计 §Watch streaming](../architecture.md#watch-streaming-architecture)。
-- **Prometheus metrics HTTP 端点**：默认监听 2381 端口，`GET /metrics` 返回 Prometheus 文本格式。详见 [usage.md §Observability](../usage.md#observability)。
+- **Prometheus metrics HTTP 端点**：默认监听 2381 端口，`GET /metrics` 返回 Prometheus 文本格式；`GET /health` 返回 etcd JSON（无 leader / NOSPACE / CORRUPT 为 503；`serializable=true` 跳过 leader；`exclude=` 跳过对应告警）。详见 [usage.md §Observability](../usage.md#observability)。
 - **etcd 迁移工具 `cetcd-migrate`**：离线读取 etcd 数据目录（bbolt + WAL + snap），转换为 cetcd 原生的 LMDB 环境与 WAL。详见 [usage.md §Migrating from etcd](../usage.md#migrating-from-etcd)。
 - **pprof 性能分析端点**：`--enable-pprof`（省略默认关）才在 metrics 端口提供 `/debug/pprof/profile`、`/debug/pprof/heap`、`/debug/pprof/coroutines`；未开启则 404。CPU profile 在 libuv 工作线程采集（`SIGPROF` 采样 on-CPU 线程），不阻塞 Raft reactor；并发采集返回 409。输出为 folded-stack 文本。详见 [usage.md §Profiling](../usage.md#profiling)。
 
@@ -816,7 +816,8 @@ Unknown server flags fail at parse instead of being ignored.
 `--port` is `1..65535`; a typo fail-closes instead of binding port `0`.
 `--peer-port` is `1..65535`; a typo fail-closes instead of binding the Raft port on `0`.
 `--metrics-port` is `0..65535` (`0` disables); a typo fail-closes instead of silently disabling metrics.
-`--listen-metrics-urls` is a single `http://host:port` (port `1..65535`). It binds metrics on that address. `https` / comma-list / leftover text / mix with `--metrics-port` fail-closes.
+`--listen-metrics-urls` is a single `http://host:port` (port `1..65535`). It binds `/metrics` and `/health` on that address. `https` / comma-list / leftover text / mix with `--metrics-port` fail-closes.
+`GET /health` returns etcd JSON (`health` as a string). NOSPACE, CORRUPT, or no Raft leader is HTTP 503. `?serializable=true` skips the leader check; `exclude=NOSPACE|CORRUPT` skips that alarm.
 `--enable-pprof` is `true`/`false`/`1`/`0` (bare flag is on; omitted default off). A non-bool fail-closes. Without it `/debug/pprof/*` on the metrics port is 404.
 `--node-id` must be `> 0`; a typo fail-closes instead of becoming Raft id `0`.
 `--election-tick` must be `> 0`; a typo or `0` fail-closes instead of becoming `10`.

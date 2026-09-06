@@ -331,8 +331,58 @@ CETCD_TEST_CASE(auto_compact_enable_pprof) {
     CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route("/debug/pprof/profile", 20, 1), 3);
     CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route("/debug/pprof/profile?seconds=10", 31, 1), 3);
     CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route("/debug/pprof/profile?seconds=10", 31, 0), 2);
-    CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route("/health", 7, 1), 2);
+    CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route("/health", 7, 1), 6);
+    CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route("/health?serializable=true", 25, 0), 6);
     CETCD_ASSERT_EQ_INT(cetcd_server_metrics_route(NULL, 0, 1), 2);
+}
+
+CETCD_TEST_CASE(auto_compact_health) {
+    char reason[32];
+    CETCD_ASSERT_EQ_INT(cetcd_server_health_ok(1, 0, 0, 0, 0, 0, reason, sizeof(reason)), 1);
+    CETCD_ASSERT_EQ_INT((int)reason[0], 0);
+    CETCD_ASSERT_EQ_INT(cetcd_server_health_ok(0, 0, 0, 0, 0, 0, reason, sizeof(reason)), 0);
+    CETCD_ASSERT_EQ_STR(reason, "RAFT NO LEADER");
+    CETCD_ASSERT_EQ_INT(cetcd_server_health_ok(0, 0, 0, 1, 0, 0, reason, sizeof(reason)), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_health_ok(1, 1, 0, 0, 0, 0, reason, sizeof(reason)), 0);
+    CETCD_ASSERT_EQ_STR(reason, "NOSPACE");
+    CETCD_ASSERT_EQ_INT(cetcd_server_health_ok(1, 1, 0, 0, 1, 0, reason, sizeof(reason)), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_health_ok(1, 0, 1, 0, 0, 0, reason, sizeof(reason)), 0);
+    CETCD_ASSERT_EQ_STR(reason, "CORRUPT");
+    CETCD_ASSERT_EQ_INT(cetcd_server_health_ok(1, 0, 1, 0, 0, 1, reason, sizeof(reason)), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_health_ok(0, 1, 1, 0, 0, 0, reason, sizeof(reason)), 0);
+    CETCD_ASSERT_EQ_STR(reason, "NOSPACE");
+
+    int ser = 9, exn = 9, exc = 9;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_health_query(NULL, &ser, &exn, &exc), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(ser, 0);
+    CETCD_ASSERT_EQ_INT(exn, 0);
+    CETCD_ASSERT_EQ_INT(exc, 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_health_query("serializable=true", &ser, &exn, &exc),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(ser, 1);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_health_query("exclude=NOSPACE&exclude=CORRUPT",
+                                                 &ser, &exn, &exc), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(ser, 0);
+    CETCD_ASSERT_EQ_INT(exn, 1);
+    CETCD_ASSERT_EQ_INT(exc, 1);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_health_query("serializable=1&exclude=NOSPACE",
+                                                 &ser, &exn, &exc), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(ser, 1);
+    CETCD_ASSERT_EQ_INT(exn, 1);
+    CETCD_ASSERT_EQ_INT(exc, 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_health_query("", &ser, &exn, &exc), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_health_query("foo=bar", &ser, &exn, &exc), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_health_query("serializable=true", NULL, &exn, &exc),
+                        CETCD_ERR_INVAL);
+
+    char json[64];
+    CETCD_ASSERT_EQ_INT(cetcd_server_health_json(1, NULL, json, sizeof(json)), CETCD_OK);
+    CETCD_ASSERT_EQ_STR(json, "{\"health\":\"true\"}");
+    CETCD_ASSERT_EQ_INT(cetcd_server_health_json(0, "NOSPACE", json, sizeof(json)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(json, "{\"health\":\"false\",\"reason\":\"NOSPACE\"}");
+    CETCD_ASSERT_EQ_INT(cetcd_server_health_json(1, NULL, json, 8), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_server_health_json(1, NULL, NULL, 64), CETCD_ERR_INVAL);
 }
 
 CETCD_TEST_CASE(auto_compact_wait_cluster_ready) {
@@ -485,6 +535,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_metrics_listen_url),
     CETCD_TEST_ENTRY(auto_compact_metrics_addr),
     CETCD_TEST_ENTRY(auto_compact_enable_pprof),
+    CETCD_TEST_ENTRY(auto_compact_health),
     CETCD_TEST_ENTRY(auto_compact_wait_cluster_ready),
     CETCD_TEST_ENTRY(auto_compact_want_tick_advance),
     CETCD_TEST_ENTRY(auto_compact_parse_self_signed_cert_validity),

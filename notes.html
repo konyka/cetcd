@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 58 — enable-pprof</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 59 — /health</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 58 honors
-     <code>--enable-pprof</code> (omitted default off). Metrics
-     <code>/debug/pprof/*</code> 404 unless the flag is on.
-     <code>/metrics</code> is unchanged. A non-bool fail-closes.</p>
+  <p><strong>v0.3.0</strong>. Phase 59 serves
+     <code>GET /health</code> on the metrics port (etcd JSON;
+     503 on NOSPACE / CORRUPT / no leader).
+     <code>serializable=true</code> and <code>exclude=</code> match etcd.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -112,6 +112,7 @@
       <tr><td>56</td><td>wait-cluster-ready</td><td>--experimental-wait-cluster-ready delays client listen until a Raft leader exists; omitted default off; non-bool fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>57</td><td>max-concurrent-streams</td><td>--max-concurrent-streams advertises HTTP/2 SETTINGS_MAX_CONCURRENT_STREAMS; omitted leaves nghttp2 default; 0 / leftover fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>58</td><td>enable-pprof</td><td>--enable-pprof gates /debug/pprof/* on the metrics port; omitted default off; non-bool fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>59</td><td>/health</td><td>GET /health on the metrics port returns etcd JSON; 503 on NOSPACE/CORRUPT/no leader; serializable/exclude match etcd — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>
