@@ -31,7 +31,10 @@ CETCD_TEST_CASE(backend_put_get_del_txn) {
     CETCD_ASSERT_EQ_INT(vlen, sizeof(v));
     CETCD_ASSERT_TRUE(memcmp(val, v, vlen) == 0);
     free(val);
-    CETCD_ASSERT_TRUE(cetcd_backend_size(be) > 0);
+    uint64_t used = cetcd_backend_size(be);
+    uint64_t alloc = cetcd_backend_alloc_size(be);
+    CETCD_ASSERT_TRUE(used > 0);
+    CETCD_ASSERT_TRUE(alloc >= used);
 
     rc = cetcd_backend_del(be, bucket, k, sizeof(k));
     CETCD_ASSERT_EQ_INT(rc, CETCD_OK);

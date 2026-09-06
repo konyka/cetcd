@@ -917,6 +917,70 @@ CETCD_TEST_CASE(apply_alarm_reload_from_backend) {
     rmdir(path);
 }
 
+CETCD_TEST_CASE(status_reports_db_size_from_backend) {
+    char tmpl[] = "/tmp/cetcd-status-XXXXXX";
+    char *path = mkdtemp(tmpl);
+    CETCD_ASSERT_NOT_NULL(path);
+
+    cetcd_backend_config cfg = {
+        .path = path,
+        .map_size = 16 * 1024 * 1024,
+        .max_dbs = 4
+    };
+    cetcd_backend *be = cetcd_backend_open(&cfg);
+    CETCD_ASSERT_NOT_NULL(be);
+    const uint8_t k[] = {'s'};
+    const uint8_t v[] = {'1'};
+    CETCD_ASSERT_EQ_INT(cetcd_backend_put(be, "kv", k, sizeof(k), v, sizeof(v)), 0);
+    CETCD_ASSERT_TRUE(cetcd_backend_size(be) > 0);
+    CETCD_ASSERT_TRUE(cetcd_backend_alloc_size(be) >= cetcd_backend_size(be));
+
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    CETCD_ASSERT_NOT_NULL(rpc);
+    cetcd_v3rpc_set_auth_backend(rpc, be);
+
+    uint8_t dummy[] = {0x00};
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Status", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    uint64_t db_size = 0, db_inuse = 0;
+    size_t rpos = 0;
+    while (rpos < resp.len) {
+        uint8_t tag = resp.data[rpos++];
+        if (tag == 0x0a || tag == 0x12 || tag == 0x42) {
+            uint64_t l = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                l |= (uint64_t)(b & 0x7F) << shift; shift += 7;
+                if (!(b & 0x80)) break;
+            }
+            rpos += (size_t)l;
+        } else {
+            uint64_t val = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                val |= (uint64_t)(b & 0x7F) << shift; shift += 7;
+                if (!(b & 0x80)) break;
+            }
+            if (tag == 0x18) db_size = val;
+            if (tag == 0x48) db_inuse = val;
+        }
+    }
+    CETCD_ASSERT_TRUE(db_size > 0);
+    CETCD_ASSERT_TRUE(db_inuse > 0);
+    CETCD_ASSERT_TRUE(db_size >= db_inuse);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_set_auth_backend(rpc, NULL);
+    cetcd_v3rpc_free(rpc);
+    cetcd_backend_close(be);
+    char db[300];
+    snprintf(db, sizeof(db), "%s/data.mdb", path);
+    unlink(db);
+    snprintf(db, sizeof(db), "%s/lock.mdb", path);
+    unlink(db);
+    rmdir(path);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(apply_put_delete_roundtrip),
     CETCD_TEST_ENTRY(apply_rejects_truncated),
@@ -944,6 +1008,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(quota_blocks_put_not_delete),
     CETCD_TEST_ENTRY(apply_alarm_activate_then_deactivate),
     CETCD_TEST_ENTRY(apply_alarm_reload_from_backend),
+    CETCD_TEST_ENTRY(status_reports_db_size_from_backend),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

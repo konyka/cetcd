@@ -353,7 +353,7 @@ to cancel the watch and close the stream.
 ### Cluster management
 
 ```sh
-./build/bin/cetcdctl status                # Server status (version, raft index, etc.)
+./build/bin/cetcdctl status                # Status: version, dbSize, dbSizeInUse, raft index/applied, alarms
 ./build/bin/cetcdctl alarm list                       # List alarms (persisted across restart)
 ./build/bin/cetcdctl alarm activate NOSPACE           # Activate NOSPACE via Raft
 ./build/bin/cetcdctl alarm activate CORRUPT           # Activate CORRUPT via Raft

@@ -200,6 +200,10 @@ static cetcd_rpc_bytes make_simple_response(void) {
  *   field 4 (leader)    = uint64, tag = 0x20
  *   field 5 (raftIndex) = uint64, tag = 0x28
  *   field 6 (raftTerm)  = uint64, tag = 0x30
+ *   field 7 (raftAppliedIndex) = uint64, tag = 0x38
+ *   field 8 (errors)    = repeated string, tag = 0x42
+ *   field 9 (dbSizeInUse) = int64, tag = 0x48
+ *   field 10 (isLearner) = bool, tag = 0x50
  */
 cetcd_rpc_bytes maint_handle_status(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc; (void)req; (void)req_len;
@@ -208,8 +212,20 @@ cetcd_rpc_bytes maint_handle_status(cetcd_v3rpc *rpc, const uint8_t *req, size_t
     uint64_t leader = g_rpc_raft ? cetcd_raft_leader(g_rpc_raft) : 0;
     uint64_t term   = g_rpc_raft ? cetcd_raft_term(g_rpc_raft) : 0;
     uint64_t commit = g_rpc_raft ? cetcd_raft_committed(g_rpc_raft) : 0;
+    uint64_t applied = g_rpc_raft ? cetcd_raft_applied(g_rpc_raft) : 0;
+    uint64_t db_inuse = 0, db_size = 0;
+    if (g_rpc_auth_backend) {
+        db_inuse = cetcd_backend_size(g_rpc_auth_backend);
+        db_size = cetcd_backend_alloc_size(g_rpc_auth_backend);
+        if (db_size < db_inuse) db_size = db_inuse;
+    }
+    int is_learner = 0;
+    if (g_rpc_cluster && g_rpc_node_id > 0) {
+        const cetcd_peer_info *self = cetcd_cluster_get_peer(g_rpc_cluster, g_rpc_node_id);
+        if (self) is_learner = self->is_learner;
+    }
 
-    uint8_t buf[256];
+    uint8_t buf[384];
     size_t pos = 0;
 
     /* field 1 = header (ResponseHeader with revision) */
@@ -231,7 +247,7 @@ cetcd_rpc_bytes maint_handle_status(cetcd_v3rpc *rpc, const uint8_t *req, size_t
 
     /* field 3 = dbSize (int64) */
     buf[pos++] = 0x18;
-    write_varint_m(buf, sizeof(buf), &pos, 0);
+    write_varint_m(buf, sizeof(buf), &pos, db_size);
 
     /* field 4 = leader (uint64) */
     buf[pos++] = 0x20;
@@ -244,6 +260,29 @@ cetcd_rpc_bytes maint_handle_status(cetcd_v3rpc *rpc, const uint8_t *req, size_t
     /* field 6 = raftTerm */
     buf[pos++] = 0x30;
     write_varint_m(buf, sizeof(buf), &pos, term > 0 ? term : 1);
+
+    /* field 7 = raftAppliedIndex */
+    buf[pos++] = 0x38;
+    write_varint_m(buf, sizeof(buf), &pos, applied);
+
+    if (cetcd_v3rpc_alarm_is_active(1)) {
+        buf[pos++] = 0x42; /* field 8 = errors */
+        buf[pos++] = 7;
+        memcpy(buf + pos, "NOSPACE", 7); pos += 7;
+    }
+    if (cetcd_v3rpc_alarm_is_active(2)) {
+        buf[pos++] = 0x42;
+        buf[pos++] = 7;
+        memcpy(buf + pos, "CORRUPT", 7); pos += 7;
+    }
+
+    /* field 9 = dbSizeInUse */
+    buf[pos++] = 0x48;
+    write_varint_m(buf, sizeof(buf), &pos, db_inuse);
+
+    /* field 10 = isLearner */
+    buf[pos++] = 0x50;
+    write_varint_m(buf, sizeof(buf), &pos, (uint64_t)(is_learner ? 1 : 0));
 
     uint8_t *out = (uint8_t *)malloc(pos);
     if (!out) return (cetcd_rpc_bytes){NULL, 0};

@@ -765,6 +765,19 @@ static void parse_status_response(const uint8_t *data, size_t len) {
             /* raftTerm (uint64) */
             uint64_t v = 0; read_varint(data, len, &pos, &v);
             printf("raftTerm: %llu\n", (unsigned long long)v);
+        } else if (tag == 0x38) {
+            uint64_t v = 0; read_varint(data, len, &pos, &v);
+            printf("raftAppliedIndex: %llu\n", (unsigned long long)v);
+        } else if (tag == 0x42) {
+            uint64_t l = 0; read_varint(data, len, &pos, &l);
+            printf("error: %.*s\n", (int)l, data + pos);
+            pos += l;
+        } else if (tag == 0x48) {
+            uint64_t v = 0; read_varint(data, len, &pos, &v);
+            printf("dbSizeInUse: %llu\n", (unsigned long long)v);
+        } else if (tag == 0x50) {
+            uint64_t v = 0; read_varint(data, len, &pos, &v);
+            if (v) printf("isLearner: true\n");
         } else if (tag == 0x0a) {
             /* Skip header (length-delimited) */
             uint64_t l = 0; read_varint(data, len, &pos, &l);
@@ -2622,6 +2635,7 @@ static int cmd_status(int argc, char **argv) {
     size_t pos = 0;
     const uint8_t *version = NULL; size_t version_len = 0;
     uint64_t db_size = 0, leader = 0, raft_index = 0, raft_term = 0, revision = 0;
+    uint64_t raft_applied = 0, db_inuse = 0, is_learner = 0;
     while (pos < (size_t)rlen) {
         uint8_t tag = resp[pos++];
         if (tag == 0x12) {
@@ -2635,6 +2649,15 @@ static int cmd_status(int argc, char **argv) {
             read_varint(resp, rlen, &pos, &raft_index);
         } else if (tag == 0x30) {
             read_varint(resp, rlen, &pos, &raft_term);
+        } else if (tag == 0x38) {
+            read_varint(resp, rlen, &pos, &raft_applied);
+        } else if (tag == 0x42) {
+            uint64_t l = 0; read_varint(resp, rlen, &pos, &l);
+            pos += l;
+        } else if (tag == 0x48) {
+            read_varint(resp, rlen, &pos, &db_inuse);
+        } else if (tag == 0x50) {
+            read_varint(resp, rlen, &pos, &is_learner);
         } else if (tag == 0x0a) {
             /* ResponseHeader: field 1 (cluster_id), field 2 (member_id), field 3 (revision) */
             uint64_t l = 0; read_varint(resp, rlen, &pos, &l);
@@ -2653,10 +2676,13 @@ static int cmd_status(int argc, char **argv) {
         if (version) fwrite(version, 1, version_len, stdout);
         printf("\n");
         printf("dbSize: %llu\n", (unsigned long long)db_size);
+        printf("dbSizeInUse: %llu\n", (unsigned long long)db_inuse);
         printf("leader: %llu\n", (unsigned long long)leader);
         printf("raftIndex: %llu\n", (unsigned long long)raft_index);
         printf("raftTerm: %llu\n", (unsigned long long)raft_term);
+        printf("raftAppliedIndex: %llu\n", (unsigned long long)raft_applied);
         printf("revision: %llu\n", (unsigned long long)revision);
+        if (is_learner) printf("isLearner: true\n");
     } else if (want_json) {
         fputs("{", stdout);
         parse_and_print_header_json(resp, (size_t)rlen);
@@ -2664,10 +2690,14 @@ static int cmd_status(int argc, char **argv) {
         if (version) print_json_string(version, version_len); else fputs("\"\"", stdout);
         fputs(",", stdout);
         printf("\"dbSize\":%llu,", (unsigned long long)db_size);
+        printf("\"dbSizeInUse\":%llu,", (unsigned long long)db_inuse);
         printf("\"leader\":%llu,", (unsigned long long)leader);
         printf("\"raftIndex\":%llu,", (unsigned long long)raft_index);
         printf("\"raftTerm\":%llu,", (unsigned long long)raft_term);
-        printf("\"revision\":%llu}\n", (unsigned long long)revision);
+        printf("\"raftAppliedIndex\":%llu,", (unsigned long long)raft_applied);
+        printf("\"revision\":%llu", (unsigned long long)revision);
+        if (is_learner) fputs(",\"isLearner\":true", stdout);
+        fputs("}\n", stdout);
     } else {
         parse_status_response(resp, rlen);
     }
@@ -2885,6 +2915,7 @@ static int cmd_endpoint(int argc, char **argv) {
                 size_t pos = 0;
                 const uint8_t *ver = NULL; size_t ver_len = 0;
                 uint64_t db_size = 0, leader = 0, raft_index = 0, raft_term = 0, revision = 0;
+                uint64_t db_inuse = 0;
                 while (pos < (size_t)srlen) {
                     uint8_t tag = sresp[pos++];
                     if (tag == 0x12) {
@@ -2898,6 +2929,11 @@ static int cmd_endpoint(int argc, char **argv) {
                         read_varint(sresp, srlen, &pos, &raft_index);
                     } else if (tag == 0x30) {
                         read_varint(sresp, srlen, &pos, &raft_term);
+                    } else if (tag == 0x42) {
+                        uint64_t l = 0; read_varint(sresp, srlen, &pos, &l);
+                        pos += l;
+                    } else if (tag == 0x48) {
+                        read_varint(sresp, srlen, &pos, &db_inuse);
                     } else if (tag == 0x0a) {
                         uint64_t l = 0; read_varint(sresp, srlen, &pos, &l);
                         size_t hdr_end = pos + (size_t)l;
@@ -2917,8 +2953,9 @@ static int cmd_endpoint(int argc, char **argv) {
                     fputs(",\"version\":", stdout);
                     if (ver) print_json_string(ver, ver_len); else fputs("\"\"", stdout);
                     fputs(",", stdout);
-                    printf("\"dbSize\":%llu,\"leader\":%llu,\"raftIndex\":%llu,\"raftTerm\":%llu,\"revision\":%llu}\n",
-                           (unsigned long long)db_size, (unsigned long long)leader,
+                    printf("\"dbSize\":%llu,\"dbSizeInUse\":%llu,\"leader\":%llu,\"raftIndex\":%llu,\"raftTerm\":%llu,\"revision\":%llu}\n",
+                           (unsigned long long)db_size, (unsigned long long)db_inuse,
+                           (unsigned long long)leader,
                            (unsigned long long)raft_index, (unsigned long long)raft_term,
                            (unsigned long long)revision);
                 } else if (want_table) {
@@ -2930,6 +2967,7 @@ static int cmd_endpoint(int argc, char **argv) {
                     printf("ID: %llu\n", (unsigned long long)leader);
                     printf("revision: %llu\n", (unsigned long long)revision);
                     printf("dbSize: %llu\n", (unsigned long long)db_size);
+                    printf("dbSizeInUse: %llu\n", (unsigned long long)db_inuse);
                     printf("raftIndex: %llu\n", (unsigned long long)raft_index);
                     printf("raftTerm: %llu\n", (unsigned long long)raft_term);
                     if (ver) printf("version: %.*s\n", (int)ver_len, ver);
@@ -2953,6 +2991,7 @@ static int cmd_endpoint(int argc, char **argv) {
         size_t pos = 0;
         const uint8_t *ver = NULL; size_t ver_len = 0;
         uint64_t db_size = 0, leader = 0, raft_index = 0, raft_term = 0, revision = 0;
+        uint64_t db_inuse = 0;
         while (pos < (size_t)rlen) {
             uint8_t tag = resp[pos++];
             if (tag == 0x12) {
@@ -2966,6 +3005,11 @@ static int cmd_endpoint(int argc, char **argv) {
                 read_varint(resp, rlen, &pos, &raft_index);
             } else if (tag == 0x30) {
                 read_varint(resp, rlen, &pos, &raft_term);
+            } else if (tag == 0x42) {
+                uint64_t l = 0; read_varint(resp, rlen, &pos, &l);
+                pos += l;
+            } else if (tag == 0x48) {
+                read_varint(resp, rlen, &pos, &db_inuse);
             } else if (tag == 0x0a) {
                 uint64_t l = 0; read_varint(resp, rlen, &pos, &l);
                 size_t hdr_end = pos + (size_t)l;
@@ -2985,8 +3029,9 @@ static int cmd_endpoint(int argc, char **argv) {
             fputs(",\"version\":", stdout);
             if (ver) print_json_string(ver, ver_len); else fputs("\"\"", stdout);
             fputs(",", stdout);
-            printf("\"dbSize\":%llu,\"leader\":%llu,\"raftIndex\":%llu,\"raftTerm\":%llu,\"revision\":%llu}\n",
-                   (unsigned long long)db_size, (unsigned long long)leader,
+            printf("\"dbSize\":%llu,\"dbSizeInUse\":%llu,\"leader\":%llu,\"raftIndex\":%llu,\"raftTerm\":%llu,\"revision\":%llu}\n",
+                   (unsigned long long)db_size, (unsigned long long)db_inuse,
+                   (unsigned long long)leader,
                    (unsigned long long)raft_index, (unsigned long long)raft_term,
                    (unsigned long long)revision);
         } else if (want_table) {
@@ -3002,6 +3047,7 @@ static int cmd_endpoint(int argc, char **argv) {
             printf("ID: %llu\n", (unsigned long long)leader);
             printf("revision: %llu\n", (unsigned long long)revision);
             printf("dbSize: %llu\n", (unsigned long long)db_size);
+            printf("dbSizeInUse: %llu\n", (unsigned long long)db_inuse);
             printf("raftIndex: %llu\n", (unsigned long long)raft_index);
             printf("raftTerm: %llu\n", (unsigned long long)raft_term);
             if (ver) printf("version: %.*s\n", (int)ver_len, ver);
@@ -3257,7 +3303,7 @@ static int cmd_check(int argc, char **argv) {
             while (sp < (size_t)st_rlen) {
                 uint8_t t = st_resp[sp++];
                 if (t == 0x18) { read_varint(st_resp, st_rlen, &sp, &db_size); }
-                else if (t == 0x0a || t == 0x12) { uint64_t l = 0; read_varint(st_resp, st_rlen, &sp, &l); sp += l; }
+                else if (t == 0x0a || t == 0x12 || t == 0x42) { uint64_t l = 0; read_varint(st_resp, st_rlen, &sp, &l); sp += l; }
                 else { uint64_t v = 0; read_varint(st_resp, st_rlen, &sp, &v); }
             }
         }

@@ -973,7 +973,7 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 | Cluster | `/etcdserverpb.Cluster/MemberRemove` | `cluster_handler.c` | 移除集群成员 |
 | Cluster | `/etcdserverpb.Cluster/MemberUpdate` | `cluster_handler.c` | 更新成员地址（实际更新 cluster 中的 peer 信息） |
 | Cluster | `/etcdserverpb.Cluster/MemberPromote` | `cluster_handler.c` | 提升学习者为投票成员 |
-| Maintenance | `/etcdserverpb.Maintenance/Status` | `maint_handler.c` | 返回版本/dbSize/leader/raftIndex/raftTerm（从 raft 实例获取） |
+| Maintenance | `/etcdserverpb.Maintenance/Status` | `maint_handler.c` | 版本/dbSize（LMDB 已分配页）/dbSizeInUse（已用页，与 quota 同源）/leader/raftIndex/raftTerm/raftAppliedIndex/errors/isLearner |
 | Maintenance | `/etcdserverpb.Maintenance/Defragment` | `maint_handler.c` | 碎片整理（LMDB 自动管理，no-op） |
 | Maintenance | `/etcdserverpb.Maintenance/Hash` | `maint_handler.c` | 返回 KV 存储哈希值 |
 | Maintenance | `/etcdserverpb.Maintenance/HashKV` | `maint_handler.c` | CRC32C(key+value，按 key 序) + 压缩修订号 |

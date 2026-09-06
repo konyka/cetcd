@@ -25,7 +25,7 @@ internals are organised. For deeper rationale on individual decisions, see
 | WAL replay | Restart restuffs the Raft log and applies NORMAL entries past `applied_index`. `--wal-dir` may place the segment on a dedicated disk. |
 | DNS discovery | `--discovery-srv` / `--discovery-srv-name` resolve `_etcd-client` / `_etcd-server` SRV records (fail-closed). |
 | TLS | Memory-BIO termination on client/peer listen and on outbound `peer_tx_`. Client and peer listen select ALPN `h2` when offered. Cert without key, missing files, or `--client-cert-auth` without CA fail closed. `--auto-tls` / `--peer-auto-tls` mint ECDSA P-256 into `{data-dir}/fixtures/`. Plaintext remains the default. |
-| Cluster join | `--initial-cluster-state existing` restarts from evidence or starts as a follower with `--initial-cluster` peers. `snapshot.kv` is imported into empty MVCC. Restore persists `--initial-cluster` / `--name` / advertise URLs into the data dir so start can omit them. Save writes CTS2 (revision + CRC32C); restore fail-closes on a hash mismatch unless `--skip-hash-check`. After WAL compaction the leader sends `MsgSnap` (KV blob) to a lagging joiner; while the log is still live it sends `App` from `next_idx`. `--auto-compaction-mode` / `--auto-compaction-retention` compact on the leader tick (0 disables; invalid values fail at parse). Linearizable Range fail-closes on a follower unless `serializable`. |
+| Cluster join | `--initial-cluster-state existing` restarts from evidence or starts as a follower with `--initial-cluster` peers. `snapshot.kv` is imported into empty MVCC. Restore persists `--initial-cluster` / `--name` / advertise URLs into the data dir so start can omit them. Save writes CTS2 (revision + CRC32C); restore fail-closes on a hash mismatch unless `--skip-hash-check`. After WAL compaction the leader sends `MsgSnap` (KV blob) to a lagging joiner; while the log is still live it sends `App` from `next_idx`. `--auto-compaction-mode` / `--auto-compaction-retention` compact on the leader tick (0 disables; invalid values fail at parse). Linearizable Range fail-closes on a follower unless `serializable`. `Maintenance/Status` reports LMDB `dbSize` / `dbSizeInUse` (quota uses the same used-page size), `raftAppliedIndex`, alarm `errors`, and `isLearner`. |
 
 Remaining work is tracked in [`docs/roadmap.md`](./roadmap.md).
 
@@ -474,7 +474,7 @@ handshake selects `h2`, send POSTs each `cetcd_msg_encode` body to `/raft`;
 otherwise the 4-byte prefix is unchanged.
 The cluster management API supports peer enumeration (`cetcd_cluster_get_peer_by_index`),
 updates (`cetcd_cluster_update_peer`), and self-ID queries. `MemberList` / `MemberUpdate`,
-`Maintenance.Status` (leader/term), and `MoveLeader` (`CETCD_MSG_TRANSFER_LEADER`) are wired.
+`Maintenance.Status` (leader/term/dbSize/dbSizeInUse/raftAppliedIndex), and `MoveLeader` (`CETCD_MSG_TRANSFER_LEADER`) are wired.
 
 The `Lease.LeaseLeases` RPC returns the actual list of active lease IDs via
 `cetcd_lease_mgr_leases()`, and `Lease.LeaseKeepAlive` uses the original granted TTL
@@ -496,7 +496,10 @@ and `next_id` advances past any custom ID to avoid collisions.
 
 All Maintenance RPC responses (`Status`, `Hash`, `HashKV`, `Defragment`, `Alarm`,
 `MoveLeader`, `Snapshot`, `Downgrade`) include a `ResponseHeader` as field 1, matching the
-etcd v3.5 proto wire format. `Hash` / `HashKV` return a CRC32C (Castagnoli) of
+etcd v3.5 proto wire format. `Status` `dbSize` is physically allocated LMDB pages
+(`cetcd_backend_alloc_size`); `dbSizeInUse` is used pages (`cetcd_backend_size`,
+the same figure quota compares). `raftAppliedIndex`, `errors` (`NOSPACE` /
+`CORRUPT`), and `isLearner` are also on the wire. `Hash` / `HashKV` return a CRC32C (Castagnoli) of
 key+value pairs in key order at the requested revision (`0` = current). The
 previous `revision * constant` placeholder collided when two stores shared a
 revision but not contents. `revision < compacted_rev` or `revision > current`

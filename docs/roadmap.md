@@ -344,6 +344,10 @@ Performance-first, fail-closed design:
   on a follower or when there is no leader. `serializable=true`
   (`cetcdctl get --consistency s`) reads the local store. No Raft (unit
   tests / single dispatch) still serves locally.
+- **Status dbSize** — `Maintenance/Status` reports LMDB allocated pages
+  as `dbSize`, used pages as `dbSizeInUse` (same source as quota), plus
+  `raftAppliedIndex`, `errors` (NOSPACE/CORRUPT), and `isLearner`.
+  No backend (unit tests) stays 0. `cetcdctl status` prints the new fields.
 
 ## Previously done (auth data plane)
 

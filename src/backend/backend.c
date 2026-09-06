@@ -266,6 +266,22 @@ uint64_t cetcd_backend_size(cetcd_backend *be) {
     return total_pages * (uint64_t)st.ms_psize;
 }
 
+uint64_t cetcd_backend_alloc_size(cetcd_backend *be) {
+    if (!be || !be->env) return 0;
+    MDB_envinfo info;
+    MDB_stat st;
+    memset(&info, 0, sizeof(info));
+    memset(&st, 0, sizeof(st));
+    if (mdb_env_info(be->env, &info) != MDB_SUCCESS)
+        return cetcd_backend_size(be);
+    uint64_t alloc = 0;
+    if (mdb_env_stat(be->env, &st) == MDB_SUCCESS && st.ms_psize > 0)
+        alloc = ((uint64_t)info.me_last_pgno + 1) * (uint64_t)st.ms_psize;
+    if (alloc == 0) alloc = (uint64_t)info.me_mapsize;
+    uint64_t inuse = cetcd_backend_size(be);
+    return alloc >= inuse ? alloc : inuse;
+}
+
 int cetcd_backend_foreach(cetcd_backend *be, const char *bucket,
                            cetcd_backend_iter_fn fn, void *udata) {
     if (!be || !be->env || !bucket || !fn) return CETCD_ERR_INVAL;

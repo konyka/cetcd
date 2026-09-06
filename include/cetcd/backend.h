@@ -75,6 +75,8 @@ int  cetcd_txn_del(cetcd_txn *txn, const char *bucket,
 /* ── Queries ─────────────────────────────────────────────────────── */
 
 uint64_t cetcd_backend_size(cetcd_backend *be);
+/* Physically allocated backend file (data.mdb). 0 if unknown. */
+uint64_t cetcd_backend_alloc_size(cetcd_backend *be);
 
 /* Iterate all keys in a bucket. Callback returns false to stop early. */
 typedef bool (*cetcd_backend_iter_fn)(const uint8_t *key, size_t key_len,

@@ -3958,8 +3958,9 @@ CETCD_TEST_CASE(v3rpc_status_has_version_and_leader) {
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 2);
 
-    /* Verify version (field 2, tag 0x12) and leader (field 4, tag 0x20) are present */
+    /* version, leader, dbSize, raftAppliedIndex, dbSizeInUse */
     int found_version = 0, found_leader = 0;
+    int found_dbsize = 0, found_applied = 0, found_inuse = 0;
     size_t rpos = 0;
     while (rpos < resp.len) {
         uint8_t tag = resp.data[rpos++];
@@ -3978,13 +3979,57 @@ CETCD_TEST_CASE(v3rpc_status_has_version_and_leader) {
             uint64_t v = 0; int shift = 0;
             while (rpos < resp.len) { uint8_t b = resp.data[rpos++]; v |= (uint64_t)(b & 0x7F) << shift; shift += 7; if (!(b & 0x80)) break; }
             (void)v;
+            if (tag == 0x18) found_dbsize = 1;
             if (tag == 0x20) found_leader = 1;
+            if (tag == 0x38) found_applied = 1;
+            if (tag == 0x48) found_inuse = 1;
         }
     }
     CETCD_ASSERT_TRUE(found_version);
     CETCD_ASSERT_TRUE(found_leader);
+    CETCD_ASSERT_TRUE(found_dbsize);
+    CETCD_ASSERT_TRUE(found_applied);
+    CETCD_ASSERT_TRUE(found_inuse);
 
     cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(rpc);
+}
+
+CETCD_TEST_CASE(v3rpc_status_errors_nospace) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    cetcd_v3rpc_alarm_activate(1, 1);
+    uint8_t dummy[] = {0x00};
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Status", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found_nospace = 0;
+    size_t rpos = 0;
+    while (rpos < resp.len) {
+        uint8_t tag = resp.data[rpos++];
+        if (tag == 0x0a || tag == 0x12 || tag == 0x42) {
+            uint64_t l = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                l |= (uint64_t)(b & 0x7F) << shift; shift += 7;
+                if (!(b & 0x80)) break;
+            }
+            if (tag == 0x42 && l == 7 && rpos + 7 <= resp.len &&
+                memcmp(resp.data + rpos, "NOSPACE", 7) == 0)
+                found_nospace = 1;
+            rpos += (size_t)l;
+        } else {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                v |= (uint64_t)(b & 0x7F) << shift; shift += 7;
+                if (!(b & 0x80)) break;
+            }
+            (void)v;
+        }
+    }
+    CETCD_ASSERT_TRUE(found_nospace);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_alarm_deactivate(1, 1);
     cetcd_v3rpc_free(rpc);
 }
 
@@ -6162,6 +6207,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_lease_time_to_live_with_keys),
     CETCD_TEST_ENTRY(v3rpc_maintenance_responses_have_header),
     CETCD_TEST_ENTRY(v3rpc_status_has_version_and_leader),
+    CETCD_TEST_ENTRY(v3rpc_status_errors_nospace),
     CETCD_TEST_ENTRY(v3rpc_cluster_responses_have_header),
     CETCD_TEST_ENTRY(v3rpc_watch_has_header),
     CETCD_TEST_ENTRY(v3rpc_watch_event_kv_correct_fields),
