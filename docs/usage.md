@@ -212,6 +212,7 @@ cetcd accepts several etcd server flags for migration compatibility:
 # --experimental-compaction-sleep-interval waits between those batches (0 = none).
 # --experimental-watch-progress-notify-interval sets Watch progress_notify (0 = 10s).
 # --experimental-warning-apply-duration warns if apply is slower (0 disables; default 100ms).
+# --experimental-warning-unary-request-duration warns if unary RPC is slower (0 disables; default 300ms).
 # --experimental-max-learners caps learner MemberAdd (0 = none; omitted default 1).
 # --experimental-memory-mlock locks process pages (Unix mlockall; Windows fail-closes).
 # --experimental-bootstrap-defrag-threshold-megabytes compact-copies data.mdb at start (0 off).
@@ -222,6 +223,7 @@ cetcd accepts several etcd server flags for migration compatibility:
   --experimental-compaction-sleep-interval 100ms \
   --experimental-watch-progress-notify-interval 10s \
   --experimental-warning-apply-duration 100ms \
+  --experimental-warning-unary-request-duration 300ms \
   --experimental-max-learners 1 \
   --experimental-memory-mlock=false \
   --experimental-bootstrap-defrag-threshold-megabytes 0

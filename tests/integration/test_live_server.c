@@ -2038,6 +2038,29 @@ CETCD_TEST_CASE(live_cetcd_warning_apply_duration) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_warning_unary_duration) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-warning-unary-request-duration 300ms --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-warning-unary-request-duration=0 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-warning-unary-request-duration abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-warning-unary-request-duration >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_max_learners) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -2990,6 +3013,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_compaction_sleep_interval),
     CETCD_TEST_ENTRY(live_cetcd_watch_progress_interval),
     CETCD_TEST_ENTRY(live_cetcd_warning_apply_duration),
+    CETCD_TEST_ENTRY(live_cetcd_warning_unary_duration),
     CETCD_TEST_ENTRY(live_cetcd_max_learners),
     CETCD_TEST_ENTRY(live_cetcd_memory_mlock),
     CETCD_TEST_ENTRY(live_cetcd_bootstrap_defrag_mb),

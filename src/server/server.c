@@ -2493,6 +2493,12 @@ int cetcd_server_start(cetcd_server *srv) {
                           : CETCD_DEFAULT_WARNING_APPLY_MS;
         cetcd_v3rpc_set_warning_apply_ns(ms * 1000000ULL);
     }
+    {
+        uint64_t ms = srv->cfg.warning_unary_set
+                          ? srv->cfg.warning_unary_ms
+                          : CETCD_DEFAULT_WARNING_UNARY_MS;
+        cetcd_v3rpc_set_warning_unary_ns(ms * 1000000ULL);
+    }
     cetcd_v3rpc_set_max_learners(srv->cfg.max_learners_set
                                      ? srv->cfg.max_learners
                                      : CETCD_DEFAULT_MAX_LEARNERS);

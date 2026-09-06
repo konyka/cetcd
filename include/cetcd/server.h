@@ -132,6 +132,8 @@ typedef struct cetcd_server_config {
     uint64_t        watch_progress_interval_ms;   /* 0 = default 10s; Watch progress_notify */
     bool            warning_apply_set;            /* --experimental-warning-apply-duration given */
     uint64_t        warning_apply_ms;             /* 0 = disable; unset → 100ms */
+    bool            warning_unary_set;            /* --experimental-warning-unary-request-duration given */
+    uint64_t        warning_unary_ms;             /* 0 = disable; unset → 300ms */
     bool            max_learners_set;             /* --experimental-max-learners given */
     uint32_t        max_learners;                 /* 0 = unlimited; unset → 1 */
     bool            memory_mlock;                 /* --experimental-memory-mlock */

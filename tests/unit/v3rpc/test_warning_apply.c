@@ -22,10 +22,19 @@ CETCD_TEST_CASE(warning_apply_set_get) {
     cetcd_v3rpc_set_warning_apply_ns(0);
 }
 
+CETCD_TEST_CASE(warning_unary_set_get) {
+    cetcd_v3rpc_set_warning_unary_ns(0);
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_warning_unary_ns() == 0);
+    cetcd_v3rpc_set_warning_unary_ns(300000000ull);
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_warning_unary_ns() == 300000000ull);
+    cetcd_v3rpc_set_warning_unary_ns(0);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(warning_apply_disabled),
     CETCD_TEST_ENTRY(warning_apply_threshold),
     CETCD_TEST_ENTRY(warning_apply_set_get),
+    CETCD_TEST_ENTRY(warning_unary_set_get),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

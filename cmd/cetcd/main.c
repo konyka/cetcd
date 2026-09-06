@@ -77,6 +77,7 @@ static void print_usage(const char *prog) {
     printf("  --experimental-compaction-sleep-interval DUR  Wait between auto-compact batches (0 = none)\n");
     printf("  --experimental-watch-progress-notify-interval DUR  Watch progress_notify period (0 = 10s)\n");
     printf("  --experimental-warning-apply-duration DUR  Warn if apply exceeds duration (0 disables; default 100ms)\n");
+    printf("  --experimental-warning-unary-request-duration DUR  Warn if unary RPC exceeds duration (0 disables; default 300ms)\n");
     printf("  --experimental-max-learners N  Cap learner MemberAdd (0 = none; omitted default 1)\n");
     printf("  --experimental-memory-mlock  Lock process memory (Unix mlockall; Windows fail-closed)\n");
     printf("  --experimental-bootstrap-defrag-threshold-megabytes N  Compact data.mdb at start if larger (0 off)\n");
@@ -577,6 +578,29 @@ int main(int argc, char **argv) {
             }
             cfg.warning_apply_set = true;
             cfg.warning_apply_ms = ms;
+        } else if (strcmp(argv[i], "--experimental-warning-unary-request-duration") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr,
+                        "--experimental-warning-unary-request-duration requires a duration\n");
+                return 1;
+            }
+            uint64_t ms = 0;
+            if (cetcd_parse_go_duration_ms(argv[++i], &ms) != CETCD_OK) {
+                fprintf(stderr,
+                        "--experimental-warning-unary-request-duration must be a duration (0 disables)\n");
+                return 1;
+            }
+            cfg.warning_unary_set = true;
+            cfg.warning_unary_ms = ms;
+        } else if (strncmp(argv[i], "--experimental-warning-unary-request-duration=", 46) == 0) {
+            uint64_t ms = 0;
+            if (cetcd_parse_go_duration_ms(argv[i] + 46, &ms) != CETCD_OK) {
+                fprintf(stderr,
+                        "--experimental-warning-unary-request-duration must be a duration (0 disables)\n");
+                return 1;
+            }
+            cfg.warning_unary_set = true;
+            cfg.warning_unary_ms = ms;
         } else if (strcmp(argv[i], "--experimental-max-learners") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr,

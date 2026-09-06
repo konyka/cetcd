@@ -410,6 +410,10 @@ Performance-first, fail-closed design:
   value or leftover text fail at parse. `Maintenance/Defragment` now
   does the same compact-copy when a backend is attached (no backend
   still returns success). Other `--experimental-*` stay no-ops.
+- **`--experimental-warning-unary-request-duration`** — Go duration
+  (`0` disables; omitted default 300ms). A unary RPC slower than the
+  threshold logs a warning. Missing value or a non-duration fail at
+  parse (no longer swallowed). Other `--experimental-*` stay no-ops.
 
 ## Previously done (auth data plane)
 
