@@ -2310,6 +2310,56 @@ CETCD_TEST_CASE(live_cetcdctl_restore_cluster_state) {
     unlink(snap);
 }
 
+CETCD_TEST_CASE(live_cetcdctl_restore_initial_cluster) {
+    char snap[128], dir[128], ic[200], cmd[1024];
+    snprintf(snap, sizeof(snap), "/tmp/cetcd-snap-ic-%d", (int)getpid());
+    snprintf(dir, sizeof(dir), "/tmp/cetcd-restore-ic-%d", (int)getpid());
+    snprintf(ic, sizeof(ic), "%s/initial-cluster", dir);
+
+    FILE *sf = fopen(snap, "wb");
+    CETCD_ASSERT_NOT_NULL(sf);
+    uint8_t kv[] = {0x01, 'a', 0x01, 'b'};
+    CETCD_ASSERT_TRUE(fwrite(kv, 1, sizeof(kv), sf) == sizeof(kv));
+    fclose(sf);
+
+    snprintf(cmd, sizeof(cmd), "mkdir -p '%s'", dir);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' snapshot restore '%s' --data-dir '%s' "
+             "--initial-cluster 1=http://127.0.0.1:2380,2=http://127.0.0.1:2382 "
+             "--name n1 --initial-advertise-peer-urls http://127.0.0.1:2380 "
+             "--initial-cluster-state existing >/dev/null",
+             CETCDCTL_BIN, snap, dir);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    FILE *tf = fopen(ic, "r");
+    CETCD_ASSERT_NOT_NULL(tf);
+    char got[256];
+    CETCD_ASSERT_NOT_NULL(fgets(got, sizeof(got), tf));
+    fclose(tf);
+    CETCD_ASSERT_TRUE(strstr(got, "1=http://127.0.0.1:2380") != NULL);
+
+    {
+        char snapkv[200];
+        snprintf(snapkv, sizeof(snapkv), "%s/snapshot.kv", dir);
+        unlink(snapkv);
+    }
+    snprintf(cmd, sizeof(cmd),
+             "'%s' snapshot restore '%s' --data-dir '%s' "
+             "--initial-cluster 9=http://127.0.0.1:2390 >/dev/null 2>&1",
+             CETCDCTL_BIN, snap, dir);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' snapshot restore '%s' --data-dir '%s' "
+             "--initial-cluster 0=http://127.0.0.1:2380 >/dev/null 2>&1",
+             CETCDCTL_BIN, snap, dir);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    unlink(snap);
+}
+
 CETCD_TEST_CASE(live_cetcdctl_discovery_srv) {
     char cmd[1024];
     /* version is local — no DNS */
@@ -2687,6 +2737,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcdctl_https_endpoint_requires_tls),
     CETCD_TEST_ENTRY(live_cetcdctl_restore_cluster_token),
     CETCD_TEST_ENTRY(live_cetcdctl_restore_cluster_state),
+    CETCD_TEST_ENTRY(live_cetcdctl_restore_initial_cluster),
     CETCD_TEST_ENTRY(live_cetcdctl_discovery_srv),
     CETCD_TEST_ENTRY(live_cetcd_discovery_srv),
     CETCD_TEST_ENTRY(live_cetcdctl_tcp_keepalive),

@@ -72,6 +72,13 @@ int cetcd_cluster_persist_clear_joint(cetcd_cluster *c);
 uint32_t cetcd_cluster_loaded_joint(const cetcd_cluster *c, uint64_t *ids,
                                     uint32_t cap, uint64_t *joint_index);
 
+/* Parse `id=host:port,id=http(s)://host:port`. id must be > 0; port 1..65535
+ * (missing port → 2380). Duplicate ids, empty tokens, and overflow fail-closed.
+ * RANGE = bad port; INVAL = everything else. https_out is optional. */
+int cetcd_parse_initial_cluster(const char *spec,
+                                cetcd_peer_info *out, uint32_t cap,
+                                uint32_t *n_out, int *https_out);
+
 #ifdef __cplusplus
 }
 #endif

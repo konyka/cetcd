@@ -322,6 +322,12 @@ Performance-first, fail-closed design:
   uses the follower's last-index hint so a blank joiner is not probed
   decrement-by-one. A missing prev that is not the snapshot index is
   fail-closed (no hole). After `MsgSnapStatus` the suffix is sent the same way.
+- **`cetcdctl snapshot restore --initial-cluster` / `--name` /
+  `--initial-advertise-peer-urls`** — persist `{data-dir}/initial-cluster`,
+  `name`, `initial-advertise-peer-urls`, and `initial-cluster-state`. Server
+  start loads them when the CLI omits the flag. A corrupt spec, empty value,
+  or CLI/file mismatch fail-closes. `initial-cluster` counts as cluster
+  evidence for `--initial-cluster-state existing`.
 
 ## Previously done (auth data plane)
 

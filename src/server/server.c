@@ -2003,6 +2003,123 @@ static int file_readable_(const char *path) {
 
 static int ensure_dir(const char *path);
 
+static int read_oneline_(const char *path, char *out, size_t cap) {
+    FILE *f = fopen(path, "r");
+    if (!f) return 1;
+    if (!fgets(out, (int)cap, f)) {
+        fclose(f);
+        return -1;
+    }
+    fclose(f);
+    size_t n = strlen(out);
+    int had_nl = n > 0 && (out[n - 1] == '\n' || out[n - 1] == '\r');
+    while (n > 0 && (out[n - 1] == '\n' || out[n - 1] == '\r'))
+        out[--n] = '\0';
+    if (n == 0) return -1;
+    if (!had_nl && n >= cap - 1) return -1;
+    return 0;
+}
+
+static int peers_match_(const cetcd_peer_info *a, uint32_t na,
+                        const cetcd_peer_info *b, uint32_t nb) {
+    if (na != nb) return 0;
+    for (uint32_t i = 0; i < na; i++) {
+        int found = 0;
+        for (uint32_t j = 0; j < nb; j++) {
+            if (a[i].id == b[j].id && a[i].port == b[j].port &&
+                strcmp(a[i].addr, b[j].addr) == 0) {
+                found = 1;
+                break;
+            }
+        }
+        if (!found) return 0;
+    }
+    return 1;
+}
+
+/* Load restore-written bootstrap files. CLI wins only when it matches. */
+static int load_persisted_bootstrap_(cetcd_server *srv) {
+    if (!srv || !srv->cfg.data_dir[0]) return CETCD_OK;
+    char path[768];
+    char line[2048];
+    int n;
+
+    n = snprintf(path, sizeof(path), "%s/initial-cluster", srv->cfg.data_dir);
+    if (n > 0 && (size_t)n < sizeof(path)) {
+        int rr = read_oneline_(path, line, sizeof(line));
+        if (rr < 0) return CETCD_ERR_INVAL;
+        if (rr == 0) {
+            cetcd_peer_info parsed[CETCD_MAX_INITIAL_PEERS];
+            uint32_t pn = 0;
+            int https = 0;
+            int prc = cetcd_parse_initial_cluster(line, parsed,
+                                                  CETCD_MAX_INITIAL_PEERS,
+                                                  &pn, &https);
+            if (prc != CETCD_OK) return CETCD_ERR_INVAL;
+            if (srv->cfg.n_initial_peers > 0) {
+                if (!peers_match_(srv->cfg.initial_peers, srv->cfg.n_initial_peers,
+                                  parsed, pn))
+                    return CETCD_ERR_INVAL;
+            } else {
+                memcpy(srv->cfg.initial_peers, parsed, pn * sizeof(parsed[0]));
+                srv->cfg.n_initial_peers = pn;
+            }
+            if (https) srv->cfg.initial_cluster_https = true;
+        }
+    }
+
+    n = snprintf(path, sizeof(path), "%s/name", srv->cfg.data_dir);
+    if (n > 0 && (size_t)n < sizeof(path)) {
+        int rr = read_oneline_(path, line, sizeof(line));
+        if (rr < 0) return CETCD_ERR_INVAL;
+        if (rr == 0) {
+            if (srv->cfg.name[0] && strcmp(srv->cfg.name, line) != 0)
+                return CETCD_ERR_INVAL;
+            if (!srv->cfg.name[0]) {
+                strncpy(srv->cfg.name, line, sizeof(srv->cfg.name) - 1);
+                srv->cfg.name[sizeof(srv->cfg.name) - 1] = '\0';
+            }
+        }
+    }
+
+    n = snprintf(path, sizeof(path), "%s/initial-advertise-peer-urls",
+                 srv->cfg.data_dir);
+    if (n > 0 && (size_t)n < sizeof(path)) {
+        int rr = read_oneline_(path, line, sizeof(line));
+        if (rr < 0) return CETCD_ERR_INVAL;
+        if (rr == 0) {
+            if (srv->cfg.advertise_peer_urls[0] &&
+                strcmp(srv->cfg.advertise_peer_urls, line) != 0)
+                return CETCD_ERR_INVAL;
+            if (!srv->cfg.advertise_peer_urls[0]) {
+                strncpy(srv->cfg.advertise_peer_urls, line,
+                        sizeof(srv->cfg.advertise_peer_urls) - 1);
+                srv->cfg.advertise_peer_urls[sizeof(srv->cfg.advertise_peer_urls) - 1] = '\0';
+            }
+        }
+    }
+
+    n = snprintf(path, sizeof(path), "%s/initial-cluster-state",
+                 srv->cfg.data_dir);
+    if (n > 0 && (size_t)n < sizeof(path)) {
+        int rr = read_oneline_(path, line, sizeof(line));
+        if (rr < 0) return CETCD_ERR_INVAL;
+        if (rr == 0) {
+            if (strcmp(line, "new") != 0 && strcmp(line, "existing") != 0)
+                return CETCD_ERR_INVAL;
+            if (srv->cfg.initial_cluster_state[0] &&
+                strcmp(srv->cfg.initial_cluster_state, line) != 0)
+                return CETCD_ERR_INVAL;
+            if (!srv->cfg.initial_cluster_state[0]) {
+                strncpy(srv->cfg.initial_cluster_state, line,
+                        sizeof(srv->cfg.initial_cluster_state) - 1);
+                srv->cfg.initial_cluster_state[sizeof(srv->cfg.initial_cluster_state) - 1] = '\0';
+            }
+        }
+    }
+    return CETCD_OK;
+}
+
 static int data_dir_has_cluster_(const cetcd_server_config *cfg) {
     if (!cfg || !cfg->data_dir[0]) return 0;
     char p[768];
@@ -2017,6 +2134,8 @@ static int data_dir_has_cluster_(const cetcd_server_config *cfg) {
     n = snprintf(p, sizeof(p), "%s/wal/0000000000000000.wal", cfg->data_dir);
     if (n > 0 && (size_t)n < sizeof(p) && file_readable_(p)) return 1;
     n = snprintf(p, sizeof(p), "%s/snapshot.kv", cfg->data_dir);
+    if (n > 0 && (size_t)n < sizeof(p) && file_readable_(p)) return 1;
+    n = snprintf(p, sizeof(p), "%s/initial-cluster", cfg->data_dir);
     if (n > 0 && (size_t)n < sizeof(p) && file_readable_(p)) return 1;
     return 0;
 }
@@ -2342,6 +2461,10 @@ int cetcd_server_start(cetcd_server *srv) {
 
     if (srv->cfg.wal_dir[0] && !srv->cfg.data_dir[0])
         return CETCD_ERR_INVAL;
+    {
+        int brc = load_persisted_bootstrap_(srv);
+        if (brc != CETCD_OK) return brc;
+    }
     if (srv->cfg.initial_cluster_state[0] &&
         strcmp(srv->cfg.initial_cluster_state, "new") != 0 &&
         strcmp(srv->cfg.initial_cluster_state, "existing") != 0)

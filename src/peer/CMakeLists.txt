@@ -1,6 +1,7 @@
 cetcd_add_module(peer
     SOURCES
         peer.c
+        cluster_spec.c
     PUBLIC_DEPS
         cetcd_base
         cetcd_backend

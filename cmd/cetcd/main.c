@@ -154,59 +154,21 @@ int main(int argc, char **argv) {
             cfg.node_id = (uint64_t)v;
         } else if (strcmp(argv[i], "--initial-cluster") == 0 && i + 1 < argc) {
             const char *cluster_str = argv[++i];
-            char buf[2048];
-            strncpy(buf, cluster_str, sizeof(buf) - 1);
-            buf[sizeof(buf) - 1] = '\0';
-            char *saveptr = NULL;
-            char *tok = strtok_r(buf, ",", &saveptr);
-            while (tok && cfg.n_initial_peers < CETCD_MAX_INITIAL_PEERS) {
-                char *eq = strchr(tok, '=');
-                if (eq) {
-                    *eq = '\0';
-                    char *addr_part = eq + 1;
-                    char *id_end = NULL;
-                    errno = 0;
-                    unsigned long long nid = strtoull(tok, &id_end, 10);
-                    if (errno == ERANGE || !id_end || id_end == tok || *id_end ||
-                        nid < 1) {
-                        fprintf(stderr, "--initial-cluster member id must be > 0\n");
-                        return 1;
-                    }
-                    cetcd_peer_info *pi = &cfg.initial_peers[cfg.n_initial_peers];
-                    pi->id = (uint64_t)nid;
-                    char *colon = strrchr(addr_part, ':');
-                    if (colon) {
-                        *colon = '\0';
-                        if (strncmp(addr_part, "https://", 8) == 0) {
-                            cfg.initial_cluster_https = true;
-                            addr_part += 8;
-                        } else if (strncmp(addr_part, "http://", 7) == 0) {
-                            addr_part += 7;
-                        }
-                        strncpy(pi->addr, addr_part, sizeof(pi->addr) - 1);
-                        char *end = NULL;
-                        errno = 0;
-                        long v = strtol(colon + 1, &end, 10);
-                        if (errno == ERANGE || !end || end == colon + 1 || *end ||
-                            v < 1 || v > 65535) {
-                            fprintf(stderr, "--initial-cluster port must be 1..65535\n");
-                            return 1;
-                        }
-                        pi->port = (uint16_t)v;
-                    } else {
-                        if (strncmp(addr_part, "https://", 8) == 0) {
-                            cfg.initial_cluster_https = true;
-                            addr_part += 8;
-                        } else if (strncmp(addr_part, "http://", 7) == 0) {
-                            addr_part += 7;
-                        }
-                        strncpy(pi->addr, addr_part, sizeof(pi->addr) - 1);
-                        pi->port = 2380;
-                    }
-                    cfg.n_initial_peers++;
-                }
-                tok = strtok_r(NULL, ",", &saveptr);
+            int https = 0;
+            uint32_t n = 0;
+            int prc = cetcd_parse_initial_cluster(cluster_str, cfg.initial_peers,
+                                                  CETCD_MAX_INITIAL_PEERS, &n,
+                                                  &https);
+            if (prc == CETCD_ERR_RANGE) {
+                fprintf(stderr, "--initial-cluster port must be 1..65535\n");
+                return 1;
             }
+            if (prc != CETCD_OK) {
+                fprintf(stderr, "--initial-cluster member id must be > 0\n");
+                return 1;
+            }
+            cfg.n_initial_peers = n;
+            if (https) cfg.initial_cluster_https = true;
         } else if (strcmp(argv[i], "--log-level") == 0 && i + 1 < argc) {
             const char *lvl = argv[++i];
             if (strcmp(lvl, "trace") == 0) cetcd_log_set_level(CETCD_LOG_TRACE);

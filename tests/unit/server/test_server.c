@@ -1904,6 +1904,89 @@ CETCD_TEST_CASE(server_start_existing_empty_with_peers) {
     cetcd_server_free(srv);
 }
 
+static int write_line_(const char *path, const char *text) {
+    FILE *f = fopen(path, "w");
+    if (!f) return -1;
+    int rc = fprintf(f, "%s\n", text) > 0 ? 0 : -1;
+    fclose(f);
+    return rc;
+}
+
+CETCD_TEST_CASE(server_start_existing_loads_persisted_initial_cluster) {
+    char data_dir[] = "/tmp/cetcd-join-ic-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
+    char path[300];
+    snprintf(path, sizeof(path), "%s/initial-cluster", data_dir);
+    CETCD_ASSERT_EQ_INT(write_line_(path, "1=127.0.0.1:2380"), 0);
+    snprintf(path, sizeof(path), "%s/name", data_dir);
+    CETCD_ASSERT_EQ_INT(write_line_(path, "n2"), 0);
+    snprintf(path, sizeof(path), "%s/initial-cluster-state", data_dir);
+    CETCD_ASSERT_EQ_INT(write_line_(path, "existing"), 0);
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 2;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), 0);
+    CETCD_ASSERT_TRUE(!cetcd_server_is_leader(srv));
+    CETCD_ASSERT_EQ_INT((int)cetcd_server_peer_count(srv), 1);
+    cetcd_server_free(srv);
+}
+
+CETCD_TEST_CASE(server_start_rejects_corrupt_initial_cluster_file) {
+    char data_dir[] = "/tmp/cetcd-bad-ic-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
+    char path[300];
+    snprintf(path, sizeof(path), "%s/initial-cluster", data_dir);
+    CETCD_ASSERT_EQ_INT(write_line_(path, "node1=127.0.0.1:2380"), 0);
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 1;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+    strncpy(cfg.initial_cluster_state, "existing",
+            sizeof(cfg.initial_cluster_state) - 1);
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), CETCD_ERR_INVAL);
+    cetcd_server_free(srv);
+}
+
+CETCD_TEST_CASE(server_start_rejects_initial_cluster_mismatch) {
+    char data_dir[] = "/tmp/cetcd-mm-ic-XXXXXX";
+    CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
+    char path[300];
+    snprintf(path, sizeof(path), "%s/initial-cluster", data_dir);
+    CETCD_ASSERT_EQ_INT(write_line_(path, "1=127.0.0.1:2380"), 0);
+
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.node_id = 2;
+    cfg.listen_port = 2379;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
+    strncpy(cfg.initial_cluster_state, "existing",
+            sizeof(cfg.initial_cluster_state) - 1);
+    cfg.initial_peers[0].id = 1;
+    strncpy(cfg.initial_peers[0].addr, "10.0.0.1",
+            sizeof(cfg.initial_peers[0].addr) - 1);
+    cfg.initial_peers[0].port = 2380;
+    cfg.n_initial_peers = 1;
+
+    cetcd_server *srv = cetcd_server_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_server_start(srv), CETCD_ERR_INVAL);
+    cetcd_server_free(srv);
+}
+
 CETCD_TEST_CASE(server_start_existing_rejects_corrupt_snapshot) {
     char data_dir[] = "/tmp/cetcd-join-bad-XXXXXX";
     CETCD_ASSERT_NOT_NULL(mkdtemp(data_dir));
@@ -2498,6 +2581,9 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(server_start_existing_requires_persisted_state),
     CETCD_TEST_ENTRY(server_start_existing_imports_snapshot_kv),
     CETCD_TEST_ENTRY(server_start_existing_empty_with_peers),
+    CETCD_TEST_ENTRY(server_start_existing_loads_persisted_initial_cluster),
+    CETCD_TEST_ENTRY(server_start_rejects_corrupt_initial_cluster_file),
+    CETCD_TEST_ENTRY(server_start_rejects_initial_cluster_mismatch),
     CETCD_TEST_ENTRY(server_start_existing_rejects_corrupt_snapshot),
     CETCD_TEST_ENTRY(server_start_force_new_cluster_with_state),
     CETCD_TEST_ENTRY(server_start_auto_tls_mints_into_data_dir),

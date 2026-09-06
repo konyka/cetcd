@@ -82,6 +82,7 @@
 #include "cetcd/base.h"
 #include "cetcd/auth.h"
 #include "cetcd/tls.h"
+#include "cetcd/peer.h"
 
 static const char *g_host = "127.0.0.1";
 static uint16_t    g_port = 2379;
@@ -3929,6 +3930,65 @@ static int cmd_version(int argc, char **argv) {
     return 0;
 }
 
+static int restore_read_line_(const char *path, char *out, size_t cap) {
+    FILE *f = fopen(path, "r");
+    if (!f) return 1;
+    if (!fgets(out, (int)cap, f)) {
+        fclose(f);
+        return -1;
+    }
+    fclose(f);
+    size_t n = strlen(out);
+    while (n > 0 && (out[n - 1] == '\n' || out[n - 1] == '\r'))
+        out[--n] = '\0';
+    return n == 0 ? -1 : 0;
+}
+
+static int restore_write_line_(const char *path, const char *text) {
+    FILE *f = fopen(path, "w");
+    if (!f) return -1;
+    if (fprintf(f, "%s\n", text) < 0) {
+        fclose(f);
+        return -1;
+    }
+    return fclose(f) == 0 ? 0 : -1;
+}
+
+static int restore_check_mismatch_(const char *path, const char *want, int force,
+                                   const char *mismatch_msg) {
+    char got[2048];
+    int rr = restore_read_line_(path, got, sizeof(got));
+    if (rr == 1) return 0;
+    if (rr < 0) {
+        fprintf(stderr, "failed to read %s\n", path);
+        return -1;
+    }
+    if (strcmp(got, want) != 0 && !force) {
+        fprintf(stderr, "%s\n", mismatch_msg);
+        return -1;
+    }
+    return 0;
+}
+
+static int restore_persist_line_(const char *path, const char *want, int force,
+                                 const char *mismatch_msg) {
+    char got[2048];
+    int rr = restore_read_line_(path, got, sizeof(got));
+    if (rr < 0) {
+        fprintf(stderr, "failed to read %s\n", path);
+        return -1;
+    }
+    if (rr == 0 && strcmp(got, want) != 0 && !force) {
+        fprintf(stderr, "%s\n", mismatch_msg);
+        return -1;
+    }
+    if (restore_write_line_(path, want) != 0) {
+        perror(path);
+        return -1;
+    }
+    return 0;
+}
+
 static int cmd_snapshot(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr, "usage: cetcdctl snapshot save [FILE]\n");
@@ -4122,6 +4182,10 @@ static int cmd_snapshot(int argc, char **argv) {
         const char *snap_file = NULL;
         const char *data_dir = NULL;
         const char *cluster_token = NULL;
+        const char *initial_cluster = NULL;
+        const char *adv_peer = NULL;
+        const char *member_name = NULL;
+        const char *cluster_state = NULL;
         int force = 0;
         int want_json = 0, want_fields = 0;
         for (int i = 3; i < argc; i++) {
@@ -4136,19 +4200,20 @@ static int cmd_snapshot(int argc, char **argv) {
             } else if (strcmp(argv[i], "--skip-hash-check") == 0) {
                 /* Accepted for etcdctl compatibility, no-op */
             } else if (strcmp(argv[i], "--initial-cluster") == 0 && i + 1 < argc) {
-                i++; /* no-op, single-node restore */
+                initial_cluster = argv[++i];
             } else if (strcmp(argv[i], "--initial-advertise-peer-urls") == 0 && i + 1 < argc) {
-                i++; /* no-op, single-node restore */
+                adv_peer = argv[++i];
             } else if (strcmp(argv[i], "--name") == 0 && i + 1 < argc) {
-                i++; /* no-op, accepted for compatibility */
+                member_name = argv[++i];
             } else if (strcmp(argv[i], "--initial-cluster-token") == 0 && i + 1 < argc) {
                 cluster_token = argv[++i];
             } else if (strcmp(argv[i], "--initial-cluster-state") == 0 && i + 1 < argc) {
-                const char *st = argv[++i];
-                if (strcmp(st, "new") != 0 && strcmp(st, "existing") != 0) {
+                cluster_state = argv[++i];
+                if (strcmp(cluster_state, "new") != 0 &&
+                    strcmp(cluster_state, "existing") != 0) {
                     fprintf(stderr,
                             "--initial-cluster-state %s is invalid (new or existing)\n",
-                            st);
+                            cluster_state);
                     return 1;
                 }
             } else if (!snap_file && argv[i][0] != '-') {
@@ -4156,11 +4221,39 @@ static int cmd_snapshot(int argc, char **argv) {
             }
         }
         if (!snap_file) {
-            fprintf(stderr, "usage: cetcdctl snapshot restore FILE --data-dir DIR [--force] [--skip-hash-check] [--initial-cluster-token TOKEN] [--initial-cluster-state new|existing] [-w json|fields]\n");
+            fprintf(stderr, "usage: cetcdctl snapshot restore FILE --data-dir DIR [--force] [--skip-hash-check] [--initial-cluster-token TOKEN] [--initial-cluster-state new|existing] [--initial-cluster SPEC] [--name NAME] [--initial-advertise-peer-urls URL] [-w json|fields]\n");
             return 1;
         }
         if (!data_dir) {
             fprintf(stderr, "--data-dir is required for snapshot restore\n");
+            return 1;
+        }
+        if (initial_cluster) {
+            if (!initial_cluster[0]) {
+                fprintf(stderr, "--initial-cluster must not be empty\n");
+                return 1;
+            }
+            cetcd_peer_info parsed[32];
+            uint32_t pn = 0;
+            int https = 0;
+            int prc = cetcd_parse_initial_cluster(initial_cluster, parsed, 32,
+                                                  &pn, &https);
+            (void)https;
+            if (prc == CETCD_ERR_RANGE) {
+                fprintf(stderr, "--initial-cluster port must be 1..65535\n");
+                return 1;
+            }
+            if (prc != CETCD_OK) {
+                fprintf(stderr, "--initial-cluster member id must be > 0\n");
+                return 1;
+            }
+        }
+        if (member_name && !member_name[0]) {
+            fprintf(stderr, "--name must not be empty\n");
+            return 1;
+        }
+        if (adv_peer && !adv_peer[0]) {
+            fprintf(stderr, "--initial-advertise-peer-urls must not be empty\n");
             return 1;
         }
         /* Check if data dir already exists with data */
@@ -4234,6 +4327,41 @@ static int cmd_snapshot(int argc, char **argv) {
                 }
             }
         }
+        {
+            char p[600];
+            if (initial_cluster) {
+                snprintf(p, sizeof(p), "%s/initial-cluster", data_dir);
+                if (restore_check_mismatch_(p, initial_cluster, force,
+                        "initial-cluster mismatch, use --force to overwrite") != 0) {
+                    free(snap_data);
+                    return 1;
+                }
+            }
+            if (member_name) {
+                snprintf(p, sizeof(p), "%s/name", data_dir);
+                if (restore_check_mismatch_(p, member_name, force,
+                        "name mismatch, use --force to overwrite") != 0) {
+                    free(snap_data);
+                    return 1;
+                }
+            }
+            if (adv_peer) {
+                snprintf(p, sizeof(p), "%s/initial-advertise-peer-urls", data_dir);
+                if (restore_check_mismatch_(p, adv_peer, force,
+                        "initial-advertise-peer-urls mismatch, use --force to overwrite") != 0) {
+                    free(snap_data);
+                    return 1;
+                }
+            }
+            if (cluster_state) {
+                snprintf(p, sizeof(p), "%s/initial-cluster-state", data_dir);
+                if (restore_check_mismatch_(p, cluster_state, force,
+                        "initial-cluster-state mismatch, use --force to overwrite") != 0) {
+                    free(snap_data);
+                    return 1;
+                }
+            }
+        }
         /* Write the snapshot KV data to the data directory as snapshot.kv */
         FILE *df = fopen(check_path, "wb");
         if (!df) { perror("fopen data dir"); free(snap_data); return 1; }
@@ -4251,6 +4379,42 @@ static int cmd_snapshot(int argc, char **argv) {
             }
             fprintf(tf, "%s\n", cluster_token);
             fclose(tf);
+        }
+        if (initial_cluster) {
+            char p[600];
+            snprintf(p, sizeof(p), "%s/initial-cluster", data_dir);
+            if (restore_persist_line_(p, initial_cluster, force,
+                    "initial-cluster mismatch, use --force to overwrite") != 0) {
+                free(snap_data);
+                return 1;
+            }
+        }
+        if (member_name) {
+            char p[600];
+            snprintf(p, sizeof(p), "%s/name", data_dir);
+            if (restore_persist_line_(p, member_name, force,
+                    "name mismatch, use --force to overwrite") != 0) {
+                free(snap_data);
+                return 1;
+            }
+        }
+        if (adv_peer) {
+            char p[600];
+            snprintf(p, sizeof(p), "%s/initial-advertise-peer-urls", data_dir);
+            if (restore_persist_line_(p, adv_peer, force,
+                    "initial-advertise-peer-urls mismatch, use --force to overwrite") != 0) {
+                free(snap_data);
+                return 1;
+            }
+        }
+        if (cluster_state) {
+            char p[600];
+            snprintf(p, sizeof(p), "%s/initial-cluster-state", data_dir);
+            if (restore_persist_line_(p, cluster_state, force,
+                    "initial-cluster-state mismatch, use --force to overwrite") != 0) {
+                free(snap_data);
+                return 1;
+            }
         }
         free(snap_data);
         if (want_json) {
@@ -5828,7 +5992,7 @@ static void print_usage(void) {
     printf("                         Revoke permission (all or specific key) from role\n");
     printf("  snapshot save [FILE] [--compaction-periodical] [-w json|fields|table]   Save a snapshot to file\n");
     printf("  snapshot status FILE [-w json|fields|table]  Show snapshot file info\n");
-    printf("  snapshot restore FILE --data-dir DIR [--force] [--skip-hash-check] [--initial-cluster-token TOKEN] [--initial-cluster-state new|existing] [-w json|fields]  Restore snapshot to data dir\n");
+    printf("  snapshot restore FILE --data-dir DIR [--force] [--skip-hash-check] [--initial-cluster-token TOKEN] [--initial-cluster-state new|existing] [--initial-cluster SPEC] [--name NAME] [--initial-advertise-peer-urls URL] [-w json|fields]  Restore snapshot to data dir\n");
     printf("  downgrade enable [-w json|fields] VER   Enable cluster downgrade\n");
     printf("  downgrade cancel [-w json|fields]       Cancel cluster downgrade\n");
     printf("  downgrade validate [-w json|fields] VER Validate downgrade version\n");
