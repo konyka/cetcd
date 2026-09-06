@@ -88,6 +88,21 @@ CETCD_TEST_CASE(auto_compact_due_periodic) {
     CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_due(&st, 9, 5, 1200), 0);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_duration_ms) {
+    uint64_t ms = 99;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_go_duration_ms("0", &ms), CETCD_OK);
+    CETCD_ASSERT_TRUE(ms == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_go_duration_ms("10s", &ms), CETCD_OK);
+    CETCD_ASSERT_TRUE(ms == 10000);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_go_duration_ms("500ms", &ms), CETCD_OK);
+    CETCD_ASSERT_TRUE(ms == 500);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_go_duration_ms("1m", &ms), CETCD_OK);
+    CETCD_ASSERT_TRUE(ms == 60000);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_go_duration_ms("10", &ms), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_go_duration_ms("abc", &ms), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_go_duration_ms(NULL, &ms), CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_batch_limit) {
     uint64_t v = 99;
     CETCD_ASSERT_EQ_INT(cetcd_parse_compaction_batch_limit("0", &v), CETCD_OK);
@@ -160,6 +175,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_retention_revision),
     CETCD_TEST_ENTRY(auto_compact_due_revision),
     CETCD_TEST_ENTRY(auto_compact_due_periodic),
+    CETCD_TEST_ENTRY(auto_compact_parse_duration_ms),
     CETCD_TEST_ENTRY(auto_compact_parse_batch_limit),
     CETCD_TEST_ENTRY(auto_compact_clamp_batch),
     CETCD_TEST_ENTRY(auto_compact_next_revision_batches),

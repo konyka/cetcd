@@ -74,6 +74,7 @@ static void print_usage(const char *prog) {
     printf("  --experimental-initial-corrupt-check  HashKV vs {data-dir}/backend.hash (fail-closed)\n");
     printf("  --experimental-corrupt-check-time DUR  Periodic HashKV vs backend.hash (0 disables)\n");
     printf("  --experimental-compaction-batch-limit N  Auto-compact at most N revs/tick (0 unlimited)\n");
+    printf("  --experimental-watch-progress-notify-interval DUR  Watch progress_notify period (0 = 10s)\n");
     printf("  --experimental-*    Other experimental flags accepted as no-op\n");
     printf("  --help           Show this help\n");
 }
@@ -507,6 +508,27 @@ int main(int argc, char **argv) {
                 return 1;
             }
             cfg.compaction_batch_limit = n;
+        } else if (strcmp(argv[i], "--experimental-watch-progress-notify-interval") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr,
+                        "--experimental-watch-progress-notify-interval requires a duration\n");
+                return 1;
+            }
+            uint64_t ms = 0;
+            if (cetcd_parse_go_duration_ms(argv[++i], &ms) != CETCD_OK) {
+                fprintf(stderr,
+                        "--experimental-watch-progress-notify-interval must be a duration (0 = 10s)\n");
+                return 1;
+            }
+            cfg.watch_progress_interval_ms = ms;
+        } else if (strncmp(argv[i], "--experimental-watch-progress-notify-interval=", 46) == 0) {
+            uint64_t ms = 0;
+            if (cetcd_parse_go_duration_ms(argv[i] + 46, &ms) != CETCD_OK) {
+                fprintf(stderr,
+                        "--experimental-watch-progress-notify-interval must be a duration (0 = 10s)\n");
+                return 1;
+            }
+            cfg.watch_progress_interval_ms = ms;
         } else if (strncmp(argv[i], "--experimental-", 15) == 0) {
             /* no-op, accepted for etcd compatibility */
             if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* skip value if present */

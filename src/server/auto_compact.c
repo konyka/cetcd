@@ -18,7 +18,7 @@ int cetcd_parse_auto_compaction_mode(const char *s, cetcd_auto_compact_mode *out
     return CETCD_ERR_INVAL;
 }
 
-static int parse_go_duration_sec_(const char *s, uint64_t *out) {
+static int parse_go_duration_ns_(const char *s, uint64_t *out) {
     if (!s || !s[0] || !out) return -1;
     uint64_t total_ns = 0;
     const char *p = s;
@@ -46,12 +46,19 @@ static int parse_go_duration_sec_(const char *s, uint64_t *out) {
         any = 1;
     }
     if (!any) return -1;
-    if (total_ns == 0) {
+    *out = total_ns;
+    return 0;
+}
+
+static int parse_go_duration_sec_(const char *s, uint64_t *out) {
+    uint64_t ns = 0;
+    if (parse_go_duration_ns_(s, &ns) != 0) return -1;
+    if (ns == 0) {
         *out = 0;
         return 0;
     }
-    uint64_t sec = total_ns / 1000000000ULL;
-    if (total_ns % 1000000000ULL) sec++; /* sub-second → at least 1s */
+    uint64_t sec = ns / 1000000000ULL;
+    if (ns % 1000000000ULL) sec++; /* sub-second → at least 1s */
     *out = sec;
     return 0;
 }
@@ -66,6 +73,25 @@ int cetcd_parse_go_duration_sec(const char *s, uint64_t *out) {
     if (parse_go_duration_sec_(s, &sec) != 0)
         return CETCD_ERR_INVAL;
     *out = sec;
+    return CETCD_OK;
+}
+
+int cetcd_parse_go_duration_ms(const char *s, uint64_t *out) {
+    if (!s || !s[0] || !out) return CETCD_ERR_INVAL;
+    if (s[0] == '0' && s[1] == '\0') {
+        *out = 0;
+        return CETCD_OK;
+    }
+    uint64_t ns = 0;
+    if (parse_go_duration_ns_(s, &ns) != 0)
+        return CETCD_ERR_INVAL;
+    if (ns == 0) {
+        *out = 0;
+        return CETCD_OK;
+    }
+    uint64_t ms = ns / 1000000ULL;
+    if (ns % 1000000ULL) ms++;
+    *out = ms;
     return CETCD_OK;
 }
 

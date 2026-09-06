@@ -71,6 +71,12 @@ CETCD_API void cetcd_v3rpc_detach_stream_writer(void *write_ctx);
 
 /* Drive periodic Watch progress_notify (call from server tick, ~100ms). */
 CETCD_API void cetcd_v3rpc_watch_tick(void);
+#define CETCD_WATCH_TICK_MS 100
+#define CETCD_WATCH_PROGRESS_TICKS_DEFAULT 100
+/* 0 → default 10s. Otherwise ceil(ms / 100ms), at least 1 tick. */
+CETCD_API int cetcd_v3rpc_watch_progress_ticks_from_ms(uint64_t interval_ms);
+CETCD_API void cetcd_v3rpc_set_watch_progress_interval_ms(uint64_t interval_ms);
+CETCD_API int cetcd_v3rpc_watch_progress_ticks(void);
 
 /* After successful compaction, cancel streaming watches whose start_rev
  * is strictly below compact_rev (etcd ErrCompacted on active watchers). */

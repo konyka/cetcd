@@ -5838,6 +5838,40 @@ CETCD_TEST_CASE(test_watch_progress_notify) {
     cetcd_loop_free(loop);
 }
 
+CETCD_TEST_CASE(test_watch_progress_notify_interval) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    CETCD_ASSERT_NOT_NULL(rpc);
+    cetcd_loop *loop = cetcd_loop_new();
+    cetcd_v3rpc_set_loop(rpc, loop);
+    cetcd_v3rpc_set_watch_progress_interval_ms(200);
+
+    mock_writes_a = 0;
+    cetcd_v3rpc_set_stream_writer(rpc, mock_write_a, (void *)(uintptr_t)9);
+
+    uint8_t inner[16]; size_t ip = 0;
+    inner[ip++] = 0x0a; inner[ip++] = 0x04;
+    memcpy(inner + ip, "pkey", 4); ip += 4;
+    inner[ip++] = 0x20; inner[ip++] = 0x01;
+    inner[ip++] = 0x38; inner[ip++] = 0x2b;
+    uint8_t buf[32]; size_t bp = 0;
+    buf[bp++] = 0x0a; buf[bp++] = (uint8_t)ip;
+    memcpy(buf + bp, inner, ip); bp += ip;
+    cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Watch/Watch", buf, bp);
+    CETCD_ASSERT_NOT_NULL(r.data);
+    cetcd_rpc_bytes_free(&r);
+
+    cetcd_v3rpc_watch_tick();
+    CETCD_ASSERT_EQ_INT(mock_writes_a, 0);
+    cetcd_v3rpc_watch_tick();
+    CETCD_ASSERT_TRUE(mock_writes_a >= 1);
+
+    cetcd_v3rpc_set_watch_progress_interval_ms(0);
+    cetcd_v3rpc_detach_stream_writer((void *)(uintptr_t)9);
+    reset_streaming_globals();
+    cetcd_v3rpc_free(rpc);
+    cetcd_loop_free(loop);
+}
+
 CETCD_TEST_CASE(test_watch_cancel) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
     CETCD_ASSERT_NOT_NULL(rpc);
@@ -6344,6 +6378,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_watch_replay_streaming),
     CETCD_TEST_ENTRY(test_watch_per_connection_writer),
     CETCD_TEST_ENTRY(test_watch_progress_notify),
+    CETCD_TEST_ENTRY(test_watch_progress_notify_interval),
     CETCD_TEST_ENTRY(test_watch_cancel),
     CETCD_TEST_ENTRY(v3rpc_watch_noput_filter),
     CETCD_TEST_ENTRY(v3rpc_auth_enable_requires_root),

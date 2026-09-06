@@ -733,17 +733,35 @@ void cetcd_v3rpc_detach_stream_writer(void *write_ctx) {
 }
 
 /* Periodic progress for watchers created with progress_notify=true.
- * Called from the server 100ms tick; emit about every 10s (100 ticks). */
-#define CETCD_WATCH_PROGRESS_TICKS 100
+ * Called from the server 100ms tick. Default interval is 10s (100 ticks). */
+static int g_watch_progress_ticks = CETCD_WATCH_PROGRESS_TICKS_DEFAULT;
+
+int cetcd_v3rpc_watch_progress_ticks_from_ms(uint64_t interval_ms) {
+    if (interval_ms == 0) return CETCD_WATCH_PROGRESS_TICKS_DEFAULT;
+    uint64_t ticks = (interval_ms + (CETCD_WATCH_TICK_MS - 1)) / CETCD_WATCH_TICK_MS;
+    if (ticks < 1) ticks = 1;
+    if (ticks > 1000000ull) ticks = 1000000ull;
+    return (int)ticks;
+}
+
+void cetcd_v3rpc_set_watch_progress_interval_ms(uint64_t interval_ms) {
+    g_watch_progress_ticks = cetcd_v3rpc_watch_progress_ticks_from_ms(interval_ms);
+}
+
+int cetcd_v3rpc_watch_progress_ticks(void) {
+    return g_watch_progress_ticks > 0 ? g_watch_progress_ticks
+                                     : CETCD_WATCH_PROGRESS_TICKS_DEFAULT;
+}
 
 void cetcd_v3rpc_watch_tick(void) {
     int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
+    int need = cetcd_v3rpc_watch_progress_ticks();
     cetcd_stream_watcher_ctx *cur = g_stream_watchers;
     while (cur) {
         cetcd_stream_watcher_ctx *next = cur->next;
         if (!cur->canceled && cur->want_progress_notify && cur->write_fn) {
             cur->ticks_since_progress++;
-            if (cur->ticks_since_progress >= CETCD_WATCH_PROGRESS_TICKS) {
+            if (cur->ticks_since_progress >= need) {
                 cetcd_rpc_bytes prog = encode_watch_response(
                     cur->watch_id, 0, 0, NULL, 0, current_rev, 0, 0);
                 if (prog.data && prog.len > 0)

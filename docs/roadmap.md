@@ -380,6 +380,10 @@ Performance-first, fail-closed design:
   boundary per tick, then drains the remainder on later ticks. Missing
   value or leftover text fail at parse (no longer swallowed). Other
   `--experimental-*` stay no-ops.
+- **`--experimental-watch-progress-notify-interval`** — Go duration
+  (`0` = default 10s). Watch `progress_notify` emits on that period
+  (100ms ticks, rounded up). Missing value or a non-duration fail at
+  parse (no longer swallowed). Other `--experimental-*` stay no-ops.
 
 ## Previously done (auth data plane)
 

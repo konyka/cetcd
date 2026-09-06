@@ -2481,6 +2481,7 @@ int cetcd_server_start(cetcd_server *srv) {
         return CETCD_ERR_INVAL;
     cetcd_v3rpc_set_quota(srv->cfg.quota_backend_bytes);
     cetcd_v3rpc_set_max_txn_ops(srv->cfg.max_txn_ops);
+    cetcd_v3rpc_set_watch_progress_interval_ms(srv->cfg.watch_progress_interval_ms);
 
     if (srv->cfg.wal_dir[0] && !srv->cfg.data_dir[0])
         return CETCD_ERR_INVAL;

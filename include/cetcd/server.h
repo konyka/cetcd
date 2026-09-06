@@ -45,6 +45,8 @@ int cetcd_parse_auto_compaction_retention(const char *s,
                                           uint64_t *out);
 /* Go duration to seconds. Bare "0" disables. Sub-second rounds up to 1s. */
 int cetcd_parse_go_duration_sec(const char *s, uint64_t *out);
+/* Go duration to milliseconds. Bare "0" disables. Sub-ms rounds up to 1ms. */
+int cetcd_parse_go_duration_ms(const char *s, uint64_t *out);
 /* 1 if a periodic check should run. interval 0 never. First call starts the window. */
 int cetcd_corrupt_check_due(uint64_t *last_ms, uint64_t interval_sec,
                             uint64_t now_ms);
@@ -114,6 +116,7 @@ typedef struct cetcd_server_config {
     bool            initial_corrupt_check;        /* HashKV vs {data-dir}/backend.hash */
     uint64_t        corrupt_check_interval_sec;   /* 0 = off; periodic HashKV vs backend.hash */
     uint64_t        compaction_batch_limit;       /* 0 = unlimited auto-compact step */
+    uint64_t        watch_progress_interval_ms;   /* 0 = default 10s; Watch progress_notify */
 } cetcd_server_config;
 
 /* true|false|1|0. Empty/unknown is INVAL. */
