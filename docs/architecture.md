@@ -25,7 +25,7 @@ internals are organised. For deeper rationale on individual decisions, see
 | WAL replay | Restart restuffs the Raft log and applies NORMAL entries past `applied_index`. `--wal-dir` may place the segment on a dedicated disk. |
 | DNS discovery | `--discovery-srv` / `--discovery-srv-name` resolve `_etcd-client` / `_etcd-server` SRV records (fail-closed). |
 | TLS | Memory-BIO termination on client/peer listen and on outbound `peer_tx_`. Client and peer listen select ALPN `h2` when offered. Cert without key, missing files, or `--client-cert-auth` without CA fail closed. `--auto-tls` / `--peer-auto-tls` mint ECDSA P-256 into `{data-dir}/fixtures/`. Plaintext remains the default. |
-| Cluster join | `--initial-cluster-state existing` restarts from evidence or starts as a follower with `--initial-cluster` peers. `snapshot.kv` is imported into empty MVCC. Restore persists `--initial-cluster` / `--name` / advertise URLs into the data dir so start can omit them. Save writes CTS2 (revision + CRC32C); restore fail-closes on a hash mismatch unless `--skip-hash-check`. After WAL compaction the leader sends `MsgSnap` (KV blob) to a lagging joiner; while the log is still live it sends `App` from `next_idx`. `--auto-compaction-mode` / `--auto-compaction-retention` compact on the leader tick (0 disables; invalid values fail at parse). |
+| Cluster join | `--initial-cluster-state existing` restarts from evidence or starts as a follower with `--initial-cluster` peers. `snapshot.kv` is imported into empty MVCC. Restore persists `--initial-cluster` / `--name` / advertise URLs into the data dir so start can omit them. Save writes CTS2 (revision + CRC32C); restore fail-closes on a hash mismatch unless `--skip-hash-check`. After WAL compaction the leader sends `MsgSnap` (KV blob) to a lagging joiner; while the log is still live it sends `App` from `next_idx`. `--auto-compaction-mode` / `--auto-compaction-retention` compact on the leader tick (0 disables; invalid values fail at parse). Linearizable Range fail-closes on a follower unless `serializable`. |
 
 Remaining work is tracked in [`docs/roadmap.md`](./roadmap.md).
 
@@ -531,7 +531,7 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 (transactional delete), `get --hex` (hex output for binary data), `lease timetolive --keys ID`
 (show keys attached to lease), `endpoint health/status` (server health check and status),
 `check perf` (simple performance check), `compact --physical` (physically-backed compaction),
-`get --consistency l|s` (linearizable or serializable read consistency),
+`get --consistency l|s` (linearizable Range requires this node to be leader; serializable reads the local store; a follower linearizable Range fail-closes),
 `get -w json` (JSON output format for range queries),
 `snapshot status FILE` (show snapshot file information),
 `snapshot restore FILE --data-dir DIR [--force] [-w json]` (restore snapshot to data directory with optional --force to overwrite existing data)

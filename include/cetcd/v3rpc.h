@@ -199,6 +199,10 @@ CETCD_API void cetcd_v3rpc_set_ready_flush(cetcd_ready_flush_fn fn, void *ctx);
  * (no Raft), -1 on not-leader / propose / apply failure. */
 CETCD_API int cetcd_v3rpc_propose_or_apply(const uint8_t *data, size_t len);
 
+/* 1 if a Range may run locally. serializable always. No Raft always.
+ * Linearizable requires this node to be the current leader. */
+CETCD_API int cetcd_v3rpc_linearizable_ok(int serializable);
+
 /* Accessors for server wiring (persistence, lease tick). */
 CETCD_API struct cetcd_mvcc_store *cetcd_v3rpc_store(cetcd_v3rpc *rpc);
 CETCD_API struct cetcd_lease_mgr  *cetcd_v3rpc_leases(cetcd_v3rpc *rpc);

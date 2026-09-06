@@ -84,6 +84,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **JWT**：`--auth-token jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]` 签发带 `username`/`revision`/`exp` 的 JWT；密码变更不撤销已签发 JWT（与 etcd 一致）。其它 sign-method 启动失败。
 - **Peer 发送**：复用 TCP 连接，避免每条 Raft 消息新建短连接。入站可走 HTTP/2 `POST /raft`；peer TLS 协商 ALPN `h2` 时出站同样 POST `/raft`，否则仍为 4 字节长度前缀。
 - **历史 Range**：`cetcd_mvcc_range(rev>0)` 按 history 回放；重启后对当前世代有 synthetic history。
+- **线性一致 Range**：默认 Range / Txn RequestRange 仅在本节点是 leader 时执行；follower 或无 leader 则 fail-closed。`serializable=true`（`cetcdctl get --consistency s`）读本地存储。
 - **HTTP/2 gRPC**：client 端口识别 `PRI * HTTP/2` preface，与 `cetcdctl` 自定义帧分流；`authorization` 作为 token。TLS（`--cert-file`）协商 ALPN `h2`；客户端不发 ALPN 仍可握手。Watch 与 LeaseKeepAlive 为双向流；Snapshot 与 RangeStream 为服务端流。peer 端口同样识别 preface：`POST /raft` 将 `cetcd_msg_encode` 体交给 Raft 并回 204；`--peer-cert-file` 协商 ALPN `h2`。
 
 ### 版本信息
@@ -939,7 +940,7 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 | 服务 | RPC | 处理器文件 | 说明 |
 |------|-----|-----------|------|
 | KV | `/etcdserverpb.KV/Put` | `kv_handler.c` | 写入键值对，推进 MVCC 修订号，返回含 revision 的 PutResponse |
-| KV | `/etcdserverpb.KV/Range` | `kv_handler.c` | 范围查询，实际查询 MVCC 存储并返回匹配的 KeyValue 列表 |
+| KV | `/etcdserverpb.KV/Range` | `kv_handler.c` | 范围查询；默认线性一致（非 leader fail-closed）；`serializable` 读本地 |
 | KV | `/etcdserverpb.KV/RangeStream` | `kv_handler.c` | 服务端流：先 `more=true` 头，再完整 RangeResponse |
 | KV | `/etcdserverpb.KV/DeleteRange` | `kv_handler.c` | 删除键，推进 MVCC 修订号，返回删除计数 |
 | KV | `/etcdserverpb.KV/Txn` | `kv_handler.c` | 事务：解析 compare/success/failure，评估 Compare 条件（VALUE/VERSION/CREATE/MOD/LEASE），执行 success 或 failure 操作，返回含 ResponseHeader + succeeded + ResponseOps 的完整响应 |

@@ -4,6 +4,7 @@
 #include "cetcd/peer.h"
 #include "cetcd/io.h"
 #include "cetcd/mvcc.h"
+#include "cetcd/raft.h"
 #include "cetcd_test.h"
 
 #include <string.h>
@@ -11,6 +12,7 @@
 /* Globals defined in v3rpc.c — we set them to test cluster-aware handlers */
 extern cetcd_cluster *g_rpc_cluster;
 extern uint64_t       g_rpc_node_id;
+extern cetcd_raft    *g_rpc_raft;
 extern char           g_rpc_advertise_client[512];
 extern char           g_rpc_advertise_peer[512];
 extern char           g_rpc_member_name[128];
@@ -6000,6 +6002,60 @@ CETCD_TEST_CASE(v3rpc_auth_key_permission_denied) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_range_linearizable_follower) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    uint8_t put_buf[16];
+    size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x01; put_buf[pos++] = 'k';
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x01; put_buf[pos++] = 'v';
+    cetcd_rpc_bytes pr = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put",
+                                              put_buf, pos);
+    cetcd_rpc_bytes_free(&pr);
+
+    uint8_t range_buf[8];
+    pos = 0;
+    range_buf[pos++] = 0x0a; range_buf[pos++] = 0x01; range_buf[pos++] = 'k';
+
+    cetcd_raft_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.id = 1;
+    cfg.election_tick = 10;
+    cfg.heartbeat_tick = 1;
+    cfg.max_size_per_msg = 1024 * 1024;
+    cfg.max_inflight_msgs = 256;
+    cetcd_raft *r = cetcd_raft_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(r);
+    cetcd_raft *old_r = g_rpc_raft;
+    uint64_t old_id = g_rpc_node_id;
+    g_rpc_raft = r;
+    g_rpc_node_id = 1;
+
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range",
+                                                range_buf, pos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    uint8_t ser[12];
+    size_t sp = 0;
+    ser[sp++] = 0x0a; ser[sp++] = 0x01; ser[sp++] = 'k';
+    ser[sp++] = 0x38; ser[sp++] = 0x01;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", ser, sp);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    for (int i = 0; i < 10; i++) cetcd_raft_tick(r);
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    g_rpc_raft = old_r;
+    g_rpc_node_id = old_id;
+    cetcd_raft_free(r);
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_create_destroy),
     CETCD_TEST_ENTRY(v3rpc_put_range),
@@ -6138,6 +6194,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_auth_enable_requires_root),
     CETCD_TEST_ENTRY(v3rpc_auth_dataplane_requires_token),
     CETCD_TEST_ENTRY(v3rpc_auth_key_permission_denied),
+    CETCD_TEST_ENTRY(v3rpc_range_linearizable_follower),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

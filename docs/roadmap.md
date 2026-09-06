@@ -340,6 +340,10 @@ Performance-first, fail-closed design:
   `--auto-compaction-retention` (0 disables; periodic is a duration or
   bare hours; revision is revisions to keep). Invalid mode or retention
   fail-closes. The leader compact-proposes on tick; followers do not.
+- **Linearizable Range** — default Range / Txn RequestRange fail-closes
+  on a follower or when there is no leader. `serializable=true`
+  (`cetcdctl get --consistency s`) reads the local store. No Raft (unit
+  tests / single dispatch) still serves locally.
 
 ## Previously done (auth data plane)
 

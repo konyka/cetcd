@@ -323,6 +323,7 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
     int sort_target = 0; /* 0=KEY, 1=VERSION, 2=CREATE, 3=MOD, 4=VALUE */
     int64_t min_mod_rev = 0, max_mod_rev = 0;
     int64_t min_create_rev = 0, max_create_rev = 0;
+    int serializable = 0;
     while (pos < req_len) {
         uint8_t tag = req[pos++];
         if (tag == 0x0a) { /* field 1 = key */
@@ -337,8 +338,9 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
             uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; sort_order = (int)v;
         } else if (tag == 0x30) { /* field 6 = sort_target */
             uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; sort_target = (int)v;
-        } else if (tag == 0x38) { /* field 7 = serializable (bool, no-op in single-node) */
+        } else if (tag == 0x38) { /* field 7 = serializable */
             uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break;
+            serializable = (int)v;
         } else if (tag == 0x40) { /* field 8 = keys_only */
             uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; keys_only = (int)v;
         } else if (tag == 0x48) { /* field 9 = count_only */
@@ -368,6 +370,11 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
         return (cetcd_rpc_bytes){NULL, 0};
     }
     if (!range_sort_options_valid_(sort_order, sort_target)) {
+        if (key) free(key);
+        if (range_end) free(range_end);
+        return (cetcd_rpc_bytes){NULL, 0};
+    }
+    if (!cetcd_v3rpc_linearizable_ok(serializable)) {
         if (key) free(key);
         if (range_end) free(range_end);
         return (cetcd_rpc_bytes){NULL, 0};
@@ -1572,6 +1579,7 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
             int rsort_order = 0, rsort_target = 0;
             int64_t rmin_mod_rev = 0, rmax_mod_rev = 0;
             int64_t rmin_create_rev = 0, rmax_create_rev = 0;
+            int rserializable = 0;
             size_t rp_pos = 0;
             while (rp_pos < rl) {
                 uint8_t rtag = rd[rp_pos++];
@@ -1588,7 +1596,8 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                 } else if (rtag == 0x30) {
                     uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rsort_target = (int)v;
                 } else if (rtag == 0x38) {
-                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); /* serializable, no-op */
+                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v);
+                    rserializable = (int)v;
                 } else if (rtag == 0x40) {
                     uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rkeys_only = (int)v;
                 } else if (rtag == 0x48) {
@@ -1616,6 +1625,12 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                 if (rrange_end) free(rrange_end);
                 free(resp);
                 goto txn_cleanup; /* etcd ErrInvalidSortOption */
+            }
+            if (!cetcd_v3rpc_linearizable_ok(rserializable)) {
+                if (rkey) free(rkey);
+                if (rrange_end) free(rrange_end);
+                free(resp);
+                goto txn_cleanup;
             }
             range_sort_apply_defaults_(&rsort_order, rsort_target);
 

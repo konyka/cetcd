@@ -8,6 +8,7 @@ cetcd_add_module(v3rpc
         auth_handler.c
         maint_handler.c
         cluster_handler.c
+        linearizable.c
     PUBLIC_DEPS
         cetcd_base
     PRIVATE_DEPS
