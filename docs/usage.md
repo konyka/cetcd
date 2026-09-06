@@ -192,10 +192,12 @@ cetcd accepts several etcd server flags for migration compatibility:
 ./build/bin/cetcd --initial-cluster 1=https://127.0.0.1:2380 \
   --peer-cert-file peer.crt --peer-key-file peer.key --data-dir ./data
 
-# Limit flags: --max-request-bytes and --max-txn-ops are applied
+# Limit flags: --max-request-bytes, --max-txn-ops, --max-concurrent-streams
 # --max-txn-ops must be 1..128; a typo or 0 is not the silent default 128
 # --max-request-bytes must be > 0; a typo or 0 is not the silent default 1.5 MiB
+# --max-concurrent-streams must be > 0; omitted leaves nghttp2's default
 ./build/bin/cetcd --max-txn-ops 128 --max-request-bytes 1572864 \
+  --max-concurrent-streams 100 \
   --auth-token 'jwt,sign-method=RS256,priv-key=./jwt.pem,ttl=5m' \
   --auth-token-ttl 300 --bcrypt-cost 10
 # --auth-token-ttl is simple-token lifetime in seconds (default 300; must be > 0)

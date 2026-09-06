@@ -57,6 +57,7 @@ static void print_usage(const char *prog) {
     printf("  --strict-reconfig-check  Reject MemberRemove that loses old quorum (default on; true|false)\n");
     printf("  --max-txn-ops N     Max compare/success/failure ops per Txn (default 128; 1..128)\n");
     printf("  --max-request-bytes N  Max client frame (default 1572864; must be > 0)\n");
+    printf("  --max-concurrent-streams N  HTTP/2 SETTINGS_MAX_CONCURRENT_STREAMS (must be > 0)\n");
     printf("  --grpc-keepalive-time SEC   TCP keepalive idle on client and peer sockets (0 disables)\n");
     printf("  --grpc-keepalive-timeout SEC  TCP keepalive interval (requires --grpc-keepalive-time)\n");
     printf("  --grpc-keepalive-min-time SEC  Accepted duration (not applied; 0..86400)\n");
@@ -476,6 +477,26 @@ int main(int argc, char **argv) {
                 return 1;
             }
             cfg.max_request_bytes = (uint64_t)v;
+        } else if (strcmp(argv[i], "--max-concurrent-streams") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--max-concurrent-streams requires an integer\n");
+                return 1;
+            }
+            uint32_t n = 0;
+            if (cetcd_parse_max_concurrent_streams(argv[++i], &n) != CETCD_OK) {
+                fprintf(stderr, "--max-concurrent-streams must be > 0\n");
+                return 1;
+            }
+            cfg.max_concurrent_streams_set = true;
+            cfg.max_concurrent_streams = n;
+        } else if (strncmp(argv[i], "--max-concurrent-streams=", 25) == 0) {
+            uint32_t n = 0;
+            if (cetcd_parse_max_concurrent_streams(argv[i] + 25, &n) != CETCD_OK) {
+                fprintf(stderr, "--max-concurrent-streams must be > 0\n");
+                return 1;
+            }
+            cfg.max_concurrent_streams_set = true;
+            cfg.max_concurrent_streams = n;
         } else if (strcmp(argv[i], "--auth-token") == 0 && i + 1 < argc) {
             strncpy(cfg.auth_token, argv[++i], sizeof(cfg.auth_token) - 1);
         } else if (strcmp(argv[i], "--auth-token-ttl") == 0) {

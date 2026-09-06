@@ -125,6 +125,33 @@ CETCD_TEST_CASE(auto_compact_parse_batch_limit) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_max_concurrent_streams) {
+    uint32_t n = 99;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_concurrent_streams("1", &n), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)n, 1);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_concurrent_streams("100", &n), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)n, 100);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_concurrent_streams("4294967295", &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 4294967295u);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_concurrent_streams("0", &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_concurrent_streams("4294967296", &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_concurrent_streams("abc", &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_concurrent_streams("10foo", &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_concurrent_streams("-1", &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_concurrent_streams("", &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_concurrent_streams(NULL, &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_max_concurrent_streams("1", NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_max_learners) {
     uint32_t n = 99;
     CETCD_ASSERT_EQ_INT(cetcd_parse_max_learners("0", &n), CETCD_OK);
@@ -429,6 +456,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_due_periodic),
     CETCD_TEST_ENTRY(auto_compact_parse_duration_ms),
     CETCD_TEST_ENTRY(auto_compact_parse_batch_limit),
+    CETCD_TEST_ENTRY(auto_compact_parse_max_concurrent_streams),
     CETCD_TEST_ENTRY(auto_compact_parse_max_learners),
     CETCD_TEST_ENTRY(auto_compact_parse_auth_token_ttl),
     CETCD_TEST_ENTRY(auto_compact_want_pre_vote),

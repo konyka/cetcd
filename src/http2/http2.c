@@ -57,6 +57,23 @@ int cetcd_grpc_decode(const uint8_t *frame, size_t frame_len,
     return CETCD_OK;
 }
 
+static uint32_t g_h2_max_concurrent_streams;
+
+void cetcd_h2_set_max_concurrent_streams(uint32_t n) {
+    g_h2_max_concurrent_streams = n;
+}
+
+uint32_t cetcd_h2_max_concurrent_streams(void) {
+    return g_h2_max_concurrent_streams;
+}
+
+int cetcd_h2_fill_max_concurrent_setting(uint32_t n, uint32_t *id, uint32_t *val) {
+    if (!id || !val || n == 0) return 0;
+    *id = CETCD_H2_SETTINGS_MAX_CONCURRENT_STREAMS;
+    *val = n;
+    return 1;
+}
+
 static const char CETCD_H2_PREFACE_[] = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
 int cetcd_h2_detect(const uint8_t *data, size_t len) {
@@ -258,7 +275,18 @@ h2_session_new_(const cetcd_h2_callbacks *cbs, int client) {
         return NULL;
     }
 
-    nghttp2_submit_settings(s->ngh, NGHTTP2_FLAG_NONE, NULL, 0);
+    {
+        uint32_t sid = 0, sval = 0;
+        if (cetcd_h2_fill_max_concurrent_setting(g_h2_max_concurrent_streams,
+                                                 &sid, &sval)) {
+            nghttp2_settings_entry iv;
+            iv.settings_id = (int32_t)sid;
+            iv.value = sval;
+            nghttp2_submit_settings(s->ngh, NGHTTP2_FLAG_NONE, &iv, 1);
+        } else {
+            nghttp2_submit_settings(s->ngh, NGHTTP2_FLAG_NONE, NULL, 0);
+        }
+    }
     return s;
 }
 
@@ -523,7 +551,8 @@ cetcd_h2_session_free(cetcd_h2_session *s) {
 
 int
 cetcd_h2_feed(cetcd_h2_session *s, const uint8_t *data, size_t len) {
-    (void)s; (void)data; (void)len;
+    if (!s || (!data && len > 0)) return -1;
+    (void)data; (void)len;
     return 0;
 }
 
@@ -531,7 +560,8 @@ int
 cetcd_h2_send_pending(cetcd_h2_session *s,
                        int (*write_fn)(const uint8_t *buf, size_t len, void *ctx),
                        void *ctx) {
-    (void)s; (void)write_fn; (void)ctx;
+    if (!s) return -1;
+    (void)write_fn; (void)ctx;
     return 0;
 }
 
@@ -540,7 +570,8 @@ cetcd_h2_submit_response(cetcd_h2_session *s, int32_t stream_id,
                            const char **headers, size_t header_count,
                            const uint8_t *body, size_t body_len,
                            bool end_stream) {
-    (void)s; (void)stream_id; (void)headers; (void)header_count;
+    if (!s) return -1;
+    (void)stream_id; (void)headers; (void)header_count;
     (void)body; (void)body_len; (void)end_stream;
     return 0;
 }

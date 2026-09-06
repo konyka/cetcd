@@ -270,6 +270,16 @@ uint64_t cetcd_server_tick_ms(uint64_t tick_ms) {
     return tick_ms ? tick_ms : CETCD_DEFAULT_TICK_MS;
 }
 
+int cetcd_parse_max_concurrent_streams(const char *s, uint32_t *out) {
+    if (!out) return CETCD_ERR_INVAL;
+    uint64_t v = 0;
+    int rc = cetcd_parse_compaction_batch_limit(s, &v);
+    if (rc != CETCD_OK) return rc;
+    if (v == 0 || v > (uint64_t)UINT32_MAX) return CETCD_ERR_INVAL;
+    *out = (uint32_t)v;
+    return CETCD_OK;
+}
+
 int cetcd_parse_listen_url(const char *s, char *host, size_t host_cap,
                            uint16_t *port, int *https) {
     if (!s || !s[0] || !host || host_cap < 2 || !port || !https)

@@ -71,6 +71,9 @@ Performance-first, fail-closed design:
   than the cap closes the connection. Puts fail closed with NOSPACE when
   LMDB size is at or above `quota-backend-bytes` (0 = unlimited). Deletes
   and compact Delete batches still apply so operators can recover space.
+- **`--max-concurrent-streams`** — integer `> 0` advertised as HTTP/2
+  `SETTINGS_MAX_CONCURRENT_STREAMS`. Omitted omits the SETTINGS entry
+  (nghttp2 default). `0` or leftover text fail-closes.
 - **pprof CPU profile** — `/debug/pprof/profile` collects on a libuv worker
   (`uv_queue_work`) so the Raft reactor is not stalled. Linux samples
   on-CPU RIP/PC via `ITIMER_PROF`/`SIGPROF`; concurrent collections return
@@ -400,6 +403,10 @@ Performance-first, fail-closed design:
   leader (peer listen and ticks still run). A single-node that already
   campaigned binds immediately. A non-bool fail-closes (no longer
   swallowed). Other `--experimental-*` stay no-ops.
+- **`--max-concurrent-streams`** — integer `> 0`. Advertises HTTP/2
+  `SETTINGS_MAX_CONCURRENT_STREAMS` on each new session. Omitted leaves
+  nghttp2's default (no extra SETTINGS entry). `0`, leftover text, or a
+  value above `UINT32_MAX` fail-closes (deny-all is useless).
 - **Downgrade fail-closed** — `Maintenance/Downgrade` VALIDATE of
   `cetcd_version()` succeeds (already at this binary). ENABLE, CANCEL,
   and any other version fail-closed: the on-disk format cannot change

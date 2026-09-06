@@ -121,6 +121,8 @@ typedef struct cetcd_server_config {
     uint64_t        auth_token_ttl_sec; /* 0 = unset → 300s; simple tokens only */
     int             bcrypt_cost; /* 0 = SHA-256; 4..31 = bcrypt */
     uint64_t        max_request_bytes;    /* 0 → CETCD_DEFAULT_MAX_REQUEST_BYTES */
+    bool            max_concurrent_streams_set; /* --max-concurrent-streams given */
+    uint32_t        max_concurrent_streams;     /* HTTP/2 SETTINGS; 0 = unset */
     uint64_t        quota_backend_bytes; /* 0 = unlimited */
     uint64_t        max_txn_ops;          /* 0 → CETCD_DEFAULT_MAX_TXN_OPS; cap CETCD_MAX_TXN_OPS */
     char            cipher_suites[512];   /* empty = OpenSSL default; requires TLS */
@@ -184,6 +186,8 @@ int cetcd_raft_timing_from_ms(uint64_t tick_ms, uint64_t election_ms,
                               uint64_t *heartbeat_tick, uint64_t *election_tick);
 /* Unset → 100. */
 uint64_t cetcd_server_tick_ms(uint64_t tick_ms);
+/* Integer > 0. Leftover text is INVAL. */
+int cetcd_parse_max_concurrent_streams(const char *s, uint32_t *out);
 /* http:// or https:// host:port (1..65535). No IPv6. Leftover is INVAL. */
 int cetcd_parse_listen_url(const char *s, char *host, size_t host_cap,
                            uint16_t *port, int *https);

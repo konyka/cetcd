@@ -96,6 +96,20 @@ CETCD_TEST_CASE(h2_detect_preface_vs_custom) {
     CETCD_ASSERT_EQ_INT(cetcd_h2_detect(custom, sizeof(custom)), 0);
 }
 
+CETCD_TEST_CASE(h2_max_concurrent_streams_setting) {
+    uint32_t id = 0, val = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_h2_fill_max_concurrent_setting(0, &id, &val), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_h2_fill_max_concurrent_setting(100, NULL, &val), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_h2_fill_max_concurrent_setting(100, &id, NULL), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_h2_fill_max_concurrent_setting(100, &id, &val), 1);
+    CETCD_ASSERT_EQ_INT((int)id, (int)CETCD_H2_SETTINGS_MAX_CONCURRENT_STREAMS);
+    CETCD_ASSERT_EQ_INT((int)val, 100);
+    cetcd_h2_set_max_concurrent_streams(250);
+    CETCD_ASSERT_EQ_INT((int)cetcd_h2_max_concurrent_streams(), 250);
+    cetcd_h2_set_max_concurrent_streams(0);
+    CETCD_ASSERT_EQ_INT((int)cetcd_h2_max_concurrent_streams(), 0);
+}
+
 CETCD_TEST_CASE(h2_session_create_destroy) {
     cetcd_h2_callbacks cbs = {0};
     cetcd_h2_session *s = cetcd_h2_session_new(&cbs);
@@ -660,6 +674,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(grpc_encode_empty_message),
     CETCD_TEST_ENTRY(grpc_encode_rejects_huge_message),
     CETCD_TEST_ENTRY(h2_detect_preface_vs_custom),
+    CETCD_TEST_ENTRY(h2_max_concurrent_streams_setting),
     CETCD_TEST_ENTRY(h2_session_create_destroy),
     CETCD_TEST_ENTRY(h2_session_null_safety),
     CETCD_TEST_ENTRY(h2_client_preface_and_request),

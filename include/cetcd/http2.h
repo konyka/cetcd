@@ -36,6 +36,13 @@ struct cetcd_h2_callbacks {
     void                  *udata;
 };
 
+/* SETTINGS_MAX_CONCURRENT_STREAMS. 0 = omit (nghttp2 default). */
+#define CETCD_H2_SETTINGS_MAX_CONCURRENT_STREAMS 3u
+void     cetcd_h2_set_max_concurrent_streams(uint32_t n);
+uint32_t cetcd_h2_max_concurrent_streams(void);
+/* 1 and fills id/val when n > 0. */
+int cetcd_h2_fill_max_concurrent_setting(uint32_t n, uint32_t *id, uint32_t *val);
+
 cetcd_h2_session *cetcd_h2_session_new(const cetcd_h2_callbacks *cbs);
 cetcd_h2_session *cetcd_h2_session_new_client(const cetcd_h2_callbacks *cbs);
 void              cetcd_h2_session_free(cetcd_h2_session *s);

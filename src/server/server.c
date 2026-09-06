@@ -2516,6 +2516,9 @@ int cetcd_server_start(cetcd_server *srv) {
     }
     if (srv->cfg.max_request_bytes == 0)
         srv->cfg.max_request_bytes = CETCD_DEFAULT_MAX_REQUEST_BYTES;
+    cetcd_h2_set_max_concurrent_streams(srv->cfg.max_concurrent_streams_set
+                                            ? srv->cfg.max_concurrent_streams
+                                            : 0);
     if (srv->cfg.max_txn_ops == 0)
         srv->cfg.max_txn_ops = CETCD_DEFAULT_MAX_TXN_OPS;
     if (srv->cfg.max_txn_ops > CETCD_MAX_TXN_OPS)
