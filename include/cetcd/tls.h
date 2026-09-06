@@ -26,6 +26,16 @@ int cetcd_tls_alpn_selected(const cetcd_tls_conn *conn,
 int cetcd_tls_set_verify_peer(cetcd_tls_ctx *ctx, int require_cert);
 int cetcd_tls_set_ciphers(cetcd_tls_ctx *ctx, const char *list);
 
+#define CETCD_TLS_VER_UNSPEC 0
+#define CETCD_TLS_VER_1_2    1
+#define CETCD_TLS_VER_1_3    2
+/* TLS1.2 or TLS1.3 only. Empty/unknown is INVAL. */
+int cetcd_parse_tls_version(const char *s, int *out);
+/* Unset min → TLS1.2. Unset max is open. min > max is INVAL. */
+int cetcd_tls_version_range_ok(int min_ver, int max_ver);
+/* Apply min/max after ciphers. Unset min is TLS1.2. */
+int cetcd_tls_set_proto_versions(cetcd_tls_ctx *ctx, int min_ver, int max_ver);
+
 /* Mint or reuse a self-signed ECDSA P-256 cert/key pair.
  * If both files exist they are reused. One-without-the-other fail-closes.
  * cn/extra_ip become SAN entries (localhost + 127.0.0.1 always added).

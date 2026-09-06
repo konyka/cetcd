@@ -2411,6 +2411,29 @@ CETCD_TEST_CASE(live_cetcd_max_concurrent_streams) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_tls_version) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --tls-min-version TLS1.2 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --tls-max-version=TLS1.3 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --tls-min-version TLS1.1 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --tls-min-version TLS1.3 --tls-max-version TLS1.2 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_bcrypt_cost) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -3312,6 +3335,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_max_txn_ops),
     CETCD_TEST_ENTRY(live_cetcd_max_request_bytes),
     CETCD_TEST_ENTRY(live_cetcd_max_concurrent_streams),
+    CETCD_TEST_ENTRY(live_cetcd_tls_version),
     CETCD_TEST_ENTRY(live_cetcd_bcrypt_cost),
     CETCD_TEST_ENTRY(live_cetcd_auth_token_ttl),
     CETCD_TEST_ENTRY(live_cetcd_log_level),

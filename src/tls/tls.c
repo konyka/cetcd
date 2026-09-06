@@ -6,6 +6,30 @@
 #include "cetcd/tls.h"
 #include "cetcd/base.h"
 
+int cetcd_parse_tls_version(const char *s, int *out) {
+    if (!s || !s[0] || !out) return CETCD_ERR_INVAL;
+    if (strcmp(s, "TLS1.2") == 0) {
+        *out = CETCD_TLS_VER_1_2;
+        return CETCD_OK;
+    }
+    if (strcmp(s, "TLS1.3") == 0) {
+        *out = CETCD_TLS_VER_1_3;
+        return CETCD_OK;
+    }
+    return CETCD_ERR_INVAL;
+}
+
+int cetcd_tls_version_range_ok(int min_ver, int max_ver) {
+    if (min_ver == CETCD_TLS_VER_UNSPEC) min_ver = CETCD_TLS_VER_1_2;
+    if (min_ver != CETCD_TLS_VER_1_2 && min_ver != CETCD_TLS_VER_1_3)
+        return CETCD_ERR_INVAL;
+    if (max_ver == CETCD_TLS_VER_UNSPEC) return CETCD_OK;
+    if (max_ver != CETCD_TLS_VER_1_2 && max_ver != CETCD_TLS_VER_1_3)
+        return CETCD_ERR_INVAL;
+    if (min_ver > max_ver) return CETCD_ERR_INVAL;
+    return CETCD_OK;
+}
+
 #if CETCD_HAS_OPENSSL
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -215,6 +239,28 @@ int cetcd_tls_set_ciphers(cetcd_tls_ctx *ctx, const char *list) {
         if (SSL_CTX_set_max_proto_version(ctx->ssl_ctx, TLS1_2_VERSION) != 1)
             return CETCD_ERR_INVAL;
     }
+#endif
+    return CETCD_OK;
+}
+
+int cetcd_tls_set_proto_versions(cetcd_tls_ctx *ctx, int min_ver, int max_ver) {
+    if (!ctx || !ctx->ssl_ctx) return CETCD_ERR_INVAL;
+    if (cetcd_tls_version_range_ok(min_ver, max_ver) != CETCD_OK)
+        return CETCD_ERR_INVAL;
+    if (min_ver == CETCD_TLS_VER_UNSPEC) min_ver = CETCD_TLS_VER_1_2;
+#if defined(SSL_CTX_set_min_proto_version)
+    int minv = (min_ver == CETCD_TLS_VER_1_3) ? TLS1_3_VERSION : TLS1_2_VERSION;
+    if (SSL_CTX_set_min_proto_version(ctx->ssl_ctx, minv) != 1)
+        return CETCD_ERR_INVAL;
+    if (max_ver == CETCD_TLS_VER_1_2) {
+        if (SSL_CTX_set_max_proto_version(ctx->ssl_ctx, TLS1_2_VERSION) != 1)
+            return CETCD_ERR_INVAL;
+    } else if (max_ver == CETCD_TLS_VER_1_3) {
+        if (SSL_CTX_set_max_proto_version(ctx->ssl_ctx, TLS1_3_VERSION) != 1)
+            return CETCD_ERR_INVAL;
+    }
+#else
+    (void)max_ver;
 #endif
     return CETCD_OK;
 }
@@ -667,6 +713,12 @@ int cetcd_tls_set_verify_peer(cetcd_tls_ctx *ctx, int require_cert) {
 }
 int cetcd_tls_set_ciphers(cetcd_tls_ctx *ctx, const char *list) {
     (void)ctx; (void)list; return CETCD_ERR_UNSUPPORT;
+}
+int cetcd_tls_set_proto_versions(cetcd_tls_ctx *ctx, int min_ver, int max_ver) {
+    (void)ctx;
+    if (cetcd_tls_version_range_ok(min_ver, max_ver) != CETCD_OK)
+        return CETCD_ERR_INVAL;
+    return CETCD_ERR_UNSUPPORT;
 }
 cetcd_tls_conn *cetcd_tls_accept(cetcd_tls_ctx *ctx, int fd) {
     (void)ctx; (void)fd; return NULL;

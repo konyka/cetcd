@@ -2,6 +2,7 @@
 #include "cetcd/server.h"
 #include "cetcd/log.h"
 #include "cetcd/metrics.h"
+#include "cetcd/tls.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -79,6 +80,8 @@ static void print_usage(const char *prog) {
     printf("  --peer-client-cert-auth  Require a peer certificate on accept (fail-closed)\n");
     printf("  --peer-auto-tls      Mint {data-dir}/fixtures/peer.{crt,key} if --peer-cert-file omitted\n");
     printf("  --cipher-suites LIST  TLS 1.2/1.3 cipher list (IANA or OpenSSL names; requires TLS)\n");
+    printf("  --tls-min-version VER  Minimum TLS version (TLS1.2 default; TLS1.3)\n");
+    printf("  --tls-max-version VER  Maximum TLS version (TLS1.2 or TLS1.3; omitted open)\n");
     printf("  --logger TYPE       zap or capnslog (built-in logger; others fail)\n");
     printf("  --log-outputs LIST   stderr, stdout, file path, or journal/syslog (mixed lists fail)\n");
     printf("  --experimental-initial-corrupt-check  HashKV vs {data-dir}/backend.hash (fail-closed)\n");
@@ -588,6 +591,46 @@ int main(int argc, char **argv) {
             cfg.peer_auto_tls = true;
         } else if (strcmp(argv[i], "--cipher-suites") == 0 && i + 1 < argc) {
             strncpy(cfg.cipher_suites, argv[++i], sizeof(cfg.cipher_suites) - 1);
+        } else if (strcmp(argv[i], "--tls-min-version") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--tls-min-version requires TLS1.2 or TLS1.3\n");
+                return 1;
+            }
+            int v = 0;
+            if (cetcd_parse_tls_version(argv[++i], &v) != CETCD_OK) {
+                fprintf(stderr, "--tls-min-version must be TLS1.2 or TLS1.3\n");
+                return 1;
+            }
+            cfg.tls_min_version_set = true;
+            cfg.tls_min_version = v;
+        } else if (strncmp(argv[i], "--tls-min-version=", 18) == 0) {
+            int v = 0;
+            if (cetcd_parse_tls_version(argv[i] + 18, &v) != CETCD_OK) {
+                fprintf(stderr, "--tls-min-version must be TLS1.2 or TLS1.3\n");
+                return 1;
+            }
+            cfg.tls_min_version_set = true;
+            cfg.tls_min_version = v;
+        } else if (strcmp(argv[i], "--tls-max-version") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--tls-max-version requires TLS1.2 or TLS1.3\n");
+                return 1;
+            }
+            int v = 0;
+            if (cetcd_parse_tls_version(argv[++i], &v) != CETCD_OK) {
+                fprintf(stderr, "--tls-max-version must be TLS1.2 or TLS1.3\n");
+                return 1;
+            }
+            cfg.tls_max_version_set = true;
+            cfg.tls_max_version = v;
+        } else if (strncmp(argv[i], "--tls-max-version=", 18) == 0) {
+            int v = 0;
+            if (cetcd_parse_tls_version(argv[i] + 18, &v) != CETCD_OK) {
+                fprintf(stderr, "--tls-max-version must be TLS1.2 or TLS1.3\n");
+                return 1;
+            }
+            cfg.tls_max_version_set = true;
+            cfg.tls_max_version = v;
         } else if (strcmp(argv[i], "--logger") == 0 && i + 1 < argc) {
             const char *lg = argv[++i];
             if (strcmp(lg, "zap") != 0 && strcmp(lg, "capnslog") != 0) {
@@ -922,6 +965,14 @@ int main(int argc, char **argv) {
     if (cfg.metrics_urls_set && cfg.metrics_port_set) {
         fprintf(stderr, "--listen-metrics-urls cannot be mixed with --metrics-port\n");
         return 1;
+    }
+    {
+        int vmin = cfg.tls_min_version_set ? cfg.tls_min_version : CETCD_TLS_VER_1_2;
+        int vmax = cfg.tls_max_version_set ? cfg.tls_max_version : CETCD_TLS_VER_UNSPEC;
+        if (cetcd_tls_version_range_ok(vmin, vmax) != CETCD_OK) {
+            fprintf(stderr, "--tls-min-version cannot exceed --tls-max-version\n");
+            return 1;
+        }
     }
     if ((cfg.heartbeat_interval_set || cfg.election_timeout_set) &&
         (cfg.election_tick_set || cfg.heartbeat_tick_set)) {

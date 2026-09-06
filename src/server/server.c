@@ -2488,7 +2488,8 @@ void cetcd_server_free(cetcd_server *srv) {
 static int load_tls_ctx_(cetcd_tls_ctx **out,
                          const char *cert, const char *key,
                          const char *ca, int client_cert_auth,
-                         int client, const char *ciphers) {
+                         int client, const char *ciphers,
+                         int tls_min_ver, int tls_max_ver) {
     int have_cert = cert && cert[0];
     int have_key = key && key[0];
     if (have_cert != have_key) return CETCD_ERR_INVAL;
@@ -2508,6 +2509,10 @@ static int load_tls_ctx_(cetcd_tls_ctx **out,
             cetcd_tls_ctx_free(ctx);
             return CETCD_ERR_INVAL;
         }
+    }
+    if (cetcd_tls_set_proto_versions(ctx, tls_min_ver, tls_max_ver) != CETCD_OK) {
+        cetcd_tls_ctx_free(ctx);
+        return CETCD_ERR_INVAL;
     }
     if (ca && ca[0]) {
         if (cetcd_tls_set_ca(ctx, ca) != CETCD_OK) {
@@ -2656,11 +2661,23 @@ int cetcd_server_start(cetcd_server *srv) {
         g_rpc_member_name[sizeof(g_rpc_member_name) - 1] = '\0';
     }
 
+    {
+        int vmin = srv->cfg.tls_min_version_set ? srv->cfg.tls_min_version
+                                                : CETCD_TLS_VER_1_2;
+        int vmax = srv->cfg.tls_max_version_set ? srv->cfg.tls_max_version
+                                                : CETCD_TLS_VER_UNSPEC;
+        if (cetcd_tls_version_range_ok(vmin, vmax) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
     if (!srv->tls_client && !srv->tls_peer && !srv->tls_peer_out) {
+        int vmin = srv->cfg.tls_min_version_set ? srv->cfg.tls_min_version
+                                                : CETCD_TLS_VER_1_2;
+        int vmax = srv->cfg.tls_max_version_set ? srv->cfg.tls_max_version
+                                                : CETCD_TLS_VER_UNSPEC;
         int trc = load_tls_ctx_(&srv->tls_client,
                                 srv->cfg.cert_file, srv->cfg.key_file,
                                 srv->cfg.trusted_ca_file, srv->cfg.client_cert_auth, 0,
-                                srv->cfg.cipher_suites);
+                                srv->cfg.cipher_suites, vmin, vmax);
         if (trc != CETCD_OK) return trc;
         if (srv->tls_client) {
             const char *alpn[] = { "h2" };
@@ -2673,7 +2690,7 @@ int cetcd_server_start(cetcd_server *srv) {
         trc = load_tls_ctx_(&srv->tls_peer,
                             srv->cfg.peer_cert_file, srv->cfg.peer_key_file,
                             srv->cfg.peer_trusted_ca_file, srv->cfg.peer_client_cert_auth, 0,
-                            srv->cfg.cipher_suites);
+                            srv->cfg.cipher_suites, vmin, vmax);
         if (trc != CETCD_OK) {
             cetcd_tls_ctx_free(srv->tls_client);
             srv->tls_client = NULL;
@@ -2691,7 +2708,7 @@ int cetcd_server_start(cetcd_server *srv) {
             trc = load_tls_ctx_(&srv->tls_peer_out,
                                 srv->cfg.peer_cert_file, srv->cfg.peer_key_file,
                                 srv->cfg.peer_trusted_ca_file, 0, 1,
-                                srv->cfg.cipher_suites);
+                                srv->cfg.cipher_suites, vmin, vmax);
             if (trc != CETCD_OK) {
                 cetcd_tls_ctx_free(srv->tls_client);
                 cetcd_tls_ctx_free(srv->tls_peer);

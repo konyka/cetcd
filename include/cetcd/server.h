@@ -128,6 +128,10 @@ typedef struct cetcd_server_config {
     uint64_t        quota_backend_bytes; /* 0 = unlimited */
     uint64_t        max_txn_ops;          /* 0 → CETCD_DEFAULT_MAX_TXN_OPS; cap CETCD_MAX_TXN_OPS */
     char            cipher_suites[512];   /* empty = OpenSSL default; requires TLS */
+    bool            tls_min_version_set;  /* --tls-min-version given */
+    int             tls_min_version;      /* CETCD_TLS_VER_1_2|1_3 */
+    bool            tls_max_version_set;  /* --tls-max-version given */
+    int             tls_max_version;      /* CETCD_TLS_VER_1_2|1_3 */
     bool            listen_https;         /* https:// client URL requires cert_file */
     bool            peer_listen_https;    /* https:// peer URL requires peer_cert_file */
     char            initial_cluster_state[16]; /* empty, "new", or "existing" (evidence / snapshot.kv / peers) */

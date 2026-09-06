@@ -417,6 +417,10 @@ Performance-first, fail-closed design:
   is HTTP 503. NOSPACE / CORRUPT then `RAFT NO LEADER`.
   `?serializable=true` skips the leader check; `exclude=NOSPACE|CORRUPT`
   skips that alarm.
+- **`--tls-min-version` / `--tls-max-version`** — `TLS1.2` or `TLS1.3`
+  only. Omitted min is TLS1.2; omitted max is open. `TLS1.1`, leftover
+  text, or min > max fail-closes. Applied after `--cipher-suites` on
+  client and peer contexts.
 - **Downgrade fail-closed** — `Maintenance/Downgrade` VALIDATE of
   `cetcd_version()` succeeds (already at this binary). ENABLE, CANCEL,
   and any other version fail-closed: the on-disk format cannot change

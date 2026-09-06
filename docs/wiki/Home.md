@@ -801,6 +801,8 @@ one-without-the-other or missing `--data-dir` fail-closes.
 `SSL_CTX_set_ciphersuites`); unknown names or the flag without certs fail closed.
 A TLS 1.3-only list disables TLS 1.2 (and a TLS 1.2-only list disables TLS 1.3)
 so the unused protocol is not left at the OpenSSL default.
+`--tls-min-version` / `--tls-max-version` are `TLS1.2` or `TLS1.3` (omitted min
+TLS1.2; omitted max is open). `TLS1.1` or min > max fail-closes.
 `https://` on `--listen-client-urls` / `--listen-peer-urls` requires the matching
 cert files; `https://` in `--initial-cluster` requires `--peer-cert-file`;
 `--listen-client-urls` / `--listen-peer-urls` / `--initial-cluster` peer URL port must be `1..65535` (a typo fail-closes instead of binding `0`).
