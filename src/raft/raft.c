@@ -491,6 +491,45 @@ static void become_leader_(cetcd_raft *r) {
     }
 }
 
+static void send_vote_requests_(cetcd_raft *r, cetcd_msg_type typ, uint64_t term) {
+    for (uint32_t i = 0; i < r->n_peers; i++) {
+        if (r->peers[i] == r->id) continue;
+        cetcd_msg msg;
+        memset(&msg, 0, sizeof(msg));
+        msg.type     = typ;
+        msg.to       = r->peers[i];
+        msg.from     = r->id;
+        msg.term     = term;
+        msg.log_term = r->log_last_term;
+        msg.index    = r->log_last_index;
+        queue_msg_(r, &msg);
+    }
+}
+
+static int log_ok_for_vote_(const cetcd_raft *r, const cetcd_msg *msg) {
+    return (msg->log_term > r->log_last_term) ||
+           (msg->log_term == r->log_last_term &&
+            msg->index >= r->log_last_index);
+}
+
+static void leader_broadcast_heartbeat_(cetcd_raft *r);
+
+static void become_candidate_(cetcd_raft *r);
+
+static void become_pre_candidate_(cetcd_raft *r) {
+    r->role      = ROLE_PRE_CANDIDATE;
+    r->leader_id = 0;
+    r->elapsed_ticks = 0;
+    r->n_votes_granted = 0;
+    r->votes_granted[r->n_votes_granted++] = r->id;
+
+    if (vote_quorum_ok_(r)) {
+        become_candidate_(r);
+        return;
+    }
+    send_vote_requests_(r, CETCD_MSG_PRE_VOTE, r->term + 1);
+}
+
 static void become_candidate_(cetcd_raft *r) {
     r->role      = ROLE_CANDIDATE;
     r->leader_id = 0;
@@ -505,19 +544,7 @@ static void become_candidate_(cetcd_raft *r) {
         become_leader_(r);
         return;
     }
-
-    for (uint32_t i = 0; i < r->n_peers; i++) {
-        if (r->peers[i] == r->id) continue;
-        cetcd_msg msg;
-        memset(&msg, 0, sizeof(msg));
-        msg.type     = CETCD_MSG_VOTE;
-        msg.to       = r->peers[i];
-        msg.from     = r->id;
-        msg.term     = r->term;
-        msg.log_term = r->log_last_term;
-        msg.index    = r->log_last_index;
-        queue_msg_(r, &msg);
-    }
+    send_vote_requests_(r, CETCD_MSG_VOTE, r->term);
 }
 
 static void become_follower_(cetcd_raft *r, uint64_t term, uint64_t leader) {
@@ -551,9 +578,7 @@ static int handle_vote_(cetcd_raft *r, cetcd_msg *msg) {
     }
 
     bool can_vote = (r->vote == 0 || r->vote == msg->from);
-    bool log_ok = (msg->log_term > r->log_last_term) ||
-                  (msg->log_term == r->log_last_term &&
-                   msg->index >= r->log_last_index);
+    bool log_ok = log_ok_for_vote_(r, msg);
 
     cetcd_msg resp;
     memset(&resp, 0, sizeof(resp));
@@ -589,23 +614,75 @@ static int handle_vote_resp_(cetcd_raft *r, cetcd_msg *msg) {
             if (r->peers[i] == msg->from) { from_learner = peer_is_learner_(r, i); break; }
         }
         if (from_learner) return 0;
-        if (r->n_votes_granted < r->peers_cap)
+        if (!vote_from_(r, msg->from) && r->n_votes_granted < r->peers_cap)
             r->votes_granted[r->n_votes_granted++] = msg->from;
         if (vote_quorum_ok_(r)) {
             become_leader_(r);
             queue_hard_state_(r);
-            for (uint32_t i = 0; i < r->n_peers; i++) {
-                if (r->peers[i] == r->id) continue;
-                cetcd_msg hb;
-                memset(&hb, 0, sizeof(hb));
-                hb.type   = CETCD_MSG_HEARTBEAT;
-                hb.to     = r->peers[i];
-                hb.from   = r->id;
-                hb.term   = r->term;
-                hb.commit = r->commit;
-                queue_msg_(r, &hb);
-            }
+            leader_broadcast_heartbeat_(r);
         }
+    }
+    return 0;
+}
+
+static int handle_pre_vote_(cetcd_raft *r, cetcd_msg *msg) {
+    cetcd_msg resp;
+    memset(&resp, 0, sizeof(resp));
+    resp.type = CETCD_MSG_PRE_VOTE_RESP;
+    resp.to   = msg->from;
+    resp.from = r->id;
+
+    int reject = 0;
+    if (msg->term < r->term)
+        reject = 1;
+    else if (r->check_quorum && r->leader_id != 0 &&
+             r->elapsed_ticks < r->election_timeout)
+        reject = 1;
+    else if (!log_ok_for_vote_(r, msg))
+        reject = 1;
+
+    resp.reject = (uint8_t)reject;
+    resp.term = reject ? r->term : msg->term;
+    queue_msg_(r, &resp);
+    return 0;
+}
+
+static void leader_broadcast_heartbeat_(cetcd_raft *r) {
+    if (r->role != ROLE_LEADER) return;
+    for (uint32_t i = 0; i < r->n_peers; i++) {
+        if (r->peers[i] == r->id) continue;
+        cetcd_msg hb;
+        memset(&hb, 0, sizeof(hb));
+        hb.type   = CETCD_MSG_HEARTBEAT;
+        hb.to     = r->peers[i];
+        hb.from   = r->id;
+        hb.term   = r->term;
+        hb.commit = r->commit;
+        queue_msg_(r, &hb);
+    }
+}
+
+static int handle_pre_vote_resp_(cetcd_raft *r, cetcd_msg *msg) {
+    if (msg->reject) {
+        if (msg->term > r->term) {
+            become_follower_(r, msg->term, 0);
+            queue_hard_state_(r);
+        }
+        return 0;
+    }
+    if (r->role != ROLE_PRE_CANDIDATE) return 0;
+
+    int from_learner = 0;
+    for (uint32_t i = 0; i < r->n_peers; i++) {
+        if (r->peers[i] == msg->from) { from_learner = peer_is_learner_(r, i); break; }
+    }
+    if (from_learner) return 0;
+    if (!vote_from_(r, msg->from) && r->n_votes_granted < r->peers_cap)
+        r->votes_granted[r->n_votes_granted++] = msg->from;
+    if (vote_quorum_ok_(r)) {
+        become_candidate_(r);
+        queue_hard_state_(r);
+        leader_broadcast_heartbeat_(r);
     }
     return 0;
 }
@@ -842,7 +919,10 @@ int cetcd_raft_step(cetcd_raft *r, cetcd_msg *msg) {
     switch (msg->type) {
     case CETCD_MSG_HUP:
         if (r->role != ROLE_LEADER) {
-            become_candidate_(r);
+            if (r->pre_vote)
+                become_pre_candidate_(r);
+            else
+                become_candidate_(r);
             queue_hard_state_(r);
         }
         break;
@@ -852,6 +932,12 @@ int cetcd_raft_step(cetcd_raft *r, cetcd_msg *msg) {
 
     case CETCD_MSG_VOTE_RESP:
         return handle_vote_resp_(r, msg);
+
+    case CETCD_MSG_PRE_VOTE:
+        return handle_pre_vote_(r, msg);
+
+    case CETCD_MSG_PRE_VOTE_RESP:
+        return handle_pre_vote_resp_(r, msg);
 
     case CETCD_MSG_APP:
         return handle_app_(r, msg);
@@ -930,7 +1016,8 @@ int cetcd_raft_step(cetcd_raft *r, cetcd_msg *msg) {
 
     case CETCD_MSG_TIMEOUT_NOW:
         if (r->role == ROLE_LEADER) break;
-        r->elapsed_ticks = r->election_timeout;
+        become_candidate_(r);
+        queue_hard_state_(r);
         break;
 
     default:

@@ -318,6 +318,7 @@ void         cetcd_async_send(cetcd_async *async);   // 线程安全
 **依赖**：仅 `libcetcd_base`
 
 这是项目最核心也最复杂的模块，从零实现 Raft 共识算法，API 镜像 `go.etcd.io/raft`。
+服务器默认 `pre_vote=true`：选举先发 `MsgPreVote`（本地 term 不变），多数同意后再加 term 拉正式票；日志落后或 leader 租约未过期则拒绝。`TIMEOUT_NOW`（leader transfer）跳过 PreVote。
 
 #### 核心设计原则
 

@@ -277,6 +277,203 @@ CETCD_TEST_CASE(joint_restore_and_leave) {
     cetcd_raft_free(r);
 }
 
+static cetcd_raft_config two_node_cfg(uint64_t id, int pre_vote) {
+    cetcd_raft_config cfg = single_node_cfg(id);
+    cfg.pre_vote = pre_vote != 0;
+    return cfg;
+}
+
+static int ready_find_msg_(const cetcd_ready *rd, int type, uint64_t to) {
+    for (uint32_t i = 0; i < rd->n_messages; i++) {
+        if ((int)rd->messages[i].type == type && rd->messages[i].to == to)
+            return (int)i;
+    }
+    return -1;
+}
+
+CETCD_TEST_CASE(prevote_campaign_keeps_term) {
+    cetcd_raft_config cfg = two_node_cfg(1, 1);
+    cetcd_raft *r = cetcd_raft_new(&cfg);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_add_peer(r, 2, 0), 0);
+
+    cetcd_msg hup;
+    memset(&hup, 0, sizeof(hup));
+    hup.type = CETCD_MSG_HUP;
+    hup.from = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_raft_step(r, &hup), 0);
+    CETCD_ASSERT_EQ_INT((int)cetcd_raft_state(r), (int)CETCD_NODE_PRE_CANDIDATE);
+    CETCD_ASSERT_TRUE(cetcd_raft_term(r) == 0);
+
+    cetcd_ready rd = cetcd_raft_ready(r);
+    int idx = ready_find_msg_(&rd, CETCD_MSG_PRE_VOTE, 2);
+    CETCD_ASSERT_TRUE(idx >= 0);
+    CETCD_ASSERT_TRUE(rd.messages[idx].term == 1);
+    CETCD_ASSERT_TRUE(ready_find_msg_(&rd, CETCD_MSG_VOTE, 2) < 0);
+    cetcd_ready_free(&rd);
+    cetcd_raft_free(r);
+}
+
+CETCD_TEST_CASE(prevote_grant_then_real_vote) {
+    cetcd_raft_config ca = two_node_cfg(1, 1);
+    cetcd_raft_config cb = two_node_cfg(2, 1);
+    cetcd_raft *r1 = cetcd_raft_new(&ca);
+    cetcd_raft *r2 = cetcd_raft_new(&cb);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_add_peer(r1, 2, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_add_peer(r2, 1, 0), 0);
+
+    cetcd_msg hup;
+    memset(&hup, 0, sizeof(hup));
+    hup.type = CETCD_MSG_HUP;
+    hup.from = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_raft_step(r1, &hup), 0);
+
+    cetcd_ready rd1 = cetcd_raft_ready(r1);
+    int i = ready_find_msg_(&rd1, CETCD_MSG_PRE_VOTE, 2);
+    CETCD_ASSERT_TRUE(i >= 0);
+    cetcd_msg pv = rd1.messages[i];
+    cetcd_ready_free(&rd1);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_step(r2, &pv), 0);
+
+    cetcd_ready rd2 = cetcd_raft_ready(r2);
+    i = ready_find_msg_(&rd2, CETCD_MSG_PRE_VOTE_RESP, 1);
+    CETCD_ASSERT_TRUE(i >= 0);
+    CETCD_ASSERT_TRUE(rd2.messages[i].reject == 0);
+    cetcd_msg pvr = rd2.messages[i];
+    cetcd_ready_free(&rd2);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_step(r1, &pvr), 0);
+    CETCD_ASSERT_EQ_INT((int)cetcd_raft_state(r1), (int)CETCD_NODE_CANDIDATE);
+    CETCD_ASSERT_TRUE(cetcd_raft_term(r1) == 1);
+
+    rd1 = cetcd_raft_ready(r1);
+    i = ready_find_msg_(&rd1, CETCD_MSG_VOTE, 2);
+    CETCD_ASSERT_TRUE(i >= 0);
+    cetcd_msg vote = rd1.messages[i];
+    cetcd_ready_free(&rd1);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_step(r2, &vote), 0);
+
+    rd2 = cetcd_raft_ready(r2);
+    i = ready_find_msg_(&rd2, CETCD_MSG_VOTE_RESP, 1);
+    CETCD_ASSERT_TRUE(i >= 0);
+    CETCD_ASSERT_TRUE(rd2.messages[i].reject == 0);
+    cetcd_msg vr = rd2.messages[i];
+    cetcd_ready_free(&rd2);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_step(r1, &vr), 0);
+    CETCD_ASSERT_EQ_INT((int)cetcd_raft_state(r1), (int)CETCD_NODE_LEADER);
+    CETCD_ASSERT_TRUE(cetcd_raft_leader(r1) == 1);
+
+    cetcd_raft_free(r1);
+    cetcd_raft_free(r2);
+}
+
+CETCD_TEST_CASE(prevote_stale_log_rejected_without_term_bump) {
+    cetcd_raft_config ca = two_node_cfg(1, 1);
+    ca.check_quorum = false;
+    cetcd_raft *r1 = cetcd_raft_new(&ca);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_add_peer(r1, 2, 0), 0);
+    cetcd_entry e;
+    memset(&e, 0, sizeof(e));
+    e.term = 3;
+    e.index = 1;
+    e.type = CETCD_ENTRY_NORMAL;
+    uint8_t payload[] = {'x'};
+    e.data = cetcd_slice_make(payload, 1);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_restore_entry(r1, &e), 0);
+    cetcd_hard_state hs = {.term = 3, .vote = 0, .commit = 0};
+    cetcd_raft_restore_hard_state(r1, &hs);
+
+    cetcd_raft_config cb = two_node_cfg(2, 1);
+    cb.check_quorum = false;
+    cetcd_raft *r2 = cetcd_raft_new(&cb);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_add_peer(r2, 1, 0), 0);
+    cetcd_hard_state hs2 = {.term = 3, .vote = 0, .commit = 0};
+    cetcd_raft_restore_hard_state(r2, &hs2);
+
+    cetcd_msg hup;
+    memset(&hup, 0, sizeof(hup));
+    hup.type = CETCD_MSG_HUP;
+    hup.from = 2;
+    CETCD_ASSERT_EQ_INT(cetcd_raft_step(r2, &hup), 0);
+    CETCD_ASSERT_TRUE(cetcd_raft_term(r2) == 3);
+
+    cetcd_ready rd2 = cetcd_raft_ready(r2);
+    int i = ready_find_msg_(&rd2, CETCD_MSG_PRE_VOTE, 1);
+    CETCD_ASSERT_TRUE(i >= 0);
+    cetcd_msg pv = rd2.messages[i];
+    cetcd_ready_free(&rd2);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_step(r1, &pv), 0);
+
+    cetcd_ready rd1 = cetcd_raft_ready(r1);
+    i = ready_find_msg_(&rd1, CETCD_MSG_PRE_VOTE_RESP, 2);
+    CETCD_ASSERT_TRUE(i >= 0);
+    CETCD_ASSERT_TRUE(rd1.messages[i].reject == 1);
+    cetcd_msg pvr = rd1.messages[i];
+    cetcd_ready_free(&rd1);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_step(r2, &pvr), 0);
+    CETCD_ASSERT_EQ_INT((int)cetcd_raft_state(r2), (int)CETCD_NODE_PRE_CANDIDATE);
+    CETCD_ASSERT_TRUE(cetcd_raft_term(r2) == 3);
+
+    cetcd_raft_free(r1);
+    cetcd_raft_free(r2);
+}
+
+CETCD_TEST_CASE(prevote_lease_rejects_while_leader_alive) {
+    cetcd_raft_config ca = two_node_cfg(1, 1);
+    cetcd_raft *r1 = cetcd_raft_new(&ca);
+    for (int t = 0; t < 10; t++) cetcd_raft_tick(r1);
+    CETCD_ASSERT_EQ_INT((int)cetcd_raft_state(r1), (int)CETCD_NODE_LEADER);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_add_peer(r1, 2, 0), 0);
+
+    cetcd_raft_config cb = two_node_cfg(2, 1);
+    cetcd_raft *r2 = cetcd_raft_new(&cb);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_add_peer(r2, 1, 0), 0);
+
+    cetcd_msg hup;
+    memset(&hup, 0, sizeof(hup));
+    hup.type = CETCD_MSG_HUP;
+    hup.from = 2;
+    CETCD_ASSERT_EQ_INT(cetcd_raft_step(r2, &hup), 0);
+    uint64_t term2 = cetcd_raft_term(r2);
+
+    cetcd_ready rd2 = cetcd_raft_ready(r2);
+    int i = ready_find_msg_(&rd2, CETCD_MSG_PRE_VOTE, 1);
+    CETCD_ASSERT_TRUE(i >= 0);
+    cetcd_msg pv = rd2.messages[i];
+    cetcd_ready_free(&rd2);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_step(r1, &pv), 0);
+
+    cetcd_ready rd1 = cetcd_raft_ready(r1);
+    i = ready_find_msg_(&rd1, CETCD_MSG_PRE_VOTE_RESP, 2);
+    CETCD_ASSERT_TRUE(i >= 0);
+    CETCD_ASSERT_TRUE(rd1.messages[i].reject == 1);
+    cetcd_ready_free(&rd1);
+    CETCD_ASSERT_EQ_INT((int)cetcd_raft_state(r1), (int)CETCD_NODE_LEADER);
+    CETCD_ASSERT_TRUE(cetcd_raft_term(r2) == term2);
+
+    cetcd_raft_free(r1);
+    cetcd_raft_free(r2);
+}
+
+CETCD_TEST_CASE(timeout_now_skips_prevote) {
+    cetcd_raft_config ca = two_node_cfg(1, 1);
+    cetcd_raft *r = cetcd_raft_new(&ca);
+    CETCD_ASSERT_EQ_INT(cetcd_raft_add_peer(r, 2, 0), 0);
+
+    cetcd_msg tn;
+    memset(&tn, 0, sizeof(tn));
+    tn.type = CETCD_MSG_TIMEOUT_NOW;
+    tn.from = 2;
+    tn.to = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_raft_step(r, &tn), 0);
+    CETCD_ASSERT_EQ_INT((int)cetcd_raft_state(r), (int)CETCD_NODE_CANDIDATE);
+    CETCD_ASSERT_TRUE(cetcd_raft_term(r) == 1);
+
+    cetcd_ready rd = cetcd_raft_ready(r);
+    CETCD_ASSERT_TRUE(ready_find_msg_(&rd, CETCD_MSG_VOTE, 2) >= 0);
+    CETCD_ASSERT_TRUE(ready_find_msg_(&rd, CETCD_MSG_PRE_VOTE, 2) < 0);
+    cetcd_ready_free(&rd);
+    cetcd_raft_free(r);
+}
+
 CETCD_TEST_CASE(compact_drops_prefix_keeps_dummy) {
     cetcd_raft_config cfg = single_node_cfg(1);
     cetcd_raft *r = cetcd_raft_new(&cfg);
@@ -314,6 +511,11 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(joint_add_voter_blocks_commit_until_ack),
     CETCD_TEST_ENTRY(joint_restore_and_leave),
     CETCD_TEST_ENTRY(compact_drops_prefix_keeps_dummy),
+    CETCD_TEST_ENTRY(prevote_campaign_keeps_term),
+    CETCD_TEST_ENTRY(prevote_grant_then_real_vote),
+    CETCD_TEST_ENTRY(prevote_stale_log_rejected_without_term_bump),
+    CETCD_TEST_ENTRY(prevote_lease_rejects_while_leader_alive),
+    CETCD_TEST_ENTRY(timeout_now_skips_prevote),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

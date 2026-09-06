@@ -354,6 +354,11 @@ Performance-first, fail-closed design:
   current revision below the stored one (data loss), fail-closes. A newer
   revision rewrites the file. Other `--experimental-*` stay no-ops.
   Invalid `true`/`false` fail at parse.
+- **Raft PreVote** — `pre_vote` (server default on) campaigns as
+  `PRE_CANDIDATE` and sends `MsgPreVote` at `term+1` without incrementing
+  the local term. A stale log or a live-leader lease (`check_quorum` and
+  recent leader) rejects without disrupting the cluster. A majority grant
+  then starts a real Vote. `TIMEOUT_NOW` (leader transfer) skips PreVote.
 
 ## Previously done (auth data plane)
 
