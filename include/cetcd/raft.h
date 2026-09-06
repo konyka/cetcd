@@ -156,6 +156,10 @@ void           cetcd_raft_free(cetcd_raft *r);
 /* Core API (mirrors go.etcd.io/raft's Step/Tick/Ready/Advance) */
 int            cetcd_raft_step(cetcd_raft *r, cetcd_msg *msg);
 void           cetcd_raft_tick(cetcd_raft *r);
+/* Call Tick n times (etcd AdvanceTicks). n 0 is a no-op. */
+void           cetcd_raft_advance_ticks(cetcd_raft *r, uint64_t n);
+/* election_tick-1, or 0 when election_tick <= 1. */
+uint64_t       cetcd_raft_initial_advance_ticks(uint64_t election_tick);
 cetcd_ready    cetcd_raft_ready(cetcd_raft *r);
 void           cetcd_raft_advance(cetcd_raft *r, const cetcd_ready *rd);
 

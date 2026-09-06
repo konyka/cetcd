@@ -249,6 +249,8 @@ cetcd accepts several etcd server flags for migration compatibility:
 # Raft timing parameters (actually applied; ticks must be > 0)
 ./build/bin/cetcd --election-tick 10 --heartbeat-tick 1 --pre-vote
 # --pre-vote default on; --pre-vote=false skips PreVote (a non-bool fails)
+# --initial-election-tick-advance default on (first campaign in 1 tick);
+# --initial-election-tick-advance=false waits the full election timeout
 ```
 
 ---

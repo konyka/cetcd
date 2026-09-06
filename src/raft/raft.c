@@ -1051,6 +1051,15 @@ void cetcd_raft_tick(cetcd_raft *r) {
     }
 }
 
+void cetcd_raft_advance_ticks(cetcd_raft *r, uint64_t n) {
+    uint64_t i;
+    for (i = 0; i < n; i++) cetcd_raft_tick(r);
+}
+
+uint64_t cetcd_raft_initial_advance_ticks(uint64_t election_tick) {
+    return election_tick > 1 ? election_tick - 1 : 0;
+}
+
 int cetcd_raft_propose(cetcd_raft *r, const uint8_t *data, size_t len) {
     if (!r || r->role != ROLE_LEADER) return -1;
     cetcd_msg msg;

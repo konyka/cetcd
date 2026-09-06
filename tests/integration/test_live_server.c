@@ -1872,6 +1872,29 @@ CETCD_TEST_CASE(live_cetcd_heartbeat_tick) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_initial_election_tick_advance) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --initial-election-tick-advance --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --initial-election-tick-advance=false --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --initial-election-tick-advance=abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --initial-election-tick-advance yes >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_pre_vote) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -3108,6 +3131,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_node_id),
     CETCD_TEST_ENTRY(live_cetcd_election_tick),
     CETCD_TEST_ENTRY(live_cetcd_heartbeat_tick),
+    CETCD_TEST_ENTRY(live_cetcd_initial_election_tick_advance),
     CETCD_TEST_ENTRY(live_cetcd_pre_vote),
     CETCD_TEST_ENTRY(live_cetcd_strict_reconfig_check),
     CETCD_TEST_ENTRY(live_cetcd_snapshot_count),

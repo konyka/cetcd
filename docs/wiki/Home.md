@@ -320,6 +320,7 @@ void         cetcd_async_send(cetcd_async *async);   // 线程安全
 
 这是项目最核心也最复杂的模块，从零实现 Raft 共识算法，API 镜像 `go.etcd.io/raft`。
 服务器默认 `pre_vote=true`：选举先发 `MsgPreVote`（本地 term 不变），多数同意后再加 term 拉正式票；日志落后或 leader 租约未过期则拒绝。`TIMEOUT_NOW`（leader transfer）跳过 PreVote。`--pre-vote` / `--pre-vote=false` 可关（非法 bool 启动失败；省略仍开启）。
+省略或 `--initial-election-tick-advance` 会在 Raft 创建后立刻 `Tick` `election_tick-1` 次，让首次竞选只差一个 tick（etcd `AdvanceTicks`）；`--initial-election-tick-advance=false` 则等满选举超时。非法 bool 启动失败。
 
 #### 核心设计原则
 
@@ -817,6 +818,7 @@ Unknown server flags fail at parse instead of being ignored.
 `--node-id` must be `> 0`; a typo fail-closes instead of becoming Raft id `0`.
 `--election-tick` must be `> 0`; a typo or `0` fail-closes instead of becoming `10`.
 `--heartbeat-tick` must be `> 0`; a typo or `0` fail-closes instead of becoming `1`.
+`--initial-election-tick-advance` is `true`/`false`/`1`/`0` (bare flag is on; omitted default on). Omitted/true ticks `election_tick-1` at Raft create so the first campaign is one tick away; `=false` waits the full timeout. A non-bool fail-closes.
 `--pre-vote` is `true`/`false`/`1`/`0` (bare flag is on; omitted default on). A non-bool fail-closes.
 `--strict-reconfig-check` is `true`/`false`/`1`/`0` (bare flag is on; omitted default on). A non-bool fail-closes. `--strict-reconfig-check=false` allows a quorum-losing MemberRemove.
 `--snapshot-count` must be `> 0`; a typo or `0` fail-closes instead of becoming the default 10000.

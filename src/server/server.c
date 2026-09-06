@@ -2356,6 +2356,12 @@ cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
         .disable_proposal_forwarding = false,
     };
     srv->raft = cetcd_raft_new(&raft_cfg);
+    if (srv->raft &&
+        cetcd_server_want_tick_advance(cfg->tick_advance_set ? 1 : 0,
+                                       cfg->tick_advance ? 1 : 0)) {
+        cetcd_raft_advance_ticks(srv->raft,
+            cetcd_raft_initial_advance_ticks(raft_cfg.election_tick));
+    }
 
     srv->cluster = cetcd_cluster_new(cfg->node_id);
 

@@ -379,6 +379,11 @@ Performance-first, fail-closed design:
   unchanged. `--strict-reconfig-check` / `--strict-reconfig-check=false`
   is no longer an unknown flag (omitted default on; a non-bool
   fail-closes). WAL apply of an already-committed remove still applies.
+- **`--initial-election-tick-advance`** — omitted / bare / `true` calls
+  `AdvanceTicks(election_tick-1)` after Raft create so the first campaign
+  is one tick away instead of a full timeout (`election_tick <= 1` is 0).
+  `--initial-election-tick-advance=false` waits the full timeout. A
+  non-bool fail-closes. Existing 10-tick election tests are unchanged.
 - **Downgrade fail-closed** — `Maintenance/Downgrade` VALIDATE of
   `cetcd_version()` succeeds (already at this binary). ENABLE, CANCEL,
   and any other version fail-closed: the on-disk format cannot change

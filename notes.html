@@ -31,14 +31,15 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 52 — strict-reconfig-check</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 53 — initial-election-tick-advance</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 52 honors
-     <code>--strict-reconfig-check</code> (omitted default on;
-     explicit <code>false</code> allows a quorum-losing
-     <code>MemberRemove</code>). A non-bool fail-closes.</p>
+  <p><strong>v0.3.0</strong>. Phase 53 honors
+     <code>--initial-election-tick-advance</code> (omitted default on;
+     ticks <code>election_tick-1</code> at Raft create so the first
+     campaign is one tick away). Explicit <code>false</code> waits the
+     full timeout. A non-bool fail-closes.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -106,6 +107,7 @@
       <tr><td>50</td><td>self-signed cert validity</td><td>--self-signed-cert-validity sets auto-TLS mint years; 0 / leftover text fail-closed; omitted 1 year — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>51</td><td>pre-vote flag</td><td>--pre-vote honors Raft PreVote; omitted default on; false skips PreVote; non-bool fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>52</td><td>strict-reconfig-check</td><td>--strict-reconfig-check honors MemberRemove quorum gate; omitted default on; false allows shrink; non-bool fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>53</td><td>initial-election-tick-advance</td><td>--initial-election-tick-advance ticks election_tick-1 at Raft create; omitted default on; false waits full timeout; non-bool fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

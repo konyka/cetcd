@@ -148,12 +148,16 @@ typedef struct cetcd_server_config {
     bool            pre_vote;                     /* unset → true (etcd 3.5) */
     bool            strict_reconfig_set;          /* --strict-reconfig-check given */
     bool            strict_reconfig;              /* unset → true */
+    bool            tick_advance_set;             /* --initial-election-tick-advance given */
+    bool            tick_advance;                 /* unset → true (etcd 3.5) */
 } cetcd_server_config;
 
 /* true|false|1|0. Empty/unknown is INVAL. */
 int cetcd_parse_bool_flag(const char *s, int *out);
 /* Unset → 1 (PreVote on). set uses enabled. */
 int cetcd_server_want_pre_vote(int set, int enabled);
+/* Unset → 1 (AdvanceTicks on). set uses enabled. */
+int cetcd_server_want_tick_advance(int set, int enabled);
 /* enabled 0 is OK. Unix mlockall; Windows UNSUPPORT. mlockall failure is IO. */
 int cetcd_mlock_apply(int enabled);
 /* Persist / load `{rev} {hash}\n`. Missing file is NOTFOUND; garbage is CORRUPT. */

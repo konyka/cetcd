@@ -64,6 +64,52 @@ CETCD_TEST_CASE(single_node_becomes_leader_after_election_timeout) {
     cetcd_raft_free(r);
 }
 
+CETCD_TEST_CASE(initial_advance_count) {
+    CETCD_ASSERT_EQ_INT((int)cetcd_raft_initial_advance_ticks(10), 9);
+    CETCD_ASSERT_EQ_INT((int)cetcd_raft_initial_advance_ticks(2), 1);
+    CETCD_ASSERT_EQ_INT((int)cetcd_raft_initial_advance_ticks(1), 0);
+    CETCD_ASSERT_EQ_INT((int)cetcd_raft_initial_advance_ticks(0), 0);
+}
+
+CETCD_TEST_CASE(advance_ticks_leaves_one_tick_to_campaign) {
+    cetcd_raft_config cfg = single_node_cfg(1);
+    cetcd_raft *r = cetcd_raft_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(r);
+    cetcd_raft_advance_ticks(r, cetcd_raft_initial_advance_ticks(10));
+    CETCD_ASSERT_TRUE(cetcd_raft_state(r) == CETCD_NODE_FOLLOWER);
+    cetcd_raft_tick(r);
+    CETCD_ASSERT_TRUE(cetcd_raft_state(r) == CETCD_NODE_LEADER);
+    CETCD_ASSERT_TRUE(cetcd_raft_leader(r) == 1);
+    cetcd_raft_free(r);
+}
+
+CETCD_TEST_CASE(advance_ticks_zero_is_noop) {
+    cetcd_raft_config cfg = single_node_cfg(1);
+    cetcd_raft *r = cetcd_raft_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(r);
+    cetcd_raft_advance_ticks(r, 0);
+    CETCD_ASSERT_TRUE(cetcd_raft_state(r) == CETCD_NODE_FOLLOWER);
+    cetcd_raft_tick(r);
+    CETCD_ASSERT_TRUE(cetcd_raft_state(r) == CETCD_NODE_FOLLOWER);
+    cetcd_raft_free(r);
+}
+
+CETCD_TEST_CASE(advance_ticks_null_is_safe) {
+    cetcd_raft_advance_ticks(NULL, 9);
+}
+
+CETCD_TEST_CASE(election_tick_one_campaigns_on_first_tick) {
+    cetcd_raft_config cfg = single_node_cfg(1);
+    cfg.election_tick = 1;
+    cetcd_raft *r = cetcd_raft_new(&cfg);
+    CETCD_ASSERT_NOT_NULL(r);
+    cetcd_raft_advance_ticks(r, cetcd_raft_initial_advance_ticks(1));
+    CETCD_ASSERT_TRUE(cetcd_raft_state(r) == CETCD_NODE_FOLLOWER);
+    cetcd_raft_tick(r);
+    CETCD_ASSERT_TRUE(cetcd_raft_state(r) == CETCD_NODE_LEADER);
+    cetcd_raft_free(r);
+}
+
 CETCD_TEST_CASE(new_raft_starts_as_follower) {
     cetcd_raft_config cfg = single_node_cfg(1);
     cetcd_raft *r = cetcd_raft_new(&cfg);
@@ -499,6 +545,11 @@ CETCD_TEST_CASE(compact_drops_prefix_keeps_dummy) {
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(new_raft_starts_as_follower),
     CETCD_TEST_ENTRY(single_node_becomes_leader_after_election_timeout),
+    CETCD_TEST_ENTRY(initial_advance_count),
+    CETCD_TEST_ENTRY(advance_ticks_leaves_one_tick_to_campaign),
+    CETCD_TEST_ENTRY(advance_ticks_zero_is_noop),
+    CETCD_TEST_ENTRY(advance_ticks_null_is_safe),
+    CETCD_TEST_ENTRY(election_tick_one_campaigns_on_first_tick),
     CETCD_TEST_ENTRY(term_increases_on_election),
     CETCD_TEST_ENTRY(leader_can_propose_entries),
     CETCD_TEST_ENTRY(single_node_propose_commits),

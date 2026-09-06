@@ -220,6 +220,10 @@ int cetcd_server_want_pre_vote(int set, int enabled) {
     return set ? (enabled != 0) : 1;
 }
 
+int cetcd_server_want_tick_advance(int set, int enabled) {
+    return set ? (enabled != 0) : 1;
+}
+
 int cetcd_parse_self_signed_cert_validity(const char *s, uint32_t *out) {
     if (!out) return CETCD_ERR_INVAL;
     uint64_t v = 0;
