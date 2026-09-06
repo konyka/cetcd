@@ -441,6 +441,15 @@ Performance-first, fail-closed design:
   side's cert, a missing file, garbage PEM/DER, or a missing value
   fail-close. Accepting the flags as a no-op is rejected (a revoked
   cert would still be accepted).
+- **`--version`** — print `etcd Version:` / Git SHA / C Standard / OS/Arch
+  and exit (etcd parse order: before `--config-file`). A non-bool
+  `--version=…` fail-closes.
+- **`--config-file`** — etcd YAML map of flag names (`key: value`,
+  comments, quotes, 2-space lists joined by comma). Converted to the
+  same `--key value` parser as the CLI. When set, other CLI flags are
+  ignored (`--help` / `--version` still win). Nested/flow maps, a
+  missing file, or a missing value fail-close. Accepting the flag as a
+  no-op is rejected (a YAML listen URL would be ignored).
 - **`--host-whitelist`** — comma-separated Host names on the metrics
   HTTP port. Empty / `*` (omitted default) allows all. A restricted list
   waits for headers and returns 403 if Host is missing or not listed

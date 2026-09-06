@@ -677,3 +677,204 @@ int64_t cetcd_auto_compact_next(cetcd_auto_compact_state *st,
         st->last_compact_ms = now_ms ? now_ms : 1;
     return step;
 }
+
+#if defined(_WIN32)
+#  define CETCD_VER_OS_ "windows"
+#elif defined(__APPLE__)
+#  define CETCD_VER_OS_ "darwin"
+#elif defined(__linux__)
+#  define CETCD_VER_OS_ "linux"
+#else
+#  define CETCD_VER_OS_ "unknown"
+#endif
+#if defined(_M_X64) || defined(__x86_64__)
+#  define CETCD_VER_ARCH_ "amd64"
+#elif defined(_M_IX86) || defined(__i386__)
+#  define CETCD_VER_ARCH_ "386"
+#elif defined(_M_ARM64) || defined(__aarch64__)
+#  define CETCD_VER_ARCH_ "arm64"
+#else
+#  define CETCD_VER_ARCH_ "unknown"
+#endif
+
+int cetcd_format_etcd_version(char *out, size_t cap) {
+    if (!out || cap < 8) return CETCD_ERR_INVAL;
+    int n = snprintf(out, cap,
+                     "etcd Version: %u.%u.%u\nGit SHA: unknown\nC Standard: C11\nOS/Arch: %s/%s\n",
+                     CETCD_VERSION_MAJOR, CETCD_VERSION_MINOR, CETCD_VERSION_PATCH,
+                     CETCD_VER_OS_, CETCD_VER_ARCH_);
+    if (n < 0 || (size_t)n >= cap) return CETCD_ERR_OVERFLOW;
+    return CETCD_OK;
+}
+
+static void yaml_rtrim_(char *s) {
+    size_t n = strlen(s);
+    while (n > 0 && (s[n - 1] == ' ' || s[n - 1] == '\t' ||
+                     s[n - 1] == '\r' || s[n - 1] == '\n')) {
+        s[--n] = '\0';
+    }
+}
+
+static int yaml_unquote_(char *s) {
+    size_t n = strlen(s);
+    if (n >= 2 && ((s[0] == '"' && s[n - 1] == '"') ||
+                   (s[0] == '\'' && s[n - 1] == '\''))) {
+        s[n - 1] = '\0';
+        memmove(s, s + 1, n - 1);
+    }
+    return CETCD_OK;
+}
+
+static int yaml_key_ok_(const char *s, size_t n) {
+    if (!s || n == 0) return 0;
+    for (size_t i = 0; i < n; i++) {
+        char c = s[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '-' || c == '_'))
+            return 0;
+    }
+    return 1;
+}
+
+static int yaml_add_pair_(cetcd_config_pair *out, size_t cap, size_t *n,
+                          const char *key, const char *val) {
+    if (*n >= cap) return CETCD_ERR_OVERFLOW;
+    if (!key || !key[0] || strlen(key) >= CETCD_CONFIG_KEY_MAX)
+        return CETCD_ERR_INVAL;
+    if (val && strlen(val) >= CETCD_CONFIG_VAL_MAX) return CETCD_ERR_OVERFLOW;
+    strncpy(out[*n].key, key, CETCD_CONFIG_KEY_MAX - 1);
+    out[*n].key[CETCD_CONFIG_KEY_MAX - 1] = '\0';
+    out[*n].val[0] = '\0';
+    if (val) strncpy(out[*n].val, val, CETCD_CONFIG_VAL_MAX - 1);
+    out[*n].val[CETCD_CONFIG_VAL_MAX - 1] = '\0';
+    (*n)++;
+    return CETCD_OK;
+}
+
+static int yaml_append_list_(cetcd_config_pair *pair, const char *item) {
+    size_t used = strlen(pair->val);
+    size_t add = strlen(item);
+    if (used) {
+        if (used + 1 + add >= CETCD_CONFIG_VAL_MAX) return CETCD_ERR_OVERFLOW;
+        pair->val[used] = ',';
+        memcpy(pair->val + used + 1, item, add + 1);
+    } else {
+        if (add >= CETCD_CONFIG_VAL_MAX) return CETCD_ERR_OVERFLOW;
+        memcpy(pair->val, item, add + 1);
+    }
+    return CETCD_OK;
+}
+
+int cetcd_parse_etcd_config_yaml(const char *text, cetcd_config_pair *out,
+                                 size_t cap, size_t *n) {
+    if (!text || !out || !n || cap == 0) return CETCD_ERR_INVAL;
+    *n = 0;
+    const char *p = text;
+    int pending_list = 0;
+    while (*p) {
+        const char *eol = p;
+        while (*eol && *eol != '\n') eol++;
+        size_t linelen = (size_t)(eol - p);
+        if (linelen >= 2048) return CETCD_ERR_OVERFLOW;
+        char line[2048];
+        memcpy(line, p, linelen);
+        line[linelen] = '\0';
+        if (*eol == '\n') p = eol + 1;
+        else p = eol;
+        yaml_rtrim_(line);
+        char *s = line;
+        int indent = 0;
+        if (*s == '\t') return CETCD_ERR_INVAL;
+        while (*s == ' ') {
+            indent++;
+            s++;
+        }
+        if (!*s || *s == '#') continue;
+        if (strcmp(s, "---") == 0 || strcmp(s, "...") == 0) continue;
+        if (s[0] == '-' && (s[1] == ' ' || s[1] == '\t')) {
+            if (!pending_list || *n == 0 || indent < 1)
+                return CETCD_ERR_INVAL;
+            char *item = s + 2;
+            while (*item == ' ' || *item == '\t') item++;
+            yaml_rtrim_(item);
+            yaml_unquote_(item);
+            if (!item[0]) return CETCD_ERR_INVAL;
+            if (yaml_append_list_(&out[*n - 1], item) != CETCD_OK)
+                return CETCD_ERR_OVERFLOW;
+            continue;
+        }
+        if (indent > 0) return CETCD_ERR_INVAL;
+        pending_list = 0;
+        char *colon = strchr(s, ':');
+        if (!colon) return CETCD_ERR_INVAL;
+        size_t klen = (size_t)(colon - s);
+        while (klen > 0 && (s[klen - 1] == ' ' || s[klen - 1] == '\t'))
+            klen--;
+        if (!yaml_key_ok_(s, klen)) return CETCD_ERR_INVAL;
+        char key[CETCD_CONFIG_KEY_MAX];
+        if (klen >= sizeof(key)) return CETCD_ERR_INVAL;
+        memcpy(key, s, klen);
+        key[klen] = '\0';
+        char *val = colon + 1;
+        while (*val == ' ' || *val == '\t') val++;
+        if (val[0] == '#') val[0] = '\0';
+        else {
+            char *hash = strstr(val, " #");
+            if (hash) *hash = '\0';
+        }
+        yaml_rtrim_(val);
+        if (val[0] == '{' || val[0] == '[' || val[0] == '|' || val[0] == '>')
+            return CETCD_ERR_INVAL;
+        yaml_unquote_(val);
+        if (yaml_add_pair_(out, cap, n, key, val) != CETCD_OK)
+            return CETCD_ERR_OVERFLOW;
+        if (!val[0]) pending_list = 1;
+    }
+    return CETCD_OK;
+}
+
+int cetcd_config_pairs_to_flags(const cetcd_config_pair *pairs, size_t n,
+                                char **argv, size_t argv_cap,
+                                char *store, size_t store_cap, int *argc) {
+    if (!argv || !store || !argc || argv_cap < 1) return CETCD_ERR_INVAL;
+    if (n && !pairs) return CETCD_ERR_INVAL;
+    int ac = 1;
+    size_t off = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (strcmp(pairs[i].key, "version") == 0 ||
+            strcmp(pairs[i].key, "config-file") == 0)
+            continue;
+        size_t klen = strlen(pairs[i].key);
+        if (off + 2 + klen + 1 > store_cap) return CETCD_ERR_OVERFLOW;
+        if ((size_t)ac + 1 >= argv_cap) return CETCD_ERR_OVERFLOW;
+        char *flag = store + off;
+        flag[0] = '-';
+        flag[1] = '-';
+        memcpy(flag + 2, pairs[i].key, klen + 1);
+        off += 2 + klen + 1;
+        argv[ac++] = flag;
+        if (pairs[i].val[0]) {
+            size_t vlen = strlen(pairs[i].val);
+            if (off + vlen + 1 > store_cap) return CETCD_ERR_OVERFLOW;
+            if ((size_t)ac + 1 > argv_cap) return CETCD_ERR_OVERFLOW;
+            char *val = store + off;
+            memcpy(val, pairs[i].val, vlen + 1);
+            off += vlen + 1;
+            argv[ac++] = val;
+        }
+    }
+    *argc = ac;
+    return CETCD_OK;
+}
+
+int cetcd_read_config_file(const char *path, char *buf, size_t cap) {
+    if (!path || !path[0] || !buf || cap < 2) return CETCD_ERR_INVAL;
+    FILE *f = fopen(path, "rb");
+    if (!f) return CETCD_ERR_IO;
+    size_t n = fread(buf, 1, cap - 1, f);
+    int extra = fgetc(f);
+    fclose(f);
+    if (extra != EOF) return CETCD_ERR_OVERFLOW;
+    buf[n] = '\0';
+    return CETCD_OK;
+}

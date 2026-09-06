@@ -88,7 +88,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **Peer 发送**：复用 TCP 连接，避免每条 Raft 消息新建短连接。入站可走 HTTP/2 `POST /raft`；peer TLS 协商 ALPN `h2` 时出站同样 POST `/raft`，否则仍为 4 字节长度前缀。
 - **历史 Range**：`cetcd_mvcc_range(rev>0)` 按 history 回放；重启后对当前世代有 synthetic history。
 - **线性一致 Range**：默认 Range / Txn RequestRange 仅在本节点是 leader 时执行；follower 或无 leader 则 fail-closed。`serializable=true`（`cetcdctl get --consistency s`）读本地存储。
-- **HTTP/2 gRPC**：client 端口识别 `PRI * HTTP/2` preface，与 `cetcdctl` 自定义帧分流；`authorization` 作为 token。TLS（`--cert-file`）协商 ALPN `h2`；客户端不发 ALPN 仍可握手。Watch 与 LeaseKeepAlive 为双向流；Snapshot 与 RangeStream 为服务端流。peer 端口同样识别 preface：`POST /raft` 将 `cetcd_msg_encode` 体交给 Raft 并回 204；`--peer-cert-file` 协商 ALPN `h2`。`--peer-client-cert-file` / `--peer-client-key-file` 在出站 `peer_tx_` 上出示独立证书（省略则用 listen 证书；缺 key 或只有 outbound 没有 listen TLS 则 fail-closed）。`--client-crl-file` / `--peer-crl-file` 在握手后按序列号拒绝已吊销证书（需要对应侧 cert；缺文件或非法 CRL 则 fail-closed）。
+- **HTTP/2 gRPC**：client 端口识别 `PRI * HTTP/2` preface，与 `cetcdctl` 自定义帧分流；`authorization` 作为 token。TLS（`--cert-file`）协商 ALPN `h2`；客户端不发 ALPN 仍可握手。Watch 与 LeaseKeepAlive 为双向流；Snapshot 与 RangeStream 为服务端流。peer 端口同样识别 preface：`POST /raft` 将 `cetcd_msg_encode` 体交给 Raft 并回 204；`--peer-cert-file` 协商 ALPN `h2`。`--peer-client-cert-file` / `--peer-client-key-file` 在出站 `peer_tx_` 上出示独立证书（省略则用 listen 证书；缺 key 或只有 outbound 没有 listen TLS 则 fail-closed）。`--client-crl-file` / `--peer-crl-file` 在握手后按序列号拒绝已吊销证书（需要对应侧 cert；缺文件或非法 CRL 则 fail-closed）。`--version` 打印 `etcd Version:` 后退出。`--config-file` 是 etcd YAML 旗标映射（走同一套解析器；其他 CLI 旗标被忽略；嵌套或缺文件 fail-closed）。
 
 ### 版本信息
 
@@ -827,6 +827,10 @@ evidence (`cluster_token` / `data.mdb` / WAL); an empty dir fail-closes.
 fail-closes; not a wipe).
 `--wal-dir` places the WAL on a dedicated path (default `{data-dir}/wal`; empty fail-closes).
 Unknown server flags fail at parse instead of being ignored.
+`--version` prints `etcd Version:` / `Git SHA: unknown` / `C Standard: C11` /
+`OS/Arch` and exits. `--config-file` is an etcd YAML map of flag names
+(converted to the same CLI parser; other CLI flags are ignored). Nested maps,
+a missing file, or a missing value fail-close.
 `--port` is `1..65535`; a typo fail-closes instead of binding port `0`.
 `--peer-port` is `1..65535`; a typo fail-closes instead of binding the Raft port on `0`.
 `--metrics-port` is `0..65535` (`0` disables); a typo fail-closes instead of silently disabling metrics.

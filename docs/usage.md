@@ -103,6 +103,16 @@ cmake --build build-werror
 This starts a single-node cetcd server listening on port 2379 for client
 requests and port 2380 for peer-to-peer (Raft) communication.
 
+`--version` prints `etcd Version:` / `Git SHA` / `C Standard` / `OS/Arch` and
+exits. `--config-file` is an etcd YAML map of flag names; when it is set,
+other CLI flags are ignored (except `--help` / `--version`). A missing file
+or invalid YAML fail-closes.
+
+```sh
+./build/bin/cetcd --version
+./build/bin/cetcd --config-file ./cetcd.yaml
+```
+
 With `--data-dir` set, Put/DeleteRange are proposed through Raft, fsynced to
 `{data-dir}/wal/0000000000000000.wal` (or `--wal-dir`), then applied to MVCC
 (LMDB). Restart reloads live keys from LMDB and replays any WAL entries ahead

@@ -1,6 +1,7 @@
 #include "cetcd/server.h"
 #include "cetcd_test.h"
 
+#include <stdio.h>
 #include <string.h>
 
 CETCD_TEST_CASE(auto_compact_parse_mode) {
@@ -659,6 +660,75 @@ CETCD_TEST_CASE(auto_compact_due_off) {
     CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_due(NULL, 10, 0, 1000), 0);
 }
 
+CETCD_TEST_CASE(auto_compact_etcd_config_yaml) {
+    cetcd_config_pair pairs[8];
+    size_t n = 99;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_etcd_config_yaml(
+        "name: infra1\n# comment\ndata-dir: \"/var/lib/etcd\"\n"
+        "client-cert-auth: true\nlisten-client-urls:\n"
+        "  - http://127.0.0.1:2379\n",
+        pairs, 8, &n), CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 4);
+    CETCD_ASSERT_EQ_INT(strcmp(pairs[0].key, "name"), 0);
+    CETCD_ASSERT_EQ_INT(strcmp(pairs[0].val, "infra1"), 0);
+    CETCD_ASSERT_EQ_INT(strcmp(pairs[1].key, "data-dir"), 0);
+    CETCD_ASSERT_EQ_INT(strcmp(pairs[1].val, "/var/lib/etcd"), 0);
+    CETCD_ASSERT_EQ_INT(strcmp(pairs[2].val, "true"), 0);
+    CETCD_ASSERT_EQ_INT(strcmp(pairs[3].val, "http://127.0.0.1:2379"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_etcd_config_yaml("", pairs, 8, &n), CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_etcd_config_yaml("---\nname: x\n...\n",
+                                                     pairs, 8, &n), CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 1);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_etcd_config_yaml("nested:\n  foo: bar\n",
+                                                     pairs, 8, &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_etcd_config_yaml("flow: {a: 1}\n",
+                                                     pairs, 8, &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_etcd_config_yaml("not-a-key\n",
+                                                     pairs, 8, &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_etcd_config_yaml(NULL, pairs, 8, &n),
+                        CETCD_ERR_INVAL);
+}
+
+CETCD_TEST_CASE(auto_compact_config_pairs_to_flags) {
+    cetcd_config_pair pairs[3];
+    memset(pairs, 0, sizeof(pairs));
+    strncpy(pairs[0].key, "name", sizeof(pairs[0].key) - 1);
+    strncpy(pairs[0].val, "infra1", sizeof(pairs[0].val) - 1);
+    strncpy(pairs[1].key, "version", sizeof(pairs[1].key) - 1);
+    strncpy(pairs[1].val, "true", sizeof(pairs[1].val) - 1);
+    strncpy(pairs[2].key, "client-cert-auth", sizeof(pairs[2].key) - 1);
+    char *argv[8];
+    char store[256];
+    argv[0] = (char *)"cetcd";
+    int argc = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_config_pairs_to_flags(pairs, 3, argv, 8,
+                                                    store, sizeof(store), &argc),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(argc, 4);
+    CETCD_ASSERT_EQ_INT(strcmp(argv[1], "--name"), 0);
+    CETCD_ASSERT_EQ_INT(strcmp(argv[2], "infra1"), 0);
+    CETCD_ASSERT_EQ_INT(strcmp(argv[3], "--client-cert-auth"), 0);
+}
+
+CETCD_TEST_CASE(auto_compact_format_etcd_version) {
+    char buf[256];
+    CETCD_ASSERT_EQ_INT(cetcd_format_etcd_version(buf, sizeof(buf)), CETCD_OK);
+    char ver[32];
+    snprintf(ver, sizeof(ver), "%u.%u.%u",
+             CETCD_VERSION_MAJOR, CETCD_VERSION_MINOR, CETCD_VERSION_PATCH);
+    CETCD_ASSERT_TRUE(strncmp(buf, "etcd Version: ", 14) == 0);
+    CETCD_ASSERT_TRUE(strstr(buf, ver) != NULL);
+    CETCD_ASSERT_TRUE(strstr(buf, "Git SHA: unknown") != NULL);
+    CETCD_ASSERT_TRUE(strstr(buf, "C Standard: C11") != NULL);
+    CETCD_ASSERT_TRUE(strstr(buf, "OS/Arch: ") != NULL);
+    CETCD_ASSERT_EQ_INT(cetcd_format_etcd_version(NULL, 64), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_format_etcd_version(buf, 4), CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_mode),
     CETCD_TEST_ENTRY(auto_compact_parse_retention_periodic),
@@ -695,6 +765,9 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_bootstrap_defrag_mb),
     CETCD_TEST_ENTRY(auto_compact_should_defrag),
     CETCD_TEST_ENTRY(auto_compact_due_off),
+    CETCD_TEST_ENTRY(auto_compact_etcd_config_yaml),
+    CETCD_TEST_ENTRY(auto_compact_config_pairs_to_flags),
+    CETCD_TEST_ENTRY(auto_compact_format_etcd_version),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

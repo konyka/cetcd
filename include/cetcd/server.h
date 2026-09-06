@@ -28,6 +28,14 @@ typedef struct cetcd_server cetcd_server;
 #define CETCD_DEFAULT_RAFT_IO_TIMEOUT_MS 5000ULL
 #define CETCD_DEFAULT_SNAPSHOT_CATCHUP_ENTRIES 5000ULL
 #define CETCD_DEFAULT_COMPACT_HASH_CHECK_MS 60000ULL
+#define CETCD_CONFIG_MAX_PAIRS 128
+#define CETCD_CONFIG_KEY_MAX 96
+#define CETCD_CONFIG_VAL_MAX 1024
+
+typedef struct cetcd_config_pair {
+    char key[CETCD_CONFIG_KEY_MAX];
+    char val[CETCD_CONFIG_VAL_MAX];
+} cetcd_config_pair;
 
 typedef enum cetcd_auto_compact_mode {
     CETCD_AUTO_COMPACT_OFF = 0,
@@ -81,6 +89,18 @@ int cetcd_parse_max_learners(const char *s, uint32_t *out);
 int cetcd_parse_auth_token_ttl(const char *s, uint64_t *out);
 /* Integer years > 0. 0 / leftover text / overflow (years*365 days) is INVAL. */
 int cetcd_parse_self_signed_cert_validity(const char *s, uint32_t *out);
+/* etcd YAML map (key: value). Comments, quotes, 2-space lists (comma-joined).
+ * Nested maps / flow maps / leftover text are INVAL. */
+int cetcd_parse_etcd_config_yaml(const char *text, cetcd_config_pair *out,
+                                 size_t cap, size_t *n);
+/* Skip version/config-file. Emit --key [value] into argv (argv[0] left alone). */
+int cetcd_config_pairs_to_flags(const cetcd_config_pair *pairs, size_t n,
+                                char **argv, size_t argv_cap,
+                                char *store, size_t store_cap, int *argc);
+/* Missing file is IO; oversized is OVERFLOW. */
+int cetcd_read_config_file(const char *path, char *buf, size_t cap);
+/* "etcd Version: X\\nGit SHA: unknown\\nC Standard: C11\\nOS/Arch: os/arch\\n" */
+int cetcd_format_etcd_version(char *out, size_t cap);
 /* Integer MB >= 0. 0 = off. Overflow (MB*1MiB) is INVAL. */
 int cetcd_parse_bootstrap_defrag_mb(const char *s, uint64_t *out);
 /* 1 if alloc_bytes > threshold_mb MiB. threshold 0 never. */

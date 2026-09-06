@@ -22,6 +22,8 @@ static void print_usage(const char *prog) {
            cetcd_version());
     printf("Usage: %s [options]\n", prog);
     printf("Options:\n");
+    printf("  --version        Print version and exit\n");
+    printf("  --config-file FILE  YAML map of flag names (other CLI flags ignored)\n");
     printf("  --name NAME      Member name (default: default)\n");
     printf("  --data-dir DIR   Data directory (default: ./data)\n");
     printf("  --wal-dir DIR    WAL directory (default: {data-dir}/wal; empty fail-closes)\n");
@@ -127,6 +129,40 @@ static int parse_keepalive_sec_(const char *s, int min_v, int *out) {
     return 0;
 }
 
+static int print_version_(void) {
+    char buf[256];
+    if (cetcd_format_etcd_version(buf, sizeof(buf)) != CETCD_OK)
+        return 1;
+    fputs(buf, stdout);
+    return 0;
+}
+
+static int apply_config_file_(const char *path, int *argc, char ***argv,
+                              char **flag_argv, size_t flag_argv_cap,
+                              char *store, size_t store_cap,
+                              char *text, size_t text_cap,
+                              cetcd_config_pair *pairs, size_t pair_cap) {
+    if (cetcd_read_config_file(path, text, text_cap) != CETCD_OK) {
+        fprintf(stderr, "--config-file cannot read %s\n", path);
+        return 1;
+    }
+    size_t n = 0;
+    if (cetcd_parse_etcd_config_yaml(text, pairs, pair_cap, &n) != CETCD_OK) {
+        fprintf(stderr, "--config-file %s is not a valid etcd YAML map\n", path);
+        return 1;
+    }
+    flag_argv[0] = (*argv)[0];
+    int ac = 1;
+    if (cetcd_config_pairs_to_flags(pairs, n, flag_argv, flag_argv_cap,
+                                    store, store_cap, &ac) != CETCD_OK) {
+        fprintf(stderr, "--config-file %s has too many settings\n", path);
+        return 1;
+    }
+    *argc = ac;
+    *argv = flag_argv;
+    return 0;
+}
+
 int main(int argc, char **argv) {
     const char *name = "default";
     const char *data_dir = "./data";
@@ -149,6 +185,58 @@ int main(int argc, char **argv) {
     cfg.metrics_port = 2381;
     cfg.election_tick = 10;
     cfg.heartbeat_tick = 1;
+
+    {
+        const char *config_file = NULL;
+        for (int i = 1; i < argc; i++) {
+            if (strcmp(argv[i], "--help") == 0) {
+                print_usage(argv[0]);
+                return 0;
+            } else if (strcmp(argv[i], "--version") == 0) {
+                if (i + 1 < argc && argv[i + 1][0] != '-') {
+                    int b = 0;
+                    if (cetcd_parse_bool_flag(argv[++i], &b) != CETCD_OK) {
+                        fprintf(stderr, "--version must be true or false\n");
+                        return 1;
+                    }
+                    if (b) return print_version_();
+                } else {
+                    return print_version_();
+                }
+            } else if (strncmp(argv[i], "--version=", 10) == 0) {
+                int b = 0;
+                if (cetcd_parse_bool_flag(argv[i] + 10, &b) != CETCD_OK) {
+                    fprintf(stderr, "--version must be true or false\n");
+                    return 1;
+                }
+                if (b) return print_version_();
+            } else if (strcmp(argv[i], "--config-file") == 0) {
+                if (i + 1 >= argc || argv[i + 1][0] == '-' || !argv[i + 1][0]) {
+                    fprintf(stderr, "--config-file requires a file\n");
+                    return 1;
+                }
+                config_file = argv[++i];
+            } else if (strncmp(argv[i], "--config-file=", 14) == 0) {
+                if (!argv[i][14]) {
+                    fprintf(stderr, "--config-file requires a file\n");
+                    return 1;
+                }
+                config_file = argv[i] + 14;
+            }
+        }
+        if (config_file) {
+            static char cfg_text[65536];
+            static cetcd_config_pair cfg_pairs[CETCD_CONFIG_MAX_PAIRS];
+            static char cfg_store[65536];
+            static char *cfg_argv[1 + CETCD_CONFIG_MAX_PAIRS * 2];
+            if (apply_config_file_(config_file, &argc, &argv, cfg_argv,
+                                   sizeof(cfg_argv) / sizeof(cfg_argv[0]),
+                                   cfg_store, sizeof(cfg_store),
+                                   cfg_text, sizeof(cfg_text),
+                                   cfg_pairs, CETCD_CONFIG_MAX_PAIRS) != 0)
+                return 1;
+        }
+    }
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--name") == 0 && i + 1 < argc) {
@@ -340,6 +428,14 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return 0;
+        } else if (strcmp(argv[i], "--version") == 0) {
+            if (i + 1 < argc && argv[i + 1][0] != '-') i++;
+        } else if (strncmp(argv[i], "--version=", 10) == 0) {
+            /* handled in the pre-scan */
+        } else if (strcmp(argv[i], "--config-file") == 0) {
+            if (i + 1 < argc && argv[i + 1][0] != '-') i++;
+        } else if (strncmp(argv[i], "--config-file=", 14) == 0) {
+            /* handled in the pre-scan */
         } else if (strcmp(argv[i], "--listen-client-urls") == 0 && i + 1 < argc) {
             /* Parse URL format: http://addr:port */
             const char *url = argv[++i];

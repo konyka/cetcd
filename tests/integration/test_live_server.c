@@ -2567,6 +2567,39 @@ CETCD_TEST_CASE(live_cetcd_crl_files) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_version_and_config_file) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --version >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --version=true >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --version=maybe >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --config-file missing.yaml --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --config-file >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --config-file /no/such/cetcd.yaml >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_bcrypt_cost) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -3582,6 +3615,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_cert_allowed),
     CETCD_TEST_ENTRY(live_cetcd_peer_client_cert),
     CETCD_TEST_ENTRY(live_cetcd_crl_files),
+    CETCD_TEST_ENTRY(live_cetcd_version_and_config_file),
     CETCD_TEST_ENTRY(live_cetcd_bcrypt_cost),
     CETCD_TEST_ENTRY(live_cetcd_auth_token_ttl),
     CETCD_TEST_ENTRY(live_cetcd_log_level),
