@@ -14,6 +14,37 @@ static void write_raw_(const char *path, const char *s) {
     fclose(f);
 }
 
+CETCD_TEST_CASE(corrupt_check_parse_duration) {
+    uint64_t sec = 99;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_go_duration_sec("0", &sec), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)sec, 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_go_duration_sec("0s", &sec), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)sec, 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_go_duration_sec("10s", &sec), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)sec, 10);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_go_duration_sec("1m", &sec), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)sec, 60);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_go_duration_sec("500ms", &sec), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)sec, 1);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_go_duration_sec("10", &sec), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_go_duration_sec("abc", &sec), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_go_duration_sec("", &sec), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_go_duration_sec(NULL, &sec), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_go_duration_sec("10s", NULL), CETCD_ERR_INVAL);
+}
+
+CETCD_TEST_CASE(corrupt_check_due_window) {
+    uint64_t last = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_corrupt_check_due(&last, 0, 1000), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_corrupt_check_due(NULL, 10, 1000), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_corrupt_check_due(&last, 10, 1000), 0);
+    CETCD_ASSERT_EQ_INT((int)last, 1000);
+    CETCD_ASSERT_EQ_INT(cetcd_corrupt_check_due(&last, 10, 10999), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_corrupt_check_due(&last, 10, 11000), 1);
+    CETCD_ASSERT_EQ_INT((int)last, 11000);
+    CETCD_ASSERT_EQ_INT(cetcd_corrupt_check_due(&last, 10, 11000), 0);
+}
+
 CETCD_TEST_CASE(corrupt_check_parse_bool) {
     int b = -1;
     CETCD_ASSERT_EQ_INT(cetcd_parse_bool_flag("true", &b), CETCD_OK);
@@ -125,6 +156,8 @@ CETCD_TEST_CASE(corrupt_check_verify_fail_closed) {
 }
 
 CETCD_TEST_LIST_BEGIN
+    CETCD_TEST_ENTRY(corrupt_check_parse_duration),
+    CETCD_TEST_ENTRY(corrupt_check_due_window),
     CETCD_TEST_ENTRY(corrupt_check_parse_bool),
     CETCD_TEST_ENTRY(corrupt_check_store_load_roundtrip),
     CETCD_TEST_ENTRY(corrupt_check_load_rejects_garbage),

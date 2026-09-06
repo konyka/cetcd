@@ -369,6 +369,12 @@ Performance-first, fail-closed design:
   and any other version fail-closed: the on-disk format cannot change
   and no downgrade is ever in progress. A fake `0.1.0` ENABLE no
   longer returns success.
+- **`--experimental-corrupt-check-time`** — Go duration (`0` disables).
+  After the interval the tick HashKVs the store and compares
+  `{data-dir}/backend.hash` (same rules as the initial check). A
+  mismatch raises the CORRUPT alarm. Missing value or a non-duration
+  fail at parse (no longer swallowed by `--experimental-*`). Other
+  `--experimental-*` stay no-ops.
 
 ## Previously done (auth data plane)
 

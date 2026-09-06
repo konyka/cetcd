@@ -56,6 +56,19 @@ static int parse_go_duration_sec_(const char *s, uint64_t *out) {
     return 0;
 }
 
+int cetcd_parse_go_duration_sec(const char *s, uint64_t *out) {
+    if (!s || !s[0] || !out) return CETCD_ERR_INVAL;
+    if (s[0] == '0' && s[1] == '\0') {
+        *out = 0;
+        return CETCD_OK;
+    }
+    uint64_t sec = 0;
+    if (parse_go_duration_sec_(s, &sec) != 0)
+        return CETCD_ERR_INVAL;
+    *out = sec;
+    return CETCD_OK;
+}
+
 int cetcd_parse_auto_compaction_retention(const char *s,
                                           cetcd_auto_compact_mode mode,
                                           uint64_t *out) {

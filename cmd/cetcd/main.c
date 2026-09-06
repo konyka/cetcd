@@ -72,6 +72,7 @@ static void print_usage(const char *prog) {
     printf("  --logger TYPE       zap or capnslog (built-in logger; others fail)\n");
     printf("  --log-outputs LIST   stderr, stdout, file path, or journal/syslog (mixed lists fail)\n");
     printf("  --experimental-initial-corrupt-check  HashKV vs {data-dir}/backend.hash (fail-closed)\n");
+    printf("  --experimental-corrupt-check-time DUR  Periodic HashKV vs backend.hash (0 disables)\n");
     printf("  --experimental-*    Other experimental flags accepted as no-op\n");
     printf("  --help           Show this help\n");
 }
@@ -464,6 +465,26 @@ int main(int argc, char **argv) {
                 return 1;
             }
             cfg.initial_corrupt_check = b != 0;
+        } else if (strcmp(argv[i], "--experimental-corrupt-check-time") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--experimental-corrupt-check-time requires a duration\n");
+                return 1;
+            }
+            uint64_t sec = 0;
+            if (cetcd_parse_go_duration_sec(argv[++i], &sec) != CETCD_OK) {
+                fprintf(stderr,
+                        "--experimental-corrupt-check-time must be a duration (0 disables)\n");
+                return 1;
+            }
+            cfg.corrupt_check_interval_sec = sec;
+        } else if (strncmp(argv[i], "--experimental-corrupt-check-time=", 34) == 0) {
+            uint64_t sec = 0;
+            if (cetcd_parse_go_duration_sec(argv[i] + 34, &sec) != CETCD_OK) {
+                fprintf(stderr,
+                        "--experimental-corrupt-check-time must be a duration (0 disables)\n");
+                return 1;
+            }
+            cfg.corrupt_check_interval_sec = sec;
         } else if (strncmp(argv[i], "--experimental-", 15) == 0) {
             /* no-op, accepted for etcd compatibility */
             if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* skip value if present */

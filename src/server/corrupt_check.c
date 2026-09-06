@@ -83,6 +83,21 @@ int cetcd_backend_hash_load(const char *path, int64_t *rev, uint32_t *hash) {
     return CETCD_OK;
 }
 
+int cetcd_corrupt_check_due(uint64_t *last_ms, uint64_t interval_sec,
+                            uint64_t now_ms) {
+    if (!last_ms || interval_sec == 0) return 0;
+    if (interval_sec > UINT64_MAX / 1000ULL) return 0;
+    uint64_t interval_ms = interval_sec * 1000ULL;
+    uint64_t start = now_ms ? now_ms : 1;
+    if (*last_ms == 0) {
+        *last_ms = start;
+        return 0;
+    }
+    if (now_ms < *last_ms + interval_ms) return 0;
+    *last_ms = start;
+    return 1;
+}
+
 int cetcd_backend_hash_verify(const char *path, int64_t rev, uint32_t hash) {
     if (!path || !path[0] || rev < 0) return CETCD_ERR_INVAL;
     int64_t stored_rev = 0;

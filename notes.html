@@ -31,13 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 39 — Downgrade fail-closed</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 40 — periodic corrupt check</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 39 fail-closes <code>Downgrade</code>
-     ENABLE/CANCEL and any version other than <code>cetcd_version()</code>
-     so a fake target cannot look successful.</p>
+  <p><strong>v0.3.0</strong>. Phase 40 runs periodic HashKV against
+     <code>{data-dir}/backend.hash</code> when
+     <code>--experimental-corrupt-check-time</code> is set; a mismatch
+     raises CORRUPT instead of being swallowed.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -92,6 +93,7 @@
       <tr><td>37</td><td>Raft PreVote</td><td>pre_vote campaigns at term+1 without local bump; lease/stale-log reject; TIMEOUT_NOW skips — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>38</td><td>strict MemberRemove</td><td>refuse voter remove that loses old quorum; learner remove still ok; unknown id fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>39</td><td>Downgrade fail-closed</td><td>VALIDATE cetcd_version() only; ENABLE/CANCEL and other versions empty-frame — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>40</td><td>periodic corrupt check</td><td>--experimental-corrupt-check-time HashKV vs backend.hash on tick; mismatch raises CORRUPT — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

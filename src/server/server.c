@@ -69,6 +69,7 @@ struct cetcd_server {
     cetcd_tls_ctx       *tls_peer;
     cetcd_tls_ctx       *tls_peer_out;
     cetcd_auto_compact_state ac;
+    uint64_t             last_corrupt_check_ms;
 };
 
 static void raft_tick_cb_(void *arg);
@@ -2771,12 +2772,26 @@ static void maybe_auto_compact_(cetcd_server *srv) {
         (void)cetcd_server_compact(srv, target);
 }
 
+static void maybe_periodic_corrupt_check_(cetcd_server *srv) {
+    if (!srv || srv->cfg.corrupt_check_interval_sec == 0) return;
+    uint64_t now_ms = cetcd_clock_monotonic_ns() / 1000000ULL;
+    if (!cetcd_corrupt_check_due(&srv->last_corrupt_check_ms,
+                                 srv->cfg.corrupt_check_interval_sec, now_ms))
+        return;
+    int rc = initial_corrupt_check_(srv);
+    if (rc == CETCD_ERR_CORRUPT) {
+        CETCD_WARN("periodic corrupt check failed: backend.hash mismatch");
+        cetcd_v3rpc_alarm_activate(2, srv->cfg.node_id);
+    }
+}
+
 void cetcd_server_tick(cetcd_server *srv) {
     if (!srv || !srv->raft) return;
     cetcd_raft_tick(srv->raft);
     if (srv->metrics) cetcd_metrics_counter(srv->metrics, "raft_ticks_total", 1);
     process_ready_(srv);
     maybe_auto_compact_(srv);
+    maybe_periodic_corrupt_check_(srv);
 }
 
 int cetcd_server_compact(cetcd_server *srv, int64_t rev) {
