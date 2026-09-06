@@ -2380,6 +2380,7 @@ cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
          cfg->auto_compaction_mode == CETCD_AUTO_COMPACT_REVISION)) {
         srv->ac.mode = cfg->auto_compaction_mode;
         srv->ac.retention = cfg->auto_compaction_retention;
+        srv->ac.batch_limit = cfg->compaction_batch_limit;
     }
     return srv;
 }
@@ -2767,7 +2768,7 @@ static void maybe_auto_compact_(cetcd_server *srv) {
     int64_t cur = cetcd_mvcc_revision(g_rpc_store);
     int64_t compacted = cetcd_mvcc_compacted_revision(g_rpc_store);
     uint64_t now_ms = cetcd_clock_monotonic_ns() / 1000000ULL;
-    int64_t target = cetcd_auto_compact_due(&srv->ac, cur, compacted, now_ms);
+    int64_t target = cetcd_auto_compact_next(&srv->ac, cur, compacted, now_ms);
     if (target > 0)
         (void)cetcd_server_compact(srv, target);
 }

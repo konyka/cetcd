@@ -208,6 +208,7 @@ cetcd accepts several etcd server flags for migration compatibility:
 
 # Initial + periodic corrupt check: HashKV vs {data-dir}/backend.hash
 # (mismatch or a lower current revision fail-closes; periodic raises CORRUPT).
+# --experimental-compaction-batch-limit caps auto-compact revs per tick (0 unlimited).
 # Other --experimental-* stay no-op.
 ./build/bin/cetcd --experimental-initial-corrupt-check \
   --experimental-corrupt-check-time 10s \

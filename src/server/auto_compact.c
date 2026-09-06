@@ -139,3 +139,39 @@ int64_t cetcd_auto_compact_due(cetcd_auto_compact_state *st,
     if (t <= 0 || t <= compacted_rev || t > current_rev) return 0;
     return t;
 }
+
+int cetcd_parse_compaction_batch_limit(const char *s, uint64_t *out) {
+    if (!s || !s[0] || !out) return CETCD_ERR_INVAL;
+    if (s[0] < '0' || s[0] > '9') return CETCD_ERR_INVAL;
+    errno = 0;
+    char *end = NULL;
+    unsigned long long v = strtoull(s, &end, 10);
+    if (errno == ERANGE || !end || end == s || *end)
+        return CETCD_ERR_INVAL;
+    *out = (uint64_t)v;
+    return CETCD_OK;
+}
+
+int64_t cetcd_auto_compact_clamp(int64_t target, int64_t compacted_rev,
+                                 uint64_t batch_limit) {
+    if (target <= 0) return 0;
+    if (batch_limit == 0) return target;
+    if (compacted_rev < 0) compacted_rev = 0;
+    if (batch_limit > (uint64_t)INT64_MAX) return target;
+    if (compacted_rev > INT64_MAX - (int64_t)batch_limit) return target;
+    int64_t cap = compacted_rev + (int64_t)batch_limit;
+    return cap < target ? cap : target;
+}
+
+int64_t cetcd_auto_compact_next(cetcd_auto_compact_state *st,
+                                int64_t current_rev, int64_t compacted_rev,
+                                uint64_t now_ms) {
+    if (!st) return 0;
+    int64_t due = cetcd_auto_compact_due(st, current_rev, compacted_rev, now_ms);
+    if (due > 0) st->pending = due;
+    if (st->pending <= compacted_rev) {
+        st->pending = 0;
+        return 0;
+    }
+    return cetcd_auto_compact_clamp(st->pending, compacted_rev, st->batch_limit);
+}

@@ -33,6 +33,8 @@ typedef struct cetcd_auto_compact_state {
     uint64_t retention;       /* periodic: seconds; revision: revs to keep */
     uint64_t window_start_ms;
     int64_t  window_rev;
+    uint64_t batch_limit;     /* 0 = unlimited; else max revs per compact */
+    int64_t  pending;         /* last due target not yet fully compacted */
 } cetcd_auto_compact_state;
 
 /* periodic | revision. Empty/unknown is INVAL. */
@@ -50,6 +52,15 @@ int cetcd_corrupt_check_due(uint64_t *last_ms, uint64_t interval_sec,
 int64_t cetcd_auto_compact_due(cetcd_auto_compact_state *st,
                                int64_t current_rev, int64_t compacted_rev,
                                uint64_t now_ms);
+/* Integer >= 0. 0 = unlimited. Leftover text is INVAL. */
+int cetcd_parse_compaction_batch_limit(const char *s, uint64_t *out);
+/* Cap `target` to compacted+batch_limit. batch_limit 0 leaves target. */
+int64_t cetcd_auto_compact_clamp(int64_t target, int64_t compacted_rev,
+                                 uint64_t batch_limit);
+/* Due target, then drain `pending` in batch_limit steps. */
+int64_t cetcd_auto_compact_next(cetcd_auto_compact_state *st,
+                                int64_t current_rev, int64_t compacted_rev,
+                                uint64_t now_ms);
 
 typedef struct cetcd_server_config {
     uint64_t        node_id;
@@ -102,6 +113,7 @@ typedef struct cetcd_server_config {
     uint64_t        auto_compaction_retention;    /* seconds or revisions; 0 = off */
     bool            initial_corrupt_check;        /* HashKV vs {data-dir}/backend.hash */
     uint64_t        corrupt_check_interval_sec;   /* 0 = off; periodic HashKV vs backend.hash */
+    uint64_t        compaction_batch_limit;       /* 0 = unlimited auto-compact step */
 } cetcd_server_config;
 
 /* true|false|1|0. Empty/unknown is INVAL. */

@@ -73,6 +73,7 @@ static void print_usage(const char *prog) {
     printf("  --log-outputs LIST   stderr, stdout, file path, or journal/syslog (mixed lists fail)\n");
     printf("  --experimental-initial-corrupt-check  HashKV vs {data-dir}/backend.hash (fail-closed)\n");
     printf("  --experimental-corrupt-check-time DUR  Periodic HashKV vs backend.hash (0 disables)\n");
+    printf("  --experimental-compaction-batch-limit N  Auto-compact at most N revs/tick (0 unlimited)\n");
     printf("  --experimental-*    Other experimental flags accepted as no-op\n");
     printf("  --help           Show this help\n");
 }
@@ -485,6 +486,27 @@ int main(int argc, char **argv) {
                 return 1;
             }
             cfg.corrupt_check_interval_sec = sec;
+        } else if (strcmp(argv[i], "--experimental-compaction-batch-limit") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr,
+                        "--experimental-compaction-batch-limit requires an integer\n");
+                return 1;
+            }
+            uint64_t n = 0;
+            if (cetcd_parse_compaction_batch_limit(argv[++i], &n) != CETCD_OK) {
+                fprintf(stderr,
+                        "--experimental-compaction-batch-limit must be an integer (0 = unlimited)\n");
+                return 1;
+            }
+            cfg.compaction_batch_limit = n;
+        } else if (strncmp(argv[i], "--experimental-compaction-batch-limit=", 38) == 0) {
+            uint64_t n = 0;
+            if (cetcd_parse_compaction_batch_limit(argv[i] + 38, &n) != CETCD_OK) {
+                fprintf(stderr,
+                        "--experimental-compaction-batch-limit must be an integer (0 = unlimited)\n");
+                return 1;
+            }
+            cfg.compaction_batch_limit = n;
         } else if (strncmp(argv[i], "--experimental-", 15) == 0) {
             /* no-op, accepted for etcd compatibility */
             if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* skip value if present */

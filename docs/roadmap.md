@@ -375,6 +375,11 @@ Performance-first, fail-closed design:
   mismatch raises the CORRUPT alarm. Missing value or a non-duration
   fail at parse (no longer swallowed by `--experimental-*`). Other
   `--experimental-*` stay no-ops.
+- **`--experimental-compaction-batch-limit`** — integer (`0` = unlimited).
+  Auto-compact proposes at most N revisions past the current compact
+  boundary per tick, then drains the remainder on later ticks. Missing
+  value or leftover text fail at parse (no longer swallowed). Other
+  `--experimental-*` stay no-ops.
 
 ## Previously done (auth data plane)
 

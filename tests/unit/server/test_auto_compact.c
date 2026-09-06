@@ -88,6 +88,62 @@ CETCD_TEST_CASE(auto_compact_due_periodic) {
     CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_due(&st, 9, 5, 1200), 0);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_batch_limit) {
+    uint64_t v = 99;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compaction_batch_limit("0", &v), CETCD_OK);
+    CETCD_ASSERT_TRUE(v == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compaction_batch_limit("1000", &v), CETCD_OK);
+    CETCD_ASSERT_TRUE(v == 1000);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compaction_batch_limit("1", &v), CETCD_OK);
+    CETCD_ASSERT_TRUE(v == 1);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compaction_batch_limit("abc", &v),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compaction_batch_limit("10foo", &v),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compaction_batch_limit("-1", &v),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compaction_batch_limit("", &v),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compaction_batch_limit(NULL, &v),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compaction_batch_limit("1000", NULL),
+                        CETCD_ERR_INVAL);
+}
+
+CETCD_TEST_CASE(auto_compact_clamp_batch) {
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_clamp(5000, 0, 0), 5000);
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_clamp(5000, 0, 1000), 1000);
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_clamp(7, 5, 10), 7);
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_clamp(0, 0, 1000), 0);
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_clamp(5000, 4000, 1000), 5000);
+}
+
+CETCD_TEST_CASE(auto_compact_next_revision_batches) {
+    cetcd_auto_compact_state st;
+    memset(&st, 0, sizeof(st));
+    st.mode = CETCD_AUTO_COMPACT_REVISION;
+    st.retention = 3;
+    st.batch_limit = 2;
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_next(&st, 10, 0, 0), 2);
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_next(&st, 10, 2, 0), 4);
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_next(&st, 10, 4, 0), 6);
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_next(&st, 10, 6, 0), 7);
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_next(&st, 10, 7, 0), 0);
+}
+
+CETCD_TEST_CASE(auto_compact_next_periodic_drains) {
+    cetcd_auto_compact_state st;
+    memset(&st, 0, sizeof(st));
+    st.mode = CETCD_AUTO_COMPACT_PERIODIC;
+    st.retention = 1;
+    st.batch_limit = 2;
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_next(&st, 5, 0, 100), 0);
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_next(&st, 8, 0, 1100), 2);
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_next(&st, 8, 2, 1100), 4);
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_next(&st, 8, 4, 1100), 5);
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_next(&st, 8, 5, 1100), 0);
+}
+
 CETCD_TEST_CASE(auto_compact_due_off) {
     cetcd_auto_compact_state st;
     memset(&st, 0, sizeof(st));
@@ -104,6 +160,10 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_retention_revision),
     CETCD_TEST_ENTRY(auto_compact_due_revision),
     CETCD_TEST_ENTRY(auto_compact_due_periodic),
+    CETCD_TEST_ENTRY(auto_compact_parse_batch_limit),
+    CETCD_TEST_ENTRY(auto_compact_clamp_batch),
+    CETCD_TEST_ENTRY(auto_compact_next_revision_batches),
+    CETCD_TEST_ENTRY(auto_compact_next_periodic_drains),
     CETCD_TEST_ENTRY(auto_compact_due_off),
 CETCD_TEST_LIST_END
 
