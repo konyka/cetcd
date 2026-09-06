@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <errno.h>
 #include <uv.h>
 #include "io_internal.h"
@@ -2008,7 +2009,57 @@ static int data_dir_has_cluster_(const cetcd_server_config *cfg) {
     }
     n = snprintf(p, sizeof(p), "%s/wal/0000000000000000.wal", cfg->data_dir);
     if (n > 0 && (size_t)n < sizeof(p) && file_readable_(p)) return 1;
+    n = snprintf(p, sizeof(p), "%s/snapshot.kv", cfg->data_dir);
+    if (n > 0 && (size_t)n < sizeof(p) && file_readable_(p)) return 1;
     return 0;
+}
+
+static int import_snapshot_kv_(cetcd_mvcc_store *store, const char *path) {
+    if (!store || !path || !path[0]) return CETCD_ERR_INVAL;
+    FILE *f = fopen(path, "rb");
+    if (!f) return CETCD_ERR_IO;
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return CETCD_ERR_IO;
+    }
+    long sz = ftell(f);
+    if (sz < 0 || sz > 64L * 1024L * 1024L) {
+        fclose(f);
+        return CETCD_ERR_OVERFLOW;
+    }
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return CETCD_ERR_IO;
+    }
+    uint8_t *buf = NULL;
+    if (sz > 0) {
+        buf = (uint8_t *)malloc((size_t)sz);
+        if (!buf) {
+            fclose(f);
+            return CETCD_ERR_NOMEM;
+        }
+        if (fread(buf, 1, (size_t)sz, f) != (size_t)sz) {
+            free(buf);
+            fclose(f);
+            return CETCD_ERR_IO;
+        }
+    }
+    fclose(f);
+    cetcd_snap *snap = cetcd_snap_decode_kv(buf, (size_t)sz);
+    free(buf);
+    if (!snap) return CETCD_ERR_CORRUPT;
+    for (size_t i = 0; i < cetcd_snap_entry_count(snap); i++) {
+        cetcd_snap_entry *e = cetcd_snap_get_entry(snap, i);
+        if (!e) continue;
+        cetcd_revision rev = cetcd_mvcc_put(store, e->key, e->key_len,
+                                            e->value, e->value_len, 0);
+        if (rev.main == 0 && rev.sub == 0) {
+            cetcd_snap_free(snap);
+            return CETCD_ERR_IO;
+        }
+    }
+    cetcd_snap_free(snap);
+    return CETCD_OK;
 }
 
 static int apply_auto_tls_(cetcd_server *srv) {
@@ -2236,7 +2287,8 @@ int cetcd_server_start(cetcd_server *srv) {
         strcmp(srv->cfg.initial_cluster_state, "existing") != 0)
         return CETCD_ERR_INVAL;
     if (strcmp(srv->cfg.initial_cluster_state, "existing") == 0 &&
-        !data_dir_has_cluster_(&srv->cfg))
+        !data_dir_has_cluster_(&srv->cfg) &&
+        srv->cfg.n_initial_peers == 0)
         return CETCD_ERR_INVAL;
     if (srv->cfg.force_new_cluster && !data_dir_has_cluster_(&srv->cfg))
         return CETCD_ERR_INVAL;
@@ -2372,6 +2424,18 @@ int cetcd_server_start(cetcd_server *srv) {
             cetcd_mvcc_store *store = cetcd_v3rpc_store(srv->rpc);
             if (store) {
                 cetcd_mvcc_load(store, srv->backend);
+                if (cetcd_mvcc_revision(store) == 0) {
+                    char sk[768];
+                    int n = snprintf(sk, sizeof(sk), "%s/snapshot.kv",
+                                     srv->cfg.data_dir);
+                    if (n > 0 && (size_t)n < sizeof(sk) && file_readable_(sk)) {
+                        int irc = import_snapshot_kv_(store, sk);
+                        if (irc != CETCD_OK) return irc;
+                        char done[780];
+                        snprintf(done, sizeof(done), "%s.applied", sk);
+                        (void)rename(sk, done);
+                    }
+                }
                 /* Lease mgr: restore TTLs from the lease bucket, then attach keys. */
                 cetcd_lease_mgr *leases = cetcd_v3rpc_leases(srv->rpc);
                 if (leases) {

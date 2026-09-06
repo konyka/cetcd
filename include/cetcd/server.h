@@ -55,7 +55,7 @@ typedef struct cetcd_server_config {
     char            cipher_suites[512];   /* empty = OpenSSL default; requires TLS */
     bool            listen_https;         /* https:// client URL requires cert_file */
     bool            peer_listen_https;    /* https:// peer URL requires peer_cert_file */
-    char            initial_cluster_state[16]; /* empty, "new", or "existing" */
+    char            initial_cluster_state[16]; /* empty, "new", or "existing" (evidence / snapshot.kv / peers) */
     bool            force_new_cluster;    /* disaster recover: single-voter, keep MVCC */
     bool            initial_cluster_https; /* https:// peer URL requires peer_cert_file */
     bool            keepalive_set;         /* --grpc-keepalive-time was given */

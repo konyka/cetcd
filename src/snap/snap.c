@@ -211,3 +211,66 @@ cetcd_snap *cetcd_snap_decode(const uint8_t *data, size_t len) {
     }
     return s;
 }
+
+static int read_varint_kv_(const uint8_t *p, size_t n, size_t *pos, uint64_t *out) {
+    uint64_t v = 0;
+    int shift = 0;
+    while (*pos < n) {
+        uint8_t b = p[(*pos)++];
+        v |= (uint64_t)(b & 0x7fu) << shift;
+        if ((b & 0x80u) == 0) {
+            *out = v;
+            return 0;
+        }
+        shift += 7;
+        if (shift > 63) return -1;
+    }
+    return -1;
+}
+
+cetcd_snap *cetcd_snap_decode_kv(const uint8_t *data, size_t len) {
+    if (!data && len > 0) return NULL;
+    const uint8_t *p = data;
+    size_t n = len;
+    if (n >= 12 && p && memcmp(p, "CTS1", 4) == 0) {
+        p += 12;
+        n -= 12;
+    }
+    if (n == 0) {
+        cetcd_snap *empty = cetcd_snap_new();
+        return empty;
+    }
+    if (!p) return NULL;
+
+    cetcd_snap *s = cetcd_snap_new();
+    if (!s) return NULL;
+    size_t pos = 0;
+    while (pos < n) {
+        uint64_t kl = 0, vl = 0;
+        if (read_varint_kv_(p, n, &pos, &kl) != 0) {
+            cetcd_snap_free(s);
+            return NULL;
+        }
+        if (kl > n - pos || kl > (16u * 1024u * 1024u)) {
+            cetcd_snap_free(s);
+            return NULL;
+        }
+        const uint8_t *key = p + pos;
+        pos += (size_t)kl;
+        if (read_varint_kv_(p, n, &pos, &vl) != 0) {
+            cetcd_snap_free(s);
+            return NULL;
+        }
+        if (vl > n - pos || vl > (16u * 1024u * 1024u)) {
+            cetcd_snap_free(s);
+            return NULL;
+        }
+        const uint8_t *val = p + pos;
+        pos += (size_t)vl;
+        if (cetcd_snap_add_entry(s, key, (size_t)kl, val, (size_t)vl, 0) != CETCD_OK) {
+            cetcd_snap_free(s);
+            return NULL;
+        }
+    }
+    return s;
+}

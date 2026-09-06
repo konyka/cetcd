@@ -2300,6 +2300,11 @@ CETCD_TEST_CASE(live_cetcdctl_restore_cluster_state) {
     snprintf(cmd, sizeof(cmd),
              "'%s' snapshot restore '%s' --data-dir '%s' --initial-cluster-state existing --force >/dev/null 2>&1",
              CETCDCTL_BIN, snap, dir);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' snapshot restore '%s' --data-dir '%s' --initial-cluster-state other --force >/dev/null 2>&1",
+             CETCDCTL_BIN, snap, dir);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 
     unlink(snap);

@@ -153,7 +153,7 @@ cetcd accepts several etcd server flags for migration compatibility:
   --initial-cluster-state new --initial-cluster-token etcd-cluster \
   --snapshot-count 10000 --data-dir ./data
 # --snapshot-count must be > 0; a typo or 0 is not the silent default 10000
-# --initial-cluster-state existing requires cluster_token / data.mdb / WAL
+# --initial-cluster-state existing: cluster evidence, snapshot.kv, or --initial-cluster peers
 # --force-new-cluster keeps MVCC and drops peers except self (needs cluster evidence)
 
 # Backend quota (NOSPACE on Puts when LMDB size >= N; 0 = unlimited; a typo fails)
@@ -448,7 +448,8 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd -w fields  # Restore with fields output
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd --skip-hash-check  # Skip hash check (etcd-compatible)
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd --initial-cluster-token etcd-cluster  # Persist cluster token
-./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd --initial-cluster-state new  # new only; existing fail-closes
+./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd --initial-cluster-state new
+./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd --initial-cluster-state existing --force
 ./build/bin/cetcdctl get --prefix foo --count-only -w fields  # Count-only with fields output
 ./build/bin/cetcdctl endpoint health -w json  # Health check with ResponseHeader
 ./build/bin/cetcdctl endpoint status -w table  # Status in table format

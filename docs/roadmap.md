@@ -169,12 +169,12 @@ Performance-first, fail-closed design:
   bind port `0`; that now fails at parse. The same check applies to
   `--listen-peer-urls` and to `--initial-cluster` peer URLs.
 - **`--initial-cluster-state` / `--force-new-cluster`** — `new` (or omitted)
-  bootstraps. `existing` requires persisted cluster evidence (`cluster_token`,
-  `data.mdb`, or a WAL segment); an empty dir fail-closes so it cannot look
-  like a join. `--force-new-cluster` keeps MVCC and drops all peers except
-  self (not a wipe); empty dir fail-closes. `cetcdctl snapshot restore
-  --initial-cluster-state` other than `new` still fail-closes (empty-dir join
-  is not implemented).
+  bootstraps. `existing` restarts from cluster evidence (`cluster_token`,
+  `data.mdb`, WAL, or `snapshot.kv`) or joins with `--initial-cluster` peers
+  (does not campaign). A blank dir without peers or a snapshot fail-closes.
+  `--force-new-cluster` keeps MVCC and drops all peers except self (not a
+  wipe); empty dir fail-closes. `cetcdctl snapshot restore
+  --initial-cluster-state` is `new` or `existing`.
 - **`--initial-cluster https://`** — a peer URL with an https scheme requires
   `--peer-cert-file`. Stripping the scheme and dialing plaintext is fail-open.
   Member ids must be `> 0`; an etcd-style name used to become Raft id `0` via
@@ -284,9 +284,10 @@ Performance-first, fail-closed design:
   `/run/systemd/journal/dev-log` then `/dev/log`). Mixed comma-lists and
   open failure fail-closed (no silent stderr). Windows has no unix dgram
   journal and fail-closes.
-- **`--initial-cluster-state existing`** — restart a member that already has
-  cluster evidence. Empty dir fail-closes. This is not empty-dir MemberAdd
-  + snapshot join.
+- **`--initial-cluster-state existing`** — restart from cluster evidence, or
+  join from a blank dir when `--initial-cluster` lists peers (follower, no
+  campaign). `snapshot.kv` is imported into empty MVCC (corrupt blob
+  fail-closes). This is not live raft MsgSnap catch-up after WAL compaction.
 - **`--force-new-cluster`** — disaster recovery: keep MVCC, drop every peer
   except self, clear joint config, then campaign as a single voter. Empty
   dir fail-closes (not a data wipe).
@@ -303,6 +304,11 @@ Performance-first, fail-closed design:
 - **`cetcdctl --endpoints` failover** — the comma list is no longer first-only.
   Connect tries each endpoint in order (hostname via `getaddrinfo`). All
   failures fail-closed.
+- **Empty-dir join / snapshot restore `existing`** — `cetcdctl snapshot restore
+  --initial-cluster-state existing` writes `snapshot.kv`. Server start with
+  `existing` imports that blob into empty MVCC, or starts as a follower when
+  `--initial-cluster` has peers. Truncated `snapshot.kv` fail-closes. A blank
+  dir with neither snapshot nor peers still fail-closes.
 
 ## Previously done (auth data plane)
 
@@ -313,10 +319,9 @@ Performance-first, fail-closed design:
 
 ### Reliability (cluster correctness)
 
-- **Empty-dir join** — MemberAdd + snapshot catch-up from a blank `data-dir`.
-  `--initial-cluster-state existing` only restarts a member that already has
-  cluster evidence. `cetcdctl snapshot restore --initial-cluster-state existing`
-  stays fail-closed.
+- **Live raft MsgSnap catch-up** — after WAL compaction the leader does not
+  yet ship a full raft snapshot to a lagging joiner. Uncompacted logs and
+  offline `snapshot.kv` import cover the operator join path.
 
 ### Security / ops
 

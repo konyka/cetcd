@@ -4145,9 +4145,9 @@ static int cmd_snapshot(int argc, char **argv) {
                 cluster_token = argv[++i];
             } else if (strcmp(argv[i], "--initial-cluster-state") == 0 && i + 1 < argc) {
                 const char *st = argv[++i];
-                if (strcmp(st, "new") != 0) {
+                if (strcmp(st, "new") != 0 && strcmp(st, "existing") != 0) {
                     fprintf(stderr,
-                            "--initial-cluster-state %s is not implemented (new only)\n",
+                            "--initial-cluster-state %s is invalid (new or existing)\n",
                             st);
                     return 1;
                 }
@@ -4156,7 +4156,7 @@ static int cmd_snapshot(int argc, char **argv) {
             }
         }
         if (!snap_file) {
-            fprintf(stderr, "usage: cetcdctl snapshot restore FILE --data-dir DIR [--force] [--skip-hash-check] [--initial-cluster-token TOKEN] [-w json|fields]\n");
+            fprintf(stderr, "usage: cetcdctl snapshot restore FILE --data-dir DIR [--force] [--skip-hash-check] [--initial-cluster-token TOKEN] [--initial-cluster-state new|existing] [-w json|fields]\n");
             return 1;
         }
         if (!data_dir) {
@@ -5828,7 +5828,7 @@ static void print_usage(void) {
     printf("                         Revoke permission (all or specific key) from role\n");
     printf("  snapshot save [FILE] [--compaction-periodical] [-w json|fields|table]   Save a snapshot to file\n");
     printf("  snapshot status FILE [-w json|fields|table]  Show snapshot file info\n");
-    printf("  snapshot restore FILE --data-dir DIR [--force] [--skip-hash-check] [--initial-cluster-token TOKEN] [-w json|fields]  Restore snapshot to data dir\n");
+    printf("  snapshot restore FILE --data-dir DIR [--force] [--skip-hash-check] [--initial-cluster-token TOKEN] [--initial-cluster-state new|existing] [-w json|fields]  Restore snapshot to data dir\n");
     printf("  downgrade enable [-w json|fields] VER   Enable cluster downgrade\n");
     printf("  downgrade cancel [-w json|fields]       Cancel cluster downgrade\n");
     printf("  downgrade validate [-w json|fields] VER Validate downgrade version\n");

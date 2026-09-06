@@ -850,7 +850,7 @@ URLs (empty defaults from listen; `https://` requires the matching cert file).
 `--name` fills MemberList self name (empty → `default`).
 `--initial-cluster-token` is persisted in `data-dir`; a mismatch fail-closes.
 `cetcdctl snapshot restore --initial-cluster-token` writes the same file (mismatch without `--force` fail-closes).
-`cetcdctl snapshot restore --initial-cluster-state` is `new` only; `existing` fail-closes (join is not implemented).
+`cetcdctl snapshot restore --initial-cluster-state` is `new` or `existing` (writes `snapshot.kv`; server imports it into empty MVCC). A blank `--initial-cluster-state existing` start needs `snapshot.kv` or `--initial-cluster` peers.
 
 ---
 

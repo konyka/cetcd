@@ -2,6 +2,8 @@
 #include "cetcd/snap.h"
 #include "cetcd_test.h"
 
+#include <string.h>
+
 CETCD_TEST_CASE(snap_create_destroy) {
     cetcd_snap *s = cetcd_snap_new();
     CETCD_ASSERT_NOT_NULL(s);
@@ -95,12 +97,56 @@ CETCD_TEST_CASE(snap_decode_corrupt) {
     CETCD_ASSERT_TRUE(s2 == NULL);
 }
 
+CETCD_TEST_CASE(snap_decode_kv_pairs_and_header) {
+    uint8_t kv[] = {0x01, 'a', 0x01, 'b', 0x03, 'f', 'o', 'o', 0x03, 'b', 'a', 'r'};
+    cetcd_snap *s = cetcd_snap_decode_kv(kv, sizeof(kv));
+    CETCD_ASSERT_NOT_NULL(s);
+    CETCD_ASSERT_EQ_INT((int)cetcd_snap_entry_count(s), 2);
+    cetcd_snap_entry *e0 = cetcd_snap_get_entry(s, 0);
+    CETCD_ASSERT_EQ_INT((int)e0->key_len, 1);
+    CETCD_ASSERT_EQ_INT(e0->key[0], 'a');
+    CETCD_ASSERT_EQ_INT((int)e0->value_len, 1);
+    CETCD_ASSERT_EQ_INT(e0->value[0], 'b');
+    cetcd_snap_entry *e1 = cetcd_snap_get_entry(s, 1);
+    CETCD_ASSERT_EQ_INT((int)e1->key_len, 3);
+    CETCD_ASSERT_EQ_INT(memcmp(e1->key, "foo", 3), 0);
+    CETCD_ASSERT_EQ_INT(memcmp(e1->value, "bar", 3), 0);
+    cetcd_snap_free(s);
+
+    uint8_t hdr[16];
+    memcpy(hdr, "CTS1", 4);
+    memset(hdr + 4, 0, 8);
+    hdr[4] = 7;
+    memcpy(hdr + 12, kv, 4);
+    s = cetcd_snap_decode_kv(hdr, 16);
+    CETCD_ASSERT_NOT_NULL(s);
+    CETCD_ASSERT_EQ_INT((int)cetcd_snap_entry_count(s), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_snap_get_entry(s, 0)->key[0], 'a');
+    cetcd_snap_free(s);
+
+    s = cetcd_snap_decode_kv(kv, 0);
+    CETCD_ASSERT_NOT_NULL(s);
+    CETCD_ASSERT_EQ_INT((int)cetcd_snap_entry_count(s), 0);
+    cetcd_snap_free(s);
+}
+
+CETCD_TEST_CASE(snap_decode_kv_fail_closed) {
+    uint8_t trunc[] = {0x01, 'a', 0x02};
+    CETCD_ASSERT_TRUE(cetcd_snap_decode_kv(trunc, sizeof(trunc)) == NULL);
+    uint8_t leftover[] = {0x01, 'a', 0x01, 'b', 0xff};
+    CETCD_ASSERT_TRUE(cetcd_snap_decode_kv(leftover, sizeof(leftover)) == NULL);
+    uint8_t huge[] = {0xff, 0xff, 0xff, 0xff, 0x0f};
+    CETCD_ASSERT_TRUE(cetcd_snap_decode_kv(huge, sizeof(huge)) == NULL);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(snap_create_destroy),
     CETCD_TEST_ENTRY(snap_add_entries),
     CETCD_TEST_ENTRY(snap_encode_decode),
     CETCD_TEST_ENTRY(snap_empty_roundtrip),
     CETCD_TEST_ENTRY(snap_decode_corrupt),
+    CETCD_TEST_ENTRY(snap_decode_kv_pairs_and_header),
+    CETCD_TEST_ENTRY(snap_decode_kv_fail_closed),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()
