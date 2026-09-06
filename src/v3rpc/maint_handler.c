@@ -3,7 +3,7 @@
  *
  * Implements:
  *   - Status: returns cluster version, db size, leader info
- *   - Defragment: no-op (LMDB auto-manages free pages)
+ *   - Defragment: compact-copy data.mdb when a backend is attached
  *   - Hash: returns CRC32 hash of the KV store
  *   - Alarm: get/set alarms
  *   - HashKV: returns hash + revision
@@ -292,10 +292,14 @@ cetcd_rpc_bytes maint_handle_status(cetcd_v3rpc *rpc, const uint8_t *req, size_t
 
 /*
  * Defragment RPC.
- * LMDB manages free pages automatically, so this is a no-op.
+ * Compact-copies data.mdb when a backend is attached. No backend still
+ * returns success (unit dispatch).
  */
 cetcd_rpc_bytes maint_handle_defragment(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc; (void)req; (void)req_len;
+    if (g_rpc_auth_backend &&
+        cetcd_backend_defrag(g_rpc_auth_backend) != CETCD_OK)
+        return (cetcd_rpc_bytes){NULL, 0};
     return make_simple_response();
 }
 

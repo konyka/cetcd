@@ -24,7 +24,7 @@
  *   alarm                  — query alarms
  *   hash                   — get KV store hash
  *   hashkv                 — get KV store hash + compact revision
- *   defrag                 — defragment the database (no-op for LMDB)
+ *   defrag                 — defragment the database (LMDB compact-copy)
  *   move-leader TARGET_ID  — transfer leadership to target node
  *   member list            — list cluster members
  *   member add PEER_URL    — add a cluster member
@@ -6014,7 +6014,7 @@ static void print_usage(void) {
     printf("  alarm disarm [-w json|fields] [TYPE]     Disarm an alarm (NOSPACE|CORRUPT|NONE)\n");
     printf("  hash [-w json|fields|table]         Get KV store hash\n");
     printf("  hashkv [-w json|fields|table]       Get KV store hash + compact revision\n");
-    printf("  defrag [-w json|fields]       Defragment database (no-op for LMDB)\n");
+    printf("  defrag [-w json|fields]       Defragment database (compact-copy data.mdb)\n");
     printf("  move-leader [-w json|fields] TARGET_ID  Transfer leadership to target node (ID hex > 0)\n");
     printf("  member list [-w json|table|fields]  List cluster members\n");
     printf("  member add [-w json|fields] [--peer-urls URLS] [--name NAME] [--learner] [PEER_URL]  Add a cluster member (comma-separated URLs supported)\n");

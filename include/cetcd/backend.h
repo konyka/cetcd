@@ -85,6 +85,9 @@ typedef bool (*cetcd_backend_iter_fn)(const uint8_t *key, size_t key_len,
 int cetcd_backend_foreach(cetcd_backend *be, const char *bucket,
                            cetcd_backend_iter_fn fn, void *udata);
 
+/* Compact-copy data.mdb and reopen in place. Fail-closed on copy/swap error. */
+int cetcd_backend_defrag(cetcd_backend *be);
+
 #ifdef __cplusplus
 }
 #endif

@@ -404,6 +404,12 @@ Performance-first, fail-closed design:
   (failure fail-closes). Windows is UNSUPPORT (start fail-closes).
   Invalid value fail at parse (no longer swallowed). Other
   `--experimental-*` stay no-ops.
+- **`--experimental-bootstrap-defrag-threshold-megabytes`** — integer
+  MiB (`0` = off). After opening LMDB, if `alloc` is larger the
+  server compact-copies `data.mdb` and reopens before load. Missing
+  value or leftover text fail at parse. `Maintenance/Defragment` now
+  does the same compact-copy when a backend is attached (no backend
+  still returns success). Other `--experimental-*` stay no-ops.
 
 ## Previously done (auth data plane)
 

@@ -197,6 +197,32 @@ CETCD_TEST_CASE(auto_compact_next_sleeps_between_batches) {
     CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_next(&st, 10, 4, 2000), 6);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_bootstrap_defrag_mb) {
+    uint64_t n = 99;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_bootstrap_defrag_mb("0", &n), CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_bootstrap_defrag_mb("2", &n), CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 2);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_bootstrap_defrag_mb("abc", &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_bootstrap_defrag_mb("-1", &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_bootstrap_defrag_mb("", &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_bootstrap_defrag_mb(NULL, &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_bootstrap_defrag_mb("1", NULL),
+                        CETCD_ERR_INVAL);
+}
+
+CETCD_TEST_CASE(auto_compact_should_defrag) {
+    CETCD_ASSERT_EQ_INT(cetcd_backend_should_defrag(0, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_backend_should_defrag(8 * 1024 * 1024, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_backend_should_defrag(1024 * 1024, 1), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_backend_should_defrag(1024 * 1024 + 1, 1), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_backend_should_defrag(2 * 1024 * 1024, 1), 1);
+}
+
 CETCD_TEST_CASE(auto_compact_due_off) {
     cetcd_auto_compact_state st;
     memset(&st, 0, sizeof(st));
@@ -221,6 +247,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_next_periodic_drains),
     CETCD_TEST_ENTRY(auto_compact_sleep_ready),
     CETCD_TEST_ENTRY(auto_compact_next_sleeps_between_batches),
+    CETCD_TEST_ENTRY(auto_compact_parse_bootstrap_defrag_mb),
+    CETCD_TEST_ENTRY(auto_compact_should_defrag),
     CETCD_TEST_ENTRY(auto_compact_due_off),
 CETCD_TEST_LIST_END
 

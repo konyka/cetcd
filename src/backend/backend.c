@@ -7,10 +7,26 @@
 #include <stdio.h>
 #include <lmdb.h>
 
+#if defined(_WIN32)
+#  include <direct.h>
+#  include <io.h>
+#  define cetcd_mkdir(p) _mkdir(p)
+#  define cetcd_unlink(p) _unlink(p)
+#  define cetcd_rmdir(p) _rmdir(p)
+#else
+#  include <sys/stat.h>
+#  include <unistd.h>
+#  define cetcd_mkdir(p) mkdir((p), 0755)
+#  define cetcd_unlink(p) unlink(p)
+#  define cetcd_rmdir(p) rmdir(p)
+#endif
+
 /* Internal structures */
 struct cetcd_backend {
     MDB_env *env;
     char *path;
+    size_t map_size;
+    uint32_t max_dbs;
 };
 
 struct cetcd_txn {
@@ -29,9 +45,11 @@ cetcd_backend *cetcd_backend_open(const cetcd_backend_config *cfg) {
     if (!be) return NULL;
     be->path = strdup(cfg->path);
     if (!be->path) { free(be); return NULL; }
+    be->map_size = cfg->map_size ? cfg->map_size : (size_t)(16 * 1024 * 1024);
+    be->max_dbs = cfg->max_dbs;
     if (mdb_env_create(&be->env) != MDB_SUCCESS) { free(be->path); free(be); return NULL; }
-    mdb_env_set_mapsize(be->env, cfg->map_size ? cfg->map_size : 16*1024*1024);
-    if (cfg->max_dbs > 0) mdb_env_set_maxdbs(be->env, cfg->max_dbs);
+    mdb_env_set_mapsize(be->env, be->map_size);
+    if (be->max_dbs > 0) mdb_env_set_maxdbs(be->env, be->max_dbs);
     int rc = mdb_env_open(be->env, be->path, 0, 0664);
     if (rc != MDB_SUCCESS) { mdb_env_close(be->env); free(be->path); free(be); return NULL; }
     return be;
@@ -315,4 +333,63 @@ int cetcd_backend_foreach(cetcd_backend *be, const char *bucket,
     mdb_cursor_close(cur);
     cetcd_txn_abort(txn);
     return CETCD_OK;
+}
+
+static void clean_defrag_dir_(const char *dest) {
+    char p[768];
+    int n = snprintf(p, sizeof(p), "%s/data.mdb", dest);
+    if (n > 0 && (size_t)n < sizeof(p)) cetcd_unlink(p);
+    n = snprintf(p, sizeof(p), "%s/lock.mdb", dest);
+    if (n > 0 && (size_t)n < sizeof(p)) cetcd_unlink(p);
+    cetcd_rmdir(dest);
+}
+
+static int reopen_env_(cetcd_backend *be) {
+    if (mdb_env_create(&be->env) != MDB_SUCCESS) return CETCD_ERR_IO;
+    mdb_env_set_mapsize(be->env, be->map_size);
+    if (be->max_dbs > 0) mdb_env_set_maxdbs(be->env, be->max_dbs);
+    if (mdb_env_open(be->env, be->path, 0, 0664) != MDB_SUCCESS) {
+        mdb_env_close(be->env);
+        be->env = NULL;
+        return CETCD_ERR_IO;
+    }
+    return CETCD_OK;
+}
+
+int cetcd_backend_defrag(cetcd_backend *be) {
+    if (!be || !be->env || !be->path || !be->path[0]) return CETCD_ERR_INVAL;
+    char dest[640], src_mdb[768], live_mdb[768], bak[768];
+    int n = snprintf(dest, sizeof(dest), "%s/.defrag", be->path);
+    if (n <= 0 || (size_t)n >= sizeof(dest)) return CETCD_ERR_INVAL;
+    n = snprintf(src_mdb, sizeof(src_mdb), "%s/data.mdb", dest);
+    if (n <= 0 || (size_t)n >= sizeof(src_mdb)) return CETCD_ERR_INVAL;
+    n = snprintf(live_mdb, sizeof(live_mdb), "%s/data.mdb", be->path);
+    if (n <= 0 || (size_t)n >= sizeof(live_mdb)) return CETCD_ERR_INVAL;
+    n = snprintf(bak, sizeof(bak), "%s/data.mdb.bak", be->path);
+    if (n <= 0 || (size_t)n >= sizeof(bak)) return CETCD_ERR_INVAL;
+
+    clean_defrag_dir_(dest);
+    if (cetcd_mkdir(dest) != 0) return CETCD_ERR_IO;
+    if (mdb_env_copy2(be->env, dest, MDB_CP_COMPACT) != MDB_SUCCESS) {
+        clean_defrag_dir_(dest);
+        return CETCD_ERR_IO;
+    }
+
+    mdb_env_close(be->env);
+    be->env = NULL;
+    cetcd_unlink(bak);
+    if (rename(live_mdb, bak) != 0) {
+        clean_defrag_dir_(dest);
+        (void)reopen_env_(be);
+        return CETCD_ERR_IO;
+    }
+    if (rename(src_mdb, live_mdb) != 0) {
+        (void)rename(bak, live_mdb);
+        clean_defrag_dir_(dest);
+        (void)reopen_env_(be);
+        return CETCD_ERR_IO;
+    }
+    cetcd_unlink(bak);
+    clean_defrag_dir_(dest);
+    return reopen_env_(be);
 }

@@ -2639,6 +2639,12 @@ int cetcd_server_start(cetcd_server *srv) {
             be_cfg.max_dbs = 16;
             srv->backend = cetcd_backend_open(&be_cfg);
         }
+        if (srv->backend &&
+            cetcd_backend_should_defrag(cetcd_backend_alloc_size(srv->backend),
+                                        srv->cfg.bootstrap_defrag_mb)) {
+            int drc = cetcd_backend_defrag(srv->backend);
+            if (drc != CETCD_OK) return drc;
+        }
 
         /* Load persisted MVCC state and attach backend for incremental writes. */
         if (srv->backend && srv->rpc) {

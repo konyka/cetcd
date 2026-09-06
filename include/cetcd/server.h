@@ -61,6 +61,10 @@ int64_t cetcd_auto_compact_due(cetcd_auto_compact_state *st,
 int cetcd_parse_compaction_batch_limit(const char *s, uint64_t *out);
 /* Integer >= 0. 0 = unlimited. Leftover text is INVAL. */
 int cetcd_parse_max_learners(const char *s, uint32_t *out);
+/* Integer MB >= 0. 0 = off. Overflow (MB*1MiB) is INVAL. */
+int cetcd_parse_bootstrap_defrag_mb(const char *s, uint64_t *out);
+/* 1 if alloc_bytes > threshold_mb MiB. threshold 0 never. */
+int cetcd_backend_should_defrag(uint64_t alloc_bytes, uint64_t threshold_mb);
 /* Cap `target` to compacted+batch_limit. batch_limit 0 leaves target. */
 int64_t cetcd_auto_compact_clamp(int64_t target, int64_t compacted_rev,
                                  uint64_t batch_limit);
@@ -131,6 +135,7 @@ typedef struct cetcd_server_config {
     bool            max_learners_set;             /* --experimental-max-learners given */
     uint32_t        max_learners;                 /* 0 = unlimited; unset → 1 */
     bool            memory_mlock;                 /* --experimental-memory-mlock */
+    uint64_t        bootstrap_defrag_mb;          /* 0 = off; else compact if alloc > N MiB */
 } cetcd_server_config;
 
 /* true|false|1|0. Empty/unknown is INVAL. */

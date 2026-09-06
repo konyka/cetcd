@@ -178,6 +178,22 @@ int cetcd_parse_compaction_batch_limit(const char *s, uint64_t *out) {
     return CETCD_OK;
 }
 
+int cetcd_parse_bootstrap_defrag_mb(const char *s, uint64_t *out) {
+    uint64_t v = 0;
+    int rc = cetcd_parse_compaction_batch_limit(s, &v);
+    if (rc != CETCD_OK) return rc;
+    if (v > UINT64_MAX / (1024ULL * 1024ULL)) return CETCD_ERR_INVAL;
+    if (out) *out = v;
+    else return CETCD_ERR_INVAL;
+    return CETCD_OK;
+}
+
+int cetcd_backend_should_defrag(uint64_t alloc_bytes, uint64_t threshold_mb) {
+    if (threshold_mb == 0) return 0;
+    if (threshold_mb > UINT64_MAX / (1024ULL * 1024ULL)) return 1;
+    return alloc_bytes > threshold_mb * 1024ULL * 1024ULL;
+}
+
 int cetcd_parse_max_learners(const char *s, uint32_t *out) {
     if (!out) return CETCD_ERR_INVAL;
     uint64_t v = 0;

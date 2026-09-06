@@ -59,8 +59,43 @@ CETCD_TEST_CASE(backend_put_get_del_txn) {
     rmdir(path);
 }
 
+CETCD_TEST_CASE(backend_defrag_keeps_keys) {
+    char path_template[] = "/tmp/cetcd-test-defrag-XXXXXX";
+    char *path = mkdtemp(path_template);
+    CETCD_ASSERT_NOT_NULL(path);
+    cetcd_backend_config cfg = {
+        .path = path,
+        .map_size = 16 * 1024 * 1024,
+        .max_dbs = 4
+    };
+    cetcd_backend *be = cetcd_backend_open(&cfg);
+    CETCD_ASSERT_NOT_NULL(be);
+    const char bucket[] = "testbucket";
+    const uint8_t k[] = {0x01};
+    const uint8_t v[] = {0xAA, 0xBB};
+    const uint8_t k2[] = {0x02};
+    const uint8_t v2[] = {0xCC};
+    CETCD_ASSERT_EQ_INT(cetcd_backend_put(be, bucket, k, sizeof(k), v, sizeof(v)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_backend_put(be, bucket, k2, sizeof(k2), v2, sizeof(v2)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_backend_del(be, bucket, k2, sizeof(k2)), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_backend_defrag(be), CETCD_OK);
+    uint8_t *val = NULL; size_t vlen = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_backend_get(be, bucket, k, sizeof(k), &val, &vlen),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)vlen, (int)sizeof(v));
+    CETCD_ASSERT_TRUE(memcmp(val, v, vlen) == 0);
+    free(val);
+    CETCD_ASSERT_EQ_INT(cetcd_backend_get(be, bucket, k2, sizeof(k2), &val, &vlen),
+                        CETCD_ERR_NOTFOUND);
+    cetcd_backend_close(be);
+    rmdir(path);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(backend_put_get_del_txn),
+    CETCD_TEST_ENTRY(backend_defrag_keeps_keys),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()
