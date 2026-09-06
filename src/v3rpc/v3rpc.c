@@ -11,6 +11,7 @@
 #include "cetcd/backend.h"
 #include "cetcd/clock.h"
 #include "cetcd/log.h"
+#include "cetcd/metrics.h"
 
 /* Forward declarations for per RPC handlers (defined in separate files) */
 cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
@@ -372,15 +373,17 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch_ex(cetcd_v3rpc *rpc,
     }
 
     uint64_t th = cetcd_v3rpc_warning_unary_ns();
-    uint64_t t0 = th ? cetcd_clock_monotonic_ns() : 0;
+    int extensive = cetcd_v3rpc_metrics() != NULL;
+    uint64_t t0 = (th || extensive) ? cetcd_clock_monotonic_ns() : 0;
     cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch_inner_(rpc, path, req_data, req_len);
-    if (th && t0) {
+    if (t0) {
         uint64_t elapsed = cetcd_clock_monotonic_ns() - t0;
-        if (cetcd_v3rpc_apply_should_warn(elapsed, th))
+        if (th && cetcd_v3rpc_apply_should_warn(elapsed, th))
             CETCD_WARN("unary %s took %llu ns (threshold %llu ns)",
                        path,
                        (unsigned long long)elapsed,
                        (unsigned long long)th);
+        cetcd_metrics_observe_unary(cetcd_v3rpc_metrics(), elapsed);
     }
     if (resp.data && path_auth_mutates_(path))
         cetcd_v3rpc_auth_persist();

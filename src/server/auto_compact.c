@@ -233,6 +233,23 @@ int cetcd_server_want_enable_pprof(int set, int enabled) {
     return set ? (enabled != 0) : 0;
 }
 
+int cetcd_parse_metrics_level(const char *s, int *extensive) {
+    if (!s || !s[0] || !extensive) return CETCD_ERR_INVAL;
+    if (strcmp(s, "basic") == 0) {
+        *extensive = 0;
+        return CETCD_OK;
+    }
+    if (strcmp(s, "extensive") == 0) {
+        *extensive = 1;
+        return CETCD_OK;
+    }
+    return CETCD_ERR_INVAL;
+}
+
+int cetcd_server_want_metrics_extensive(int set, int extensive) {
+    return set ? (extensive != 0) : 0;
+}
+
 int cetcd_server_metrics_route(const char *path, size_t path_len, int enable_pprof) {
     if (!path || path_len == 0) return 2;
     if (path_len == 8 && memcmp(path, "/metrics", 8) == 0) return 1;

@@ -316,6 +316,23 @@ CETCD_TEST_CASE(auto_compact_metrics_addr) {
     CETCD_ASSERT_TRUE(cetcd_server_metrics_addr(NULL) == NULL);
 }
 
+CETCD_TEST_CASE(auto_compact_metrics_level) {
+    int ext = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_metrics_level("basic", &ext), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(ext, 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_metrics_level("extensive", &ext), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(ext, 1);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_metrics_level("foo", &ext), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_metrics_level("", &ext), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_metrics_level(NULL, &ext), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_metrics_level("basic", NULL), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_metrics_level("extensive ", &ext), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_metrics_extensive(0, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_metrics_extensive(0, 1), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_metrics_extensive(1, 1), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_metrics_extensive(1, 0), 0);
+}
+
 CETCD_TEST_CASE(auto_compact_enable_pprof) {
     CETCD_ASSERT_EQ_INT(cetcd_server_want_enable_pprof(0, 0), 0);
     CETCD_ASSERT_EQ_INT(cetcd_server_want_enable_pprof(0, 1), 0);
@@ -581,6 +598,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_listen_url),
     CETCD_TEST_ENTRY(auto_compact_parse_metrics_listen_url),
     CETCD_TEST_ENTRY(auto_compact_metrics_addr),
+    CETCD_TEST_ENTRY(auto_compact_metrics_level),
     CETCD_TEST_ENTRY(auto_compact_enable_pprof),
     CETCD_TEST_ENTRY(auto_compact_health),
     CETCD_TEST_ENTRY(auto_compact_host_whitelist),

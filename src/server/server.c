@@ -2497,6 +2497,8 @@ void cetcd_server_free(cetcd_server *srv) {
     if (srv->cluster) cetcd_cluster_free(srv->cluster);
     if (srv->raft) cetcd_raft_free(srv->raft);
     if (srv->rpc) cetcd_v3rpc_free(srv->rpc);
+    if (cetcd_v3rpc_metrics() == srv->metrics)
+        cetcd_v3rpc_set_metrics(NULL);
     if (srv->metrics) cetcd_metrics_free(srv->metrics);
     cetcd_tls_ctx_free(srv->tls_client);
     cetcd_tls_ctx_free(srv->tls_peer);
@@ -2604,6 +2606,11 @@ int cetcd_server_start(cetcd_server *srv) {
                           : CETCD_DEFAULT_WARNING_UNARY_MS;
         cetcd_v3rpc_set_warning_unary_ns(ms * 1000000ULL);
     }
+    if (cetcd_server_want_metrics_extensive(srv->cfg.metrics_level_set,
+                                           srv->cfg.metrics_extensive))
+        cetcd_v3rpc_set_metrics(srv->metrics);
+    else
+        cetcd_v3rpc_set_metrics(NULL);
     cetcd_v3rpc_set_max_learners(srv->cfg.max_learners_set
                                      ? srv->cfg.max_learners
                                      : CETCD_DEFAULT_MAX_LEARNERS);

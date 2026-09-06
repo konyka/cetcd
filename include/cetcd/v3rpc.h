@@ -231,6 +231,10 @@ CETCD_API void cetcd_v3rpc_set_warning_apply_ns(uint64_t ns);
 CETCD_API uint64_t cetcd_v3rpc_warning_apply_ns(void);
 CETCD_API void cetcd_v3rpc_set_warning_unary_ns(uint64_t ns);
 CETCD_API uint64_t cetcd_v3rpc_warning_unary_ns(void);
+/* NULL disables unary histograms (etcd --metrics=basic). */
+struct cetcd_metrics;
+CETCD_API void cetcd_v3rpc_set_metrics(struct cetcd_metrics *m);
+CETCD_API struct cetcd_metrics *cetcd_v3rpc_metrics(void);
 
 /* Accessors for server wiring (persistence, lease tick). */
 CETCD_API struct cetcd_mvcc_store *cetcd_v3rpc_store(cetcd_v3rpc *rpc);

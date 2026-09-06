@@ -720,7 +720,9 @@ cetcd exposes Prometheus-compatible metrics on a dedicated HTTP listener.
 Use `--metrics-port` to change the port (default: `2381`; `0` disables;
 a typo fail-closes). `--listen-metrics-urls http://host:port` binds a
 different address (cannot mix with `--metrics-port`; `https` / multi-URL
-fail-closes).
+fail-closes). `--metrics basic|extensive` sets scrape detail (omitted
+`basic`; `extensive` records unary `grpc_server_handling_seconds`;
+other values fail-close).
 
 ```sh
 # Start cetcd with the default metrics port
@@ -730,6 +732,8 @@ fail-closes).
 curl http://127.0.0.1:2381/metrics
 # --host-whitelist localhost,127.0.0.1 rejects other Host headers (403)
 # omitted / * / empty allows all (etcd default)
+# --metrics extensive records unary grpc_server_handling_seconds histograms
+# --metrics basic (omitted default) keeps counters/gauges only
 
 # etcd-compatible health (200 + {"health":"true"} or 503 + reason)
 # ?serializable=true skips the leader check; exclude=NOSPACE|CORRUPT skips that alarm
@@ -745,6 +749,7 @@ text format. Key families include:
 | `cetcd_raft_ticks_total` | counter | Total Raft tick timer firings |
 | `cetcd_mvcc_revision` | gauge | Current MVCC revision |
 | `cetcd_lease_active` | gauge | Number of active leases |
+| `grpc_server_handling_seconds` | histogram | Unary RPC duration (`--metrics=extensive` only) |
 
 ### Profiling
 

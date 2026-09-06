@@ -29,12 +29,22 @@ typedef enum metric_kind_ {
     METRIC_HISTOGRAM
 } metric_kind_;
 
+/* Prometheus DefBuckets (go-grpc-prometheus / etcd --metrics=extensive). */
+#define HIST_N 11
+static const double hist_le_[HIST_N] = {
+    0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10
+};
+static const char *hist_le_str_[HIST_N] = {
+    "0.005", "0.01", "0.025", "0.05", "0.1", "0.25", "0.5", "1", "2.5", "5", "10"
+};
+
 typedef struct metric_entry_ {
     char          name[128];
     metric_kind_  kind;
     double        value;
     uint64_t      count;
     double        sum;
+    uint64_t      buckets[HIST_N];
 } metric_entry_;
 
 struct cetcd_metrics {
@@ -103,7 +113,18 @@ void cetcd_metrics_gauge_dec(cetcd_metrics *m, const char *name) {
 void cetcd_metrics_observe(cetcd_metrics *m, const char *name, double val) {
     if (!m || !name) return;
     metric_entry_ *e = find_or_add_(m, name, METRIC_HISTOGRAM);
-    if (e) { e->count++; e->sum += val; }
+    if (!e) return;
+    e->count++;
+    e->sum += val;
+    for (int i = 0; i < HIST_N; i++) {
+        if (val <= hist_le_[i]) e->buckets[i]++;
+    }
+}
+
+void cetcd_metrics_observe_unary(cetcd_metrics *m, uint64_t elapsed_ns) {
+    if (!m) return;
+    cetcd_metrics_observe(m, CETCD_METRICS_UNARY_HIST,
+                          (double)elapsed_ns / 1000000000.0);
 }
 
 static int fmt_double_(char *buf, size_t sz, double val) {
@@ -137,6 +158,12 @@ int cetcd_metrics_render(cetcd_metrics *m, cetcd_buf_t *buf) {
         if (e->kind == METRIC_HISTOGRAM) {
             char sbuf[64];
             int sn = fmt_double_(sbuf, sizeof(sbuf), e->sum);
+            for (int b = 0; b < HIST_N; b++) {
+                rc = cetcd_buf_printf(buf, "%s_bucket{le=\"%s\"} %llu\n",
+                                      e->name, hist_le_str_[b],
+                                      (unsigned long long)e->buckets[b]);
+                if (rc != 0) return rc;
+            }
             rc = cetcd_buf_printf(buf, "%s_bucket{le=\"+Inf\"} %llu\n",
                                   e->name, (unsigned long long)e->count);
             if (rc != 0) return rc;

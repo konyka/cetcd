@@ -31,6 +31,7 @@ static void print_usage(const char *prog) {
     printf("  --peer-port PORT Peer listen port (default: 2380; 1..65535)\n");
     printf("  --metrics-port PORT Metrics listen port (default: 2381; 0 disables; 0..65535; /metrics + /health)\n");
     printf("  --listen-metrics-urls URL  Metrics listen URL (http://host:port; https/multi fail)\n");
+    printf("  --metrics LEVEL   Metrics detail: basic|extensive (default basic; extensive = unary histograms)\n");
     printf("  --enable-pprof     Expose /debug/pprof/* on the metrics port (default off; true|false)\n");
     printf("  --host-whitelist LIST  Allowed Host names on metrics HTTP (* or empty = all)\n");
     printf("  --node-id ID     Node ID (default: 1; must be > 0)\n");
@@ -173,6 +174,26 @@ int main(int argc, char **argv) {
             }
             cfg.metrics_port = (uint16_t)v;
             cfg.metrics_port_set = true;
+        } else if (strcmp(argv[i], "--metrics") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--metrics must be basic or extensive\n");
+                return 1;
+            }
+            int ext = 0;
+            if (cetcd_parse_metrics_level(argv[++i], &ext) != CETCD_OK) {
+                fprintf(stderr, "--metrics must be basic or extensive\n");
+                return 1;
+            }
+            cfg.metrics_level_set = true;
+            cfg.metrics_extensive = ext != 0;
+        } else if (strncmp(argv[i], "--metrics=", 10) == 0) {
+            int ext = 0;
+            if (cetcd_parse_metrics_level(argv[i] + 10, &ext) != CETCD_OK) {
+                fprintf(stderr, "--metrics must be basic or extensive\n");
+                return 1;
+            }
+            cfg.metrics_level_set = true;
+            cfg.metrics_extensive = ext != 0;
         } else if (strcmp(argv[i], "--enable-pprof") == 0) {
             cfg.enable_pprof_set = true;
             cfg.enable_pprof = true;

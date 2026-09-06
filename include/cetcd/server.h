@@ -95,6 +95,8 @@ typedef struct cetcd_server_config {
     char            metrics_addr[256];            /* empty → listen_addr */
     bool            metrics_port_set;             /* --metrics-port given */
     bool            metrics_urls_set;             /* --listen-metrics-urls given */
+    bool            metrics_level_set;            /* --metrics given */
+    bool            metrics_extensive;            /* unset → basic (no unary histograms) */
     bool            enable_pprof_set;             /* --enable-pprof given */
     bool            enable_pprof;                 /* unset → off (etcd 3.5) */
     char            host_whitelist[512];          /* empty or * = all; metrics Host */
@@ -184,6 +186,10 @@ int cetcd_server_want_tick_advance(int set, int enabled);
 int cetcd_server_want_wait_cluster_ready(int set, int enabled);
 /* Unset → 0 (pprof off). set uses enabled. */
 int cetcd_server_want_enable_pprof(int set, int enabled);
+/* basic | extensive. Empty/unknown is INVAL. *extensive is 1 for extensive. */
+int cetcd_parse_metrics_level(const char *s, int *extensive);
+/* Unset → 0 (basic). set uses extensive. */
+int cetcd_server_want_metrics_extensive(int set, int extensive);
 /* 1=/metrics 2=404 3=profile 4=heap 5=coroutines 6=/health. enable_pprof 0 → pprof is 404. */
 int cetcd_server_metrics_route(const char *path, size_t path_len, int enable_pprof);
 /* 1 healthy. Alarms then leader. serializable skips leader. exclude skips that alarm. */

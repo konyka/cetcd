@@ -48,7 +48,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 | **性能对等** | 3 节点 70/30 Put/Range 工作负载下达到或超过 Go 版 etcd |
 | **纯 C** | C99 基准，需要 C11 原子操作，公共头文件无 GNU/MSVC 扩展 |
 | **可测试** | 全程 TDD，通过可注入时钟/网络实现确定性 Raft 测试 |
-| **可观测** | 结构化 JSON 日志、Prometheus `/metrics`（默认 2381）、`--enable-pprof` 才开的 pprof 端点 |
+| **可观测** | 结构化 JSON 日志、Prometheus `/metrics`（默认 2381；`--metrics=extensive` 才有 unary 直方图）、`--enable-pprof` 才开的 pprof 端点 |
 
 ### 当前实现要点（v0.3.x）
 
@@ -98,7 +98,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 ### v0.3.0 新特性
 
 - **协程驱动的 Watch 双向流**：每个 watcher 运行在独立的 libco 协程中，事件到达时通过 `uv_async_send` 唤醒协程并推送 `WatchResponse`，支持单连接多 watcher 多路复用。详见 [ADR 0004](../adr/0004-watch-streaming-coroutines.md) 与 [架构设计 §Watch streaming](../architecture.md#watch-streaming-architecture)。
-- **Prometheus metrics HTTP 端点**：默认监听 2381 端口，`GET /metrics` 返回 Prometheus 文本格式；`GET /health` 返回 etcd JSON（无 leader / NOSPACE / CORRUPT 为 503；`serializable=true` 跳过 leader；`exclude=` 跳过对应告警）。详见 [usage.md §Observability](../usage.md#observability)。
+- **Prometheus metrics HTTP 端点**：默认监听 2381 端口，`GET /metrics` 返回 Prometheus 文本格式；`--metrics extensive` 才对一元 RPC 记录 `grpc_server_handling_seconds`（省略/`basic` 不加 per-RPC 时钟）；`GET /health` 返回 etcd JSON（无 leader / NOSPACE / CORRUPT 为 503；`serializable=true` 跳过 leader；`exclude=` 跳过对应告警）。详见 [usage.md §Observability](../usage.md#observability)。
 - **etcd 迁移工具 `cetcd-migrate`**：离线读取 etcd 数据目录（bbolt + WAL + snap），转换为 cetcd 原生的 LMDB 环境与 WAL。详见 [usage.md §Migrating from etcd](../usage.md#migrating-from-etcd)。
 - **pprof 性能分析端点**：`--enable-pprof`（省略默认关）才在 metrics 端口提供 `/debug/pprof/profile`、`/debug/pprof/heap`、`/debug/pprof/coroutines`；未开启则 404。CPU profile 在 libuv 工作线程采集（`SIGPROF` 采样 on-CPU 线程），不阻塞 Raft reactor；并发采集返回 409。输出为 folded-stack 文本。详见 [usage.md §Profiling](../usage.md#profiling)。
 
@@ -820,6 +820,7 @@ Unknown server flags fail at parse instead of being ignored.
 `--metrics-port` is `0..65535` (`0` disables); a typo fail-closes instead of silently disabling metrics.
 `--listen-metrics-urls` is a single `http://host:port` (port `1..65535`). It binds `/metrics` and `/health` on that address. `https` / comma-list / leftover text / mix with `--metrics-port` fail-closes.
 `--host-whitelist` is a comma-separated Host list on that port (omitted / `*` / empty = allow all). A restricted list 403s a missing or unknown Host (port stripped).
+`--metrics` is `basic` or `extensive` (omitted default `basic`). `extensive` times unary RPC and observes `grpc_server_handling_seconds` (Prometheus DefBuckets). Other values or a missing value fail-close. `basic` does not take a per-RPC clock.
 `GET /health` returns etcd JSON (`health` as a string). NOSPACE, CORRUPT, or no Raft leader is HTTP 503. `?serializable=true` skips the leader check; `exclude=NOSPACE|CORRUPT` skips that alarm.
 `--enable-pprof` is `true`/`false`/`1`/`0` (bare flag is on; omitted default off). A non-bool fail-closes. Without it `/debug/pprof/*` on the metrics port is 404.
 `--node-id` must be `> 0`; a typo fail-closes instead of becoming Raft id `0`.

@@ -20,6 +20,9 @@ void cetcd_metrics_gauge_set(cetcd_metrics *m, const char *name, double val);
 void cetcd_metrics_gauge_inc(cetcd_metrics *m, const char *name);
 void cetcd_metrics_gauge_dec(cetcd_metrics *m, const char *name);
 void cetcd_metrics_observe(cetcd_metrics *m, const char *name, double val);
+/* Unary seconds histogram (etcd --metrics=extensive). NULL m is a no-op. */
+#define CETCD_METRICS_UNARY_HIST "grpc_server_handling_seconds"
+void cetcd_metrics_observe_unary(cetcd_metrics *m, uint64_t elapsed_ns);
 
 /* Render all metrics into buf in Prometheus text exposition format.
  * Returns 0 on success, or a negative cetcd_status on failure. */

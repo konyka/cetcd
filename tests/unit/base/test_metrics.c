@@ -146,6 +146,35 @@ CETCD_TEST_CASE(test_metrics_render_histogram) {
     /* Verify _count line */
     CETCD_ASSERT_TRUE(strstr(out, "request_duration_ns_count 3") != NULL);
 
+    /* Values 100/200/300 are above the 10s DefBucket; finite les stay 0. */
+    CETCD_ASSERT_TRUE(strstr(out, "request_duration_ns_bucket{le=\"0.005\"} 0") != NULL);
+    CETCD_ASSERT_TRUE(strstr(out, "request_duration_ns_bucket{le=\"10\"} 0") != NULL);
+
+    cetcd_buf_free(&buf);
+    cetcd_metrics_free(m);
+}
+
+CETCD_TEST_CASE(test_metrics_observe_unary_buckets) {
+    cetcd_metrics *m = cetcd_metrics_new();
+    CETCD_ASSERT_NOT_NULL(m);
+
+    cetcd_metrics_observe_unary(NULL, 100000000ull);
+    cetcd_metrics_observe_unary(m, 100000000ull); /* 0.1s */
+    cetcd_metrics_observe_unary(m, 400000000ull); /* 0.4s */
+
+    cetcd_buf_t buf;
+    cetcd_buf_init(&buf);
+    CETCD_ASSERT_EQ_INT(cetcd_metrics_render(m, &buf), 0);
+    char *out = (char *)buf.data;
+    CETCD_ASSERT_TRUE(strstr(out, "# TYPE grpc_server_handling_seconds histogram") != NULL);
+    CETCD_ASSERT_TRUE(strstr(out, "grpc_server_handling_seconds_bucket{le=\"0.05\"} 0") != NULL);
+    CETCD_ASSERT_TRUE(strstr(out, "grpc_server_handling_seconds_bucket{le=\"0.1\"} 1") != NULL);
+    CETCD_ASSERT_TRUE(strstr(out, "grpc_server_handling_seconds_bucket{le=\"0.25\"} 1") != NULL);
+    CETCD_ASSERT_TRUE(strstr(out, "grpc_server_handling_seconds_bucket{le=\"0.5\"} 2") != NULL);
+    CETCD_ASSERT_TRUE(strstr(out, "grpc_server_handling_seconds_bucket{le=\"+Inf\"} 2") != NULL);
+    CETCD_ASSERT_TRUE(strstr(out, "grpc_server_handling_seconds_count 2") != NULL);
+    CETCD_ASSERT_TRUE(strstr(out, "grpc_server_handling_seconds_sum 0.50") != NULL);
+
     cetcd_buf_free(&buf);
     cetcd_metrics_free(m);
 }
@@ -267,6 +296,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(metrics_null_safety),
     CETCD_TEST_ENTRY(test_metrics_render_prometheus_format),
     CETCD_TEST_ENTRY(test_metrics_render_histogram),
+    CETCD_TEST_ENTRY(test_metrics_observe_unary_buckets),
     CETCD_TEST_ENTRY(test_metrics_render_empty),
     CETCD_TEST_ENTRY(test_pprof_heap_render),
     CETCD_TEST_ENTRY(test_pprof_coroutines_render),

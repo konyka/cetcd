@@ -425,6 +425,11 @@ Performance-first, fail-closed design:
   HTTP port. Empty / `*` (omitted default) allows all. A restricted list
   waits for headers and returns 403 if Host is missing or not listed
   (port stripped). Default `*` stays a fast path (request-line only).
+- **`--metrics basic|extensive`** — omitted / `basic` keeps counters and
+  gauges only (no per-RPC clock). `extensive` times unary dispatch and
+  observes `grpc_server_handling_seconds` (Prometheus DefBuckets).
+  Other values or a missing value fail at parse (no longer an unknown
+  flag). Accepting `extensive` as a no-op is rejected.
 - **Downgrade fail-closed** — `Maintenance/Downgrade` VALIDATE of
   `cetcd_version()` succeeds (already at this binary). ENABLE, CANCEL,
   and any other version fail-closed: the on-disk format cannot change

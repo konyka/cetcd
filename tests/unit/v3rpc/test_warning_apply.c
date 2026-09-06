@@ -1,6 +1,8 @@
 #include "cetcd/v3rpc.h"
 #include "cetcd_test.h"
 
+#include <stdint.h>
+
 CETCD_TEST_CASE(warning_apply_disabled) {
     CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_should_warn(1, 0), 0);
     CETCD_ASSERT_EQ_INT(cetcd_v3rpc_apply_should_warn(1000000000ull, 0), 0);
@@ -30,11 +32,22 @@ CETCD_TEST_CASE(warning_unary_set_get) {
     cetcd_v3rpc_set_warning_unary_ns(0);
 }
 
+CETCD_TEST_CASE(warning_unary_metrics_sink) {
+    struct cetcd_metrics *dummy = (struct cetcd_metrics *)(void *)(uintptr_t)1;
+    cetcd_v3rpc_set_metrics(NULL);
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_metrics() == NULL);
+    cetcd_v3rpc_set_metrics(dummy);
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_metrics() == dummy);
+    cetcd_v3rpc_set_metrics(NULL);
+    CETCD_ASSERT_TRUE(cetcd_v3rpc_metrics() == NULL);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(warning_apply_disabled),
     CETCD_TEST_ENTRY(warning_apply_threshold),
     CETCD_TEST_ENTRY(warning_apply_set_get),
     CETCD_TEST_ENTRY(warning_unary_set_get),
+    CETCD_TEST_ENTRY(warning_unary_metrics_sink),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()
