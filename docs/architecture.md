@@ -25,7 +25,7 @@ internals are organised. For deeper rationale on individual decisions, see
 | WAL replay | Restart restuffs the Raft log and applies NORMAL entries past `applied_index`. `--wal-dir` may place the segment on a dedicated disk. |
 | DNS discovery | `--discovery-srv` / `--discovery-srv-name` resolve `_etcd-client` / `_etcd-server` SRV records (fail-closed). |
 | TLS | Memory-BIO termination on client/peer listen and on outbound `peer_tx_`. Client and peer listen select ALPN `h2` when offered. Cert without key, missing files, or `--client-cert-auth` without CA fail closed. `--auto-tls` / `--peer-auto-tls` mint ECDSA P-256 into `{data-dir}/fixtures/`. Plaintext remains the default. |
-| Cluster join | `--initial-cluster-state existing` restarts from evidence or starts as a follower with `--initial-cluster` peers. `snapshot.kv` is imported into empty MVCC. Restore persists `--initial-cluster` / `--name` / advertise URLs into the data dir so start can omit them. After WAL compaction the leader sends `MsgSnap` (KV blob) to a lagging joiner; while the log is still live it sends `App` from `next_idx`. |
+| Cluster join | `--initial-cluster-state existing` restarts from evidence or starts as a follower with `--initial-cluster` peers. `snapshot.kv` is imported into empty MVCC. Restore persists `--initial-cluster` / `--name` / advertise URLs into the data dir so start can omit them. Save writes CTS2 (revision + CRC32C); restore fail-closes on a hash mismatch unless `--skip-hash-check`. After WAL compaction the leader sends `MsgSnap` (KV blob) to a lagging joiner; while the log is still live it sends `App` from `next_idx`. |
 
 Remaining work is tracked in [`docs/roadmap.md`](./roadmap.md).
 
@@ -306,7 +306,8 @@ Per-key lock-free fan-out remains a design goal.
 Snapshots are streamed over gRPC via the `Maintenance.Snapshot` server-streaming RPC. On
 disk, snapshot files are stored as `%016x-%016x.snap` with a header `{crc:uint32, len:uint32}`
 followed by an LMDB env-dump payload. A separate `etcd-snap-import` mode accepts bbolt-format
-snapshots for migration.
+snapshots for migration. `cetcdctl snapshot save` writes CTS2 (revision + CRC32C of the
+kv blob); restore verifies unless `--skip-hash-check` and writes kv-only `snapshot.kv`.
 
 ---
 
@@ -619,7 +620,7 @@ All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetoliv
 `txn del --from-key` flag (accepted for etcdctl compatibility; uses `\0` as range_end for all keys >= key),
 `check datascale --prefix ""` buffer overflow fix (same pattern; cleanup delete now handles empty prefix correctly),
 `del --hex` flag (outputs prev-kv key/value in hexadecimal format, matching etcdctl behavior),
-`snapshot file format with revision` (snapshot files now include a 12-byte header: 4-byte magic "CTS1" + 8-byte revision in little-endian; `snapshot status` displays the revision; `snapshot restore` skips the header and writes KV data only to `snapshot.kv`; old format files without the header are still supported for backward compatibility),
+`snapshot file format with revision` (snapshot save writes a 16-byte CTS2 header: magic "CTS2" + 8-byte revision LE + 4-byte CRC32C LE of the kv blob; `snapshot status` shows the stored CRC for CTS2 or computes CRC32C of the body for CTS1/raw; `snapshot restore` verifies CTS2 unless `--skip-hash-check`, then writes KV data only to `snapshot.kv`; legacy CTS1 and headerless files still restore),
 `member list -w fields` (new output format showing ID, name, peerURLs, clientURLs, and isLearner for each member),
 `endpoint status -w fields` (new output format showing endpoint, ID, revision, dbSize, raftIndex, raftTerm, and version),
 `compact -w fields` (new output format showing ResponseHeader fields; REV must be `> 0`; leftover text fail-closes),
@@ -953,7 +954,7 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 
 `cetcdctl global flags` (`--cacert`/`--cert`/`--key` enable TLS; `--insecure-skip-tls-verify` skips verify; `--insecure-transport` mixed with cert flags fail-closes; `https://` endpoints require `--cacert` or `--insecure` and reject `--insecure-transport`; `--max-call-send-msg-size` / `--max-call-recv-msg-size` cap the custom-frame payload and fail closed on `0` or overflow; `--discovery-srv` / `--discovery-srv-name` resolve `_etcd-client[-ssl]._tcp` (fail-closed on 0 records; mixed with `--endpoints` fail-closes); `--endpoints` comma-lists failover in order; `--command-timeout` is a duration (`0` = none; a typo fail-closes); `--dial-timeout` is `0..86400` seconds (`0` = none; a typo fail-closes); `--port` is `1..65535` (a typo fail-closes); `--password` can be used with `--user USER` to provide the password separately),
 `get --count-only -w fields` (fields output now includes ResponseHeader fields and `"count" : N` line, matching etcdctl fields format),
-`snapshot restore` etcd-compatible flags (`--initial-cluster-token` writes `{data-dir}/cluster_token` and a mismatch without `--force` fail-closes; `--initial-cluster-state` is `new` or `existing` and is persisted; `--initial-cluster` / `--name` / `--initial-advertise-peer-urls` are validated and written to the data dir; unknown state, empty values, a bad spec, or a mismatch without `--force` fail-close; `--skip-hash-check` stays no-op),
+`snapshot restore` etcd-compatible flags (`--initial-cluster-token` writes `{data-dir}/cluster_token` and a mismatch without `--force` fail-closes; `--initial-cluster-state` is `new` or `existing` and is persisted; `--initial-cluster` / `--name` / `--initial-advertise-peer-urls` are validated and written to the data dir; unknown state, empty values, a bad spec, or a mismatch without `--force` fail-close; `--skip-hash-check` overrides a CTS2 CRC mismatch; a truncated CTS2 header still fail-closes),
 `get --count-only -w json` format fix (now outputs `{"header":{...},"count":N}` without `kvs` or `more` fields, matching etcdctl output format),
 `cetcdctl --prefix PrefixEnd` (keys ending in `0xFF` now carry correctly via `cetcd_key_prefix_end`; all-`0xFF` / empty prefixes use `\0` FromKey instead of wrapping the last byte),
 `DeleteRange single revision` (`cetcd_mvcc_delete_keys` bumps `main_rev` once for N keys; delete events share `rev.main` with distinct `rev.sub`, matching etcd),

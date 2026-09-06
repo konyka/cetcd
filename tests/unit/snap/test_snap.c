@@ -158,6 +158,84 @@ CETCD_TEST_CASE(snap_decode_kv_fail_closed) {
     CETCD_ASSERT_TRUE(cetcd_snap_decode_kv(huge, sizeof(huge)) == NULL);
 }
 
+CETCD_TEST_CASE(snap_cts2_parse_verify_roundtrip) {
+    uint8_t kv[] = {0x01, 'a', 0x01, 'b'};
+    size_t n = 0;
+    uint8_t *buf = cetcd_snap_encode_cts2(kv, sizeof(kv), 42, &n);
+    CETCD_ASSERT_NOT_NULL(buf);
+    CETCD_ASSERT_EQ_INT((int)n, 20);
+    CETCD_ASSERT_EQ_INT(memcmp(buf, "CTS2", 4), 0);
+
+    cetcd_snap_header h;
+    CETCD_ASSERT_EQ_INT(cetcd_snap_parse_header(buf, n, &h), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)h.revision, 42);
+    CETCD_ASSERT_EQ_INT(h.has_hash, 1);
+    CETCD_ASSERT_EQ_INT((int)h.kv_off, 16);
+    CETCD_ASSERT_EQ_INT((int)h.kv_len, 4);
+    CETCD_ASSERT_TRUE(h.hash == cetcd_snap_crc32c(kv, sizeof(kv)));
+    CETCD_ASSERT_EQ_INT(cetcd_snap_verify(buf, n), CETCD_OK);
+
+    cetcd_snap *s = cetcd_snap_decode_kv(buf, n);
+    CETCD_ASSERT_NOT_NULL(s);
+    CETCD_ASSERT_EQ_INT((int)cetcd_snap_entry_count(s), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_snap_get_entry(s, 0)->key[0], 'a');
+    cetcd_snap_free(s);
+    free(buf);
+
+    uint8_t *empty = cetcd_snap_encode_cts2(NULL, 0, 1, &n);
+    CETCD_ASSERT_NOT_NULL(empty);
+    CETCD_ASSERT_EQ_INT((int)n, 16);
+    CETCD_ASSERT_EQ_INT(cetcd_snap_verify(empty, n), CETCD_OK);
+    s = cetcd_snap_decode_kv(empty, n);
+    CETCD_ASSERT_NOT_NULL(s);
+    CETCD_ASSERT_EQ_INT((int)cetcd_snap_entry_count(s), 0);
+    cetcd_snap_free(s);
+    free(empty);
+}
+
+CETCD_TEST_CASE(snap_cts2_verify_fail_closed) {
+    uint8_t kv[] = {0x01, 'a', 0x01, 'b'};
+    size_t n = 0;
+    uint8_t *buf = cetcd_snap_encode_cts2(kv, sizeof(kv), 7, &n);
+    CETCD_ASSERT_NOT_NULL(buf);
+    buf[12] ^= 0xff;
+    CETCD_ASSERT_EQ_INT(cetcd_snap_verify(buf, n), CETCD_ERR_CORRUPT);
+    cetcd_snap *s = cetcd_snap_decode_kv(buf, n);
+    CETCD_ASSERT_NOT_NULL(s);
+    CETCD_ASSERT_EQ_INT((int)cetcd_snap_entry_count(s), 1);
+    cetcd_snap_free(s);
+    free(buf);
+
+    uint8_t trunc[] = {'C', 'T', 'S', '2', 1, 0, 0, 0, 0, 0, 0, 0};
+    cetcd_snap_header bad;
+    CETCD_ASSERT_EQ_INT(cetcd_snap_parse_header(trunc, sizeof(trunc), &bad),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_snap_verify(trunc, sizeof(trunc)), CETCD_ERR_INVAL);
+    CETCD_ASSERT_TRUE(cetcd_snap_decode_kv(trunc, sizeof(trunc)) == NULL);
+}
+
+CETCD_TEST_CASE(snap_cts1_and_raw_have_no_hash) {
+    uint8_t kv[] = {0x01, 'a', 0x01, 'b'};
+    uint8_t cts1[16];
+    memcpy(cts1, "CTS1", 4);
+    memset(cts1 + 4, 0, 8);
+    cts1[4] = 9;
+    memcpy(cts1 + 12, kv, 4);
+
+    cetcd_snap_header h;
+    CETCD_ASSERT_EQ_INT(cetcd_snap_parse_header(cts1, sizeof(cts1), &h), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(h.has_hash, 0);
+    CETCD_ASSERT_EQ_INT((int)h.revision, 9);
+    CETCD_ASSERT_EQ_INT((int)h.kv_off, 12);
+    CETCD_ASSERT_EQ_INT(cetcd_snap_verify(cts1, sizeof(cts1)), CETCD_OK);
+
+    CETCD_ASSERT_EQ_INT(cetcd_snap_parse_header(kv, sizeof(kv), &h), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(h.has_hash, 0);
+    CETCD_ASSERT_EQ_INT((int)h.kv_off, 0);
+    CETCD_ASSERT_EQ_INT(cetcd_snap_verify(kv, sizeof(kv)), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_snap_verify(NULL, 0), CETCD_OK);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(snap_create_destroy),
     CETCD_TEST_ENTRY(snap_add_entries),
@@ -167,6 +245,9 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(snap_decode_kv_pairs_and_header),
     CETCD_TEST_ENTRY(snap_encode_kv_roundtrip),
     CETCD_TEST_ENTRY(snap_decode_kv_fail_closed),
+    CETCD_TEST_ENTRY(snap_cts2_parse_verify_roundtrip),
+    CETCD_TEST_ENTRY(snap_cts2_verify_fail_closed),
+    CETCD_TEST_ENTRY(snap_cts1_and_raw_have_no_hash),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

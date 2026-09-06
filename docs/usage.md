@@ -447,7 +447,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd --force  # Force overwrite
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd -w json  # Restore with JSON output
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd -w fields  # Restore with fields output
-./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd --skip-hash-check  # Skip hash check (etcd-compatible)
+./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd --skip-hash-check  # Restore despite a CTS2 CRC mismatch
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd --initial-cluster-token etcd-cluster  # Persist cluster token
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd --initial-cluster-state new
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd --initial-cluster-state existing --force

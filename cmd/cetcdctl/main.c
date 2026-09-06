@@ -83,6 +83,7 @@
 #include "cetcd/auth.h"
 #include "cetcd/tls.h"
 #include "cetcd/peer.h"
+#include "cetcd/snap.h"
 
 static const char *g_host = "127.0.0.1";
 static uint16_t    g_port = 2379;
@@ -4051,14 +4052,19 @@ static int cmd_snapshot(int argc, char **argv) {
         if (filename) {
             FILE *f = fopen(filename, "wb");
             if (!f) { perror("fopen"); return 1; }
-            /* Write snapshot file header: 4-byte magic "CTS1" + 8-byte revision (LE) */
-            fwrite("CTS1", 1, 4, f);
-            uint8_t rev_bytes[8];
-            for (int i = 0; i < 8; i++) rev_bytes[i] = (uint8_t)((snap_revision >> (i * 8)) & 0xFF);
-            fwrite(rev_bytes, 1, 8, f);
-            if (blob_data && blob_len > 0) fwrite(blob_data, 1, blob_len, f);
+            size_t enc_len = 0;
+            uint8_t *enc = cetcd_snap_encode_cts2(blob_data, blob_len,
+                                                 snap_revision, &enc_len);
+            if (!enc) { fclose(f); fprintf(stderr, "out of memory\n"); return 1; }
+            if (fwrite(enc, 1, enc_len, f) != enc_len) {
+                free(enc);
+                fclose(f);
+                fprintf(stderr, "write snapshot failed\n");
+                return 1;
+            }
+            free(enc);
             fclose(f);
-            snapshot_size = blob_len + 12; /* include header */
+            snapshot_size = enc_len;
             if (want_json) {
                 fputs("{", stdout);
                 parse_and_print_header_json(resp, (size_t)rlen);
@@ -4116,37 +4122,25 @@ static int cmd_snapshot(int argc, char **argv) {
         fseek(f, 0, SEEK_END);
         long fsize = ftell(f);
         fseek(f, 0, SEEK_SET);
-        uint8_t *fdata = (uint8_t *)malloc(fsize);
-        if (fdata) fread(fdata, 1, fsize, f);
+        uint8_t *fdata = (fsize > 0) ? (uint8_t *)malloc((size_t)fsize) : NULL;
+        if (fsize > 0 && !fdata) { fclose(f); fprintf(stderr, "out of memory\n"); return 1; }
+        if (fdata) fread(fdata, 1, (size_t)fsize, f);
         fclose(f);
-        /* Parse snapshot file: optional 12-byte header (magic "CTS1" + revision) + blob */
-        int key_count = 0;
-        uint32_t hash = 0;
-        uint64_t snap_rev = 0;
-        size_t data_offset = 0;
-        size_t data_size = (size_t)fsize;
-        if (fdata && fsize >= 12 && memcmp(fdata, "CTS1", 4) == 0) {
-            /* New format: has revision header */
-            for (int i = 0; i < 8; i++)
-                snap_rev |= ((uint64_t)fdata[4 + i]) << (i * 8);
-            data_offset = 12;
-            data_size = (size_t)fsize - 12;
+        cetcd_snap_header hdr;
+        if (cetcd_snap_parse_header(fdata, fsize > 0 ? (size_t)fsize : 0, &hdr) != CETCD_OK) {
+            free(fdata);
+            fprintf(stderr, "snapshot header is truncated or invalid\n");
+            return 1;
         }
-        if (fdata) {
-            size_t sp = data_offset;
-            while (sp < data_offset + data_size) {
-                /* read key_len */
-                uint64_t kl = 0; if (read_varint(fdata, fsize, &sp, &kl) != 0) break;
-                if (sp + kl > (size_t)fsize) break;
-                for (size_t i = 0; i < kl; i++) hash = hash * 31 + fdata[sp + i];
-                sp += kl;
-                /* read val_len */
-                uint64_t vl = 0; if (read_varint(fdata, fsize, &sp, &vl) != 0) break;
-                if (sp + vl > (size_t)fsize) break;
-                for (size_t i = 0; i < vl; i++) hash = hash * 31 + fdata[sp + i];
-                sp += vl;
-                key_count++;
-            }
+        uint32_t hash = hdr.has_hash
+            ? hdr.hash
+            : cetcd_snap_crc32c(fdata ? fdata + hdr.kv_off : NULL, hdr.kv_len);
+        uint64_t snap_rev = hdr.revision;
+        int key_count = 0;
+        cetcd_snap *parsed = cetcd_snap_decode_kv(fdata, fsize > 0 ? (size_t)fsize : 0);
+        if (parsed) {
+            key_count = (int)cetcd_snap_entry_count(parsed);
+            cetcd_snap_free(parsed);
         }
         if (fdata) free(fdata);
         if (snap_json) {
@@ -4187,6 +4181,7 @@ static int cmd_snapshot(int argc, char **argv) {
         const char *member_name = NULL;
         const char *cluster_state = NULL;
         int force = 0;
+        int skip_hash = 0;
         int want_json = 0, want_fields = 0;
         for (int i = 3; i < argc; i++) {
             if (strcmp(argv[i], "--data-dir") == 0 && i + 1 < argc) {
@@ -4198,7 +4193,7 @@ static int cmd_snapshot(int argc, char **argv) {
                 else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
                 i++;
             } else if (strcmp(argv[i], "--skip-hash-check") == 0) {
-                /* Accepted for etcdctl compatibility, no-op */
+                skip_hash = 1;
             } else if (strcmp(argv[i], "--initial-cluster") == 0 && i + 1 < argc) {
                 initial_cluster = argv[++i];
             } else if (strcmp(argv[i], "--initial-advertise-peer-urls") == 0 && i + 1 < argc) {
@@ -4278,17 +4273,26 @@ static int cmd_snapshot(int argc, char **argv) {
         if (!snap_data) { fprintf(stderr, "out of memory\n"); fclose(sf); return 1; }
         fread(snap_data, 1, snap_size, sf);
         fclose(sf);
-        /* Parse KV pairs from the snapshot and count them */
-        /* Check for 12-byte header (magic "CTS1" + revision) */
-        size_t kv_offset = 0;
-        size_t kv_size = (size_t)snap_size;
-        uint64_t restore_rev = 0;
-        if (snap_size >= 12 && memcmp(snap_data, "CTS1", 4) == 0) {
-            for (int i = 0; i < 8; i++)
-                restore_rev |= ((uint64_t)snap_data[4 + i]) << (i * 8);
-            kv_offset = 12;
-            kv_size = (size_t)snap_size - 12;
+        int vr = cetcd_snap_verify(snap_data, (size_t)snap_size);
+        if (vr == CETCD_ERR_INVAL) {
+            free(snap_data);
+            fprintf(stderr, "snapshot header is truncated or invalid\n");
+            return 1;
         }
+        if (vr == CETCD_ERR_CORRUPT && !skip_hash) {
+            free(snap_data);
+            fprintf(stderr, "snapshot hash mismatch, use --skip-hash-check to override\n");
+            return 1;
+        }
+        cetcd_snap_header hdr;
+        if (cetcd_snap_parse_header(snap_data, (size_t)snap_size, &hdr) != CETCD_OK) {
+            free(snap_data);
+            fprintf(stderr, "snapshot header is truncated or invalid\n");
+            return 1;
+        }
+        size_t kv_offset = hdr.kv_off;
+        size_t kv_size = hdr.kv_len;
+        uint64_t restore_rev = hdr.revision;
         int kv_count = 0;
         size_t sp = kv_offset;
         while (sp < kv_offset + kv_size) {

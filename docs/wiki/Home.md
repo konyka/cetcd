@@ -851,6 +851,7 @@ URLs (empty defaults from listen; `https://` requires the matching cert file).
 `--initial-cluster-token` is persisted in `data-dir`; a mismatch fail-closes.
 `cetcdctl snapshot restore --initial-cluster-token` writes the same file (mismatch without `--force` fail-closes).
 `cetcdctl snapshot restore --initial-cluster-state` is `new` or `existing` (writes `snapshot.kv` and persists the state). `--initial-cluster` / `--name` / `--initial-advertise-peer-urls` are validated and written to the data dir; a bad spec or mismatch without `--force` fail-closes. Server start loads those files when the CLI omits the flag. A blank `--initial-cluster-state existing` start needs `snapshot.kv`, a persisted `initial-cluster`, or `--initial-cluster` peers.
+`cetcdctl snapshot save` writes CTS2 (revision + CRC32C of the kv blob). Restore fail-closes on a hash mismatch unless `--skip-hash-check`. Legacy CTS1 still restores. A truncated CTS2 header fail-closes even with skip.
 After WAL compaction the leader sends one `MsgSnap` (KV blob) to a joiner whose `next_idx` is at or below the compacted index; `snapshot==0` or a corrupt blob fail-closes.
 While the log is still live the leader sends `App` from `next_idx` (batch capped by `max_size_per_msg`); an `AppResp` reject uses the follower's last-index hint.
 

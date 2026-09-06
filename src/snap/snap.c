@@ -1,5 +1,6 @@
 #include "cetcd/snap.h"
 #include "cetcd/base.h"
+#include "cetcd/hash.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -232,9 +233,14 @@ cetcd_snap *cetcd_snap_decode_kv(const uint8_t *data, size_t len) {
     if (!data && len > 0) return NULL;
     const uint8_t *p = data;
     size_t n = len;
-    if (n >= 12 && p && memcmp(p, "CTS1", 4) == 0) {
+    if (n >= 16 && p && memcmp(p, "CTS2", 4) == 0) {
+        p += 16;
+        n -= 16;
+    } else if (n >= 12 && p && memcmp(p, "CTS1", 4) == 0) {
         p += 12;
         n -= 12;
+    } else if (n > 0 && p && n < 16 && memcmp(p, "CTS2", 4) == 0) {
+        return NULL;
     }
     if (n == 0) {
         cetcd_snap *empty = cetcd_snap_new();
@@ -310,5 +316,100 @@ uint8_t *cetcd_snap_encode_kv(const cetcd_snap *s, size_t *out_len) {
         }
     }
     *out_len = pos;
+    return buf;
+}
+
+static uint32_t le32_read_(const uint8_t *p) {
+    return (uint32_t)p[0] |
+           ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) |
+           ((uint32_t)p[3] << 24);
+}
+
+static uint64_t le64_read_(const uint8_t *p) {
+    return (uint64_t)p[0] |
+           ((uint64_t)p[1] << 8) |
+           ((uint64_t)p[2] << 16) |
+           ((uint64_t)p[3] << 24) |
+           ((uint64_t)p[4] << 32) |
+           ((uint64_t)p[5] << 40) |
+           ((uint64_t)p[6] << 48) |
+           ((uint64_t)p[7] << 56);
+}
+
+static void le32_write_(uint8_t *dst, uint32_t v) {
+    dst[0] = (uint8_t)(v & 0xff);
+    dst[1] = (uint8_t)((v >> 8) & 0xff);
+    dst[2] = (uint8_t)((v >> 16) & 0xff);
+    dst[3] = (uint8_t)((v >> 24) & 0xff);
+}
+
+static void le64_write_(uint8_t *dst, uint64_t v) {
+    dst[0] = (uint8_t)(v & 0xff);
+    dst[1] = (uint8_t)((v >> 8) & 0xff);
+    dst[2] = (uint8_t)((v >> 16) & 0xff);
+    dst[3] = (uint8_t)((v >> 24) & 0xff);
+    dst[4] = (uint8_t)((v >> 32) & 0xff);
+    dst[5] = (uint8_t)((v >> 40) & 0xff);
+    dst[6] = (uint8_t)((v >> 48) & 0xff);
+    dst[7] = (uint8_t)((v >> 56) & 0xff);
+}
+
+int cetcd_snap_parse_header(const uint8_t *data, size_t len,
+                            cetcd_snap_header *out) {
+    if (!out) return CETCD_ERR_INVAL;
+    memset(out, 0, sizeof(*out));
+    if (!data && len > 0) return CETCD_ERR_INVAL;
+    if (!data || len == 0) {
+        return CETCD_OK;
+    }
+    if (len >= 4 && memcmp(data, "CTS2", 4) == 0) {
+        if (len < 16) return CETCD_ERR_INVAL;
+        out->revision = le64_read_(data + 4);
+        out->hash = le32_read_(data + 12);
+        out->kv_off = 16;
+        out->kv_len = len - 16;
+        out->has_hash = 1;
+        return CETCD_OK;
+    }
+    if (len >= 12 && memcmp(data, "CTS1", 4) == 0) {
+        out->revision = le64_read_(data + 4);
+        out->kv_off = 12;
+        out->kv_len = len - 12;
+        return CETCD_OK;
+    }
+    out->kv_off = 0;
+    out->kv_len = len;
+    return CETCD_OK;
+}
+
+uint32_t cetcd_snap_crc32c(const uint8_t *kv, size_t len) {
+    if (!kv || len == 0) return cetcd_crc32c(0, "", 0);
+    return cetcd_crc32c(0, kv, len);
+}
+
+int cetcd_snap_verify(const uint8_t *data, size_t len) {
+    cetcd_snap_header h;
+    int rc = cetcd_snap_parse_header(data, len, &h);
+    if (rc != CETCD_OK) return rc;
+    if (!h.has_hash) return CETCD_OK;
+    uint32_t got = cetcd_snap_crc32c(data + h.kv_off, h.kv_len);
+    if (got != h.hash) return CETCD_ERR_CORRUPT;
+    return CETCD_OK;
+}
+
+uint8_t *cetcd_snap_encode_cts2(const uint8_t *kv, size_t kv_len,
+                                uint64_t rev, size_t *out_len) {
+    if (out_len) *out_len = 0;
+    if (!out_len) return NULL;
+    if (!kv && kv_len > 0) return NULL;
+    size_t total = 16 + kv_len;
+    uint8_t *buf = (uint8_t *)malloc(total);
+    if (!buf) return NULL;
+    memcpy(buf, "CTS2", 4);
+    le64_write_(buf + 4, rev);
+    le32_write_(buf + 12, cetcd_snap_crc32c(kv, kv_len));
+    if (kv_len > 0) memcpy(buf + 16, kv, kv_len);
+    *out_len = total;
     return buf;
 }

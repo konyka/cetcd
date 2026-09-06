@@ -332,6 +332,10 @@ Performance-first, fail-closed design:
   pairs (Castagnoli, key order) at the requested revision instead of
   `revision * constant`. Same revision with different contents no longer
   collides. Compacted / future revisions stay fail-closed.
+- **Snapshot CTS2 CRC32C** — `snapshot save` writes `CTS2` + revision +
+  CRC32C of the kv blob. Restore fail-closes on a mismatch unless
+  `--skip-hash-check`. Legacy `CTS1` (no stored hash) still restores.
+  A truncated CTS2 header fail-closes even with skip.
 
 ## Previously done (auth data plane)
 

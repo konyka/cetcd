@@ -2360,6 +2360,55 @@ CETCD_TEST_CASE(live_cetcdctl_restore_initial_cluster) {
     unlink(snap);
 }
 
+CETCD_TEST_CASE(live_cetcdctl_restore_skip_hash_check) {
+    char snap[128], dir[128], snapkv[200], cmd[1024];
+    snprintf(snap, sizeof(snap), "/tmp/cetcd-snap-hash-%d", (int)getpid());
+    snprintf(dir, sizeof(dir), "/tmp/cetcd-restore-hash-%d", (int)getpid());
+    snprintf(snapkv, sizeof(snapkv), "%s/snapshot.kv", dir);
+
+    snprintf(cmd, sizeof(cmd), "mkdir -p '%s'", dir);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    uint8_t kv[] = {0x01, 'a', 0x01, 'b'};
+    FILE *sf = fopen(snap, "wb");
+    CETCD_ASSERT_NOT_NULL(sf);
+    CETCD_ASSERT_TRUE(fwrite("CTS2", 1, 4, sf) == 4);
+    uint8_t hdr[12] = {0};
+    hdr[8] = 0x01; /* stored CRC != body */
+    CETCD_ASSERT_TRUE(fwrite(hdr, 1, 12, sf) == 12);
+    CETCD_ASSERT_TRUE(fwrite(kv, 1, sizeof(kv), sf) == sizeof(kv));
+    fclose(sf);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' snapshot restore '%s' --data-dir '%s' >/dev/null 2>&1",
+             CETCDCTL_BIN, snap, dir);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' snapshot restore '%s' --data-dir '%s' --skip-hash-check >/dev/null",
+             CETCDCTL_BIN, snap, dir);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+    FILE *kf = fopen(snapkv, "rb");
+    CETCD_ASSERT_NOT_NULL(kf);
+    uint8_t got[8];
+    CETCD_ASSERT_TRUE(fread(got, 1, sizeof(kv), kf) == sizeof(kv));
+    fclose(kf);
+    CETCD_ASSERT_EQ_INT(memcmp(got, kv, sizeof(kv)), 0);
+
+    unlink(snapkv);
+    sf = fopen(snap, "wb");
+    CETCD_ASSERT_NOT_NULL(sf);
+    CETCD_ASSERT_TRUE(fwrite("CTS2", 1, 4, sf) == 4);
+    CETCD_ASSERT_TRUE(fwrite(hdr, 1, 8, sf) == 8); /* truncated header */
+    fclose(sf);
+    snprintf(cmd, sizeof(cmd),
+             "'%s' snapshot restore '%s' --data-dir '%s' --skip-hash-check --force >/dev/null 2>&1",
+             CETCDCTL_BIN, snap, dir);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    unlink(snap);
+}
+
 CETCD_TEST_CASE(live_cetcdctl_discovery_srv) {
     char cmd[1024];
     /* version is local — no DNS */
@@ -2738,6 +2787,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcdctl_restore_cluster_token),
     CETCD_TEST_ENTRY(live_cetcdctl_restore_cluster_state),
     CETCD_TEST_ENTRY(live_cetcdctl_restore_initial_cluster),
+    CETCD_TEST_ENTRY(live_cetcdctl_restore_skip_hash_check),
     CETCD_TEST_ENTRY(live_cetcdctl_discovery_srv),
     CETCD_TEST_ENTRY(live_cetcd_discovery_srv),
     CETCD_TEST_ENTRY(live_cetcdctl_tcp_keepalive),
