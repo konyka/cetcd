@@ -102,6 +102,7 @@ static void print_usage(const char *prog) {
     printf("  --experimental-memory-mlock  Lock process memory (Unix mlockall; Windows fail-closed)\n");
     printf("  --experimental-bootstrap-defrag-threshold-megabytes N  Compact data.mdb at start if larger (0 off)\n");
     printf("  --experimental-wait-cluster-ready  Delay client listen until a Raft leader exists (true|false)\n");
+    printf("  --experimental-snapshot-catchup-entries N  Raft entries kept after compact (default 5000; 0 = none)\n");
     printf("  --experimental-*    Other experimental flags accepted as no-op\n");
     printf("  --help           Show this help\n");
 }
@@ -1059,6 +1060,29 @@ int main(int argc, char **argv) {
                 return 1;
             }
             cfg.wait_cluster_ready = b != 0;
+        } else if (strcmp(argv[i], "--experimental-snapshot-catchup-entries") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr,
+                        "--experimental-snapshot-catchup-entries requires an integer\n");
+                return 1;
+            }
+            uint64_t n = 0;
+            if (cetcd_parse_snapshot_catchup_entries(argv[++i], &n) != CETCD_OK) {
+                fprintf(stderr,
+                        "--experimental-snapshot-catchup-entries must be an integer\n");
+                return 1;
+            }
+            cfg.snapshot_catchup_set = true;
+            cfg.snapshot_catchup_entries = n;
+        } else if (strncmp(argv[i], "--experimental-snapshot-catchup-entries=", 40) == 0) {
+            uint64_t n = 0;
+            if (cetcd_parse_snapshot_catchup_entries(argv[i] + 40, &n) != CETCD_OK) {
+                fprintf(stderr,
+                        "--experimental-snapshot-catchup-entries must be an integer\n");
+                return 1;
+            }
+            cfg.snapshot_catchup_set = true;
+            cfg.snapshot_catchup_entries = n;
         } else if (strncmp(argv[i], "--experimental-", 15) == 0) {
             /* no-op, accepted for etcd compatibility */
             if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* skip value if present */

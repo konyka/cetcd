@@ -338,6 +338,27 @@ CETCD_TEST_CASE(auto_compact_raft_io_timeout) {
     CETCD_ASSERT_EQ_INT(cetcd_raft_io_timed_out(100, 200, 0), 0);
 }
 
+CETCD_TEST_CASE(auto_compact_snapshot_catchup) {
+    uint64_t v = 99;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snapshot_catchup_entries("5000", &v), CETCD_OK);
+    CETCD_ASSERT_TRUE(v == 5000);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snapshot_catchup_entries("0", &v), CETCD_OK);
+    CETCD_ASSERT_TRUE(v == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snapshot_catchup_entries("abc", &v), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snapshot_catchup_entries("-1", &v), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snapshot_catchup_entries("5x", &v), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snapshot_catchup_entries("", &v), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snapshot_catchup_entries(NULL, &v), CETCD_ERR_INVAL);
+    CETCD_ASSERT_TRUE(cetcd_server_snapshot_catchup_entries(0, 0) == 5000);
+    CETCD_ASSERT_TRUE(cetcd_server_snapshot_catchup_entries(1, 0) == 0);
+    CETCD_ASSERT_TRUE(cetcd_server_snapshot_catchup_entries(1, 100) == 100);
+    CETCD_ASSERT_TRUE(cetcd_server_raft_compact_index(0, 5000) == 0);
+    CETCD_ASSERT_TRUE(cetcd_server_raft_compact_index(100, 0) == 100);
+    CETCD_ASSERT_TRUE(cetcd_server_raft_compact_index(10000, 5000) == 5000);
+    CETCD_ASSERT_TRUE(cetcd_server_raft_compact_index(100, 5000) == 1);
+    CETCD_ASSERT_TRUE(cetcd_server_raft_compact_index(5000, 5000) == 1);
+}
+
 CETCD_TEST_CASE(auto_compact_socket_reuse_port) {
     CETCD_ASSERT_EQ_INT(cetcd_server_want_socket_reuse_port(0, 0), 0);
     CETCD_ASSERT_EQ_INT(cetcd_server_want_socket_reuse_port(0, 1), 0);
@@ -636,6 +657,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_metrics_listen_url),
     CETCD_TEST_ENTRY(auto_compact_metrics_addr),
     CETCD_TEST_ENTRY(auto_compact_raft_io_timeout),
+    CETCD_TEST_ENTRY(auto_compact_snapshot_catchup),
     CETCD_TEST_ENTRY(auto_compact_socket_reuse_port),
     CETCD_TEST_ENTRY(auto_compact_metrics_level),
     CETCD_TEST_ENTRY(auto_compact_enable_pprof),

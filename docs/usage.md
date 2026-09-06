@@ -227,6 +227,8 @@ cetcd accepts several etcd server flags for migration compatibility:
 # --experimental-max-learners caps learner MemberAdd (0 = none; omitted default 1).
 # --experimental-memory-mlock locks process pages (Unix mlockall; Windows fail-closes).
 # --experimental-bootstrap-defrag-threshold-megabytes compact-copies data.mdb at start (0 off).
+# --experimental-snapshot-catchup-entries keeps N raft entries after compact
+# (omitted default 5000; 0 = compact to applied; leftover text fails).
 # Other --experimental-* stay no-op.
 ./build/bin/cetcd --experimental-initial-corrupt-check \
   --experimental-corrupt-check-time 10s \
@@ -237,7 +239,8 @@ cetcd accepts several etcd server flags for migration compatibility:
   --experimental-warning-unary-request-duration 300ms \
   --experimental-max-learners 1 \
   --experimental-memory-mlock=false \
-  --experimental-bootstrap-defrag-threshold-megabytes 0
+  --experimental-bootstrap-defrag-threshold-megabytes 0 \
+  --experimental-snapshot-catchup-entries 5000
 
 # Dedicated WAL directory (empty path fail-closes; requires --data-dir)
 ./build/bin/cetcd --data-dir ./data --wal-dir /var/lib/cetcd/wal

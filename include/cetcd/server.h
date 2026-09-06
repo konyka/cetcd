@@ -26,6 +26,7 @@ typedef struct cetcd_server cetcd_server;
 #define CETCD_DEFAULT_ELECTION_MS 1000ULL
 #define CETCD_MAX_ELECTION_MS 50000ULL
 #define CETCD_DEFAULT_RAFT_IO_TIMEOUT_MS 5000ULL
+#define CETCD_DEFAULT_SNAPSHOT_CATCHUP_ENTRIES 5000ULL
 
 typedef enum cetcd_auto_compact_mode {
     CETCD_AUTO_COMPACT_OFF = 0,
@@ -181,6 +182,8 @@ typedef struct cetcd_server_config {
     uint64_t        raft_read_timeout_ms;         /* applied via floor helper */
     bool            raft_write_timeout_set;       /* --raft-write-timeout given */
     uint64_t        raft_write_timeout_ms;
+    bool            snapshot_catchup_set;         /* --experimental-snapshot-catchup-entries given */
+    uint64_t        snapshot_catchup_entries;     /* unset → 5000; 0 = compact to applied */
 } cetcd_server_config;
 
 /* true|false|1|0. Empty/unknown is INVAL. */
@@ -233,6 +236,12 @@ int cetcd_parse_raft_io_timeout_ms(const char *s, uint64_t *out);
 uint64_t cetcd_server_raft_io_timeout_ms(int set, uint64_t ms);
 /* 1 if last_ms started and now-last >= timeout. timeout 0 or last 0 never. */
 int cetcd_raft_io_timed_out(uint64_t last_ms, uint64_t now_ms, uint64_t timeout_ms);
+/* Integer including 0. Leftover text is INVAL. */
+int cetcd_parse_snapshot_catchup_entries(const char *s, uint64_t *out);
+/* Unset → 5000. set uses n (0 = keep none). */
+uint64_t cetcd_server_snapshot_catchup_entries(int set, uint64_t n);
+/* Compact index: 0 applied → 0; catchup 0 → applied; else max(1, applied-catchup). */
+uint64_t cetcd_server_raft_compact_index(uint64_t applied, uint64_t catchup);
 /* Integer milliseconds > 0 and <= 50000. Leftover text is INVAL. */
 int cetcd_parse_heartbeat_interval_ms(const char *s, uint64_t *out);
 int cetcd_parse_election_timeout_ms(const char *s, uint64_t *out);

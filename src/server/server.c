@@ -3208,12 +3208,19 @@ static void maybe_snapshot_truncate_(cetcd_server *srv) {
     if (cetcd_raft_last_index(srv->raft) != applied) return;
     const cetcd_entry *e = cetcd_raft_entry_at(srv->raft, applied);
     if (!e) return;
+    uint64_t keep = cetcd_server_snapshot_catchup_entries(
+        srv->cfg.snapshot_catchup_set, srv->cfg.snapshot_catchup_entries);
+    uint64_t compact_to = cetcd_server_raft_compact_index(applied, keep);
+    if (compact_to == 0) return;
+    const cetcd_entry *ce = compact_to == applied
+        ? e : cetcd_raft_entry_at(srv->raft, compact_to);
+    if (!ce) return;
     cetcd_hard_state hs;
     cetcd_raft_copy_hard_state(srv->raft, &hs);
-    if (cetcd_wal_encoder_release(srv->wal_enc, applied, e->term, &hs) != 0)
+    if (cetcd_wal_encoder_release(srv->wal_enc, compact_to, ce->term, &hs) != 0)
         return;
     srv->last_snap_index = applied;
-    (void)cetcd_raft_compact(srv->raft, applied, e->term);
+    (void)cetcd_raft_compact(srv->raft, compact_to, ce->term);
 }
 
 static void peer_io_timeout_tick_(cetcd_server *srv) {

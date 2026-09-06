@@ -487,6 +487,20 @@ int cetcd_raft_io_timed_out(uint64_t last_ms, uint64_t now_ms, uint64_t timeout_
     return now_ms >= last_ms && (now_ms - last_ms) >= timeout_ms;
 }
 
+int cetcd_parse_snapshot_catchup_entries(const char *s, uint64_t *out) {
+    return cetcd_parse_compaction_batch_limit(s, out);
+}
+
+uint64_t cetcd_server_snapshot_catchup_entries(int set, uint64_t n) {
+    return set ? n : CETCD_DEFAULT_SNAPSHOT_CATCHUP_ENTRIES;
+}
+
+uint64_t cetcd_server_raft_compact_index(uint64_t applied, uint64_t catchup) {
+    if (applied == 0) return 0;
+    if (catchup == 0 || applied > catchup) return applied - catchup;
+    return 1;
+}
+
 int cetcd_parse_heartbeat_interval_ms(const char *s, uint64_t *out) {
     if (!out) return CETCD_ERR_INVAL;
     uint64_t v = 0;

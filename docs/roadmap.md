@@ -449,6 +449,12 @@ Performance-first, fail-closed design:
   read or an in-flight outbound write is closed on the Raft tick.
   Missing value or leftover text fail at parse. Accepting the flags
   as a no-op is rejected (a hung peer socket would stay open).
+- **`--experimental-snapshot-catchup-entries`** — integer entries kept
+  after a WAL/raft compact so a slightly-behind follower can `App`
+  instead of `MsgSnap` (omitted default 5000; `0` compact to applied).
+  Compact index is `applied - N` (floor 1). Missing value or leftover
+  text fail at parse (no longer swallowed). Accepting the flag as a
+  no-op is rejected.
 - **Downgrade fail-closed** — `Maintenance/Downgrade` VALIDATE of
   `cetcd_version()` succeeds (already at this binary). ENABLE, CANCEL,
   and any other version fail-closed: the on-disk format cannot change
