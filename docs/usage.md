@@ -711,8 +711,10 @@ build time via compile definitions.
 ### Metrics
 
 cetcd exposes Prometheus-compatible metrics on a dedicated HTTP listener.
-Use the `--metrics-port` flag to change the port (default: `2381`; `0` disables;
-a typo fail-closes instead of silently disabling).
+Use `--metrics-port` to change the port (default: `2381`; `0` disables;
+a typo fail-closes). `--listen-metrics-urls http://host:port` binds a
+different address (cannot mix with `--metrics-port`; `https` / multi-URL
+fail-closes).
 
 ```sh
 # Start cetcd with the default metrics port

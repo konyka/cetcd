@@ -211,6 +211,84 @@ CETCD_TEST_CASE(auto_compact_raft_timing_from_ms) {
     CETCD_ASSERT_EQ_INT((int)cetcd_server_tick_ms(50), 50);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_listen_url) {
+    char host[64];
+    uint16_t port = 0;
+    int https = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://127.0.0.1:2381", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(strcmp(host, "127.0.0.1"), 0);
+    CETCD_ASSERT_EQ_INT((int)port, 2381);
+    CETCD_ASSERT_EQ_INT(https, 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("https://10.0.0.1:2379", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(strcmp(host, "10.0.0.1"), 0);
+    CETCD_ASSERT_EQ_INT((int)port, 2379);
+    CETCD_ASSERT_EQ_INT(https, 1);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("127.0.0.1:2381", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://127.0.0.1", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://127.0.0.1:0", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://:2381", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://[::1]:2381", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("unix:///tmp/m", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://127.0.0.1:2381/x", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url(NULL, host, sizeof(host),
+                                               &port, &https),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://127.0.0.1:2381", NULL,
+                                               sizeof(host), &port, &https),
+                        CETCD_ERR_INVAL);
+}
+
+CETCD_TEST_CASE(auto_compact_parse_metrics_listen_url) {
+    char host[64];
+    uint16_t port = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_metrics_listen_url("http://0.0.0.0:9090",
+                                                       host, sizeof(host),
+                                                       &port),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(strcmp(host, "0.0.0.0"), 0);
+    CETCD_ASSERT_EQ_INT((int)port, 9090);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_metrics_listen_url(
+                            "https://127.0.0.1:2381", host, sizeof(host),
+                            &port),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_metrics_listen_url(
+                            "http://127.0.0.1:2381,http://127.0.0.1:2382",
+                            host, sizeof(host), &port),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_metrics_listen_url("http://127.0.0.1:abc",
+                                                       host, sizeof(host),
+                                                       &port),
+                        CETCD_ERR_INVAL);
+}
+
+CETCD_TEST_CASE(auto_compact_metrics_addr) {
+    cetcd_server_config cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    strncpy(cfg.listen_addr, "127.0.0.1", sizeof(cfg.listen_addr) - 1);
+    CETCD_ASSERT_EQ_INT(strcmp(cetcd_server_metrics_addr(&cfg), "127.0.0.1"), 0);
+    strncpy(cfg.metrics_addr, "0.0.0.0", sizeof(cfg.metrics_addr) - 1);
+    CETCD_ASSERT_EQ_INT(strcmp(cetcd_server_metrics_addr(&cfg), "0.0.0.0"), 0);
+    CETCD_ASSERT_TRUE(cetcd_server_metrics_addr(NULL) == NULL);
+}
+
 CETCD_TEST_CASE(auto_compact_want_tick_advance) {
     CETCD_ASSERT_EQ_INT(cetcd_server_want_tick_advance(0, 0), 1);
     CETCD_ASSERT_EQ_INT(cetcd_server_want_tick_advance(0, 1), 1);
@@ -345,6 +423,9 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_want_pre_vote),
     CETCD_TEST_ENTRY(auto_compact_parse_raft_timing_ms),
     CETCD_TEST_ENTRY(auto_compact_raft_timing_from_ms),
+    CETCD_TEST_ENTRY(auto_compact_parse_listen_url),
+    CETCD_TEST_ENTRY(auto_compact_parse_metrics_listen_url),
+    CETCD_TEST_ENTRY(auto_compact_metrics_addr),
     CETCD_TEST_ENTRY(auto_compact_want_tick_advance),
     CETCD_TEST_ENTRY(auto_compact_parse_self_signed_cert_validity),
     CETCD_TEST_ENTRY(auto_compact_clamp_batch),

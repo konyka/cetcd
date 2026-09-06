@@ -29,6 +29,7 @@ static void print_usage(const char *prog) {
     printf("  --peer ADDR      Peer listen address (default: 127.0.0.1)\n");
     printf("  --peer-port PORT Peer listen port (default: 2380; 1..65535)\n");
     printf("  --metrics-port PORT Metrics listen port (default: 2381; 0 disables; 0..65535)\n");
+    printf("  --listen-metrics-urls URL  Metrics listen URL (http://host:port; https/multi fail)\n");
     printf("  --node-id ID     Node ID (default: 1; must be > 0)\n");
     printf("  --initial-cluster ID=ADDR:PORT,...  Initial cluster (https requires --peer-cert-file; id > 0; port 1..65535)\n");
     printf("  --election-tick N   Raft election tick (default: 10; must be > 0)\n");
@@ -164,6 +165,29 @@ int main(int argc, char **argv) {
                 return 1;
             }
             cfg.metrics_port = (uint16_t)v;
+            cfg.metrics_port_set = true;
+        } else if (strcmp(argv[i], "--listen-metrics-urls") == 0 && i + 1 < argc) {
+            char host[256];
+            uint16_t port = 0;
+            if (cetcd_parse_metrics_listen_url(argv[++i], host, sizeof(host),
+                                               &port) != CETCD_OK) {
+                fprintf(stderr, "--listen-metrics-urls must be a single http://host:port (1..65535)\n");
+                return 1;
+            }
+            strncpy(cfg.metrics_addr, host, sizeof(cfg.metrics_addr) - 1);
+            cfg.metrics_port = port;
+            cfg.metrics_urls_set = true;
+        } else if (strncmp(argv[i], "--listen-metrics-urls=", 22) == 0) {
+            char host[256];
+            uint16_t port = 0;
+            if (cetcd_parse_metrics_listen_url(argv[i] + 22, host, sizeof(host),
+                                               &port) != CETCD_OK) {
+                fprintf(stderr, "--listen-metrics-urls must be a single http://host:port (1..65535)\n");
+                return 1;
+            }
+            strncpy(cfg.metrics_addr, host, sizeof(cfg.metrics_addr) - 1);
+            cfg.metrics_port = port;
+            cfg.metrics_urls_set = true;
         } else if (strcmp(argv[i], "--node-id") == 0 && i + 1 < argc) {
             char *end = NULL;
             errno = 0;
@@ -834,6 +858,10 @@ int main(int argc, char **argv) {
     }
     strncpy(cfg.data_dir, data_dir, sizeof(cfg.data_dir) - 1);
     strncpy(cfg.name, name, sizeof(cfg.name) - 1);
+    if (cfg.metrics_urls_set && cfg.metrics_port_set) {
+        fprintf(stderr, "--listen-metrics-urls cannot be mixed with --metrics-port\n");
+        return 1;
+    }
     if ((cfg.heartbeat_interval_set || cfg.election_timeout_set) &&
         (cfg.election_tick_set || cfg.heartbeat_tick_set)) {
         fprintf(stderr, "--heartbeat-interval/--election-timeout cannot be mixed with --heartbeat-tick/--election-tick\n");
@@ -901,7 +929,8 @@ int main(int argc, char **argv) {
         CETCD_INFO("  wal-dir   : %s", cfg.wal_dir);
     CETCD_INFO("  listen    : %s:%u", cfg.listen_addr, cfg.listen_port);
     CETCD_INFO("  peer      : %s:%u", cfg.peer_addr, cfg.peer_port);
-    CETCD_INFO("  metrics   : %s:%u", cfg.listen_addr, cfg.metrics_port);
+    CETCD_INFO("  metrics   : %s:%u", cetcd_server_metrics_addr(&cfg),
+               cfg.metrics_port);
     CETCD_INFO("  cluster   : %u peer(s)", cfg.n_initial_peers);
     if (cfg.cert_file[0])
         CETCD_INFO("  tls       : cert=%s", cfg.cert_file);

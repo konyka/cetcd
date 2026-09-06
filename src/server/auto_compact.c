@@ -262,6 +262,53 @@ uint64_t cetcd_server_tick_ms(uint64_t tick_ms) {
     return tick_ms ? tick_ms : CETCD_DEFAULT_TICK_MS;
 }
 
+int cetcd_parse_listen_url(const char *s, char *host, size_t host_cap,
+                           uint16_t *port, int *https) {
+    if (!s || !s[0] || !host || host_cap < 2 || !port || !https)
+        return CETCD_ERR_INVAL;
+    const char *p = s;
+    if (strncmp(p, "https://", 8) == 0) {
+        *https = 1;
+        p += 8;
+    } else if (strncmp(p, "http://", 7) == 0) {
+        *https = 0;
+        p += 7;
+    } else {
+        return CETCD_ERR_INVAL;
+    }
+    if (p[0] == '[' || p[0] == '\0' || p[0] == ':')
+        return CETCD_ERR_INVAL;
+    const char *colon = strrchr(p, ':');
+    if (!colon || colon == p) return CETCD_ERR_INVAL;
+    size_t hlen = (size_t)(colon - p);
+    if (hlen == 0 || hlen + 1 > host_cap) return CETCD_ERR_INVAL;
+    errno = 0;
+    char *end = NULL;
+    long v = strtol(colon + 1, &end, 10);
+    if (errno == ERANGE || !end || end == colon + 1 || *end ||
+        v < 1 || v > 65535)
+        return CETCD_ERR_INVAL;
+    memcpy(host, p, hlen);
+    host[hlen] = '\0';
+    *port = (uint16_t)v;
+    return CETCD_OK;
+}
+
+int cetcd_parse_metrics_listen_url(const char *s, char *host, size_t host_cap,
+                                   uint16_t *port) {
+    if (!s || strchr(s, ',')) return CETCD_ERR_INVAL;
+    int https = 0;
+    int rc = cetcd_parse_listen_url(s, host, host_cap, port, &https);
+    if (rc != CETCD_OK) return rc;
+    if (https) return CETCD_ERR_INVAL;
+    return CETCD_OK;
+}
+
+const char *cetcd_server_metrics_addr(const cetcd_server_config *cfg) {
+    if (!cfg) return NULL;
+    return cfg->metrics_addr[0] ? cfg->metrics_addr : cfg->listen_addr;
+}
+
 int cetcd_parse_self_signed_cert_validity(const char *s, uint32_t *out) {
     if (!out) return CETCD_ERR_INVAL;
     uint64_t v = 0;

@@ -92,6 +92,9 @@ typedef struct cetcd_server_config {
     char            peer_addr[256];
     uint16_t        peer_port;
     uint16_t        metrics_port;
+    char            metrics_addr[256];            /* empty → listen_addr */
+    bool            metrics_port_set;             /* --metrics-port given */
+    bool            metrics_urls_set;             /* --listen-metrics-urls given */
     uint64_t        election_tick;
     uint64_t        heartbeat_tick;
     bool            election_tick_set;            /* --election-tick given */
@@ -176,6 +179,14 @@ int cetcd_raft_timing_from_ms(uint64_t tick_ms, uint64_t election_ms,
                               uint64_t *heartbeat_tick, uint64_t *election_tick);
 /* Unset → 100. */
 uint64_t cetcd_server_tick_ms(uint64_t tick_ms);
+/* http:// or https:// host:port (1..65535). No IPv6. Leftover is INVAL. */
+int cetcd_parse_listen_url(const char *s, char *host, size_t host_cap,
+                           uint16_t *port, int *https);
+/* Single http:// URL. https / comma / leftover is INVAL (no metrics TLS). */
+int cetcd_parse_metrics_listen_url(const char *s, char *host, size_t host_cap,
+                                   uint16_t *port);
+/* metrics_addr if set, else listen_addr. NULL cfg → NULL. */
+const char *cetcd_server_metrics_addr(const cetcd_server_config *cfg);
 /* enabled 0 is OK. Unix mlockall; Windows UNSUPPORT. mlockall failure is IO. */
 int cetcd_mlock_apply(int enabled);
 /* Persist / load `{rev} {hash}\n`. Missing file is NOTFOUND; garbage is CORRUPT. */

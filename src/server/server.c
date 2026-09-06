@@ -2949,7 +2949,8 @@ int cetcd_server_serve(cetcd_server *srv) {
         srv->metrics_listener_init = true;
 
         struct sockaddr_in addr_in;
-        rc = uv_ip4_addr(srv->cfg.listen_addr, srv->cfg.metrics_port, &addr_in);
+        const char *maddr = cetcd_server_metrics_addr(&srv->cfg);
+        rc = uv_ip4_addr(maddr, srv->cfg.metrics_port, &addr_in);
         if (rc == 0) {
             rc = uv_tcp_bind(&srv->metrics_listener, (const struct sockaddr *)&addr_in, 0);
         }
@@ -2958,12 +2959,12 @@ int cetcd_server_serve(cetcd_server *srv) {
         }
         if (rc != 0) {
             CETCD_WARN("failed to start metrics listener on %s:%u: %s",
-                       srv->cfg.listen_addr, srv->cfg.metrics_port, uv_strerror(rc));
+                       maddr, srv->cfg.metrics_port, uv_strerror(rc));
             uv_close((uv_handle_t *)&srv->metrics_listener, NULL);
             srv->metrics_listener_init = false;
         } else {
             CETCD_INFO("metrics server listening on %s:%u",
-                       srv->cfg.listen_addr, srv->cfg.metrics_port);
+                       maddr, srv->cfg.metrics_port);
         }
     }
 

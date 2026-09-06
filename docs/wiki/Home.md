@@ -816,6 +816,7 @@ Unknown server flags fail at parse instead of being ignored.
 `--port` is `1..65535`; a typo fail-closes instead of binding port `0`.
 `--peer-port` is `1..65535`; a typo fail-closes instead of binding the Raft port on `0`.
 `--metrics-port` is `0..65535` (`0` disables); a typo fail-closes instead of silently disabling metrics.
+`--listen-metrics-urls` is a single `http://host:port` (port `1..65535`). It binds metrics on that address. `https` / comma-list / leftover text / mix with `--metrics-port` fail-closes.
 `--node-id` must be `> 0`; a typo fail-closes instead of becoming Raft id `0`.
 `--election-tick` must be `> 0`; a typo or `0` fail-closes instead of becoming `10`.
 `--heartbeat-tick` must be `> 0`; a typo or `0` fail-closes instead of becoming `1`.
