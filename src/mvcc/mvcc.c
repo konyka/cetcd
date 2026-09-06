@@ -3,6 +3,7 @@
 #include "cetcd/treap.h"
 #include "cetcd/backend.h"
 #include "cetcd/hashmap.h"
+#include "cetcd/hash.h"
 #include "cetcd/log.h"
 #include <stdlib.h>
 #include <string.h>
@@ -1063,6 +1064,30 @@ int cetcd_mvcc_compact(cetcd_mvcc_store *s, int64_t compact_rev) {
 
 int64_t cetcd_mvcc_compacted_revision(const cetcd_mvcc_store *s) {
     return s ? s->compacted_rev : 0;
+}
+
+int cetcd_mvcc_hash_kv(cetcd_mvcc_store *s, int64_t rev, uint32_t *out) {
+    if (!s || !out) return CETCD_ERR_INVAL;
+    if (rev < 0) return CETCD_ERR_INVAL;
+    int64_t current = cetcd_mvcc_revision(s);
+    int64_t compact = cetcd_mvcc_compacted_revision(s);
+    if (rev > current) return CETCD_ERR_RANGE;
+    if (rev > 0 && compact > 0 && rev < compact) return CETCD_ERR_RANGE;
+
+    cetcd_kv *kvs = NULL;
+    size_t n = 0;
+    uint8_t fromkey = 0;
+    int rc = cetcd_mvcc_range(s, rev, NULL, 0, &fromkey, 1, &kvs, &n);
+    if (rc != CETCD_OK) return rc;
+
+    uint32_t h = 0;
+    for (size_t i = 0; i < n; i++) {
+        h = cetcd_crc32c(h, kvs[i].key.data, kvs[i].key.len);
+        h = cetcd_crc32c(h, kvs[i].value.data, kvs[i].value.len);
+    }
+    cetcd_kv_free_contents(kvs, n);
+    *out = h;
+    return CETCD_OK;
 }
 
 void cetcd_mvcc_set_backend(cetcd_mvcc_store *s, cetcd_backend *be) {

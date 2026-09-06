@@ -31,12 +31,12 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 30 — persist restore cluster spec</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 31 — HashKV CRC32C</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 30 persists <code>snapshot restore --initial-cluster</code>
-     / <code>--name</code> / advertise URLs so start can join without repeating the spec.</p>
+  <p><strong>v0.3.0</strong>. Phase 31 hashes <code>Hash</code>/<code>HashKV</code> with CRC32C
+     of key+value pairs so the same revision with different contents no longer collides.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -82,6 +82,7 @@
       <tr><td>28</td><td>MsgSnap catch-up</td><td>Leader ships compacted snapshot to lagging joiner; follower install + ack — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>29</td><td>App catch-up from next_idx</td><td>Uncompacted joiner gets batched App; reject uses last-index hint — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>30</td><td>persist restore cluster spec</td><td>restore --initial-cluster/--name/--advertise written to data-dir; start loads them — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>31</td><td>HashKV CRC32C</td><td>Hash/HashKV hash live key+value pairs (Castagnoli); compacted/future fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

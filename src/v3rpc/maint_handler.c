@@ -270,9 +270,10 @@ cetcd_rpc_bytes maint_handle_defragment(cetcd_v3rpc *rpc, const uint8_t *req, si
 cetcd_rpc_bytes maint_handle_hash(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc; (void)req; (void)req_len;
 
-    /* Compute a simple hash from the current revision */
     int64_t rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
-    uint32_t hash = (uint32_t)(rev * 2654435761u);
+    uint32_t hash = 0;
+    if (g_rpc_store && cetcd_mvcc_hash_kv(g_rpc_store, 0, &hash) != CETCD_OK)
+        return (cetcd_rpc_bytes){NULL, 0};
 
     uint8_t buf[32];
     size_t pos = 0;
@@ -329,7 +330,10 @@ cetcd_rpc_bytes maint_handle_hash_kv(cetcd_v3rpc *rpc, const uint8_t *req, size_
             return (cetcd_rpc_bytes){NULL, 0}; /* ErrFutureRev */
     }
     int64_t rev = (req_rev > 0) ? req_rev : current;
-    uint32_t hash = (uint32_t)(rev * 2654435761u);
+    uint32_t hash = 0;
+    if (g_rpc_store &&
+        cetcd_mvcc_hash_kv(g_rpc_store, rev, &hash) != CETCD_OK)
+        return (cetcd_rpc_bytes){NULL, 0};
 
     uint8_t buf[32];
     size_t pos = 0;

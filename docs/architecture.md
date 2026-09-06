@@ -495,9 +495,11 @@ and `next_id` advances past any custom ID to avoid collisions.
 
 All Maintenance RPC responses (`Status`, `Hash`, `HashKV`, `Defragment`, `Alarm`,
 `MoveLeader`, `Snapshot`, `Downgrade`) include a `ResponseHeader` as field 1, matching the
-etcd v3.5 proto wire format. `HashKV` honors request `revision` (field 1): `0` means
-current head; `revision < compacted_rev` or `revision > current` fails at the RPC layer
-(matching etcd `HashByRev` ErrCompacted / ErrFutureRev) instead of ignoring the field.
+etcd v3.5 proto wire format. `Hash` / `HashKV` return a CRC32C (Castagnoli) of
+key+value pairs in key order at the requested revision (`0` = current). The
+previous `revision * constant` placeholder collided when two stores shared a
+revision but not contents. `revision < compacted_rev` or `revision > current`
+fails at the RPC layer (matching etcd `HashByRev` ErrCompacted / ErrFutureRev).
 The `DowngradeResponse` now correctly returns only a header
 (field 1) instead of a version string. The `Alarm` handler processes three actions: GET (list current alarms), ACTIVATE (add an
 alarm), and DEACTIVATE (remove an alarm). ACTIVATE/DEACTIVATE encode apply tag 24 and

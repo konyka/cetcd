@@ -972,7 +972,7 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 | Maintenance | `/etcdserverpb.Maintenance/Status` | `maint_handler.c` | 返回版本/dbSize/leader/raftIndex/raftTerm（从 raft 实例获取） |
 | Maintenance | `/etcdserverpb.Maintenance/Defragment` | `maint_handler.c` | 碎片整理（LMDB 自动管理，no-op） |
 | Maintenance | `/etcdserverpb.Maintenance/Hash` | `maint_handler.c` | 返回 KV 存储哈希值 |
-| Maintenance | `/etcdserverpb.Maintenance/HashKV` | `maint_handler.c` | 返回哈希值+压缩修订号 |
+| Maintenance | `/etcdserverpb.Maintenance/HashKV` | `maint_handler.c` | CRC32C(key+value，按 key 序) + 压缩修订号 |
 | Maintenance | `/etcdserverpb.Maintenance/Alarm` | `maint_handler.c` | 告警获取/激活/停用 |
 | Maintenance | `/etcdserverpb.Maintenance/MoveLeader` | `maint_handler.c` | 领导者转移（通过 raft TRANSFER_LEADER 消息触发） |
 | Maintenance | `/etcdserverpb.Maintenance/Snapshot` | `maint_handler.c` | 返回 KV 存储快照（单次返回所有键值对） |
@@ -1081,7 +1081,7 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `status` | 获取服务器状态 |
 | `alarm` | 查询告警 |
 | `hash` | 获取 KV 存储哈希值 |
-| `hashkv` | 获取 KV 存储哈希值和压缩修订号 |
+| `hashkv` | 获取 KV 存储 CRC32C 哈希值和压缩修订号 |
 | `defrag` | 碎片整理（LMDB 自动管理，no-op） |
 | `move-leader TARGET_ID` | 领导者转移到指定节点 |
 | `member list` | 列出集群成员 |

@@ -328,6 +328,10 @@ Performance-first, fail-closed design:
   start loads them when the CLI omits the flag. A corrupt spec, empty value,
   or CLI/file mismatch fail-closes. `initial-cluster` counts as cluster
   evidence for `--initial-cluster-state existing`.
+- **Hash / HashKV CRC32C** — `Maintenance/Hash` and `HashKV` hash key+value
+  pairs (Castagnoli, key order) at the requested revision instead of
+  `revision * constant`. Same revision with different contents no longer
+  collides. Compacted / future revisions stay fail-closed.
 
 ## Previously done (auth data plane)
 

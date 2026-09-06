@@ -200,6 +200,10 @@ int cetcd_mvcc_compact(cetcd_mvcc_store *s, int64_t compact_rev);
 /* Return the current compacted revision (0 if no compaction done). */
 int64_t cetcd_mvcc_compacted_revision(const cetcd_mvcc_store *s);
 
+/* CRC32C (Castagnoli) of key+value pairs at `rev` (0 = current), key order.
+ * RANGE if rev is compacted or in the future. */
+int cetcd_mvcc_hash_kv(cetcd_mvcc_store *s, int64_t rev, uint32_t *out);
+
 /* --- Persistence (LMDB) --- */
 
 /* Attach a backend for incremental persistence of put/delete.

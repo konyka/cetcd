@@ -1090,6 +1090,74 @@ CETCD_TEST_CASE(v3rpc_maintenance_hash_kv) {
     cetcd_v3rpc_free(rpc);
 }
 
+static int decode_hash_field_(const uint8_t *d, size_t n, uint32_t *out) {
+    size_t p = 0;
+    while (p < n) {
+        uint8_t tag = d[p++];
+        uint32_t f = (uint32_t)(tag >> 3), wt = (uint32_t)(tag & 7);
+        if (wt == 0) {
+            uint64_t v = 0;
+            int shift = 0;
+            while (p < n) {
+                uint8_t b = d[p++];
+                v |= (uint64_t)(b & 0x7f) << shift;
+                if (!(b & 0x80)) break;
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (f == 2) {
+                *out = (uint32_t)v;
+                return 0;
+            }
+        } else if (wt == 2) {
+            uint64_t ln = 0;
+            int shift = 0;
+            while (p < n) {
+                uint8_t b = d[p++];
+                ln |= (uint64_t)(b & 0x7f) << shift;
+                if (!(b & 0x80)) break;
+                shift += 7;
+            }
+            if (p + (size_t)ln > n) return -1;
+            p += (size_t)ln;
+        } else {
+            return -1;
+        }
+    }
+    return -1;
+}
+
+CETCD_TEST_CASE(v3rpc_hash_kv_same_rev_different_values_differ) {
+    uint8_t put_x[16]; size_t pos = 0;
+    put_x[pos++] = 0x0a; put_x[pos++] = 0x01; put_x[pos++] = 'k';
+    put_x[pos++] = 0x12; put_x[pos++] = 0x01; put_x[pos++] = 'x';
+    cetcd_v3rpc *a = cetcd_v3rpc_new();
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(a, "/etcdserverpb.KV/Put", put_x, pos);
+    cetcd_rpc_bytes_free(&resp);
+    resp = cetcd_v3rpc_dispatch(a, "/etcdserverpb.Maintenance/HashKV",
+                                (const uint8_t *)"\x00", 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    uint32_t ha = 0;
+    CETCD_ASSERT_EQ_INT(decode_hash_field_(resp.data, resp.len, &ha), 0);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(a);
+
+    uint8_t put_y[16]; pos = 0;
+    put_y[pos++] = 0x0a; put_y[pos++] = 0x01; put_y[pos++] = 'k';
+    put_y[pos++] = 0x12; put_y[pos++] = 0x01; put_y[pos++] = 'y';
+    cetcd_v3rpc *b = cetcd_v3rpc_new();
+    resp = cetcd_v3rpc_dispatch(b, "/etcdserverpb.KV/Put", put_y, pos);
+    cetcd_rpc_bytes_free(&resp);
+    resp = cetcd_v3rpc_dispatch(b, "/etcdserverpb.Maintenance/HashKV",
+                                (const uint8_t *)"\x00", 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    uint32_t hb = 0;
+    CETCD_ASSERT_EQ_INT(decode_hash_field_(resp.data, resp.len, &hb), 0);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_free(b);
+    CETCD_ASSERT_TRUE(ha != hb);
+}
+
 CETCD_TEST_CASE(v3rpc_hash_kv_bad_revision) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -5964,6 +6032,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_maintenance_status),
     CETCD_TEST_ENTRY(v3rpc_maintenance_hash),
     CETCD_TEST_ENTRY(v3rpc_maintenance_hash_kv),
+    CETCD_TEST_ENTRY(v3rpc_hash_kv_same_rev_different_values_differ),
     CETCD_TEST_ENTRY(v3rpc_hash_kv_bad_revision),
     CETCD_TEST_ENTRY(v3rpc_maintenance_defragment),
     CETCD_TEST_ENTRY(v3rpc_maintenance_alarm),
