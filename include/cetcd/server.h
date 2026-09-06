@@ -162,6 +162,7 @@ typedef struct cetcd_server_config {
     bool            strict_reconfig;              /* unset → true */
     bool            tick_advance_set;             /* --initial-election-tick-advance given */
     bool            tick_advance;                 /* unset → true (etcd 3.5) */
+    bool            wait_cluster_ready;           /* --experimental-wait-cluster-ready */
 } cetcd_server_config;
 
 /* true|false|1|0. Empty/unknown is INVAL. */
@@ -170,6 +171,10 @@ int cetcd_parse_bool_flag(const char *s, int *out);
 int cetcd_server_want_pre_vote(int set, int enabled);
 /* Unset → 1 (AdvanceTicks on). set uses enabled. */
 int cetcd_server_want_tick_advance(int set, int enabled);
+/* Unset → 0 (do not wait). set uses enabled. */
+int cetcd_server_want_wait_cluster_ready(int set, int enabled);
+/* 1 if clients may listen. wait 0 always. wait 1 requires leader_id != 0. */
+int cetcd_server_should_listen_clients(int wait_ready, uint64_t leader_id);
 /* Integer milliseconds > 0 and <= 50000. Leftover text is INVAL. */
 int cetcd_parse_heartbeat_interval_ms(const char *s, uint64_t *out);
 int cetcd_parse_election_timeout_ms(const char *s, uint64_t *out);

@@ -31,16 +31,15 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 55 — listen-metrics-urls</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 56 — wait-cluster-ready</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 55 honors
-     <code>--listen-metrics-urls</code> (single
-     <code>http://host:port</code>). Metrics bind on that address
-     instead of the client listen host. <code>https</code>, a
-     comma-list, or mixing with <code>--metrics-port</code>
-     fail-closes.</p>
+  <p><strong>v0.3.0</strong>. Phase 56 honors
+     <code>--experimental-wait-cluster-ready</code> (omitted default
+     off). Client listen waits for a Raft leader; peer listen and
+     ticks still run. A non-bool fail-closes instead of being
+     swallowed.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -111,6 +110,7 @@
       <tr><td>53</td><td>initial-election-tick-advance</td><td>--initial-election-tick-advance ticks election_tick-1 at Raft create; omitted default on; false waits full timeout; non-bool fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>54</td><td>heartbeat-interval / election-timeout</td><td>--heartbeat-interval / --election-timeout set timer ms and election_tick; 1..50000; mix with --*-tick fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>55</td><td>listen-metrics-urls</td><td>--listen-metrics-urls binds metrics on http://host:port; https / multi / mix with --metrics-port fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>56</td><td>wait-cluster-ready</td><td>--experimental-wait-cluster-ready delays client listen until a Raft leader exists; omitted default off; non-bool fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

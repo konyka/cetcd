@@ -395,6 +395,11 @@ Performance-first, fail-closed design:
   `{listen-addr}:{metrics-port}`. `https://`, a comma-list, IPv6, a
   missing port, leftover text, or mixing with `--metrics-port`
   fail-closes (metrics is plaintext HTTP; a second URL is not bound).
+- **`--experimental-wait-cluster-ready`** — bool (omitted default off;
+  bare / `true` waits). Client listen is delayed until Raft has a
+  leader (peer listen and ticks still run). A single-node that already
+  campaigned binds immediately. A non-bool fail-closes (no longer
+  swallowed). Other `--experimental-*` stay no-ops.
 - **Downgrade fail-closed** — `Maintenance/Downgrade` VALIDATE of
   `cetcd_version()` succeeds (already at this binary). ENABLE, CANCEL,
   and any other version fail-closed: the on-disk format cannot change

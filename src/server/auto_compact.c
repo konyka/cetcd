@@ -224,6 +224,14 @@ int cetcd_server_want_tick_advance(int set, int enabled) {
     return set ? (enabled != 0) : 1;
 }
 
+int cetcd_server_want_wait_cluster_ready(int set, int enabled) {
+    return set ? (enabled != 0) : 0;
+}
+
+int cetcd_server_should_listen_clients(int wait_ready, uint64_t leader_id) {
+    return wait_ready ? (leader_id != 0) : 1;
+}
+
 int cetcd_parse_heartbeat_interval_ms(const char *s, uint64_t *out) {
     if (!out) return CETCD_ERR_INVAL;
     uint64_t v = 0;

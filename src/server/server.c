@@ -70,6 +70,7 @@ struct cetcd_server {
     cetcd_tls_ctx       *tls_peer_out;
     cetcd_auto_compact_state ac;
     uint64_t             last_corrupt_check_ms;
+    bool                 client_listen_pending;
 };
 
 static void raft_tick_cb_(void *arg);
@@ -2908,27 +2909,60 @@ cetcd_snap *cetcd_server_snapshot(cetcd_server *srv) {
     return snap;
 }
 
+static int bind_client_listener_(cetcd_server *srv) {
+    if (!srv || !srv->loop) return CETCD_ERR_INVAL;
+    if (srv->listener) return 0;
+    srv->listener = cetcd_tcp_new(srv->loop);
+    if (!srv->listener) return CETCD_ERR_INTERNAL;
+    int rc = cetcd_tcp_bind(srv->listener, srv->cfg.listen_addr, srv->cfg.listen_port);
+    if (rc != 0) {
+        cetcd_tcp_free(srv->listener);
+        srv->listener = NULL;
+        return CETCD_ERR_IO;
+    }
+    rc = cetcd_tcp_listen(srv->listener, on_client_conn_, srv);
+    if (rc != 0) {
+        cetcd_tcp_free(srv->listener);
+        srv->listener = NULL;
+        return CETCD_ERR_IO;
+    }
+    return 0;
+}
+
+static void maybe_bind_client_after_ready_(cetcd_server *srv) {
+    uint64_t leader;
+    if (!srv || !srv->client_listen_pending) return;
+    leader = srv->raft ? cetcd_raft_leader(srv->raft) : 0;
+    if (!cetcd_server_should_listen_clients(1, leader)) return;
+    if (bind_client_listener_(srv) != 0) {
+        CETCD_WARN("failed to start client listener after cluster ready");
+        cetcd_server_stop(srv);
+        return;
+    }
+    srv->client_listen_pending = 0;
+    CETCD_INFO("client listening on %s:%u (cluster ready)",
+               srv->cfg.listen_addr, srv->cfg.listen_port);
+}
+
 int cetcd_server_serve(cetcd_server *srv) {
     if (!srv) return CETCD_ERR_INVAL;
 
+    int rc = 0;
     srv->loop = cetcd_loop_new();
     if (!srv->loop) return CETCD_ERR_INTERNAL;
 
-    srv->listener = cetcd_tcp_new(srv->loop);
-    if (!srv->listener) { cetcd_loop_free(srv->loop); srv->loop = NULL; return CETCD_ERR_INTERNAL; }
-
-    int rc = cetcd_tcp_bind(srv->listener, srv->cfg.listen_addr, srv->cfg.listen_port);
-    if (rc != 0) {
-        cetcd_tcp_free(srv->listener); srv->listener = NULL;
-        cetcd_loop_free(srv->loop); srv->loop = NULL;
-        return CETCD_ERR_IO;
-    }
-
-    rc = cetcd_tcp_listen(srv->listener, on_client_conn_, srv);
-    if (rc != 0) {
-        cetcd_tcp_free(srv->listener); srv->listener = NULL;
-        cetcd_loop_free(srv->loop); srv->loop = NULL;
-        return CETCD_ERR_IO;
+    uint64_t leader = srv->raft ? cetcd_raft_leader(srv->raft) : 0;
+    if (cetcd_server_should_listen_clients(srv->cfg.wait_cluster_ready ? 1 : 0,
+                                           leader)) {
+        int brc = bind_client_listener_(srv);
+        if (brc != 0) {
+            cetcd_loop_free(srv->loop);
+            srv->loop = NULL;
+            return brc;
+        }
+    } else {
+        srv->client_listen_pending = 1;
+        CETCD_INFO("waiting for cluster leader before client listen");
     }
 
     if (srv->cfg.peer_port > 0) {
@@ -3068,6 +3102,7 @@ static void raft_tick_cb_(void *arg) {
         cetcd_v3rpc_watch_tick();
     }
     process_ready_(srv);
+    maybe_bind_client_after_ready_(srv);
 }
 
 static int maybe_propose_leave_joint_(cetcd_server *srv) {

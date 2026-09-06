@@ -289,6 +289,17 @@ CETCD_TEST_CASE(auto_compact_metrics_addr) {
     CETCD_ASSERT_TRUE(cetcd_server_metrics_addr(NULL) == NULL);
 }
 
+CETCD_TEST_CASE(auto_compact_wait_cluster_ready) {
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_wait_cluster_ready(0, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_wait_cluster_ready(0, 1), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_wait_cluster_ready(1, 1), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_want_wait_cluster_ready(1, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_server_should_listen_clients(0, 0), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_should_listen_clients(0, 1), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_server_should_listen_clients(1, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_server_should_listen_clients(1, 2), 1);
+}
+
 CETCD_TEST_CASE(auto_compact_want_tick_advance) {
     CETCD_ASSERT_EQ_INT(cetcd_server_want_tick_advance(0, 0), 1);
     CETCD_ASSERT_EQ_INT(cetcd_server_want_tick_advance(0, 1), 1);
@@ -426,6 +437,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_listen_url),
     CETCD_TEST_ENTRY(auto_compact_parse_metrics_listen_url),
     CETCD_TEST_ENTRY(auto_compact_metrics_addr),
+    CETCD_TEST_ENTRY(auto_compact_wait_cluster_ready),
     CETCD_TEST_ENTRY(auto_compact_want_tick_advance),
     CETCD_TEST_ENTRY(auto_compact_parse_self_signed_cert_validity),
     CETCD_TEST_ENTRY(auto_compact_clamp_batch),

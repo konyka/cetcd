@@ -89,6 +89,7 @@ static void print_usage(const char *prog) {
     printf("  --experimental-max-learners N  Cap learner MemberAdd (0 = none; omitted default 1)\n");
     printf("  --experimental-memory-mlock  Lock process memory (Unix mlockall; Windows fail-closed)\n");
     printf("  --experimental-bootstrap-defrag-threshold-megabytes N  Compact data.mdb at start if larger (0 off)\n");
+    printf("  --experimental-wait-cluster-ready  Delay client listen until a Raft leader exists (true|false)\n");
     printf("  --experimental-*    Other experimental flags accepted as no-op\n");
     printf("  --help           Show this help\n");
 }
@@ -822,6 +823,25 @@ int main(int argc, char **argv) {
                 return 1;
             }
             cfg.bootstrap_defrag_mb = n;
+        } else if (strcmp(argv[i], "--experimental-wait-cluster-ready") == 0) {
+            cfg.wait_cluster_ready = true;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                int b = 0;
+                if (cetcd_parse_bool_flag(argv[++i], &b) != CETCD_OK) {
+                    fprintf(stderr,
+                            "--experimental-wait-cluster-ready must be true or false\n");
+                    return 1;
+                }
+                cfg.wait_cluster_ready = b != 0;
+            }
+        } else if (strncmp(argv[i], "--experimental-wait-cluster-ready=", 34) == 0) {
+            int b = 0;
+            if (cetcd_parse_bool_flag(argv[i] + 34, &b) != CETCD_OK) {
+                fprintf(stderr,
+                        "--experimental-wait-cluster-ready must be true or false\n");
+                return 1;
+            }
+            cfg.wait_cluster_ready = b != 0;
         } else if (strncmp(argv[i], "--experimental-", 15) == 0) {
             /* no-op, accepted for etcd compatibility */
             if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* skip value if present */

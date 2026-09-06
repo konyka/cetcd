@@ -253,6 +253,8 @@ cetcd accepts several etcd server flags for migration compatibility:
 # --initial-election-tick-advance=false waits the full election timeout
 # --heartbeat-interval / --election-timeout are milliseconds (1..50000);
 # they set the Raft timer and election_tick (cannot mix with --*-tick)
+# --experimental-wait-cluster-ready delays client listen until a leader exists
+# (omitted default off; a non-bool fails)
 ```
 
 ---
