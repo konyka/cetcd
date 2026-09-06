@@ -101,6 +101,17 @@ int cetcd_config_pairs_to_flags(const cetcd_config_pair *pairs, size_t n,
 int cetcd_read_config_file(const char *path, char *buf, size_t cap);
 /* "etcd Version: X\\nGit SHA: unknown\\nC Standard: C11\\nOS/Arch: os/arch\\n" */
 int cetcd_format_etcd_version(char *out, size_t cap);
+/* "listen-client-urls" → "ETCD_LISTEN_CLIENT_URLS". */
+int cetcd_flag_to_etcd_env(const char *flag, char *out, size_t cap);
+/* "ETCD_LISTEN_CLIENT_URLS" → "listen-client-urls". Other prefixes are INVAL. */
+int cetcd_etcd_env_to_flag(const char *env_key, char *out, size_t cap);
+/* 1 if argv has --flag or --flag=. flag is without dashes. */
+int cetcd_cli_flag_present(int argc, char *const *argv, const char *flag);
+/* KEY=VALUE envv (NULL-terminated). Skip VERSION/CONFIG_FILE. A CLI+env
+ * conflict is INVAL. Empty values are ignored. Unknown names become --flag
+ * and fail later at the existing unknown-flag parser. */
+int cetcd_etcd_env_to_pairs(char *const *envv, int argc, char *const *argv,
+                            cetcd_config_pair *out, size_t cap, size_t *n);
 /* Integer MB >= 0. 0 = off. Overflow (MB*1MiB) is INVAL. */
 int cetcd_parse_bootstrap_defrag_mb(const char *s, uint64_t *out);
 /* 1 if alloc_bytes > threshold_mb MiB. threshold 0 never. */

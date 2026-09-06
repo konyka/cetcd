@@ -838,7 +838,7 @@ int cetcd_config_pairs_to_flags(const cetcd_config_pair *pairs, size_t n,
                                 char *store, size_t store_cap, int *argc) {
     if (!argv || !store || !argc || argv_cap < 1) return CETCD_ERR_INVAL;
     if (n && !pairs) return CETCD_ERR_INVAL;
-    int ac = 1;
+    int ac = (*argc > 0) ? *argc : 1;
     size_t off = 0;
     for (size_t i = 0; i < n; i++) {
         if (strcmp(pairs[i].key, "version") == 0 ||
@@ -876,5 +876,88 @@ int cetcd_read_config_file(const char *path, char *buf, size_t cap) {
     fclose(f);
     if (extra != EOF) return CETCD_ERR_OVERFLOW;
     buf[n] = '\0';
+    return CETCD_OK;
+}
+
+int cetcd_flag_to_etcd_env(const char *flag, char *out, size_t cap) {
+    if (!flag || !flag[0] || !out || cap < 6) return CETCD_ERR_INVAL;
+    size_t n = strlen(flag);
+    if (5 + n + 1 > cap) return CETCD_ERR_OVERFLOW;
+    memcpy(out, "ETCD_", 5);
+    for (size_t i = 0; i < n; i++) {
+        char c = flag[i];
+        if (c >= 'a' && c <= 'z') c = (char)(c - 32);
+        else if (c == '-') c = '_';
+        else if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'))
+            return CETCD_ERR_INVAL;
+        out[5 + i] = c;
+    }
+    out[5 + n] = '\0';
+    return CETCD_OK;
+}
+
+int cetcd_etcd_env_to_flag(const char *env_key, char *out, size_t cap) {
+    if (!env_key || !out || cap < 2) return CETCD_ERR_INVAL;
+    if (strncmp(env_key, "ETCD_", 5) != 0 || !env_key[5])
+        return CETCD_ERR_INVAL;
+    const char *p = env_key + 5;
+    size_t n = strlen(p);
+    if (n + 1 > cap) return CETCD_ERR_OVERFLOW;
+    for (size_t i = 0; i < n; i++) {
+        char c = p[i];
+        if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+        else if (c == '_') c = '-';
+        else if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'))
+            return CETCD_ERR_INVAL;
+        out[i] = c;
+    }
+    out[n] = '\0';
+    return CETCD_OK;
+}
+
+int cetcd_cli_flag_present(int argc, char *const *argv, const char *flag) {
+    if (!flag || !flag[0] || !argv || argc < 2) return 0;
+    size_t n = strlen(flag);
+    for (int i = 1; i < argc; i++) {
+        const char *a = argv[i];
+        if (!a || a[0] != '-' || a[1] != '-') continue;
+        a += 2;
+        if (strncmp(a, flag, n) == 0 && (a[n] == '\0' || a[n] == '='))
+            return 1;
+    }
+    return 0;
+}
+
+int cetcd_etcd_env_to_pairs(char *const *envv, int argc, char *const *argv,
+                            cetcd_config_pair *out, size_t cap, size_t *n) {
+    if (!out || !n || cap == 0) return CETCD_ERR_INVAL;
+    *n = 0;
+    if (!envv) return CETCD_OK;
+    for (size_t i = 0; envv[i]; i++) {
+        const char *eq = strchr(envv[i], '=');
+        if (!eq) continue;
+        size_t klen = (size_t)(eq - envv[i]);
+        if (klen < 5 || strncmp(envv[i], "ETCD_", 5) != 0) continue;
+        if (klen >= CETCD_CONFIG_KEY_MAX) return CETCD_ERR_INVAL;
+        char key[CETCD_CONFIG_KEY_MAX];
+        memcpy(key, envv[i], klen);
+        key[klen] = '\0';
+        if (strcmp(key, "ETCD_VERSION") == 0 ||
+            strcmp(key, "ETCD_CONFIG_FILE") == 0)
+            continue;
+        const char *val = eq + 1;
+        if (!val[0]) continue;
+        char flag[CETCD_CONFIG_KEY_MAX];
+        if (cetcd_etcd_env_to_flag(key, flag, sizeof(flag)) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+        if (cetcd_cli_flag_present(argc, argv, flag))
+            return CETCD_ERR_INVAL;
+        if (*n >= cap) return CETCD_ERR_OVERFLOW;
+        if (strlen(flag) >= CETCD_CONFIG_KEY_MAX) return CETCD_ERR_OVERFLOW;
+        if (strlen(val) >= CETCD_CONFIG_VAL_MAX) return CETCD_ERR_OVERFLOW;
+        memcpy(out[*n].key, flag, strlen(flag) + 1);
+        memcpy(out[*n].val, val, strlen(val) + 1);
+        (*n)++;
+    }
     return CETCD_OK;
 }

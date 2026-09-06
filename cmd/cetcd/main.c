@@ -23,7 +23,8 @@ static void print_usage(const char *prog) {
     printf("Usage: %s [options]\n", prog);
     printf("Options:\n");
     printf("  --version        Print version and exit\n");
-    printf("  --config-file FILE  YAML map of flag names (other CLI flags ignored)\n");
+    printf("  --config-file FILE  YAML map of flag names (other CLI flags and ETCD_* ignored)\n");
+    printf("  ETCD_*              Same as --flag when no --config-file (CLI+env conflict fail-closes)\n");
     printf("  --name NAME      Member name (default: default)\n");
     printf("  --data-dir DIR   Data directory (default: ./data)\n");
     printf("  --wal-dir DIR    WAL directory (default: {data-dir}/wal; empty fail-closes)\n");
@@ -163,6 +164,42 @@ static int apply_config_file_(const char *path, int *argc, char ***argv,
     return 0;
 }
 
+#if defined(_WIN32)
+#define CETCD_PROCESS_ENVIRON _environ
+#else
+extern char **environ;
+#define CETCD_PROCESS_ENVIRON environ
+#endif
+
+static int apply_etcd_env_(int *argc, char ***argv,
+                           char **flag_argv, size_t flag_argv_cap,
+                           char *store, size_t store_cap,
+                           cetcd_config_pair *pairs, size_t pair_cap) {
+    size_t n = 0;
+    if (cetcd_etcd_env_to_pairs(CETCD_PROCESS_ENVIRON, *argc, *argv,
+                                pairs, pair_cap, &n) != CETCD_OK) {
+        fprintf(stderr,
+                "ETCD_* environment conflicts with a CLI flag or is invalid\n");
+        return 1;
+    }
+    if (n == 0) return 0;
+    if ((size_t)*argc >= flag_argv_cap) {
+        fprintf(stderr, "ETCD_* environment has too many settings\n");
+        return 1;
+    }
+    for (int i = 0; i < *argc; i++)
+        flag_argv[i] = (*argv)[i];
+    int ac = *argc;
+    if (cetcd_config_pairs_to_flags(pairs, n, flag_argv, flag_argv_cap,
+                                    store, store_cap, &ac) != CETCD_OK) {
+        fprintf(stderr, "ETCD_* environment has too many settings\n");
+        return 1;
+    }
+    *argc = ac;
+    *argv = flag_argv;
+    return 0;
+}
+
 int main(int argc, char **argv) {
     const char *name = "default";
     const char *data_dir = "./data";
@@ -224,6 +261,10 @@ int main(int argc, char **argv) {
                 config_file = argv[i] + 14;
             }
         }
+        if (!config_file) {
+            const char *e = getenv("ETCD_CONFIG_FILE");
+            if (e && e[0]) config_file = e;
+        }
         if (config_file) {
             static char cfg_text[65536];
             static cetcd_config_pair cfg_pairs[CETCD_CONFIG_MAX_PAIRS];
@@ -234,6 +275,15 @@ int main(int argc, char **argv) {
                                    cfg_store, sizeof(cfg_store),
                                    cfg_text, sizeof(cfg_text),
                                    cfg_pairs, CETCD_CONFIG_MAX_PAIRS) != 0)
+                return 1;
+        } else {
+            static cetcd_config_pair env_pairs[CETCD_CONFIG_MAX_PAIRS];
+            static char env_store[65536];
+            static char *env_argv[256 + CETCD_CONFIG_MAX_PAIRS * 2];
+            if (apply_etcd_env_(&argc, &argv, env_argv,
+                                sizeof(env_argv) / sizeof(env_argv[0]),
+                                env_store, sizeof(env_store),
+                                env_pairs, CETCD_CONFIG_MAX_PAIRS) != 0)
                 return 1;
         }
     }

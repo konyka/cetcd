@@ -105,12 +105,17 @@ requests and port 2380 for peer-to-peer (Raft) communication.
 
 `--version` prints `etcd Version:` / `Git SHA` / `C Standard` / `OS/Arch` and
 exits. `--config-file` is an etcd YAML map of flag names; when it is set,
-other CLI flags are ignored (except `--help` / `--version`). A missing file
-or invalid YAML fail-closes.
+other CLI flags and `ETCD_*` are ignored (except `--help` / `--version`). A
+missing file or invalid YAML fail-closes. Without a config file, `ETCD_*`
+maps to the matching `--flag` (`ETCD_LISTEN_CLIENT_URLS`). Empty values are
+ignored. `ETCD_VERSION` is not `--version`. A CLI flag plus the matching
+`ETCD_*` fail-closes. `ETCD_CONFIG_FILE` is `--config-file` when the flag
+is omitted.
 
 ```sh
 ./build/bin/cetcd --version
 ./build/bin/cetcd --config-file ./cetcd.yaml
+ETCD_LISTEN_CLIENT_URLS=http://127.0.0.1:2379 ./build/bin/cetcd
 ```
 
 With `--data-dir` set, Put/DeleteRange are proposed through Raft, fsynced to

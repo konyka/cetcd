@@ -125,6 +125,7 @@
       <tr><td>69</td><td>peer-client-cert-file</td><td>--peer-client-cert-file / --peer-client-key-file present a distinct outbound peer cert; omitted uses --peer-cert-file; cert without key fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>70</td><td>client/peer CRL</td><td>--client-crl-file / --peer-crl-file reject a handshake whose peer cert serial is on the CRL; require that side's cert; missing/garbage fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>71</td><td>config-file + version</td><td>--config-file applies an etcd YAML map through the real flag parser (other CLI flags ignored); --version prints and exits — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>72</td><td>ETCD_* environment</td><td>ETCD_* maps to --flag when no config file is set; empty ignored; ETCD_VERSION skipped; CLI+env conflict or a typo fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

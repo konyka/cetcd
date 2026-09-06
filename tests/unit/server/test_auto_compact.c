@@ -729,6 +729,83 @@ CETCD_TEST_CASE(auto_compact_format_etcd_version) {
     CETCD_ASSERT_EQ_INT(cetcd_format_etcd_version(buf, 4), CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_etcd_env) {
+    char buf[64];
+    CETCD_ASSERT_EQ_INT(cetcd_flag_to_etcd_env("listen-client-urls", buf,
+                                               sizeof(buf)), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(strcmp(buf, "ETCD_LISTEN_CLIENT_URLS"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_env_to_flag("ETCD_LISTEN_CLIENT_URLS", buf,
+                                               sizeof(buf)), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(strcmp(buf, "listen-client-urls"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_env_to_flag("FOO_BAR", buf, sizeof(buf)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_env_to_flag("ETCD_", buf, sizeof(buf)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_flag_to_etcd_env("", buf, sizeof(buf)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_flag_to_etcd_env("listen-client-urls", buf, 8),
+                        CETCD_ERR_OVERFLOW);
+
+    char *argv[] = {(char *)"cetcd", (char *)"--metrics", (char *)"basic", NULL};
+    CETCD_ASSERT_EQ_INT(cetcd_cli_flag_present(3, argv, "metrics"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_cli_flag_present(3, argv, "metrics-port"), 0);
+    char *argv_eq[] = {(char *)"cetcd", (char *)"--metrics-port=2381", NULL};
+    CETCD_ASSERT_EQ_INT(cetcd_cli_flag_present(2, argv_eq, "metrics"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_cli_flag_present(2, argv_eq, "metrics-port"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_cli_flag_present(1, argv, "name"), 0);
+
+    cetcd_config_pair pairs[8];
+    size_t n = 99;
+    char *envv[] = {
+        (char *)"PATH=/bin",
+        (char *)"ETCD_NAME=infra1",
+        (char *)"ETCD_LISTEN_CLIENT_URLS=http://127.0.0.1:2379",
+        (char *)"ETCD_VERSION=3.5.0",
+        (char *)"ETCD_CONFIG_FILE=/tmp/x.yaml",
+        (char *)"ETCD_CLIENT_CERT_AUTH=",
+        NULL
+    };
+    char *cli[] = {(char *)"cetcd", NULL};
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_env_to_pairs(envv, 1, cli, pairs, 8, &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 2);
+    CETCD_ASSERT_EQ_INT(strcmp(pairs[0].key, "name"), 0);
+    CETCD_ASSERT_EQ_INT(strcmp(pairs[0].val, "infra1"), 0);
+    CETCD_ASSERT_EQ_INT(strcmp(pairs[1].key, "listen-client-urls"), 0);
+    CETCD_ASSERT_EQ_INT(strcmp(pairs[1].val, "http://127.0.0.1:2379"), 0);
+
+    char *cli_name[] = {(char *)"cetcd", (char *)"--name", (char *)"x", NULL};
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_env_to_pairs(envv, 3, cli_name, pairs, 8, &n),
+                        CETCD_ERR_INVAL);
+    char *cli_eq[] = {(char *)"cetcd", (char *)"--name=x", NULL};
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_env_to_pairs(envv, 2, cli_eq, pairs, 8, &n),
+                        CETCD_ERR_INVAL);
+
+    char *env_mp[] = {(char *)"ETCD_METRICS_PORT=9", NULL};
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_env_to_pairs(env_mp, 3, argv, pairs, 8, &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 1);
+    CETCD_ASSERT_EQ_INT(strcmp(pairs[0].key, "metrics-port"), 0);
+
+    char *flag_argv[8];
+    char store[256];
+    flag_argv[0] = (char *)"cetcd";
+    flag_argv[1] = (char *)"--data-dir";
+    flag_argv[2] = (char *)"./data";
+    int argc = 3;
+    CETCD_ASSERT_EQ_INT(cetcd_config_pairs_to_flags(pairs, n, flag_argv, 8,
+                                                    store, sizeof(store),
+                                                    &argc), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(argc, 5);
+    CETCD_ASSERT_EQ_INT(strcmp(flag_argv[1], "--data-dir"), 0);
+    CETCD_ASSERT_EQ_INT(strcmp(flag_argv[3], "--metrics-port"), 0);
+    CETCD_ASSERT_EQ_INT(strcmp(flag_argv[4], "9"), 0);
+
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_env_to_pairs(NULL, 1, cli, pairs, 8, &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_mode),
     CETCD_TEST_ENTRY(auto_compact_parse_retention_periodic),
@@ -768,6 +845,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_etcd_config_yaml),
     CETCD_TEST_ENTRY(auto_compact_config_pairs_to_flags),
     CETCD_TEST_ENTRY(auto_compact_format_etcd_version),
+    CETCD_TEST_ENTRY(auto_compact_etcd_env),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

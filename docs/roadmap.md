@@ -450,6 +450,13 @@ Performance-first, fail-closed design:
   ignored (`--help` / `--version` still win). Nested/flow maps, a
   missing file, or a missing value fail-close. Accepting the flag as a
   no-op is rejected (a YAML listen URL would be ignored).
+- **`ETCD_*` environment** — etcd `SetFlagsFromEnv`. `ETCD_LISTEN_CLIENT_URLS`
+  is `--listen-client-urls` when no `--config-file` / `ETCD_CONFIG_FILE`
+  is set. Empty values are ignored. `ETCD_VERSION` is not `--version`.
+  A CLI flag plus the matching `ETCD_*` fail-closes (etcd FATAL). A typo
+  (`ETCD_LISTEN_CLIENT_URL`) becomes an unknown flag instead of a
+  silent default. When a config file is set, all other `ETCD_*` are
+  ignored.
 - **`--host-whitelist`** — comma-separated Host names on the metrics
   HTTP port. Empty / `*` (omitted default) allows all. A restricted list
   waits for headers and returns 403 if Host is missing or not listed
