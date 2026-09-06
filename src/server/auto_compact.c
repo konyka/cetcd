@@ -199,6 +199,13 @@ int64_t cetcd_auto_compact_clamp(int64_t target, int64_t compacted_rev,
     return cap < target ? cap : target;
 }
 
+int cetcd_auto_compact_sleep_ready(uint64_t last_compact_ms, uint64_t now_ms,
+                                   uint64_t sleep_ms) {
+    if (sleep_ms == 0 || last_compact_ms == 0) return 1;
+    if (now_ms < last_compact_ms) return 1;
+    return (now_ms - last_compact_ms) >= sleep_ms;
+}
+
 int64_t cetcd_auto_compact_next(cetcd_auto_compact_state *st,
                                 int64_t current_rev, int64_t compacted_rev,
                                 uint64_t now_ms) {
@@ -209,5 +216,12 @@ int64_t cetcd_auto_compact_next(cetcd_auto_compact_state *st,
         st->pending = 0;
         return 0;
     }
-    return cetcd_auto_compact_clamp(st->pending, compacted_rev, st->batch_limit);
+    if (!cetcd_auto_compact_sleep_ready(st->last_compact_ms, now_ms,
+                                        st->sleep_interval_ms))
+        return 0;
+    int64_t step = cetcd_auto_compact_clamp(st->pending, compacted_rev,
+                                            st->batch_limit);
+    if (step > 0)
+        st->last_compact_ms = now_ms ? now_ms : 1;
+    return step;
 }

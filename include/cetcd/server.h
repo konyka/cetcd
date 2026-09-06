@@ -36,6 +36,8 @@ typedef struct cetcd_auto_compact_state {
     int64_t  window_rev;
     uint64_t batch_limit;     /* 0 = unlimited; else max revs per compact */
     int64_t  pending;         /* last due target not yet fully compacted */
+    uint64_t sleep_interval_ms; /* 0 = no wait between compact batches */
+    uint64_t last_compact_ms;   /* last time next() returned a target */
 } cetcd_auto_compact_state;
 
 /* periodic | revision. Empty/unknown is INVAL. */
@@ -66,6 +68,9 @@ int64_t cetcd_auto_compact_clamp(int64_t target, int64_t compacted_rev,
 int64_t cetcd_auto_compact_next(cetcd_auto_compact_state *st,
                                 int64_t current_rev, int64_t compacted_rev,
                                 uint64_t now_ms);
+/* 1 if a compact batch may run. sleep_ms 0 always. last 0 always. */
+int cetcd_auto_compact_sleep_ready(uint64_t last_compact_ms, uint64_t now_ms,
+                                   uint64_t sleep_ms);
 
 typedef struct cetcd_server_config {
     uint64_t        node_id;
@@ -119,6 +124,7 @@ typedef struct cetcd_server_config {
     bool            initial_corrupt_check;        /* HashKV vs {data-dir}/backend.hash */
     uint64_t        corrupt_check_interval_sec;   /* 0 = off; periodic HashKV vs backend.hash */
     uint64_t        compaction_batch_limit;       /* 0 = unlimited auto-compact step */
+    uint64_t        compaction_sleep_interval_ms; /* 0 = no wait between compact batches */
     uint64_t        watch_progress_interval_ms;   /* 0 = default 10s; Watch progress_notify */
     bool            warning_apply_set;            /* --experimental-warning-apply-duration given */
     uint64_t        warning_apply_ms;             /* 0 = disable; unset → 100ms */

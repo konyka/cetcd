@@ -74,6 +74,7 @@ static void print_usage(const char *prog) {
     printf("  --experimental-initial-corrupt-check  HashKV vs {data-dir}/backend.hash (fail-closed)\n");
     printf("  --experimental-corrupt-check-time DUR  Periodic HashKV vs backend.hash (0 disables)\n");
     printf("  --experimental-compaction-batch-limit N  Auto-compact at most N revs/tick (0 unlimited)\n");
+    printf("  --experimental-compaction-sleep-interval DUR  Wait between auto-compact batches (0 = none)\n");
     printf("  --experimental-watch-progress-notify-interval DUR  Watch progress_notify period (0 = 10s)\n");
     printf("  --experimental-warning-apply-duration DUR  Warn if apply exceeds duration (0 disables; default 100ms)\n");
     printf("  --experimental-max-learners N  Cap learner MemberAdd (0 = none; omitted default 1)\n");
@@ -509,6 +510,27 @@ int main(int argc, char **argv) {
                 return 1;
             }
             cfg.compaction_batch_limit = n;
+        } else if (strcmp(argv[i], "--experimental-compaction-sleep-interval") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr,
+                        "--experimental-compaction-sleep-interval requires a duration\n");
+                return 1;
+            }
+            uint64_t ms = 0;
+            if (cetcd_parse_go_duration_ms(argv[++i], &ms) != CETCD_OK) {
+                fprintf(stderr,
+                        "--experimental-compaction-sleep-interval must be a duration (0 = none)\n");
+                return 1;
+            }
+            cfg.compaction_sleep_interval_ms = ms;
+        } else if (strncmp(argv[i], "--experimental-compaction-sleep-interval=", 41) == 0) {
+            uint64_t ms = 0;
+            if (cetcd_parse_go_duration_ms(argv[i] + 41, &ms) != CETCD_OK) {
+                fprintf(stderr,
+                        "--experimental-compaction-sleep-interval must be a duration (0 = none)\n");
+                return 1;
+            }
+            cfg.compaction_sleep_interval_ms = ms;
         } else if (strcmp(argv[i], "--experimental-watch-progress-notify-interval") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr,

@@ -394,6 +394,11 @@ Performance-first, fail-closed design:
   value or leftover text fail at parse (no longer swallowed). WAL
   apply of an already-committed add still applies. Other
   `--experimental-*` stay no-ops.
+- **`--experimental-compaction-sleep-interval`** — Go duration (`0` =
+  no extra wait). After an auto-compact batch the next batch waits at
+  least that long (ticks are skipped; the apply loop is not blocked).
+  Missing value or a non-duration fail at parse (no longer swallowed).
+  Other `--experimental-*` stay no-ops.
 
 ## Previously done (auth data plane)
 

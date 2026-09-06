@@ -175,6 +175,28 @@ CETCD_TEST_CASE(auto_compact_next_periodic_drains) {
     CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_next(&st, 8, 5, 1100), 0);
 }
 
+CETCD_TEST_CASE(auto_compact_sleep_ready) {
+    CETCD_ASSERT_EQ_INT(cetcd_auto_compact_sleep_ready(0, 100, 500), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_auto_compact_sleep_ready(100, 150, 0), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_auto_compact_sleep_ready(100, 150, 100), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_auto_compact_sleep_ready(100, 200, 100), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_auto_compact_sleep_ready(100, 50, 100), 1);
+}
+
+CETCD_TEST_CASE(auto_compact_next_sleeps_between_batches) {
+    cetcd_auto_compact_state st;
+    memset(&st, 0, sizeof(st));
+    st.mode = CETCD_AUTO_COMPACT_REVISION;
+    st.retention = 3;
+    st.batch_limit = 2;
+    st.sleep_interval_ms = 500;
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_next(&st, 10, 0, 1000), 2);
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_next(&st, 10, 2, 1200), 0);
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_next(&st, 10, 2, 1500), 4);
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_next(&st, 10, 4, 1600), 0);
+    CETCD_ASSERT_EQ_INT((int)cetcd_auto_compact_next(&st, 10, 4, 2000), 6);
+}
+
 CETCD_TEST_CASE(auto_compact_due_off) {
     cetcd_auto_compact_state st;
     memset(&st, 0, sizeof(st));
@@ -197,6 +219,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_clamp_batch),
     CETCD_TEST_ENTRY(auto_compact_next_revision_batches),
     CETCD_TEST_ENTRY(auto_compact_next_periodic_drains),
+    CETCD_TEST_ENTRY(auto_compact_sleep_ready),
+    CETCD_TEST_ENTRY(auto_compact_next_sleeps_between_batches),
     CETCD_TEST_ENTRY(auto_compact_due_off),
 CETCD_TEST_LIST_END
 

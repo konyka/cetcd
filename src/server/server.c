@@ -2381,6 +2381,7 @@ cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
         srv->ac.mode = cfg->auto_compaction_mode;
         srv->ac.retention = cfg->auto_compaction_retention;
         srv->ac.batch_limit = cfg->compaction_batch_limit;
+        srv->ac.sleep_interval_ms = cfg->compaction_sleep_interval_ms;
     }
     return srv;
 }

@@ -1969,6 +1969,29 @@ CETCD_TEST_CASE(live_cetcd_compaction_batch_limit) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_compaction_sleep_interval) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-compaction-sleep-interval 100ms --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-compaction-sleep-interval=0 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-compaction-sleep-interval abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-compaction-sleep-interval >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_watch_progress_interval) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -2918,6 +2941,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_auto_compaction),
     CETCD_TEST_ENTRY(live_cetcd_corrupt_check_time),
     CETCD_TEST_ENTRY(live_cetcd_compaction_batch_limit),
+    CETCD_TEST_ENTRY(live_cetcd_compaction_sleep_interval),
     CETCD_TEST_ENTRY(live_cetcd_watch_progress_interval),
     CETCD_TEST_ENTRY(live_cetcd_warning_apply_duration),
     CETCD_TEST_ENTRY(live_cetcd_max_learners),
