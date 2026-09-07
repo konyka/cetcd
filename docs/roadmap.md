@@ -574,6 +574,12 @@ Performance-first, fail-closed design:
   allowed. No ALPN (HTTP/1 scrape). Missing cert fail-closes. An `http://`
   client listen is not wrapped just because metrics needs certs.
   Accepting https as a no-op or plaintext is rejected.
+- **HTTP/2 stream multiplex** — each stream has its own path, token, and
+  body. A second unary or Watch on the same connection cannot steal the
+  first stream's `:path` or `authorization`. SETTINGS
+  `--max-concurrent-streams` is clamped to the tracked table
+  (`CETCD_H2_MAX_STREAMS`). Extra streams are RST (REFUSED_STREAM).
+  A single `cur` request slot is rejected.
 
 ## Previously done (auth data plane)
 

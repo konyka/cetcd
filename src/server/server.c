@@ -762,7 +762,27 @@ static void on_metrics_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t 
 static void on_metrics_write_(uv_write_t *req, int status);
 static void on_metrics_close_(uv_handle_t *handle);
 
-typedef struct client_ctx_ {
+typedef struct client_ctx_ client_ctx_;
+
+typedef struct client_h2_wctx_ {
+    client_ctx_ *ctx;
+    int32_t      sid;
+} client_h2_wctx_;
+
+typedef struct client_h2_req_ {
+    int32_t          sid;
+    char             path[256];
+    uint8_t         *body;
+    size_t           body_len;
+    size_t           body_cap;
+    int              done;
+    int              fail;
+    int              hdrs_sent;
+    int              in_use;
+    client_h2_wctx_ *wctx;
+} client_h2_req_;
+
+struct client_ctx_ {
     cetcd_server     *srv;
     cetcd_tcp        *client;
     cetcd_tls_conn   *tls;
@@ -773,15 +793,8 @@ typedef struct client_ctx_ {
     int               proto; /* 0 unknown, 1 custom TCP, 2 HTTP/2 */
     cetcd_h2_session *h2;
     uv_stream_t      *h2_stream;
-    int32_t           h2_sid;
-    char              h2_path[256];
-    uint8_t          *h2_body;
-    size_t            h2_body_len;
-    size_t            h2_body_cap;
-    int               h2_done;
-    int               h2_fail;
-    int               h2_hdrs_sent;
-} client_ctx_;
+    client_h2_req_    h2s[CETCD_H2_MAX_STREAMS];
+};
 
 static uint64_t client_max_bytes_(const client_ctx_ *ctx) {
     uint64_t maxb = ctx && ctx->srv ? ctx->srv->cfg.max_request_bytes : 0;
@@ -834,14 +847,47 @@ static void client_uv_send_(uv_stream_t *stream, uint8_t *frame, size_t total) {
     }
 }
 
+static void client_h2_req_clear_(client_h2_req_ *r) {
+    if (!r) return;
+    if (r->wctx) {
+        cetcd_v3rpc_detach_stream_writer(r->wctx);
+        free(r->wctx);
+        r->wctx = NULL;
+    }
+    free(r->body);
+    memset(r, 0, sizeof(*r));
+}
+
+static client_h2_req_ *client_h2_req_get_(client_ctx_ *ctx, int32_t sid) {
+    if (!ctx || sid == 0) return NULL;
+    for (int i = 0; i < CETCD_H2_MAX_STREAMS; i++) {
+        if (ctx->h2s[i].in_use && ctx->h2s[i].sid == sid) return &ctx->h2s[i];
+    }
+    return NULL;
+}
+
+static client_h2_req_ *client_h2_req_begin_(client_ctx_ *ctx, int32_t sid) {
+    client_h2_req_ *exist = client_h2_req_get_(ctx, sid);
+    if (exist) return exist;
+    if (!ctx || sid == 0) return NULL;
+    for (int i = 0; i < CETCD_H2_MAX_STREAMS; i++) {
+        if (!ctx->h2s[i].in_use) {
+            memset(&ctx->h2s[i], 0, sizeof(ctx->h2s[i]));
+            ctx->h2s[i].in_use = 1;
+            ctx->h2s[i].sid = sid;
+            return &ctx->h2s[i];
+        }
+    }
+    return NULL;
+}
+
 static void client_close_cb_(uv_handle_t *handle) {
-    /* Detach any Watch streams bound to this connection before freeing. */
-    cetcd_v3rpc_detach_stream_writer(handle);
     client_ctx_ *ctx = (client_ctx_ *)handle->data;
     if (ctx) {
+        for (int i = 0; i < CETCD_H2_MAX_STREAMS; i++)
+            client_h2_req_clear_(&ctx->h2s[i]);
         cetcd_tls_conn_free(ctx->tls);
         cetcd_h2_session_free(ctx->h2);
-        free(ctx->h2_body);
         free(ctx->buf);
         free(ctx);
     }
@@ -1300,30 +1346,100 @@ static int h2_write_uv_(const uint8_t *buf, size_t len, void *arg) {
     return 0;
 }
 
-static int client_h2_body_append_(client_ctx_ *ctx, const uint8_t *data, size_t len) {
-    if (!ctx || len == 0) return 0;
+static int client_h2_body_append_(client_ctx_ *ctx, client_h2_req_ *r,
+                                  const uint8_t *data, size_t len) {
+    if (!ctx || !r || len == 0) return 0;
     uint64_t maxb = client_max_bytes_(ctx);
-    if ((uint64_t)ctx->h2_body_len + len > maxb) return -1;
-    size_t need = ctx->h2_body_len + len;
-    if (need > ctx->h2_body_cap) {
-        size_t cap = ctx->h2_body_cap ? ctx->h2_body_cap : 4096;
+    if ((uint64_t)r->body_len + len > maxb) return -1;
+    size_t need = r->body_len + len;
+    if (need > r->body_cap) {
+        size_t cap = r->body_cap ? r->body_cap : 4096;
         while (cap < need) {
             if (cap > SIZE_MAX / 2) return -1;
             cap *= 2;
         }
-        uint8_t *nb = (uint8_t *)realloc(ctx->h2_body, cap);
+        uint8_t *nb = (uint8_t *)realloc(r->body, cap);
         if (!nb) return -1;
-        ctx->h2_body = nb;
-        ctx->h2_body_cap = cap;
+        r->body = nb;
+        r->body_cap = cap;
     }
-    memcpy(ctx->h2_body + ctx->h2_body_len, data, len);
-    ctx->h2_body_len += len;
+    memcpy(r->body + r->body_len, data, len);
+    r->body_len += len;
     return 0;
 }
 
-static void client_h2_finish_(client_ctx_ *ctx) {
-    if (!ctx || ctx->h2_done || !ctx->h2) return;
-    ctx->h2_done = 1;
+static int client_h2_is_watch_(const client_h2_req_ *r) {
+    return r && strcmp(r->path, "/etcdserverpb.Watch/Watch") == 0;
+}
+
+static int client_h2_is_bidi_(const client_h2_req_ *r) {
+    return client_h2_is_watch_(r) ||
+           (r && strcmp(r->path, "/etcdserverpb.Lease/LeaseKeepAlive") == 0);
+}
+
+static int client_h2_is_snapshot_(const client_h2_req_ *r) {
+    return r && strcmp(r->path, "/etcdserverpb.Maintenance/Snapshot") == 0;
+}
+
+static int client_h2_is_server_stream_(const client_h2_req_ *r) {
+    return client_h2_is_snapshot_(r) ||
+           (r && strcmp(r->path, "/etcdserverpb.KV/RangeStream") == 0);
+}
+
+static client_h2_wctx_ *client_h2_wctx_get_(client_ctx_ *ctx, client_h2_req_ *r) {
+    if (!ctx || !r) return NULL;
+    if (!r->wctx) {
+        r->wctx = (client_h2_wctx_ *)calloc(1, sizeof(*r->wctx));
+        if (!r->wctx) return NULL;
+        r->wctx->ctx = ctx;
+        r->wctx->sid = r->sid;
+    }
+    return r->wctx;
+}
+
+static void client_h2_send_headers_(client_ctx_ *ctx, client_h2_req_ *r) {
+    if (!ctx || !r || r->hdrs_sent || !ctx->h2) return;
+    const char *hdrs[] = {
+        ":status", "200",
+        "content-type", "application/grpc",
+    };
+    cetcd_h2_submit_response(ctx->h2, r->sid, hdrs, 4, NULL, 0, false);
+    r->hdrs_sent = 1;
+}
+
+static void client_h2_stream_write_(const uint8_t *data, size_t len, void *arg) {
+    client_h2_wctx_ *w = (client_h2_wctx_ *)arg;
+    client_ctx_ *ctx = w ? w->ctx : NULL;
+    client_h2_req_ *r = ctx ? client_h2_req_get_(ctx, w->sid) : NULL;
+    if (!ctx || !r || !ctx->h2 || !data || len == 0) return;
+    uint8_t *grpc = NULL;
+    size_t glen = 0;
+    if (cetcd_grpc_encode(data, len, false, &grpc, &glen) != CETCD_OK) return;
+    client_h2_send_headers_(ctx, r);
+    (void)cetcd_h2_submit_data(ctx->h2, r->sid, grpc, glen, false);
+    free(grpc);
+    if (ctx->h2_stream)
+        (void)cetcd_h2_send_pending(ctx->h2, h2_write_uv_, ctx->h2_stream);
+}
+
+static void client_h2_send_trailers_(client_ctx_ *ctx, client_h2_req_ *r,
+                                     const char *grpc_status) {
+    client_h2_send_headers_(ctx, r);
+    if (ctx->h2_stream)
+        (void)cetcd_h2_send_pending(ctx->h2, h2_write_uv_, ctx->h2_stream);
+    const char *tr[] = { "grpc-status", grpc_status, "grpc-message", "" };
+    cetcd_h2_submit_trailers(ctx->h2, r->sid, tr, 4);
+    r->done = 1;
+}
+
+static void client_h2_watch_error_(client_ctx_ *ctx, client_h2_req_ *r,
+                                   const char *grpc_status) {
+    client_h2_send_trailers_(ctx, r, grpc_status);
+}
+
+static void client_h2_finish_(client_ctx_ *ctx, client_h2_req_ *r) {
+    if (!ctx || !r || r->done || !ctx->h2) return;
+    r->done = 1;
 
     const char *grpc_status = "0";
     uint8_t *grpc_out = NULL;
@@ -1331,11 +1447,11 @@ static void client_h2_finish_(client_ctx_ *ctx) {
     uint8_t *msg = NULL;
     size_t msg_len = 0;
 
-    if (ctx->h2_path[0] == '\0') {
+    if (r->path[0] == '\0') {
         grpc_status = "3";
-    } else if (ctx->h2_body_len > 0) {
+    } else if (r->body_len > 0) {
         bool compressed = false;
-        if (cetcd_grpc_decode(ctx->h2_body, ctx->h2_body_len,
+        if (cetcd_grpc_decode(r->body, r->body_len,
                               &compressed, &msg, &msg_len) != CETCD_OK) {
             grpc_status = "3";
         } else if (compressed) {
@@ -1347,13 +1463,12 @@ static void client_h2_finish_(client_ctx_ *ctx) {
     }
 
     if (grpc_status[0] == '0') {
-        const char *token = cetcd_h2_req_authorization(ctx->h2);
+        const char *token = cetcd_h2_req_authorization_on(ctx->h2, r->sid);
         if (token && token[0] == '\0') token = NULL;
-        /* dispatch_ex rejects NULL req_data; empty gRPC messages decode to NULL. */
         static const uint8_t empty_req = 0;
         const uint8_t *req = msg ? msg : &empty_req;
         cetcd_server_rpc_result resp = cetcd_server_handle_rpc_ex(
-            ctx->srv, ctx->h2_path, req, msg_len, token);
+            ctx->srv, r->path, req, msg_len, token);
         if (!resp.data || resp.len == 0) {
             grpc_status = "2";
         } else if (cetcd_grpc_encode(resp.data, resp.len, false,
@@ -1368,116 +1483,62 @@ static void client_h2_finish_(client_ctx_ *ctx) {
         ":status", "200",
         "content-type", "application/grpc",
     };
-    cetcd_h2_submit_response(ctx->h2, ctx->h2_sid, hdrs, 4,
+    cetcd_h2_submit_response(ctx->h2, r->sid, hdrs, 4,
                              grpc_out, grpc_out_len, false);
-    /* Flush DATA before trailers; nghttp2 will not emit both if queued together. */
     if (ctx->h2_stream)
         (void)cetcd_h2_send_pending(ctx->h2, h2_write_uv_, ctx->h2_stream);
     const char *tr[] = { "grpc-status", grpc_status, "grpc-message", "" };
-    cetcd_h2_submit_trailers(ctx->h2, ctx->h2_sid, tr, 4);
+    cetcd_h2_submit_trailers(ctx->h2, r->sid, tr, 4);
     free(grpc_out);
-    ctx->h2_body_len = 0;
+    r->body_len = 0;
 }
 
-static int client_h2_is_watch_(const client_ctx_ *ctx) {
-    return ctx && strcmp(ctx->h2_path, "/etcdserverpb.Watch/Watch") == 0;
-}
-
-static int client_h2_is_bidi_(const client_ctx_ *ctx) {
-    return client_h2_is_watch_(ctx) ||
-           (ctx && strcmp(ctx->h2_path, "/etcdserverpb.Lease/LeaseKeepAlive") == 0);
-}
-
-static int client_h2_is_snapshot_(const client_ctx_ *ctx) {
-    return ctx && strcmp(ctx->h2_path, "/etcdserverpb.Maintenance/Snapshot") == 0;
-}
-
-static int client_h2_is_server_stream_(const client_ctx_ *ctx) {
-    return client_h2_is_snapshot_(ctx) ||
-           (ctx && strcmp(ctx->h2_path, "/etcdserverpb.KV/RangeStream") == 0);
-}
-
-static void client_h2_send_headers_(client_ctx_ *ctx) {
-    if (!ctx || ctx->h2_hdrs_sent || !ctx->h2) return;
-    const char *hdrs[] = {
-        ":status", "200",
-        "content-type", "application/grpc",
-    };
-    cetcd_h2_submit_response(ctx->h2, ctx->h2_sid, hdrs, 4, NULL, 0, false);
-    ctx->h2_hdrs_sent = 1;
-}
-
-static void client_h2_stream_write_(const uint8_t *data, size_t len, void *arg) {
-    uv_stream_t *stream = (uv_stream_t *)arg;
-    client_ctx_ *ctx = stream ? (client_ctx_ *)stream->data : NULL;
-    if (!ctx || !ctx->h2 || !data || len == 0) return;
-    uint8_t *grpc = NULL;
-    size_t glen = 0;
-    if (cetcd_grpc_encode(data, len, false, &grpc, &glen) != CETCD_OK) return;
-    client_h2_send_headers_(ctx);
-    (void)cetcd_h2_submit_data(ctx->h2, ctx->h2_sid, grpc, glen, false);
-    free(grpc);
-    if (ctx->h2_stream)
-        (void)cetcd_h2_send_pending(ctx->h2, h2_write_uv_, ctx->h2_stream);
-}
-
-static void client_h2_send_trailers_(client_ctx_ *ctx, const char *grpc_status) {
-    client_h2_send_headers_(ctx);
-    if (ctx->h2_stream)
-        (void)cetcd_h2_send_pending(ctx->h2, h2_write_uv_, ctx->h2_stream);
-    const char *tr[] = { "grpc-status", grpc_status, "grpc-message", "" };
-    cetcd_h2_submit_trailers(ctx->h2, ctx->h2_sid, tr, 4);
-    ctx->h2_done = 1;
-}
-
-static void client_h2_watch_error_(client_ctx_ *ctx, const char *grpc_status) {
-    client_h2_send_trailers_(ctx, grpc_status);
-}
-
-static void client_h2_watch_pump_(client_ctx_ *ctx) {
-    if (!ctx || !ctx->h2 || ctx->h2_done) return;
-    while (ctx->h2_body_len >= 5) {
+static void client_h2_watch_pump_(client_ctx_ *ctx, client_h2_req_ *r) {
+    if (!ctx || !r || !ctx->h2 || r->done) return;
+    while (r->body_len >= 5) {
         bool compressed = false;
         uint8_t *msg = NULL;
         size_t msg_len = 0;
-        uint32_t claimed = ((uint32_t)ctx->h2_body[1] << 24) |
-                           ((uint32_t)ctx->h2_body[2] << 16) |
-                           ((uint32_t)ctx->h2_body[3] << 8) |
-                           (uint32_t)ctx->h2_body[4];
+        uint32_t claimed = ((uint32_t)r->body[1] << 24) |
+                           ((uint32_t)r->body[2] << 16) |
+                           ((uint32_t)r->body[3] << 8) |
+                           (uint32_t)r->body[4];
         uint64_t need = 5ull + (uint64_t)claimed;
         if (need > client_max_bytes_(ctx)) {
-            client_h2_watch_error_(ctx, "3");
+            client_h2_watch_error_(ctx, r, "3");
             return;
         }
-        if ((uint64_t)ctx->h2_body_len < need) break;
-        if (cetcd_grpc_decode(ctx->h2_body, (size_t)need,
+        if ((uint64_t)r->body_len < need) break;
+        if (cetcd_grpc_decode(r->body, (size_t)need,
                               &compressed, &msg, &msg_len) != CETCD_OK) {
-            client_h2_watch_error_(ctx, "3");
+            client_h2_watch_error_(ctx, r, "3");
             return;
         }
         size_t frame_len = (size_t)need;
-        memmove(ctx->h2_body, ctx->h2_body + frame_len,
-                ctx->h2_body_len - frame_len);
-        ctx->h2_body_len -= frame_len;
+        memmove(r->body, r->body + frame_len, r->body_len - frame_len);
+        r->body_len -= frame_len;
         if (compressed) {
             free(msg);
-            client_h2_watch_error_(ctx, "12");
+            client_h2_watch_error_(ctx, r, "12");
             return;
         }
-        if ((client_h2_is_watch_(ctx) || client_h2_is_server_stream_(ctx)) &&
-            ctx->h2_stream)
-            cetcd_v3rpc_set_stream_writer(ctx->srv->rpc, client_h2_stream_write_,
-                                          ctx->h2_stream);
+        if ((client_h2_is_watch_(r) || client_h2_is_server_stream_(r)) &&
+            ctx->h2_stream) {
+            client_h2_wctx_ *w = client_h2_wctx_get_(ctx, r);
+            if (w)
+                cetcd_v3rpc_set_stream_writer(ctx->srv->rpc,
+                                              client_h2_stream_write_, w);
+        }
         static const uint8_t empty_req = 0;
         const uint8_t *req = msg ? msg : &empty_req;
-        const char *token = cetcd_h2_req_authorization(ctx->h2);
+        const char *token = cetcd_h2_req_authorization_on(ctx->h2, r->sid);
         if (token && token[0] == '\0') token = NULL;
         cetcd_server_rpc_result resp = cetcd_server_handle_rpc_ex(
-            ctx->srv, ctx->h2_path, req, msg_len, token);
+            ctx->srv, r->path, req, msg_len, token);
         free(msg);
         if (!resp.data || resp.len == 0) {
             cetcd_server_rpc_result_free(&resp);
-            client_h2_watch_error_(ctx, "2");
+            client_h2_watch_error_(ctx, r, "2");
             return;
         }
         uint8_t *grpc = NULL;
@@ -1485,15 +1546,15 @@ static void client_h2_watch_pump_(client_ctx_ *ctx) {
         int enc = cetcd_grpc_encode(resp.data, resp.len, false, &grpc, &glen);
         cetcd_server_rpc_result_free(&resp);
         if (enc != CETCD_OK) {
-            client_h2_watch_error_(ctx, "2");
+            client_h2_watch_error_(ctx, r, "2");
             return;
         }
-        client_h2_send_headers_(ctx);
-        (void)cetcd_h2_submit_data(ctx->h2, ctx->h2_sid, grpc, glen, false);
+        client_h2_send_headers_(ctx, r);
+        (void)cetcd_h2_submit_data(ctx->h2, r->sid, grpc, glen, false);
         free(grpc);
         if (ctx->h2_stream)
             (void)cetcd_h2_send_pending(ctx->h2, h2_write_uv_, ctx->h2_stream);
-        if (client_h2_is_watch_(ctx))
+        if (client_h2_is_watch_(r))
             cetcd_v3rpc_watch_flush_replay();
     }
 }
@@ -1506,56 +1567,59 @@ static void client_h2_on_request_(cetcd_h2_session *sess, int32_t stream_id,
     (void)content_type;
     client_ctx_ *ctx = (client_ctx_ *)udata;
     if (!ctx) return;
-    ctx->h2_sid = stream_id;
-    ctx->h2_path[0] = '\0';
+    client_h2_req_ *r = client_h2_req_begin_(ctx, stream_id);
+    if (!r) return;
+    r->path[0] = '\0';
     if (path) {
         size_t n = strlen(path);
-        if (n >= sizeof(ctx->h2_path)) n = sizeof(ctx->h2_path) - 1;
-        memcpy(ctx->h2_path, path, n);
-        ctx->h2_path[n] = '\0';
+        if (n >= sizeof(r->path)) n = sizeof(r->path) - 1;
+        memcpy(r->path, path, n);
+        r->path[n] = '\0';
     }
-    ctx->h2_body_len = 0;
-    ctx->h2_done = 0;
-    ctx->h2_hdrs_sent = 0;
+    r->body_len = 0;
+    r->done = 0;
+    r->hdrs_sent = 0;
+    r->fail = 0;
 }
 
 static void client_h2_on_data_(cetcd_h2_session *sess, int32_t stream_id,
                                const uint8_t *data, size_t len,
                                bool end_stream, void *udata) {
     (void)sess;
-    (void)stream_id;
     client_ctx_ *ctx = (client_ctx_ *)udata;
     if (!ctx) return;
-    if (data && len > 0 && client_h2_body_append_(ctx, data, len) != 0) {
-        ctx->h2_fail = 1;
+    client_h2_req_ *r = client_h2_req_get_(ctx, stream_id);
+    if (!r) r = client_h2_req_begin_(ctx, stream_id);
+    if (!r) return;
+    if (data && len > 0 && client_h2_body_append_(ctx, r, data, len) != 0) {
+        r->fail = 1;
         return;
     }
-    if (client_h2_is_bidi_(ctx)) {
-        client_h2_watch_pump_(ctx);
-        /* Client END_STREAM is a send half-close; keep the response open. */
-        if (end_stream && !ctx->h2_done && ctx->h2_body_len > 0)
-            client_h2_watch_error_(ctx, "3");
+    if (client_h2_is_bidi_(r)) {
+        client_h2_watch_pump_(ctx, r);
+        if (end_stream && !r->done && r->body_len > 0)
+            client_h2_watch_error_(ctx, r, "3");
         return;
     }
-    if (client_h2_is_server_stream_(ctx)) {
-        if (end_stream && ctx->h2_body_len == 0 && !ctx->h2_done &&
-            client_h2_is_snapshot_(ctx)) {
+    if (client_h2_is_server_stream_(r)) {
+        if (end_stream && r->body_len == 0 && !r->done &&
+            client_h2_is_snapshot_(r)) {
             static const uint8_t empty_grpc[5] = {0, 0, 0, 0, 0};
-            if (client_h2_body_append_(ctx, empty_grpc, 5) != 0) {
-                ctx->h2_fail = 1;
+            if (client_h2_body_append_(ctx, r, empty_grpc, 5) != 0) {
+                r->fail = 1;
                 return;
             }
         }
-        client_h2_watch_pump_(ctx);
+        client_h2_watch_pump_(ctx, r);
         if (ctx->srv && ctx->srv->rpc)
             cetcd_v3rpc_set_stream_writer(ctx->srv->rpc, NULL, NULL);
-        if (!ctx->h2_done && ctx->h2_hdrs_sent && ctx->h2_body_len == 0)
-            client_h2_send_trailers_(ctx, "0");
-        if (end_stream && !ctx->h2_done && ctx->h2_body_len > 0)
-            client_h2_watch_error_(ctx, "3");
+        if (!r->done && r->hdrs_sent && r->body_len == 0)
+            client_h2_send_trailers_(ctx, r, "0");
+        if (end_stream && !r->done && r->body_len > 0)
+            client_h2_watch_error_(ctx, r, "3");
         return;
     }
-    if (end_stream) client_h2_finish_(ctx);
+    if (end_stream) client_h2_finish_(ctx, r);
 }
 
 static int client_h2_start_(client_ctx_ *ctx) {
@@ -1632,7 +1696,10 @@ static void on_client_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *
         }
     }
     if (ctx->proto == 2) {
-        if (cetcd_h2_feed(ctx->h2, ctx->buf, ctx->buf_pos) != 0 || ctx->h2_fail) {
+        int h2_fail = 0;
+        for (int i = 0; i < CETCD_H2_MAX_STREAMS; i++)
+            if (ctx->h2s[i].fail) h2_fail = 1;
+        if (cetcd_h2_feed(ctx->h2, ctx->buf, ctx->buf_pos) != 0 || h2_fail) {
             ctx->buf_pos = 0;
             uv_close((uv_handle_t *)stream, client_close_cb_);
             return;

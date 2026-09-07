@@ -82,7 +82,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 - **自动压缩**：`--auto-compaction-mode periodic|revision` 与 `--auto-compaction-retention`（0 关闭；periodic 为时长或小时数；revision 为保留修订数）。非法值启动失败。仅 leader 在 tick 上 propose Compact。
 - **启动完整性**：`--experimental-initial-corrupt-check` 在 WAL 回放后对当前库做 HashKV，并与 `{data-dir}/backend.hash` 对照；缺文件则写入，同修订哈希不同或当前修订低于已存修订则 fail-closed。`--experimental-corrupt-check-time` 按间隔在 tick 上重复对照，不匹配则激活 CORRUPT；`0` 关闭；非法 duration 启动失败。`--experimental-compaction-batch-limit` 限制每次 tick 自动压缩推进的修订数（`0` 不限制）；非法整数启动失败。`--experimental-compaction-sleep-interval` 在两批自动压缩之间等待（`0` 不等待）；非法 duration 启动失败。`--experimental-watch-progress-notify-interval` 设置 Watch `progress_notify` 周期（`0` 为默认 10s）；非法 duration 启动失败。`--experimental-warning-apply-duration` 在 apply 超过该时长时打警告（`0` 关闭；省略默认 100ms）；非法 duration 启动失败。`--experimental-warning-unary-request-duration` 在一元 RPC 超过该时长时打警告（`0` 关闭；省略默认 300ms）；非法 duration 启动失败。`--experimental-max-learners` 限制 learner `MemberAdd`（`0` 禁止再加；省略默认 1）；非法整数启动失败。`--experimental-memory-mlock` 启动时 `mlockall`（Windows 不支持则 fail-closed）；非法 bool 启动失败。`--experimental-bootstrap-defrag-threshold-megabytes` 在启动时若 LMDB alloc 超过 N MiB 则 compact-copy `data.mdb`（`0` 关闭）；非法整数启动失败。`Maintenance/Defragment` 在有 backend 时同样 compact-copy。`--experimental-wait-cluster-ready` 等到 Raft 有 leader 才绑定客户端监听（省略默认关；非法 bool 启动失败）。未实现或未知的 `--experimental-*` 在解析时失败（`false`/`0` 表示显式关闭）。
 - **Downgrade fail-closed**：`Maintenance/Downgrade` 仅 `VALIDATE` 当前 `cetcd_version()` 成功；`ENABLE`/`CANCEL` 及其它版本 fail-closed（磁盘格式不可改，也不会进入降级中）。
-- **请求上限 / 后端配额**：`--max-request-bytes`（默认 1.5 MiB）限制客户端读缓冲，超限关连接；`--max-txn-ops`（默认 128，上限 128）拒绝过长 Txn，更大值启动 fail-closed；`--max-concurrent-streams`（必须 `> 0`）在新建 HTTP/2 会话上通告 `SETTINGS_MAX_CONCURRENT_STREAMS`，省略则不额外写 SETTINGS；`0` 或非法整数启动失败；`--quota-backend-bytes` 在 LMDB 体积达到上限时对 Put 返回空帧并激活 NOSPACE，Delete 仍可执行以便回收空间。
+- **请求上限 / 后端配额**：`--max-request-bytes`（默认 1.5 MiB）限制客户端读缓冲，超限关连接；`--max-txn-ops`（默认 128，上限 128）拒绝过长 Txn，更大值启动 fail-closed；`--max-concurrent-streams`（必须 `> 0`）在新建 HTTP/2 会话上通告 `SETTINGS_MAX_CONCURRENT_STREAMS`（上限 `CETCD_H2_MAX_STREAMS`），每条流各自保留 path/token/body；省略则不额外写 SETTINGS；`0` 或非法整数启动失败；`--quota-backend-bytes` 在 LMDB 体积达到上限时对 Put 返回空帧并激活 NOSPACE，Delete 仍可执行以便回收空间。
 - **SO_REUSEPORT**：`--socket-reuse-port`（省略默认关）在 client/peer/metrics 监听上设置 `SO_REUSEPORT`；Windows 不支持则 fail-closed；非法 bool 启动失败。`--socket-reuse-address` 仍为未知旗标（libuv 已设置 `SO_REUSEADDR`，`false` 会撒谎）。
 - **JWT**：`--auth-token jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]` 签发带 `username`/`revision`/`exp` 的 JWT；密码变更不撤销已签发 JWT（与 etcd 一致）。其它 sign-method 启动失败。`--auth-token-ttl SEC` 设置 simple token 寿命（默认 300s，必须 `> 0`）；JWT `ttl=` 仍优先。
 - **Peer 发送**：复用 TCP 连接，避免每条 Raft 消息新建短连接。入站可走 HTTP/2 `POST /raft`；peer TLS 协商 ALPN `h2` 时出站同样 POST `/raft`，否则仍为 4 字节长度前缀。
@@ -744,13 +744,14 @@ int cetcd_grpc_encode(const uint8_t *msg, size_t msg_len, bool compressed, uint8
 int cetcd_grpc_decode(const uint8_t *frame, size_t frame_len, bool *compressed, uint8_t **msg, size_t *msg_len);
 ```
 
-会话管理基于 nghttp2 库，使用 `nghttp2_option_set_no_http_messaging` 禁用 HTTP/1.1 兼容验证（gRPC 不需要完整 HTTP 语义检查）。支持完整的 HTTP/2 帧交换流程：连接前奏、SETTINGS 交换、HEADERS/DATA 帧处理、HPACK 头部压缩、流多路复用。
+会话管理基于 nghttp2 库，使用 `nghttp2_option_set_no_http_messaging` 禁用 HTTP/1.1 兼容验证（gRPC 不需要完整 HTTP 语义检查）。支持完整的 HTTP/2 帧交换流程：连接前奏、SETTINGS 交换、HEADERS/DATA 帧处理、HPACK 头部压缩、流多路复用（每条流独立 path/token/body，SETTINGS 上限 `CETCD_H2_MAX_STREAMS`）。
 
 回调模型：
 - `on_request`：收到 HTTP/2 请求头时触发
 - `on_data`：收到请求体数据时触发；HEADERS 带 `END_STREAM` 也会通知（空 body）
 - `cetcd_h2_detect`：根据 24 字节 client preface 与自定义帧分流
-- `cetcd_h2_req_authorization`：当前请求的 `authorization` 头
+- `cetcd_h2_req_authorization`：最近一次请求的 `authorization` 头
+- `cetcd_h2_req_authorization_on`：指定 stream 的 `authorization` 头（多路复用不串流）
 
 服务端在 client accept 上检测 preface：HTTP/2 一元 RPC 经 `dispatch_ex`，`cetcdctl` 仍走自定义帧。响应带 `grpc-status` trailer。Watch 与 LeaseKeepAlive 保持响应流打开：先发 HEADERS，再用 `cetcd_h2_submit_data` 推送每条响应（Watch 另推后续事件）；客户端 END_STREAM 只半关闭发送侧。Snapshot 为服务端流：先 remaining>0 头，再 remaining=0 blob，然后 trailer。
 
@@ -855,7 +856,7 @@ file, `ETCD_*` maps to `--flag` (`ETCD_LISTEN_CLIENT_URLS`; empty ignored;
 `--quota-backend-bytes` is an integer (`0` = unlimited); a typo fail-closes instead of becoming unlimited.
 `--max-txn-ops` is `1..128`; a typo or `0` fail-closes instead of becoming the default 128.
 `--max-request-bytes` must be `> 0`; a typo or `0` fail-closes instead of becoming the default 1.5 MiB.
-`--max-concurrent-streams` must be `> 0`; it advertises HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS`. Omitted leaves nghttp2's default. `0` or leftover text fail-closes.
+`--max-concurrent-streams` must be `> 0`; it advertises HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS` (clamped to `CETCD_H2_MAX_STREAMS`). Omitted leaves nghttp2's default. `0` or leftover text fail-closes. Each HTTP/2 stream keeps its own path, token, and body.
 `--auth-token-ttl` is an integer seconds `> 0` (omitted default 300) for simple tokens; leftover text fail-closes. JWT `ttl=` in `--auth-token` still wins.
 `--bcrypt-cost` is `0` or `4..31`; a typo fail-closes instead of becoming SHA-256.
 `--log-outputs` is `stderr`, `stdout`, a file path, or `journal`/`syslog` (unix dgram); mixed comma-lists fail-close.

@@ -223,6 +223,7 @@ cetcd accepts several etcd server flags for migration compatibility:
 # --max-txn-ops must be 1..128; a typo or 0 is not the silent default 128
 # --max-request-bytes must be > 0; a typo or 0 is not the silent default 1.5 MiB
 # --max-concurrent-streams must be > 0; omitted leaves nghttp2's default
+# (advertised N is clamped to CETCD_H2_MAX_STREAMS; each stream is tracked)
 ./build/bin/cetcd --max-txn-ops 128 --max-request-bytes 1572864 \
   --max-concurrent-streams 100 \
   --auth-token 'jwt,sign-method=RS256,priv-key=./jwt.pem,ttl=5m' \

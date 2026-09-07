@@ -38,10 +38,34 @@ struct cetcd_h2_callbacks {
 
 /* SETTINGS_MAX_CONCURRENT_STREAMS. 0 = omit (nghttp2 default). */
 #define CETCD_H2_SETTINGS_MAX_CONCURRENT_STREAMS 3u
+/* Hard cap on tracked streams (SETTINGS is clamped to this). */
+#define CETCD_H2_MAX_STREAMS 64
 void     cetcd_h2_set_max_concurrent_streams(uint32_t n);
 uint32_t cetcd_h2_max_concurrent_streams(void);
-/* 1 and fills id/val when n > 0. */
+/* 1 and fills id/val when n > 0. n above CETCD_H2_MAX_STREAMS is clamped. */
 int cetcd_h2_fill_max_concurrent_setting(uint32_t n, uint32_t *id, uint32_t *val);
+
+/* Per-stream header/body slot (session table + tests). */
+typedef struct cetcd_h2_stream_slot {
+    int32_t stream_id;
+    char    method[16];
+    char    path[256];
+    char    content_type[64];
+    char    authorization[2048];
+    int     in_use;
+    int     request_notified;
+    uint8_t *resp_body;
+    size_t  resp_body_len;
+    size_t  resp_body_pos;
+} cetcd_h2_stream_slot;
+
+cetcd_h2_stream_slot *cetcd_h2_slot_begin(cetcd_h2_stream_slot *tab, size_t n,
+                                          int32_t sid);
+cetcd_h2_stream_slot *cetcd_h2_slot_get(cetcd_h2_stream_slot *tab, size_t n,
+                                        int32_t sid);
+void cetcd_h2_slot_clear(cetcd_h2_stream_slot *st);
+const char *cetcd_h2_slot_authorization(const cetcd_h2_stream_slot *tab,
+                                        size_t n, int32_t sid);
 
 cetcd_h2_session *cetcd_h2_session_new(const cetcd_h2_callbacks *cbs);
 cetcd_h2_session *cetcd_h2_session_new_client(const cetcd_h2_callbacks *cbs);
@@ -75,8 +99,11 @@ void cetcd_h2_session_terminate(cetcd_h2_session *s, uint32_t error_code);
  * are required. Used to demux gRPC from cetcdctl's length-prefixed frames. */
 int cetcd_h2_detect(const uint8_t *data, size_t len);
 
-/* Authorization header of the current request, or "" if none. */
+/* Authorization of the last notified request, or "" if none. */
 const char *cetcd_h2_req_authorization(const cetcd_h2_session *s);
+/* Authorization of stream_id, or "" if none. */
+const char *cetcd_h2_req_authorization_on(const cetcd_h2_session *s,
+                                          int32_t stream_id);
 
 /* gRPC framing helpers */
 int  cetcd_grpc_encode(const uint8_t *msg, size_t msg_len,

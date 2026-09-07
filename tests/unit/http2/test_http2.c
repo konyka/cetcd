@@ -101,13 +101,41 @@ CETCD_TEST_CASE(h2_max_concurrent_streams_setting) {
     CETCD_ASSERT_EQ_INT(cetcd_h2_fill_max_concurrent_setting(0, &id, &val), 0);
     CETCD_ASSERT_EQ_INT(cetcd_h2_fill_max_concurrent_setting(100, NULL, &val), 0);
     CETCD_ASSERT_EQ_INT(cetcd_h2_fill_max_concurrent_setting(100, &id, NULL), 0);
-    CETCD_ASSERT_EQ_INT(cetcd_h2_fill_max_concurrent_setting(100, &id, &val), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_h2_fill_max_concurrent_setting(8, &id, &val), 1);
     CETCD_ASSERT_EQ_INT((int)id, (int)CETCD_H2_SETTINGS_MAX_CONCURRENT_STREAMS);
-    CETCD_ASSERT_EQ_INT((int)val, 100);
+    CETCD_ASSERT_EQ_INT((int)val, 8);
+    CETCD_ASSERT_EQ_INT(cetcd_h2_fill_max_concurrent_setting(10000, &id, &val), 1);
+    CETCD_ASSERT_EQ_INT((int)val, (int)CETCD_H2_MAX_STREAMS);
     cetcd_h2_set_max_concurrent_streams(250);
     CETCD_ASSERT_EQ_INT((int)cetcd_h2_max_concurrent_streams(), 250);
     cetcd_h2_set_max_concurrent_streams(0);
     CETCD_ASSERT_EQ_INT((int)cetcd_h2_max_concurrent_streams(), 0);
+}
+
+CETCD_TEST_CASE(h2_stream_slots_track_two_auths) {
+    cetcd_h2_stream_slot tab[4];
+    memset(tab, 0, sizeof(tab));
+    CETCD_ASSERT_TRUE(cetcd_h2_slot_begin(tab, 4, 0) == NULL);
+    cetcd_h2_stream_slot *a = cetcd_h2_slot_begin(tab, 4, 1);
+    cetcd_h2_stream_slot *b = cetcd_h2_slot_begin(tab, 4, 3);
+    CETCD_ASSERT_NOT_NULL(a);
+    CETCD_ASSERT_NOT_NULL(b);
+    CETCD_ASSERT_TRUE(a != b);
+    memcpy(a->authorization, "tok-a", 6);
+    memcpy(b->authorization, "tok-b", 6);
+    CETCD_ASSERT_EQ_STR(cetcd_h2_slot_authorization(tab, 4, 1), "tok-a");
+    CETCD_ASSERT_EQ_STR(cetcd_h2_slot_authorization(tab, 4, 3), "tok-b");
+    CETCD_ASSERT_EQ_STR(cetcd_h2_slot_authorization(tab, 4, 5), "");
+    CETCD_ASSERT_TRUE(cetcd_h2_slot_get(tab, 4, 1) == a);
+    cetcd_h2_slot_clear(a);
+    CETCD_ASSERT_TRUE(cetcd_h2_slot_get(tab, 4, 1) == NULL);
+    CETCD_ASSERT_EQ_STR(cetcd_h2_slot_authorization(tab, 4, 3), "tok-b");
+    /* Table full → refuse; do not clobber an in-use slot. */
+    CETCD_ASSERT_NOT_NULL(cetcd_h2_slot_begin(tab, 4, 5));
+    CETCD_ASSERT_NOT_NULL(cetcd_h2_slot_begin(tab, 4, 7));
+    CETCD_ASSERT_NOT_NULL(cetcd_h2_slot_begin(tab, 4, 9));
+    CETCD_ASSERT_TRUE(cetcd_h2_slot_begin(tab, 4, 11) == NULL);
+    CETCD_ASSERT_EQ_STR(cetcd_h2_slot_authorization(tab, 4, 3), "tok-b");
 }
 
 CETCD_TEST_CASE(h2_session_create_destroy) {
@@ -675,6 +703,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(grpc_encode_rejects_huge_message),
     CETCD_TEST_ENTRY(h2_detect_preface_vs_custom),
     CETCD_TEST_ENTRY(h2_max_concurrent_streams_setting),
+    CETCD_TEST_ENTRY(h2_stream_slots_track_two_auths),
     CETCD_TEST_ENTRY(h2_session_create_destroy),
     CETCD_TEST_ENTRY(h2_session_null_safety),
     CETCD_TEST_ENTRY(h2_client_preface_and_request),
