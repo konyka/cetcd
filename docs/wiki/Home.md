@@ -836,7 +836,7 @@ file, `ETCD_*` maps to `--flag` (`ETCD_LISTEN_CLIENT_URLS`; empty ignored;
 `--port` is `1..65535`; a typo fail-closes instead of binding port `0`.
 `--peer-port` is `1..65535`; a typo fail-closes instead of binding the Raft port on `0`.
 `--metrics-port` is `0..65535` (`0` disables); a typo fail-closes instead of silently disabling metrics.
-`--listen-metrics-urls` is a single `http://host:port` (port `1..65535`). It binds `/metrics` and `/health` on that address. `https` / comma-list / leftover text / mix with `--metrics-port` fail-closes.
+`--listen-metrics-urls` is a UniqueURLs comma list of `http://host:port` (port `1..65535`). It binds `/metrics` and `/health` on every URL. `https` (no metrics TLS) / duplicate / leftover text / mix with `--metrics-port` fail-closes.
 `--host-whitelist` is a comma-separated Host list on that port (omitted / `*` / empty = allow all). A restricted list 403s a missing or unknown Host (port stripped).
 `--metrics` is `basic` or `extensive` (omitted default `basic`). `extensive` times unary RPC and observes `grpc_server_handling_seconds` (Prometheus DefBuckets). Other values or a missing value fail-close. `basic` does not take a per-RPC clock.
 `--socket-reuse-port` is `true`/`false`/`1`/`0` (bare flag is on; omitted default off). It sets `SO_REUSEPORT` on client, peer, and metrics listeners. Windows fail-closes. A non-bool fail-closes. `--socket-reuse-address` stays unknown (libuv already sets `SO_REUSEADDR`).

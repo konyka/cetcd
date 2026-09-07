@@ -148,6 +148,8 @@ typedef struct cetcd_server_config {
     uint32_t        n_extra_peer_urls;
     uint16_t        metrics_port;
     char            metrics_addr[256];            /* empty → listen_addr */
+    cetcd_listen_url extra_metrics_urls[CETCD_MAX_LISTEN_URLS];
+    uint32_t        n_extra_metrics_urls;
     bool            metrics_port_set;             /* --metrics-port given */
     bool            metrics_urls_set;             /* --listen-metrics-urls given */
     bool            metrics_level_set;            /* --metrics given */
@@ -344,6 +346,14 @@ int cetcd_pb_append_csv_strings(uint8_t *buf, size_t cap, size_t *pos,
 /* Single http:// URL. https / comma / leftover is INVAL (no metrics TLS). */
 int cetcd_parse_metrics_listen_url(const char *s, char *host, size_t host_cap,
                                    uint16_t *port);
+/* Comma-separated http:// UniqueURLs. https / duplicate / leftover is INVAL. */
+int cetcd_parse_metrics_listen_urls(const char *s, cetcd_listen_url *out,
+                                    size_t cap, size_t *n);
+/* First URL → host/port; the rest → extra. */
+int cetcd_apply_metrics_listen_urls(const char *s, char *host, size_t host_cap,
+                                    uint16_t *port,
+                                    cetcd_listen_url *extra, size_t extra_cap,
+                                    uint32_t *n_extra);
 /* metrics_addr if set, else listen_addr. NULL cfg → NULL. */
 const char *cetcd_server_metrics_addr(const cetcd_server_config *cfg);
 /* enabled 0 is OK. Unix mlockall; Windows UNSUPPORT. mlockall failure is IO. */

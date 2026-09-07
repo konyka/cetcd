@@ -755,9 +755,9 @@ build time via compile definitions.
 
 cetcd exposes Prometheus-compatible metrics on a dedicated HTTP listener.
 Use `--metrics-port` to change the port (default: `2381`; `0` disables;
-a typo fail-closes). `--listen-metrics-urls http://host:port` binds a
-different address (cannot mix with `--metrics-port`; `https` / multi-URL
-fail-closes). `--metrics basic|extensive` sets scrape detail (omitted
+a typo fail-closes). `--listen-metrics-urls` is a UniqueURLs comma list
+of `http://host:port` (cannot mix with `--metrics-port`; `https` /
+duplicate / leftover fail-closes). `--metrics basic|extensive` sets scrape detail (omitted
 `basic`; `extensive` records unary `grpc_server_handling_seconds`;
 other values fail-close). `--socket-reuse-port` sets `SO_REUSEPORT` on
 listeners (omitted default off; Windows fail-closes; a non-bool

@@ -33,7 +33,7 @@ static void print_usage(const char *prog) {
     printf("  --peer ADDR      Peer listen address (default: 127.0.0.1)\n");
     printf("  --peer-port PORT Peer listen port (default: 2380; 1..65535)\n");
     printf("  --metrics-port PORT Metrics listen port (default: 2381; 0 disables; 0..65535; /metrics + /health)\n");
-    printf("  --listen-metrics-urls URL  Metrics listen URL (http://host:port; https/multi fail)\n");
+    printf("  --listen-metrics-urls URLS  Metrics listen URLs (http:// comma list; https fail-closes)\n");
     printf("  --metrics LEVEL   Metrics detail: basic|extensive (default basic; extensive = unary histograms)\n");
     printf("  --socket-reuse-port  SO_REUSEPORT on listeners (default off; Windows fail-closes)\n");
     printf("  --enable-pprof     Expose /debug/pprof/* on the metrics port (default off; true|false)\n");
@@ -448,27 +448,35 @@ int main(int argc, char **argv) {
             strncpy(cfg.host_whitelist, argv[++i], sizeof(cfg.host_whitelist) - 1);
         } else if (strncmp(argv[i], "--host-whitelist=", 17) == 0) {
             strncpy(cfg.host_whitelist, argv[i] + 17, sizeof(cfg.host_whitelist) - 1);
-        } else if (strcmp(argv[i], "--listen-metrics-urls") == 0 && i + 1 < argc) {
-            char host[256];
-            uint16_t port = 0;
-            if (cetcd_parse_metrics_listen_url(argv[++i], host, sizeof(host),
-                                               &port) != CETCD_OK) {
-                fprintf(stderr, "--listen-metrics-urls must be a single http://host:port (1..65535)\n");
+        } else if (strcmp(argv[i], "--listen-metrics-urls") == 0) {
+            if (i + 1 >= argc || argv[i + 1][0] == '-' || !argv[i + 1][0]) {
+                fprintf(stderr, "--listen-metrics-urls requires a URL list\n");
                 return 1;
             }
-            strncpy(cfg.metrics_addr, host, sizeof(cfg.metrics_addr) - 1);
-            cfg.metrics_port = port;
+            if (cetcd_apply_metrics_listen_urls(
+                    argv[++i], cfg.metrics_addr, sizeof(cfg.metrics_addr),
+                    &cfg.metrics_port, cfg.extra_metrics_urls,
+                    CETCD_MAX_LISTEN_URLS, &cfg.n_extra_metrics_urls) != CETCD_OK) {
+                fprintf(stderr,
+                        "--listen-metrics-urls must be a unique http://host:port list "
+                        "(https unsupported; port 1..65535)\n");
+                return 1;
+            }
             cfg.metrics_urls_set = true;
         } else if (strncmp(argv[i], "--listen-metrics-urls=", 22) == 0) {
-            char host[256];
-            uint16_t port = 0;
-            if (cetcd_parse_metrics_listen_url(argv[i] + 22, host, sizeof(host),
-                                               &port) != CETCD_OK) {
-                fprintf(stderr, "--listen-metrics-urls must be a single http://host:port (1..65535)\n");
+            if (!argv[i][22]) {
+                fprintf(stderr, "--listen-metrics-urls requires a URL list\n");
                 return 1;
             }
-            strncpy(cfg.metrics_addr, host, sizeof(cfg.metrics_addr) - 1);
-            cfg.metrics_port = port;
+            if (cetcd_apply_metrics_listen_urls(
+                    argv[i] + 22, cfg.metrics_addr, sizeof(cfg.metrics_addr),
+                    &cfg.metrics_port, cfg.extra_metrics_urls,
+                    CETCD_MAX_LISTEN_URLS, &cfg.n_extra_metrics_urls) != CETCD_OK) {
+                fprintf(stderr,
+                        "--listen-metrics-urls must be a unique http://host:port list "
+                        "(https unsupported; port 1..65535)\n");
+                return 1;
+            }
             cfg.metrics_urls_set = true;
         } else if (strcmp(argv[i], "--node-id") == 0 && i + 1 < argc) {
             char *end = NULL;

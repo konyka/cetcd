@@ -407,6 +407,41 @@ CETCD_TEST_CASE(auto_compact_parse_metrics_listen_url) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_metrics_listen_urls) {
+    cetcd_listen_url urls[4];
+    size_t n = 99;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_metrics_listen_urls(
+        "http://127.0.0.1:2381,http://10.0.0.1:2381", urls, 4, &n), CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 2);
+    CETCD_ASSERT_EQ_INT(strcmp(urls[0].host, "127.0.0.1"), 0);
+    CETCD_ASSERT_EQ_INT((int)urls[0].port, 2381);
+    CETCD_ASSERT_EQ_INT(strcmp(urls[1].host, "10.0.0.1"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_metrics_listen_urls(
+        "http://127.0.0.1:2381,https://10.0.0.1:2381", urls, 4, &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_metrics_listen_urls(
+        "http://127.0.0.1:2381,http://127.0.0.1:2381", urls, 4, &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_metrics_listen_urls(
+        "https://127.0.0.1:2381", urls, 4, &n), CETCD_ERR_INVAL);
+
+    char host[64];
+    uint16_t port = 0;
+    uint32_t n_extra = 99;
+    cetcd_listen_url extra[4];
+    CETCD_ASSERT_EQ_INT(cetcd_apply_metrics_listen_urls(
+        "http://0.0.0.0:9090,http://127.0.0.1:9091",
+        host, sizeof(host), &port, extra, 4, &n_extra), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(strcmp(host, "0.0.0.0"), 0);
+    CETCD_ASSERT_EQ_INT((int)port, 9090);
+    CETCD_ASSERT_EQ_INT((int)n_extra, 1);
+    CETCD_ASSERT_EQ_INT((int)extra[0].port, 9091);
+    CETCD_ASSERT_EQ_INT(cetcd_apply_metrics_listen_urls(
+        "http://127.0.0.1:2381", host, sizeof(host), &port, extra, 4, &n_extra),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)n_extra, 0);
+}
+
 CETCD_TEST_CASE(auto_compact_metrics_addr) {
     cetcd_server_config cfg;
     memset(&cfg, 0, sizeof(cfg));
@@ -924,6 +959,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_listen_urls),
     CETCD_TEST_ENTRY(auto_compact_parse_advertise_urls),
     CETCD_TEST_ENTRY(auto_compact_parse_metrics_listen_url),
+    CETCD_TEST_ENTRY(auto_compact_parse_metrics_listen_urls),
     CETCD_TEST_ENTRY(auto_compact_metrics_addr),
     CETCD_TEST_ENTRY(auto_compact_raft_io_timeout),
     CETCD_TEST_ENTRY(auto_compact_snapshot_catchup),

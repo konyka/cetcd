@@ -128,6 +128,7 @@
       <tr><td>72</td><td>ETCD_* environment</td><td>ETCD_* maps to --flag when no config file is set; empty ignored; ETCD_VERSION skipped; CLI+env conflict or a typo fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>73</td><td>listen URL lists</td><td>--listen-client-urls / --listen-peer-urls bind every UniqueURLs comma entry; mixed scheme / duplicate / leftover fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>74</td><td>advertise URL lists</td><td>--advertise-client-urls / --initial-advertise-peer-urls emit every UniqueURLs comma entry as repeated MemberList strings; leftover / duplicate / https without cert fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>75</td><td>metrics URL lists</td><td>--listen-metrics-urls binds every UniqueURLs http:// comma entry; https / duplicate / leftover / mix with --metrics-port fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

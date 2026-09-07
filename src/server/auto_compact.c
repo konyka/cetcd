@@ -783,6 +783,36 @@ int cetcd_parse_metrics_listen_url(const char *s, char *host, size_t host_cap,
     return CETCD_OK;
 }
 
+int cetcd_parse_metrics_listen_urls(const char *s, cetcd_listen_url *out,
+                                    size_t cap, size_t *n) {
+    int rc = parse_url_list_(s, out, cap, n, 0);
+    if (rc != CETCD_OK) return rc;
+    for (size_t i = 0; i < *n; i++) {
+        if (out[i].https) return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
+int cetcd_apply_metrics_listen_urls(const char *s, char *host, size_t host_cap,
+                                    uint16_t *port,
+                                    cetcd_listen_url *extra, size_t extra_cap,
+                                    uint32_t *n_extra) {
+    if (!host || host_cap < 2 || !port || !n_extra) return CETCD_ERR_INVAL;
+    cetcd_listen_url urls[CETCD_MAX_LISTEN_URLS];
+    size_t n = 0;
+    int rc = cetcd_parse_metrics_listen_urls(s, urls, CETCD_MAX_LISTEN_URLS, &n);
+    if (rc != CETCD_OK) return rc;
+    if (n > 1 && (!extra || extra_cap < n - 1)) return CETCD_ERR_OVERFLOW;
+    size_t hlen = strlen(urls[0].host);
+    if (hlen + 1 > host_cap) return CETCD_ERR_OVERFLOW;
+    memcpy(host, urls[0].host, hlen + 1);
+    *port = urls[0].port;
+    *n_extra = 0;
+    for (size_t i = 1; i < n; i++)
+        extra[(*n_extra)++] = urls[i];
+    return CETCD_OK;
+}
+
 const char *cetcd_server_metrics_addr(const cetcd_server_config *cfg) {
     if (!cfg) return NULL;
     return cfg->metrics_addr[0] ? cfg->metrics_addr : cfg->listen_addr;

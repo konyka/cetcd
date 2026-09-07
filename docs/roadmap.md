@@ -398,11 +398,12 @@ Performance-first, fail-closed design:
   `heartbeat_tick=1` and `election_tick=election_ms/tick_ms`; the Raft
   timer, lease tick, and Watch `progress_notify` use that period. Mixing
   with `--heartbeat-tick` / `--election-tick` fail-closes.
-- **`--listen-metrics-urls`** — single `http://host:port` (port `1..65535`).
-  Binds the Prometheus listener on that address instead of
-  `{listen-addr}:{metrics-port}`. `https://`, a comma-list, IPv6, a
-  missing port, leftover text, or mixing with `--metrics-port`
-  fail-closes (metrics is plaintext HTTP; a second URL is not bound).
+- **`--listen-metrics-urls`** — UniqueURLs comma list of `http://host:port`
+  (port `1..65535`). Binds `/metrics` and `/health` on every URL instead
+  of `{listen-addr}:{metrics-port}`. A comma list is no longer rejected.
+  `https://` fail-closes (no metrics TLS). Duplicate host:port, IPv6, a
+  missing value, leftover text, or mixing with `--metrics-port`
+  fail-closes.
 - **`--experimental-wait-cluster-ready`** — bool (omitted default off;
   bare / `true` waits). Client listen is delayed until Raft has a
   leader (peer listen and ticks still run). A single-node that already

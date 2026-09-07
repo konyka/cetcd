@@ -1844,6 +1844,21 @@ CETCD_TEST_CASE(live_cetcd_listen_metrics_urls) {
              "'%s' --listen-metrics-urls http://127.0.0.1:2381 --metrics-port 2381 >/dev/null 2>&1",
              CETCD_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --listen-metrics-urls=http://127.0.0.1:2381,http://10.0.0.1:2381 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --listen-metrics-urls http://127.0.0.1:2381,https://10.0.0.1:2381 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --listen-metrics-urls >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
 CETCD_TEST_CASE(live_cetcd_socket_reuse_port) {

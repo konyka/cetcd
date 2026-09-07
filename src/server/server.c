@@ -60,6 +60,8 @@ struct cetcd_server {
     cetcd_tcp           *extra_peer_listeners[CETCD_MAX_LISTEN_URLS];
     uint32_t             n_extra_peer_listeners;
     uv_tcp_t             metrics_listener;
+    uv_tcp_t             extra_metrics_listeners[CETCD_MAX_LISTEN_URLS];
+    uint32_t             n_extra_metrics_listeners;
     cetcd_timer         *tick_timer;
     cetcd_metrics       *metrics;
     int                  peer_fd;
@@ -2591,6 +2593,9 @@ void cetcd_server_free(cetcd_server *srv) {
         uv_close((uv_handle_t *)&srv->metrics_listener, NULL);
         srv->metrics_listener_init = false;
     }
+    for (uint32_t i = 0; i < srv->n_extra_metrics_listeners; i++)
+        uv_close((uv_handle_t *)&srv->extra_metrics_listeners[i], NULL);
+    srv->n_extra_metrics_listeners = 0;
     if (srv->loop) { cetcd_loop_free(srv->loop); srv->loop = NULL; }
     peer_tx_free_all_(srv);
     if (srv->wal_enc) { cetcd_wal_encoder_flush(srv->wal_enc); cetcd_wal_encoder_free(srv->wal_enc); }
@@ -3304,31 +3309,58 @@ int cetcd_server_serve(cetcd_server *srv) {
 
     if (srv->cfg.metrics_port > 0) {
         uv_loop_t *loop = cetcd_loop_uv(srv->loop);
+        unsigned mbf = cetcd_socket_reuse_port_bind_flags(
+            cetcd_server_want_socket_reuse_port(srv->cfg.socket_reuse_port_set,
+                                                srv->cfg.socket_reuse_port));
+        const char *maddr = cetcd_server_metrics_addr(&srv->cfg);
         uv_tcp_init(loop, &srv->metrics_listener);
         srv->metrics_listener.data = srv;
         srv->metrics_listener_init = true;
 
         struct sockaddr_in addr_in;
-        const char *maddr = cetcd_server_metrics_addr(&srv->cfg);
         rc = uv_ip4_addr(maddr, srv->cfg.metrics_port, &addr_in);
-        if (rc == 0) {
-            unsigned mbf = cetcd_socket_reuse_port_bind_flags(
-                cetcd_server_want_socket_reuse_port(srv->cfg.socket_reuse_port_set,
-                                                    srv->cfg.socket_reuse_port));
+        if (rc == 0)
             rc = uv_tcp_bind(&srv->metrics_listener, (const struct sockaddr *)&addr_in,
                              mbf);
-        }
-        if (rc == 0) {
+        if (rc == 0)
             rc = uv_listen((uv_stream_t *)&srv->metrics_listener, 128, on_metrics_connection_);
-        }
         if (rc != 0) {
             CETCD_WARN("failed to start metrics listener on %s:%u: %s",
                        maddr, srv->cfg.metrics_port, uv_strerror(rc));
             uv_close((uv_handle_t *)&srv->metrics_listener, NULL);
             srv->metrics_listener_init = false;
+            if (srv->cfg.n_extra_metrics_urls > 0) {
+                cetcd_loop_free(srv->loop);
+                srv->loop = NULL;
+                return CETCD_ERR_IO;
+            }
         } else {
             CETCD_INFO("metrics server listening on %s:%u",
                        maddr, srv->cfg.metrics_port);
+            for (uint32_t i = 0; i < srv->cfg.n_extra_metrics_urls; i++) {
+                uv_tcp_t *ls = &srv->extra_metrics_listeners[i];
+                uv_tcp_init(loop, ls);
+                ls->data = srv;
+                rc = uv_ip4_addr(srv->cfg.extra_metrics_urls[i].host,
+                                 srv->cfg.extra_metrics_urls[i].port, &addr_in);
+                if (rc == 0)
+                    rc = uv_tcp_bind(ls, (const struct sockaddr *)&addr_in, mbf);
+                if (rc == 0)
+                    rc = uv_listen((uv_stream_t *)ls, 128, on_metrics_connection_);
+                if (rc != 0) {
+                    CETCD_WARN("failed to start extra metrics listener on %s:%u: %s",
+                               srv->cfg.extra_metrics_urls[i].host,
+                               srv->cfg.extra_metrics_urls[i].port, uv_strerror(rc));
+                    uv_close((uv_handle_t *)ls, NULL);
+                    cetcd_loop_free(srv->loop);
+                    srv->loop = NULL;
+                    return CETCD_ERR_IO;
+                }
+                srv->n_extra_metrics_listeners = i + 1;
+                CETCD_INFO("metrics server listening on %s:%u",
+                           srv->cfg.extra_metrics_urls[i].host,
+                           srv->cfg.extra_metrics_urls[i].port);
+            }
         }
     }
 
