@@ -32,7 +32,7 @@
  *   member update ID URL   — update a member's peer URL
  *   snapshot save [FILE]   — save a snapshot to file
  *   snapshot status FILE   — show snapshot file info
- *   snapshot restore FILE --data-dir DIR — restore snapshot to data dir
+ *   snapshot restore FILE --data-dir DIR — restore snapshot (--wal-dir / --bump-revision leftover-safe)
  *   downgrade enable VER   — enable cluster downgrade
  *   downgrade cancel       — cancel cluster downgrade
  *   downgrade validate VER — validate downgrade version
@@ -4620,85 +4620,28 @@ static int cmd_snapshot(int argc, char **argv) {
          *   repeated: key_len(varint) + key + val_len(varint) + val
          * We parse the KV pairs and write them as a data dump file
          * that can be loaded by cetcd on startup. */
-        const char *snap_file = NULL;
-        const char *data_dir = NULL;
-        const char *cluster_token = NULL;
-        const char *initial_cluster = NULL;
-        const char *adv_peer = NULL;
-        const char *member_name = NULL;
-        const char *cluster_state = NULL;
-        int force = 0;
-        int skip_hash = 0;
+        cetcd_restore_opts ro;
         int want_json = 0, want_fields = 0;
         for (int i = 3; i < argc; i++) {
-        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
-            int on = 1;
-            if (cmd_flag_is_(argv[i], "--data-dir")) {
-                if (take_cmd_value_(&i, argc, argv, &data_dir) != 0) {
-                    fprintf(stderr, "--data-dir requires a path\n");
-                    return 1;
-                }
-            } else if (cmd_flag_is_(argv[i], "--force")) {
-                if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
-                    fprintf(stderr, "--force must be true or false\n");
-                    return 1;
-                }
-                force = on;
-            } else if ((wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields)) != 0) {
-                if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
-            } else if (cmd_flag_is_(argv[i], "--skip-hash-check")) {
-                if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
-                    fprintf(stderr, "--skip-hash-check must be true or false\n");
-                    return 1;
-                }
-                skip_hash = on;
-            } else if (cmd_flag_is_(argv[i], "--initial-cluster")) {
-                if (take_cmd_value_(&i, argc, argv, &initial_cluster) != 0) {
-                    fprintf(stderr, "--initial-cluster requires a spec\n");
-                    return 1;
-                }
-            } else if (cmd_flag_is_(argv[i], "--initial-advertise-peer-urls")) {
-                if (take_cmd_value_(&i, argc, argv, &adv_peer) != 0) {
-                    fprintf(stderr, "--initial-advertise-peer-urls requires a URL\n");
-                    return 1;
-                }
-            } else if (cmd_flag_is_(argv[i], "--name")) {
-                if (take_cmd_value_(&i, argc, argv, &member_name) != 0) {
-                    fprintf(stderr, "--name requires a member name\n");
-                    return 1;
-                }
-            } else if (cmd_flag_is_(argv[i], "--initial-cluster-token")) {
-                if (take_cmd_value_(&i, argc, argv, &cluster_token) != 0) {
-                    fprintf(stderr, "--initial-cluster-token requires a token\n");
-                    return 1;
-                }
-            } else if (cmd_flag_is_(argv[i], "--initial-cluster-state")) {
-                if (take_cmd_value_(&i, argc, argv, &cluster_state) != 0) {
-                    fprintf(stderr, "--initial-cluster-state requires new or existing\n");
-                    return 1;
-                }
-                if (strcmp(cluster_state, "new") != 0 &&
-                    strcmp(cluster_state, "existing") != 0) {
-                    fprintf(stderr,
-                            "--initial-cluster-state %s is invalid (new or existing)\n",
-                            cluster_state);
-                    return 1;
-                }
-            } else if (argv[i][0] == '-') {
-                fprintf(stderr, "unknown flag: %s\n", argv[i]);
-                return 1;
-            } else if (!snap_file) {
-                snap_file = argv[i];
-            }
+            int wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields);
+            if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
         }
-        if (!snap_file) {
-            fprintf(stderr, "usage: cetcdctl snapshot restore FILE --data-dir DIR [--force] [--skip-hash-check] [--initial-cluster-token TOKEN] [--initial-cluster-state new|existing] [--initial-cluster SPEC] [--name NAME] [--initial-advertise-peer-urls URL] [-w json|fields]\n");
+        if (cetcd_parse_restore_argv(argc, argv, 3, &ro) != CETCD_OK) {
+            fprintf(stderr,
+                    "unknown leftover flag (snapshot restore --data-dir --wal-dir cannot eat a flag as the path)\n");
+            fprintf(stderr, "usage: cetcdctl snapshot restore FILE --data-dir DIR [--wal-dir DIR] [--bump-revision] [--mark-compacted] [--force] [--skip-hash-check] [--initial-cluster-token TOKEN] [--initial-cluster-state new|existing] [--initial-cluster SPEC] [--name NAME] [--initial-advertise-peer-urls URL] [-w json|fields]\n");
             return 1;
         }
-        if (!data_dir) {
-            fprintf(stderr, "--data-dir is required for snapshot restore\n");
-            return 1;
-        }
+        const char *snap_file = ro.snap_file;
+        const char *data_dir = ro.data_dir;
+        const char *wal_dir = ro.wal_dir;
+        const char *cluster_token = ro.cluster_token;
+        const char *initial_cluster = ro.initial_cluster;
+        const char *adv_peer = ro.adv_peer;
+        const char *member_name = ro.member_name;
+        const char *cluster_state = ro.cluster_state;
+        int force = ro.force;
+        int skip_hash = ro.skip_hash;
         if (initial_cluster) {
             if (!initial_cluster[0]) {
                 fprintf(stderr, "--initial-cluster must not be empty\n");
@@ -4842,12 +4785,54 @@ static int cmd_snapshot(int argc, char **argv) {
                 }
             }
         }
+        uint64_t write_rev = 0, compact_rev = 0;
+        if (cetcd_restore_revision(restore_rev, ro.bump_revision,
+                                   ro.mark_compacted, &write_rev,
+                                   &compact_rev) != CETCD_OK) {
+            free(snap_data);
+            fprintf(stderr, "--bump-revision / --mark-compacted is invalid\n");
+            return 1;
+        }
         /* Write the snapshot KV data to the data directory as snapshot.kv */
         FILE *df = fopen(check_path, "wb");
         if (!df) { perror("fopen data dir"); free(snap_data); return 1; }
-        /* Write KV data only (skip header if present) */
-        fwrite(snap_data + kv_offset, 1, kv_size, df);
+        if (write_rev > 0) {
+            size_t cts_n = 0;
+            uint8_t *cts = cetcd_snap_encode_cts2(snap_data + kv_offset, kv_size,
+                                                  write_rev, &cts_n);
+            if (!cts) {
+                fclose(df);
+                free(snap_data);
+                fprintf(stderr, "out of memory\n");
+                return 1;
+            }
+            fwrite(cts, 1, cts_n, df);
+            free(cts);
+            restore_rev = write_rev;
+        } else {
+            fwrite(snap_data + kv_offset, 1, kv_size, df);
+        }
         fclose(df);
+        if (compact_rev > 0) {
+            char p[600];
+            char buf[32];
+            snprintf(p, sizeof(p), "%s/mark-compacted", data_dir);
+            snprintf(buf, sizeof(buf), "%llu", (unsigned long long)compact_rev);
+            if (restore_persist_line_(p, buf, force,
+                    "mark-compacted mismatch, use --force to overwrite") != 0) {
+                free(snap_data);
+                return 1;
+            }
+        }
+        if (wal_dir) {
+            char p[600];
+            snprintf(p, sizeof(p), "%s/wal-dir", data_dir);
+            if (restore_persist_line_(p, wal_dir, force,
+                    "wal-dir mismatch, use --force to overwrite") != 0) {
+                free(snap_data);
+                return 1;
+            }
+        }
         if (cluster_token && cluster_token[0]) {
             char tok_path[600];
             snprintf(tok_path, sizeof(tok_path), "%s/cluster_token", data_dir);
@@ -6758,7 +6743,7 @@ static void print_usage(void) {
     printf("                         Revoke permission (all or specific key) from role\n");
     printf("  snapshot save [FILE] [--compaction-periodical] [-w json|fields|table]   Save a snapshot to file (leftover --flags fail-close)\n");
     printf("  snapshot status FILE [-w json|fields|table]  Show snapshot file info\n");
-    printf("  snapshot restore FILE --data-dir DIR [--force] [--skip-hash-check] [--initial-cluster-token TOKEN] [--initial-cluster-state new|existing] [--initial-cluster SPEC] [--name NAME] [--initial-advertise-peer-urls URL] [-w json|fields]  Restore snapshot to data dir\n");
+    printf("  snapshot restore FILE --data-dir DIR [--wal-dir DIR] [--bump-revision] [--mark-compacted] [--force] [--skip-hash-check] [--initial-cluster-token TOKEN] [--initial-cluster-state new|existing] [--initial-cluster SPEC] [--name NAME] [--initial-advertise-peer-urls URL] [-w json|fields]  Restore snapshot to data dir (leftover --data-dir --wal-dir fail-close)\n");
     printf("  downgrade enable [-w json|fields] VER   Enable cluster downgrade (leftover --flags fail-close)\n");
     printf("  downgrade cancel [-w json|fields]       Cancel cluster downgrade (leftover --flags fail-close)\n");
     printf("  downgrade validate [-w json|fields] VER Validate downgrade version (leftover --flags fail-close)\n");

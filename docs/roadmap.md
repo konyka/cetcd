@@ -613,6 +613,13 @@ Performance-first, fail-closed design:
   Honors `--flag=VALUE` (empty `--flag=` is INVAL). `--verbose[=bool]`.
   Unknown leftover flags fail-close. Missing data-dir or output-dir is
   INVAL. Accepting a leftover `--` value as the path is rejected.
+- **`snapshot restore --wal-dir` / `--bump-revision`** — leftover-safe
+  so `--data-dir --wal-dir` cannot eat a flag as the path. `--wal-dir`
+  is persisted and loaded on start. `--bump-revision` writes CTS2 at
+  old+1 and advances MVCC so a new cluster cannot reuse the snapshot
+  revision. `--mark-compacted` without bump fail-closes; with bump it
+  compact-marks the old revision so a watch at that rev is ErrCompacted.
+  Accepting those flags as a no-op is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

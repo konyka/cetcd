@@ -2486,6 +2486,21 @@ static int load_persisted_bootstrap_(cetcd_server *srv) {
             }
         }
     }
+
+    n = snprintf(path, sizeof(path), "%s/wal-dir", srv->cfg.data_dir);
+    if (n > 0 && (size_t)n < sizeof(path)) {
+        int rr = read_oneline_(path, line, sizeof(line));
+        if (rr < 0) return CETCD_ERR_INVAL;
+        if (rr == 0) {
+            if (!line[0]) return CETCD_ERR_INVAL;
+            if (srv->cfg.wal_dir[0] && strcmp(srv->cfg.wal_dir, line) != 0)
+                return CETCD_ERR_INVAL;
+            if (!srv->cfg.wal_dir[0]) {
+                strncpy(srv->cfg.wal_dir, line, sizeof(srv->cfg.wal_dir) - 1);
+                srv->cfg.wal_dir[sizeof(srv->cfg.wal_dir) - 1] = '\0';
+            }
+        }
+    }
     return CETCD_OK;
 }
 
@@ -2554,6 +2569,12 @@ static int import_snapshot_kv_(cetcd_mvcc_store *store, const char *path) {
         }
     }
     fclose(f);
+    cetcd_snap_header hdr;
+    memset(&hdr, 0, sizeof(hdr));
+    if (sz > 0 && cetcd_snap_parse_header(buf, (size_t)sz, &hdr) != CETCD_OK) {
+        free(buf);
+        return CETCD_ERR_CORRUPT;
+    }
     cetcd_snap *snap = cetcd_snap_decode_kv(buf, (size_t)sz);
     free(buf);
     if (!snap) return CETCD_ERR_CORRUPT;
@@ -2568,6 +2589,10 @@ static int import_snapshot_kv_(cetcd_mvcc_store *store, const char *path) {
         }
     }
     cetcd_snap_free(snap);
+    if (hdr.revision > 0) {
+        int arc = cetcd_mvcc_advance_revision(store, (int64_t)hdr.revision);
+        if (arc != CETCD_OK) return arc;
+    }
     return CETCD_OK;
 }
 
@@ -3219,6 +3244,25 @@ int cetcd_server_start(cetcd_server *srv) {
                     if (n > 0 && (size_t)n < sizeof(sk) && file_readable_(sk)) {
                         int irc = import_snapshot_kv_(store, sk);
                         if (irc != CETCD_OK) return irc;
+                        {
+                            char mc[768], line[64];
+                            int mn = snprintf(mc, sizeof(mc),
+                                              "%s/mark-compacted",
+                                              srv->cfg.data_dir);
+                            if (mn > 0 && (size_t)mn < sizeof(mc) &&
+                                file_readable_(mc)) {
+                                int rr = read_oneline_(mc, line, sizeof(line));
+                                if (rr < 0) return CETCD_ERR_INVAL;
+                                if (rr == 0) {
+                                    int64_t crev = 0;
+                                    if (cetcd_parse_i64(line, &crev) != CETCD_OK
+                                        || crev < 1)
+                                        return CETCD_ERR_INVAL;
+                                    int crc = cetcd_mvcc_compact(store, crev);
+                                    if (crc != CETCD_OK) return crc;
+                                }
+                            }
+                        }
                         char done[780];
                         snprintf(done, sizeof(done), "%s.applied", sk);
                         (void)rename(sk, done);

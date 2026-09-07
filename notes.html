@@ -31,14 +31,15 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 115 — leftover-safe defrag --data-dir</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 116 — leftover-safe restore --bump-revision</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 115 leftover-safe-honors
-     <code>defrag --data-dir</code> so <code>--data-dir --cluster</code>
-     cannot eat a flag as the path; missing <code>data.mdb</code> does
-     not create an empty env.</p>
+  <p><strong>v0.3.0</strong>. Phase 116 leftover-safe-honors
+     <code>snapshot restore --wal-dir</code> /
+     <code>--bump-revision</code> so <code>--data-dir --wal-dir</code>
+     cannot eat a flag as the path; a new cluster cannot reuse the
+     snapshot revision.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -169,6 +170,7 @@
       <tr><td>113</td><td>leftover-safe server VALUE takes</td><td>remaining cetcd --flag VALUE paths leftover-safe-take so --host-whitelist --name / --listen-client-urls --name cannot eat a flag as the list; empty --host-whitelist= stays allow-all — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>114</td><td>leftover-safe migrate WAL name</td><td>cetcd-migrate leftover-safe-parses etcd %016x-%016x.wal (hex); 123foo-456.wal cannot be scanned and win latest — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>115</td><td>leftover-safe defrag --data-dir</td><td>cetcdctl defrag --data-dir leftover-safe-opens the local LMDB and compact-copies; --data-dir --cluster cannot eat a flag as the path; --cluster + --data-dir fail-close — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>116</td><td>leftover-safe restore --bump-revision</td><td>snapshot restore leftover-safe-honors --wal-dir / --bump-revision / --mark-compacted so --data-dir --wal-dir cannot eat a flag as the path; bump writes CTS2 at old+1 and advances MVCC — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

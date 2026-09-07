@@ -370,6 +370,22 @@ int64_t cetcd_mvcc_revision(const cetcd_mvcc_store *s) {
     return s ? s->main_rev : 0;
 }
 
+int cetcd_mvcc_advance_revision(cetcd_mvcc_store *s, int64_t rev) {
+    if (!s || rev < 1) return CETCD_ERR_INVAL;
+    if (rev < s->main_rev) return CETCD_ERR_INVAL;
+    if (rev == s->main_rev) return CETCD_OK;
+    if (s->backend) {
+        uint8_t rev_buf[8];
+        write_le64_(rev_buf, (uint64_t)rev);
+        int rc = cetcd_backend_put(s->backend, MVCC_BUCKET_META,
+                                   MVCC_META_REV, sizeof(MVCC_META_REV) - 1,
+                                   rev_buf, sizeof(rev_buf));
+        if (rc != CETCD_OK) return CETCD_ERR_IO;
+    }
+    s->main_rev = rev;
+    return CETCD_OK;
+}
+
 cetcd_revision cetcd_mvcc_put(cetcd_mvcc_store *s,
                                const uint8_t *key, size_t key_len,
                                const uint8_t *val, size_t val_len,

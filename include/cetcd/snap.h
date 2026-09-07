@@ -79,6 +79,34 @@ int cetcd_parse_migrate_argv(int argc, char *const *argv, int start,
                              const char **data_dir, const char **output_dir,
                              int *verbose);
 
+typedef struct cetcd_restore_opts {
+    const char *snap_file;
+    const char *data_dir;
+    const char *wal_dir;
+    const char *initial_cluster;
+    const char *adv_peer;
+    const char *member_name;
+    const char *cluster_token;
+    const char *cluster_state;
+    int force;
+    int skip_hash;
+    int bump_revision;
+    int mark_compacted;
+} cetcd_restore_opts;
+
+/* leftover-safe snapshot restore argv from `start`. Honors --data-dir /
+ * --wal-dir VALUE, --bump-revision / --mark-compacted / --force /
+ * --skip-hash-check[=bool], and the existing cluster persist flags.
+ * `--data-dir --wal-dir` cannot eat a flag as the path. `--mark-compacted`
+ * without `--bump-revision` is INVAL. `--` starts the snapshot FILE.
+ * Unknown leftover flags are INVAL. Missing FILE or --data-dir is INVAL. */
+int cetcd_parse_restore_argv(int argc, char *const *argv, int start,
+                             cetcd_restore_opts *out);
+/* CTS2 revision after restore. bump → old+1 (0 → 1). mark_compacted
+ * without bump is INVAL. overflow is INVAL. */
+int cetcd_restore_revision(uint64_t old_rev, int bump, int mark_compacted,
+                           uint64_t *out_rev, uint64_t *out_compact);
+
 #ifdef __cplusplus
 }
 #endif

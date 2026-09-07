@@ -552,3 +552,130 @@ int cetcd_parse_migrate_argv(int argc, char *const *argv, int start,
     if (!*data_dir || !*output_dir) return CETCD_ERR_INVAL;
     return CETCD_OK;
 }
+
+int cetcd_restore_revision(uint64_t old_rev, int bump, int mark_compacted,
+                           uint64_t *out_rev, uint64_t *out_compact) {
+    if (!out_rev || !out_compact) return CETCD_ERR_INVAL;
+    if (mark_compacted && !bump) return CETCD_ERR_INVAL;
+    *out_compact = 0;
+    if (!bump) {
+        *out_rev = old_rev;
+        return CETCD_OK;
+    }
+    if (old_rev == UINT64_MAX) return CETCD_ERR_INVAL;
+    *out_rev = old_rev + 1;
+    if (mark_compacted) *out_compact = old_rev;
+    return CETCD_OK;
+}
+
+int cetcd_parse_restore_argv(int argc, char *const *argv, int start,
+                             cetcd_restore_opts *out) {
+    int i, saw_ddash = 0;
+    if (!argv || !out || start < 0 || start > argc) return CETCD_ERR_INVAL;
+    memset(out, 0, sizeof(*out));
+    for (i = start; i < argc; i++) {
+        const char *fmt = NULL;
+        int on = 1;
+        if (!argv[i]) return CETCD_ERR_INVAL;
+        if (!saw_ddash) {
+            if (migrate_flag_is_(argv[i], "-w")) {
+                if (migrate_take_path_(&i, argc, argv, "-w", &fmt) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+                (void)fmt;
+                continue;
+            }
+            if (migrate_flag_is_(argv[i], "--write-out")) {
+                if (migrate_take_path_(&i, argc, argv, "--write-out", &fmt)
+                    != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+                (void)fmt;
+                continue;
+            }
+            if (strcmp(argv[i], "--") == 0) {
+                saw_ddash = 1;
+                continue;
+            }
+            if (migrate_flag_is_(argv[i], "--data-dir")) {
+                if (migrate_take_path_(&i, argc, argv, "--data-dir",
+                                       &out->data_dir) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+                continue;
+            }
+            if (migrate_flag_is_(argv[i], "--wal-dir")) {
+                if (migrate_take_path_(&i, argc, argv, "--wal-dir",
+                                       &out->wal_dir) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+                continue;
+            }
+            if (migrate_flag_is_(argv[i], "--initial-cluster")) {
+                if (migrate_take_path_(&i, argc, argv, "--initial-cluster",
+                                       &out->initial_cluster) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+                continue;
+            }
+            if (migrate_flag_is_(argv[i], "--initial-advertise-peer-urls")) {
+                if (migrate_take_path_(&i, argc, argv,
+                                       "--initial-advertise-peer-urls",
+                                       &out->adv_peer) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+                continue;
+            }
+            if (migrate_flag_is_(argv[i], "--name")) {
+                if (migrate_take_path_(&i, argc, argv, "--name",
+                                       &out->member_name) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+                continue;
+            }
+            if (migrate_flag_is_(argv[i], "--initial-cluster-token")) {
+                if (migrate_take_path_(&i, argc, argv,
+                                       "--initial-cluster-token",
+                                       &out->cluster_token) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+                continue;
+            }
+            if (migrate_flag_is_(argv[i], "--initial-cluster-state")) {
+                if (migrate_take_path_(&i, argc, argv,
+                                       "--initial-cluster-state",
+                                       &out->cluster_state) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+                if (strcmp(out->cluster_state, "new") != 0 &&
+                    strcmp(out->cluster_state, "existing") != 0)
+                    return CETCD_ERR_INVAL;
+                continue;
+            }
+            if (migrate_flag_is_(argv[i], "--force")) {
+                if (migrate_take_bool_(argv[i], "--force", &on) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+                out->force = on;
+                continue;
+            }
+            if (migrate_flag_is_(argv[i], "--skip-hash-check")) {
+                if (migrate_take_bool_(argv[i], "--skip-hash-check", &on)
+                    != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+                out->skip_hash = on;
+                continue;
+            }
+            if (migrate_flag_is_(argv[i], "--bump-revision")) {
+                if (migrate_take_bool_(argv[i], "--bump-revision", &on)
+                    != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+                out->bump_revision = on;
+                continue;
+            }
+            if (migrate_flag_is_(argv[i], "--mark-compacted")) {
+                if (migrate_take_bool_(argv[i], "--mark-compacted", &on)
+                    != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+                out->mark_compacted = on;
+                continue;
+            }
+            if (argv[i][0] == '-') return CETCD_ERR_INVAL;
+        }
+        if (out->snap_file) return CETCD_ERR_INVAL;
+        out->snap_file = argv[i];
+    }
+    if (!out->snap_file || !out->data_dir) return CETCD_ERR_INVAL;
+    if (out->mark_compacted && !out->bump_revision) return CETCD_ERR_INVAL;
+    return CETCD_OK;
+}

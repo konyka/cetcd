@@ -67,6 +67,9 @@ typedef struct cetcd_watcher   cetcd_watcher;
 cetcd_mvcc_store *cetcd_mvcc_store_new(void);
 void              cetcd_mvcc_store_free(cetcd_mvcc_store *s);
 int64_t           cetcd_mvcc_revision(const cetcd_mvcc_store *s);
+/* Raise current revision to `rev` without a write. `rev` < current is
+ * INVAL. Equal is OK. Persist when a backend is attached. */
+int cetcd_mvcc_advance_revision(cetcd_mvcc_store *s, int64_t rev);
 
 /* --- Write operations (advance revision) --- */
 

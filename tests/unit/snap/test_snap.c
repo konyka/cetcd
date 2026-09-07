@@ -2,6 +2,7 @@
 #include "cetcd/snap.h"
 #include "cetcd_test.h"
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -352,6 +353,110 @@ CETCD_TEST_CASE(snap_parse_migrate_argv_leftover) {
                                                 &verbose), CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(snap_restore_revision_leftover) {
+    uint64_t rev = 99, compact = 99;
+    CETCD_ASSERT_EQ_INT(cetcd_restore_revision(10, 0, 0, &rev, &compact),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rev == 10);
+    CETCD_ASSERT_TRUE(compact == 0);
+
+    CETCD_ASSERT_EQ_INT(cetcd_restore_revision(10, 1, 0, &rev, &compact),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rev == 11);
+    CETCD_ASSERT_TRUE(compact == 0);
+
+    CETCD_ASSERT_EQ_INT(cetcd_restore_revision(10, 1, 1, &rev, &compact),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rev == 11);
+    CETCD_ASSERT_TRUE(compact == 10);
+
+    CETCD_ASSERT_EQ_INT(cetcd_restore_revision(0, 1, 1, &rev, &compact),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rev == 1);
+    CETCD_ASSERT_TRUE(compact == 0);
+
+    CETCD_ASSERT_EQ_INT(cetcd_restore_revision(10, 0, 1, &rev, &compact),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_restore_revision(UINT64_MAX, 1, 0, &rev, &compact),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_restore_revision(1, 1, 0, NULL, &compact),
+                        CETCD_ERR_INVAL);
+}
+
+CETCD_TEST_CASE(snap_parse_restore_argv_leftover) {
+    cetcd_restore_opts o;
+    char *ok[] = { "cetcdctl", "snapshot", "restore", "s.snap",
+                   "--data-dir", "./d" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_restore_argv(6, ok, 3, &o), CETCD_OK);
+    CETCD_ASSERT_EQ_STR(o.snap_file, "s.snap");
+    CETCD_ASSERT_EQ_STR(o.data_dir, "./d");
+    CETCD_ASSERT_EQ_INT(o.bump_revision, 0);
+    CETCD_ASSERT_EQ_INT(o.mark_compacted, 0);
+    CETCD_ASSERT_TRUE(o.wal_dir == NULL);
+
+    char *eq[] = { "cetcdctl", "snapshot", "restore", "--data-dir=./d",
+                   "--bump-revision", "--wal-dir=/w", "s.snap" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_restore_argv(7, eq, 3, &o), CETCD_OK);
+    CETCD_ASSERT_EQ_STR(o.data_dir, "./d");
+    CETCD_ASSERT_EQ_STR(o.wal_dir, "/w");
+    CETCD_ASSERT_EQ_INT(o.bump_revision, 1);
+
+    char *mark[] = { "cetcdctl", "snapshot", "restore", "s.snap",
+                     "--data-dir", "./d", "--bump-revision",
+                     "--mark-compacted" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_restore_argv(8, mark, 3, &o), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(o.bump_revision, 1);
+    CETCD_ASSERT_EQ_INT(o.mark_compacted, 1);
+
+    char *wo[] = { "cetcdctl", "snapshot", "restore", "-w", "json",
+                   "s.snap", "--data-dir", "./d" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_restore_argv(8, wo, 3, &o), CETCD_OK);
+
+    char *ddash[] = { "cetcdctl", "snapshot", "restore", "--",
+                      "--weird.snap", "--data-dir", "./d" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_restore_argv(7, ddash, 3, &o),
+                        CETCD_ERR_INVAL);
+
+    char *ddash_ok[] = { "cetcdctl", "snapshot", "restore", "--data-dir",
+                         "./d", "--", "--weird.snap" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_restore_argv(7, ddash_ok, 3, &o),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(o.snap_file, "--weird.snap");
+
+    char *eat[] = { "cetcdctl", "snapshot", "restore", "s.snap",
+                    "--data-dir", "--wal-dir" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_restore_argv(6, eat, 3, &o),
+                        CETCD_ERR_INVAL);
+
+    char *wal_eat[] = { "cetcdctl", "snapshot", "restore", "s.snap",
+                        "--data-dir", "./d", "--wal-dir", "--force" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_restore_argv(8, wal_eat, 3, &o),
+                        CETCD_ERR_INVAL);
+
+    char *nomark[] = { "cetcdctl", "snapshot", "restore", "s.snap",
+                       "--data-dir", "./d", "--mark-compacted" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_restore_argv(7, nomark, 3, &o),
+                        CETCD_ERR_INVAL);
+
+    char *foo[] = { "cetcdctl", "snapshot", "restore", "s.snap",
+                    "--data-dir", "./d", "--foo" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_restore_argv(7, foo, 3, &o),
+                        CETCD_ERR_INVAL);
+
+    char *empty[] = { "cetcdctl", "snapshot", "restore", "s.snap",
+                      "--data-dir=" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_restore_argv(5, empty, 3, &o),
+                        CETCD_ERR_INVAL);
+
+    char *nofile[] = { "cetcdctl", "snapshot", "restore", "--data-dir",
+                       "./d" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_restore_argv(5, nofile, 3, &o),
+                        CETCD_ERR_INVAL);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_restore_argv(6, ok, 3, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(snap_create_destroy),
     CETCD_TEST_ENTRY(snap_add_entries),
@@ -367,6 +472,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(snap_parse_filename_leftover),
     CETCD_TEST_ENTRY(snap_parse_wal_filename_leftover),
     CETCD_TEST_ENTRY(snap_parse_migrate_argv_leftover),
+    CETCD_TEST_ENTRY(snap_restore_revision_leftover),
+    CETCD_TEST_ENTRY(snap_parse_restore_argv_leftover),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

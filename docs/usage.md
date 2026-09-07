@@ -558,6 +558,9 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl snapshot save backup.snap -w fields  # Save with fields output
 ./build/bin/cetcdctl snapshot status backup.snap # Show snapshot file info
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd  # Restore snapshot
+./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd --wal-dir /fast/wal
+./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd --bump-revision --mark-compacted
+# leftover --data-dir --wal-dir / --mark-compacted without --bump-revision fail-close
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd --force  # Force overwrite
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd -w json  # Restore with JSON output
 ./build/bin/cetcdctl snapshot restore backup.snap --data-dir /tmp/cetcd -w fields  # Restore with fields output

@@ -913,6 +913,7 @@ listen URL. Mixed http/https is allowed. A duplicate, leftover text, or any
 `--initial-cluster-token` is persisted in `data-dir`; a mismatch fail-closes.
 `cetcdctl snapshot restore --initial-cluster-token` writes the same file (mismatch without `--force` fail-closes).
 `cetcdctl snapshot restore --initial-cluster-state` is `new` or `existing` (writes `snapshot.kv` and persists the state). `--initial-cluster` / `--name` / `--initial-advertise-peer-urls` are validated and written to the data dir; a bad spec or mismatch without `--force` fail-closes. Server start loads those files when the CLI omits the flag. A blank `--initial-cluster-state existing` start needs `snapshot.kv`, a persisted `initial-cluster`, or `--initial-cluster` peers.
+`cetcdctl snapshot restore --wal-dir` leftover-safe-persists the WAL path (`--data-dir --wal-dir` cannot eat a flag as the path). `--bump-revision` writes CTS2 at old+1 and advances MVCC; `--mark-compacted` without bump fail-closes.
 `cetcdctl snapshot save` writes CTS2 (revision + CRC32C of the kv blob). Restore fail-closes on a hash mismatch unless `--skip-hash-check`. Legacy CTS1 still restores. A truncated CTS2 header fail-closes even with skip.
 After WAL compaction the leader sends one `MsgSnap` (KV blob) to a joiner whose `next_idx` is at or below the compacted index; `snapshot==0` or a corrupt blob fail-closes.
 While the log is still live the leader sends `App` from `next_idx` (batch capped by `max_size_per_msg`); an `AppResp` reject uses the follower's last-index hint.
@@ -1164,6 +1165,7 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `role grant-permission ROLE TYPE KEY` | 授予角色权限（TYPE: read/write/readwrite） |
 | `role revoke-permission ROLE` | 撤销角色权限 |
 | `snapshot save [FILE]` | 保存快照到文件 |
+| `snapshot restore FILE --data-dir DIR` | leftover-safe 恢复（`--wal-dir` / `--bump-revision` / `--mark-compacted`；`--data-dir --wal-dir` 不能把 flag 当成路径） |
 | `downgrade enable/cancel/validate` | 仅 `validate <cetcd_version>` 成功；enable/cancel fail-closed |
 
 ---
