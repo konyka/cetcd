@@ -16,8 +16,9 @@ extern "C" {
 typedef struct cetcd_server cetcd_server;
 
 #define CETCD_MAX_INITIAL_PEERS 32
-/* When snapshot_count is 0, rewrite the WAL after this many applies. */
-#define CETCD_DEFAULT_SNAPSHOT_COUNT 10000ULL
+/* When snapshot_count is 0, rewrite the WAL after this many applies.
+ * etcd 3.5 DefaultSnapshotCount. */
+#define CETCD_DEFAULT_SNAPSHOT_COUNT 100000ULL
 #define CETCD_DEFAULT_MAX_REQUEST_BYTES (1572864ULL) /* etcd 1.5 MiB */
 /* etcd DefaultQuotaBytes: --quota-backend-bytes 0 / omitted. */
 #define CETCD_DEFAULT_QUOTA_BACKEND_BYTES (2ULL * 1024 * 1024 * 1024)
@@ -142,6 +143,8 @@ int cetcd_etcd_env_to_pairs(char *const *envv, int argc, char *const *argv,
 int cetcd_parse_bootstrap_defrag_mb(const char *s, uint64_t *out);
 /* etcd: 0 / omitted → 2GiB. Other values are unchanged. */
 uint64_t cetcd_quota_backend_bytes_effective(uint64_t n);
+/* etcd: 0 / omitted → 100000. Other values are unchanged. */
+uint64_t cetcd_snapshot_count_effective(uint64_t n);
 /* 1 if arg is `--name` or `--name=...` (not `--names`). */
 int cetcd_cli_flag_is(const char *arg, const char *name);
 /* `--flag VALUE` or `--flag=VALUE`. Empty `--flag=` is INVAL. */

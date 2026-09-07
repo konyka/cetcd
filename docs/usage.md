@@ -171,8 +171,8 @@ cetcd accepts several etcd server flags for migration compatibility:
 ./build/bin/cetcd --advertise-client-urls http://127.0.0.1:2379,http://10.0.0.1:2379 \
   --initial-advertise-peer-urls http://127.0.0.1:2380 \
   --initial-cluster-state new --initial-cluster-token etcd-cluster \
-  --snapshot-count 10000 --data-dir ./data
-# --snapshot-count must be > 0; a typo or 0 is not the silent default 10000
+  --snapshot-count=100000 --data-dir ./data
+# --snapshot-count must be > 0; omitted is etcd 3.5 default 100000; a typo or 0 fails
 # --auto-compaction-mode periodic|revision; --auto-compaction-retention 0 disables
 # periodic: 1h / 30m / bare hours; revision: revisions to keep; invalid values fail at parse
 ./build/bin/cetcd --auto-compaction-mode periodic --auto-compaction-retention 1h --data-dir ./data

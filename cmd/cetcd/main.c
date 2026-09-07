@@ -59,7 +59,7 @@ static void print_usage(const char *prog) {
     printf("  --initial-cluster-token TOKEN  Persist in data-dir; mismatch fail-closes\n");
     printf("  --discovery-srv DOMAIN  Bootstrap peers from DNS SRV (_etcd-server._tcp)\n");
     printf("  --discovery-srv-name NAME  Optional SRV service suffix\n");
-    printf("  --snapshot-count N   Rewrite WAL after N applies (default: 10000; must be > 0)\n");
+    printf("  --snapshot-count N   Rewrite WAL after N applies (default: 100000; must be > 0)\n");
     printf("  --auto-compaction-mode MODE  periodic (default) or revision\n");
     printf("  --auto-compaction-retention N  0 disables; periodic: duration or hours; revision: revs to keep\n");
     printf("  --quota-backend-bytes N  NOSPACE when LMDB size >= N (0 / omitted = 2GiB; invalid fails)\n");

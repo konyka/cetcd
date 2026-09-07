@@ -28,7 +28,7 @@ Performance-first, fail-closed design:
 - **Learner promote** — members carry `is_learner`; `MemberPromote` is fail-closed
   (missing / already-voter → empty frame). Raft learners receive logs but do not
   vote or count toward quorum, so a single voter plus learners can still commit.
-- **Snapshot → WAL truncation** — after `snapshot-count` applies (default 10000),
+- **Snapshot → WAL truncation** — after `snapshot-count` applies (default 100000),
   rewrite the WAL segment to a `SNAPSHOT` record plus HardState, then compact the
   in-memory raft log. Fail-closed: a failed rewrite leaves the old segment intact.
   Restart restores a dummy last-included index from the snapshot record and
@@ -289,7 +289,8 @@ Performance-first, fail-closed design:
 - **`--heartbeat-tick`** — must be `> 0`. A typo or `0` used to become `1`;
   that now fails at parse.
 - **`--snapshot-count`** — must be `> 0`. A typo or `0` used to become the
-  default 10000; that now fails at parse. Omitted still defaults to 10000.
+  silent default; that now fails at parse. Omitted is etcd 3.5's 100000
+  (`CETCD_DEFAULT_SNAPSHOT_COUNT`), not 10000. `=` form is accepted.
 - **`--quota-backend-bytes`** — integer bytes. `0` or omitted is etcd's
   2GiB default (`CETCD_DEFAULT_QUOTA_BACKEND_BYTES`), not unlimited. `=`
   form is accepted. A typo used to become unlimited via `strtoull`; that

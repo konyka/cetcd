@@ -138,6 +138,7 @@
       <tr><td>82</td><td>log-level= form</td><td>--log-level= / --log-outputs= / --logger= / --log-format= accepted; etcd default output fail-closes; systemd/journal is journal — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>83</td><td>quota-backend-bytes 2GiB</td><td>--quota-backend-bytes 0 / omitted maps to etcd DefaultQuotaBytes 2GiB (not unlimited); = form accepted — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>84</td><td>space-only = form</td><td>Remaining space-only value flags (--name/--data-dir/--snapshot-count/--initial-cluster/…) accept etcd --flag=value; empty --flag= fail-closes — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>85</td><td>snapshot-count 100000</td><td>Omitted --snapshot-count is etcd 3.5 DefaultSnapshotCount 100000 (not 10000); = form accepted — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

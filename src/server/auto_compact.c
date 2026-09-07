@@ -1242,6 +1242,10 @@ uint64_t cetcd_quota_backend_bytes_effective(uint64_t n) {
     return n ? n : CETCD_DEFAULT_QUOTA_BACKEND_BYTES;
 }
 
+uint64_t cetcd_snapshot_count_effective(uint64_t n) {
+    return n ? n : CETCD_DEFAULT_SNAPSHOT_COUNT;
+}
+
 int cetcd_cli_flag_is(const char *arg, const char *name) {
     size_t n;
     if (!arg || !name || name[0] != '-' || name[1] != '-') return 0;

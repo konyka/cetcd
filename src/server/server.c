@@ -3686,9 +3686,7 @@ cetcd_metrics *cetcd_server_metrics(cetcd_server *srv) {
 
 static void maybe_snapshot_truncate_(cetcd_server *srv) {
     if (!srv || !srv->raft || !srv->wal_enc) return;
-    uint64_t count = srv->cfg.snapshot_count
-        ? srv->cfg.snapshot_count
-        : CETCD_DEFAULT_SNAPSHOT_COUNT;
+    uint64_t count = cetcd_snapshot_count_effective(srv->cfg.snapshot_count);
     uint64_t applied = cetcd_raft_applied(srv->raft);
     if (applied == 0 || applied < srv->last_snap_index + count) return;
     if (cetcd_raft_last_index(srv->raft) != applied) return;
