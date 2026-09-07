@@ -31,15 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 105 — leftover member/watch --flags</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 106 — leftover-safe migrate snap name</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 105 leftover-safe-rejects unknown
-     <code>--</code> flags on <code>member</code>/<code>watch</code>/<code>lock</code>/<code>elect</code>/<code>snapshot</code>/<code>user</code>/<code>role</code>
-     so <code>member remove --force</code> cannot swallow <code>--force</code>
-     and still remove, and <code>watch --foo</code> cannot watch key
-     <code>--foo</code>.</p>
+  <p><strong>v0.3.0</strong>. Phase 106 leftover-safe-parses etcd
+     <code>%016x-%016x.snap</code> so <code>123foo-456.snap</code> cannot
+     win latest with a truncated decimal term and
+     <code>…000a.snap</code> is index 10 (not <code>atoll</code> 0).</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -160,6 +159,7 @@
       <tr><td>103</td><td>leftover put/get/del --flags</td><td>unknown leftover -- flags fail-close so put --foo cannot write key --foo and get k --foo cannot range to --foo; -- starts positionals — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>104</td><td>IPv6 zone UniqueURLs</td><td>http://[fe80::1%1]:2379 leftover-safe-splits addr%zone and resolves via getaddrinfo; empty / 1foo fail-close; scope is not stripped — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>105</td><td>leftover member/watch --flags</td><td>unknown leftover -- flags fail-close so member remove --force cannot swallow --force and still remove; watch --foo cannot watch key --foo; lock/elect/snapshot/user/role same — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>106</td><td>leftover-safe migrate snap name</td><td>cetcd-migrate leftover-safe-parses etcd %016x-%016x.snap (hex); 123foo-456.snap cannot win latest; …000a.snap is index 10 not atoll 0 — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

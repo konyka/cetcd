@@ -778,6 +778,10 @@ The destination directory must not already contain a cetcd database; the tool
 refuses to overwrite existing data as a safety measure. After migration, start
 `cetcd` pointing at `--output-dir` to serve the converted data.
 
+Latest-snapshot selection leftover-safe-parses etcd `%016x-%016x.snap`
+(hex). `123foo-456.snap` cannot win with a truncated decimal term, and
+`000000000000000a.snap` is index 10 (not `atoll` 0).
+
 > **Note:** `cetcd-migrate` performs an offline, one-way conversion. Always back up
 > the original etcd data before running it.
 

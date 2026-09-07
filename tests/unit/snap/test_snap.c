@@ -236,6 +236,38 @@ CETCD_TEST_CASE(snap_cts1_and_raw_have_no_hash) {
     CETCD_ASSERT_EQ_INT(cetcd_snap_verify(NULL, 0), CETCD_OK);
 }
 
+CETCD_TEST_CASE(snap_parse_filename_leftover) {
+    uint64_t term = 0, index = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snap_filename(
+        "0000000000000001-000000000000000a.snap", &term, &index), CETCD_OK);
+    CETCD_ASSERT_TRUE(term == 1);
+    CETCD_ASSERT_TRUE(index == 10);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snap_filename("1-10.snap", &term, &index),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(term == 1);
+    CETCD_ASSERT_TRUE(index == 16);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snap_filename("123foo-456.snap",
+                                                  &term, &index),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snap_filename("123-456foo.snap",
+                                                  &term, &index),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snap_filename("1-0.snap", &term, &index),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snap_filename("1-1.snapx", &term, &index),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snap_filename("nodash.snap", &term, &index),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snap_filename(
+        "1-2-3.snap", &term, &index), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snap_filename(NULL, &term, &index),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snap_filename("1-1.snap", NULL, &index),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(snap_create_destroy),
     CETCD_TEST_ENTRY(snap_add_entries),
@@ -248,6 +280,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(snap_cts2_parse_verify_roundtrip),
     CETCD_TEST_ENTRY(snap_cts2_verify_fail_closed),
     CETCD_TEST_ENTRY(snap_cts1_and_raw_have_no_hash),
+    CETCD_TEST_ENTRY(snap_parse_filename_leftover),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

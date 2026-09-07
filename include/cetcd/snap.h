@@ -60,6 +60,12 @@ uint8_t *cetcd_snap_encode_cts2(const uint8_t *kv, size_t kv_len,
 
 void cetcd_snap_free_entries(cetcd_snap_entry *entries, size_t count);
 
+/* etcd `%016x-%016x.snap`. Leftover-safe hex so `123foo-456.snap` /
+ * `000000000000000a` cannot become a truncated decimal and win latest.
+ * Index must be > 0. */
+int cetcd_parse_snap_filename(const char *name, uint64_t *term,
+                              uint64_t *index);
+
 #ifdef __cplusplus
 }
 #endif

@@ -973,7 +973,7 @@ uint8_t    *cetcd_snap_encode(const cetcd_snap *s, size_t *out_len);
 cetcd_snap *cetcd_snap_decode(const uint8_t *data, size_t len);
 ```
 
-快照文件格式：`%016x-%016x.snap`，头部 `{crc:uint32, len:uint32}` + LMDB 环境转储负载。
+快照文件格式：`%016x-%016x.snap`，头部 `{crc:uint32, len:uint32}` + LMDB 环境转储负载。`cetcd-migrate` leftover-safe-parses the hex name (`123foo-456.snap` / decimal `atoll` cannot win latest)。
 
 ---
 

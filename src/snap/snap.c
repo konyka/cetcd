@@ -413,3 +413,45 @@ uint8_t *cetcd_snap_encode_cts2(const uint8_t *kv, size_t kv_len,
     *out_len = total;
     return buf;
 }
+
+static int parse_hex_u64_(const char *s, const char *end, uint64_t *out) {
+    uint64_t v = 0;
+    const char *p;
+    int digits = 0;
+    if (!s || !end || !out || s >= end) return CETCD_ERR_INVAL;
+    for (p = s; p < end; p++) {
+        unsigned d;
+        if (*p >= '0' && *p <= '9') d = (unsigned)(*p - '0');
+        else if (*p >= 'a' && *p <= 'f') d = (unsigned)(*p - 'a' + 10);
+        else if (*p >= 'A' && *p <= 'F') d = (unsigned)(*p - 'A' + 10);
+        else return CETCD_ERR_INVAL;
+        if (v > (UINT64_MAX >> 4)) return CETCD_ERR_INVAL;
+        v = (v << 4) | (uint64_t)d;
+        digits++;
+    }
+    if (digits == 0) return CETCD_ERR_INVAL;
+    *out = v;
+    return CETCD_OK;
+}
+
+int cetcd_parse_snap_filename(const char *name, uint64_t *term,
+                              uint64_t *index) {
+    size_t n;
+    const char *dash;
+    const char *dot;
+    if (!name || !term || !index) return CETCD_ERR_INVAL;
+    n = strlen(name);
+    if (n < 7) return CETCD_ERR_INVAL; /* 1-1.snap */
+    if (strcmp(name + n - 5, ".snap") != 0) return CETCD_ERR_INVAL;
+    dash = strchr(name, '-');
+    if (!dash || dash == name) return CETCD_ERR_INVAL;
+    if (memchr(dash + 1, '-', (size_t)((name + n) - (dash + 1))))
+        return CETCD_ERR_INVAL;
+    dot = name + n - 5;
+    if (dash + 1 >= dot) return CETCD_ERR_INVAL;
+    if (parse_hex_u64_(name, dash, term) != CETCD_OK) return CETCD_ERR_INVAL;
+    if (parse_hex_u64_(dash + 1, dot, index) != CETCD_OK)
+        return CETCD_ERR_INVAL;
+    if (*index == 0) return CETCD_ERR_INVAL;
+    return CETCD_OK;
+}

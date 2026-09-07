@@ -8,6 +8,7 @@ target_link_libraries(cetcd-migrate
     PRIVATE
         cetcd::backend
         cetcd::base
+        cetcd::snap
 )
 target_include_directories(cetcd-migrate PRIVATE ${CMAKE_SOURCE_DIR}/include)
 install(TARGETS cetcd-migrate RUNTIME DESTINATION bin)

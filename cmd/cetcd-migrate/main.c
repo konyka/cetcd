@@ -12,6 +12,7 @@
 #include "cetcd/base.h"
 #include "cetcd/backend.h"
 #include "cetcd/mvcc.h"
+#include "cetcd/snap.h"
 #include "cetcd/log.h"
 #include "cetcd/arena.h"
 #include "cetcd/buf.h"
@@ -621,16 +622,12 @@ static int find_latest_snapshot(const char *snap_dir, int64_t *term,
     int64_t best_term = 0, best_index = 0;
     for (size_t i = 0; i < dl.count; i++) {
         const char *name = dl.names[i];
-        size_t nlen = strlen(name);
-        /* Look for <term>-<index>.snap */
-        if (nlen < 6 || strcmp(name + nlen - 5, ".snap") != 0) continue;
-        char *dash = strchr(name, '-');
-        if (!dash) continue;
-        int64_t t = atoll(name);
-        int64_t idx = atoll(dash + 1);
-        if (idx > best_index) {
-            best_index = idx;
-            best_term = t;
+        /* Look for etcd %016x-%016x.snap (leftover hex, not atoll). */
+        uint64_t t = 0, idx = 0;
+        if (cetcd_parse_snap_filename(name, &t, &idx) != CETCD_OK) continue;
+        if ((int64_t)idx > best_index) {
+            best_index = (int64_t)idx;
+            best_term = (int64_t)t;
         }
     }
     dir_list_free(&dl);

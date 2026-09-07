@@ -305,7 +305,8 @@ Per-key lock-free fan-out remains a design goal.
 
 Snapshots are streamed over gRPC via the `Maintenance.Snapshot` server-streaming RPC. On
 disk, snapshot files are stored as `%016x-%016x.snap` with a header `{crc:uint32, len:uint32}`
-followed by an LMDB env-dump payload. A separate `etcd-snap-import` mode accepts bbolt-format
+followed by an LMDB env-dump payload. `cetcd-migrate` leftover-safe-parses that hex name
+(`123foo-456.snap` / decimal `atoll` cannot win latest). A separate `etcd-snap-import` mode accepts bbolt-format
 snapshots for migration. `cetcdctl snapshot save` writes CTS2 (revision + CRC32C of the
 kv blob); restore verifies unless `--skip-hash-check` and writes kv-only `snapshot.kv`.
 
