@@ -2954,6 +2954,26 @@ CETCD_TEST_CASE(live_cetcd_etcd_compat) {
              "'%s' --listen-client-http-urls=http://127.0.0.1:2379 >/dev/null 2>&1",
              CETCD_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --v2-deprecation=write-only --proxy=off --discovery-fallback=exit --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --v2-deprecation=not-yet >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --proxy=on >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --discovery=http://example >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
 CETCD_TEST_CASE(live_cetcd_raft_io_timeout) {

@@ -1029,6 +1029,10 @@ CETCD_TEST_CASE(auto_compact_etcd_compat) {
     CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind(
         "--listen-client-http-urls=http://127.0.0.1:2379"),
                         CETCD_COMPAT_VALUE);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--cors=*"),
+                        CETCD_COMPAT_VALUE);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--discovery=http://example"),
+                        CETCD_COMPAT_VALUE);
     CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--enable-v2v3"),
                         CETCD_COMPAT_NONE);
     CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--discovery-srv"),
@@ -1036,6 +1040,29 @@ CETCD_TEST_CASE(auto_compact_etcd_compat) {
     CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--listen-client-urls"),
                         CETCD_COMPAT_NONE);
     CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind(NULL), CETCD_COMPAT_NONE);
+}
+
+CETCD_TEST_CASE(auto_compact_v2_era_flags) {
+    CETCD_ASSERT_EQ_INT(cetcd_parse_v2_deprecation("gone"), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_v2_deprecation("write-only"), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_v2_deprecation("write-only-drop-data"),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_v2_deprecation("write-only-skip-check"),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_v2_deprecation("not-yet"), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_v2_deprecation("abc"), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_v2_deprecation(""), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_v2_deprecation(NULL), CETCD_ERR_INVAL);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_proxy_mode("off"), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_proxy_mode("on"), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_proxy_mode("readonly"), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_proxy_mode(NULL), CETCD_ERR_INVAL);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_discovery_fallback("exit"), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_discovery_fallback("proxy"),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_discovery_fallback(""), CETCD_ERR_INVAL);
 }
 
 CETCD_TEST_CASE(auto_compact_grpc_keepalive) {
@@ -1228,6 +1255,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_etcd_env),
     CETCD_TEST_ENTRY(auto_compact_experimental_unsupported),
     CETCD_TEST_ENTRY(auto_compact_etcd_compat),
+    CETCD_TEST_ENTRY(auto_compact_v2_era_flags),
     CETCD_TEST_ENTRY(auto_compact_grpc_keepalive),
     CETCD_TEST_ENTRY(auto_compact_quota_backend_bytes),
     CETCD_TEST_ENTRY(auto_compact_snapshot_count),

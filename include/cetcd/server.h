@@ -124,6 +124,13 @@ int cetcd_experimental_unsupported_kind(const char *arg);
 #define CETCD_COMPAT_BOOL_ON  2 /* true/bare OK (already on); false fail-closed */
 #define CETCD_COMPAT_VALUE    3 /* any presence is UNSUPPORT */
 int cetcd_etcd_compat_kind(const char *arg);
+/* gone / write-only / write-only-drop-data / write-only-skip-check.
+ * not-yet needs v2 and is INVAL. */
+int cetcd_parse_v2_deprecation(const char *s);
+/* off is OK. on / readonly need the v2 proxy and are INVAL. */
+int cetcd_parse_proxy_mode(const char *s);
+/* exit is OK. proxy needs the v2 proxy and is INVAL. */
+int cetcd_parse_discovery_fallback(const char *s);
 /* Known --grpc-keepalive-* names. Unknown names must not swallow argv. */
 #define CETCD_KA_NONE     0
 #define CETCD_KA_IDLE     1 /* time / interval → TCP_KEEPIDLE */

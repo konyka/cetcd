@@ -118,6 +118,9 @@ static void print_usage(const char *prog) {
     printf("  --experimental-*    Unimplemented or unknown experimental flags fail at parse (false is OK)\n");
     printf("  --enable-grpc-gateway / --enable-v2 / --unsafe-no-fsync  false is OK; true fail-closed\n");
     printf("  --socket-reuse-address  true is OK (libuv SO_REUSEADDR); false fail-closed\n");
+    printf("  --v2-deprecation MODE  gone|write-only (not-yet needs v2 and fail-closes)\n");
+    printf("  --proxy off      v2 proxy stays off; on/readonly fail-closed\n");
+    printf("  --discovery-fallback exit  v2 discovery fallback stays exit; proxy fail-closed\n");
     printf("  --help           Show this help\n");
 }
 
@@ -1310,6 +1313,32 @@ int main(int argc, char **argv) {
         } else if (cetcd_cli_flag_is(argv[i], "--auto-compaction-retention")) {
             if (take_flag_value_(&i, argc, argv, &ac_ret_s) != 0) {
                 fprintf(stderr, "--auto-compaction-retention requires a value\n");
+                return 1;
+            }
+        } else if (cetcd_cli_flag_is(argv[i], "--v2-deprecation")) {
+            const char *s = NULL;
+            if (take_flag_value_(&i, argc, argv, &s) != 0 ||
+                cetcd_parse_v2_deprecation(s) != CETCD_OK) {
+                fprintf(stderr,
+                        "--v2-deprecation %s is not supported (gone or write-only; not-yet needs v2)\n",
+                        s ? s : "");
+                return 1;
+            }
+        } else if (cetcd_cli_flag_is(argv[i], "--proxy")) {
+            const char *s = NULL;
+            if (take_flag_value_(&i, argc, argv, &s) != 0 ||
+                cetcd_parse_proxy_mode(s) != CETCD_OK) {
+                fprintf(stderr, "--proxy %s is not supported (off only)\n",
+                        s ? s : "");
+                return 1;
+            }
+        } else if (cetcd_cli_flag_is(argv[i], "--discovery-fallback")) {
+            const char *s = NULL;
+            if (take_flag_value_(&i, argc, argv, &s) != 0 ||
+                cetcd_parse_discovery_fallback(s) != CETCD_OK) {
+                fprintf(stderr,
+                        "--discovery-fallback %s is not supported (exit only; proxy needs v2)\n",
+                        s ? s : "");
                 return 1;
             }
         } else if (strcmp(argv[i], "--experimental-initial-corrupt-check") == 0) {

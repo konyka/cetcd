@@ -1199,9 +1199,39 @@ int cetcd_etcd_compat_kind(const char *arg) {
         return CETCD_COMPAT_BOOL_OFF;
     if (cetcd_cli_flag_is(arg, "--socket-reuse-address"))
         return CETCD_COMPAT_BOOL_ON;
-    if (cetcd_cli_flag_is(arg, "--listen-client-http-urls"))
+    if (cetcd_cli_flag_is(arg, "--listen-client-http-urls") ||
+        cetcd_cli_flag_is(arg, "--cors") ||
+        cetcd_cli_flag_is(arg, "--discovery") ||
+        cetcd_cli_flag_is(arg, "--discovery-proxy") ||
+        cetcd_cli_flag_is(arg, "--proxy-failure-wait") ||
+        cetcd_cli_flag_is(arg, "--proxy-refresh-interval") ||
+        cetcd_cli_flag_is(arg, "--proxy-dial-timeout") ||
+        cetcd_cli_flag_is(arg, "--proxy-write-timeout") ||
+        cetcd_cli_flag_is(arg, "--proxy-read-timeout"))
         return CETCD_COMPAT_VALUE;
     return CETCD_COMPAT_NONE;
+}
+
+int cetcd_parse_v2_deprecation(const char *s) {
+    if (!s || !s[0]) return CETCD_ERR_INVAL;
+    if (strcmp(s, "gone") == 0 ||
+        strcmp(s, "write-only") == 0 ||
+        strcmp(s, "write-only-drop-data") == 0 ||
+        strcmp(s, "write-only-skip-check") == 0)
+        return CETCD_OK;
+    return CETCD_ERR_INVAL;
+}
+
+int cetcd_parse_proxy_mode(const char *s) {
+    if (!s || !s[0]) return CETCD_ERR_INVAL;
+    if (strcmp(s, "off") == 0) return CETCD_OK;
+    return CETCD_ERR_INVAL;
+}
+
+int cetcd_parse_discovery_fallback(const char *s) {
+    if (!s || !s[0]) return CETCD_ERR_INVAL;
+    if (strcmp(s, "exit") == 0) return CETCD_OK;
+    return CETCD_ERR_INVAL;
 }
 
 int cetcd_grpc_keepalive_kind(const char *arg) {

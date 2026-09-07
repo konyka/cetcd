@@ -517,6 +517,12 @@ Performance-first, fail-closed design:
   / `--unsafe-no-fsync=false` are accepted (gateway, v2, and skipped
   fsync are already off). Bare / `true` fail-closes (do not pretend).
   `--listen-client-http-urls` fail-closes (gRPC-gateway is a non-goal).
+- **v2-era leftovers** — `--v2-deprecation=gone|write-only` (and
+  `write-only-drop-data` / `write-only-skip-check`) is accepted (v2 is
+  already gone). `not-yet` fail-closes (would need a v2 store).
+  `--proxy=off` and `--discovery-fallback=exit` are accepted; `on` /
+  `readonly` / `proxy` fail-close. `--discovery` (v2 URL), `--cors`,
+  and `--proxy-*` timeouts fail-close. `--discovery-srv` is unchanged.
 - **`--enable-log-rotation` / `--log-rotation-config-json`** — omitted
   default off. Requires a single `--log-outputs` file path (stdio /
   journal / comma-list fail-close). JSON is lumberjack
