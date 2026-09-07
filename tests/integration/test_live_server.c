@@ -2482,7 +2482,7 @@ CETCD_TEST_CASE(live_cetcd_equals_form) {
     CETCD_ASSERT_EQ_INT(system(cmd), 0);
 
     snprintf(cmd, sizeof(cmd),
-             "'%s' --initial-cluster=n1=http://127.0.0.1:2380 --help >/dev/null 2>&1",
+             "'%s' --initial-cluster=1=http://127.0.0.1:2380 --help >/dev/null 2>&1",
              CETCD_BIN);
     CETCD_ASSERT_EQ_INT(system(cmd), 0);
 
