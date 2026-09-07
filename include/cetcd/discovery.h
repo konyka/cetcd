@@ -76,6 +76,17 @@ int cetcd_discovery_peer_id(const char *target, uint16_t port, uint64_t *id);
 int cetcd_endpoint_parse_list(const char *spec, cetcd_endpoint *out,
                               size_t cap, size_t *n);
 
+/* Resolve host:port into sockaddr_storage (ss_cap >= sizeof that type).
+ * Numeric IPv4/IPv6 skip DNS. Hostnames use getaddrinfo and prefer IPv4
+ * so etcd's `localhost` default binds 127.0.0.1 when both families exist.
+ * Empty host or no usable address is INVAL. Port 0 is allowed. */
+int cetcd_host_port_resolve(const char *host, uint16_t port,
+                            void *ss, size_t ss_cap);
+
+/* Fill up to cap sockaddr_storage entries (IPv4 first, then IPv6). */
+int cetcd_host_port_resolve_n(const char *host, uint16_t port,
+                              void *ss_arr, size_t cap, size_t *n);
+
 #ifdef __cplusplus
 }
 #endif

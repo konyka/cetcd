@@ -5,6 +5,14 @@
 
 #include <string.h>
 #include <stdint.h>
+#if defined(_WIN32)
+#  include <winsock2.h>
+#  include <ws2tcpip.h>
+#else
+#  include <arpa/inet.h>
+#  include <netinet/in.h>
+#  include <sys/socket.h>
+#endif
 
 static void put16(uint8_t *p, uint16_t v) {
     p[0] = (uint8_t)(v >> 8);
@@ -219,6 +227,72 @@ CETCD_TEST_CASE(endpoint_parse_fail_closed) {
     CETCD_ASSERT_TRUE(cetcd_endpoint_parse_list("a:1,b:2", eps, 1, &n) != 0);
 }
 
+CETCD_TEST_CASE(host_port_resolve_numeric_and_localhost) {
+    struct sockaddr_storage ss;
+    memset(&ss, 0, sizeof(ss));
+    CETCD_ASSERT_EQ_INT(cetcd_host_port_resolve("127.0.0.1", 2379, &ss,
+                                                sizeof(ss)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)ss.ss_family, AF_INET);
+    {
+        struct sockaddr_in *in = (struct sockaddr_in *)&ss;
+        CETCD_ASSERT_EQ_INT((int)ntohs(in->sin_port), 2379);
+    }
+    memset(&ss, 0, sizeof(ss));
+    CETCD_ASSERT_EQ_INT(cetcd_host_port_resolve("::1", 2380, &ss, sizeof(ss)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)ss.ss_family, AF_INET6);
+    {
+        struct sockaddr_in6 *in6 = (struct sockaddr_in6 *)&ss;
+        CETCD_ASSERT_EQ_INT((int)ntohs(in6->sin6_port), 2380);
+    }
+    memset(&ss, 0, sizeof(ss));
+    CETCD_ASSERT_EQ_INT(cetcd_host_port_resolve("localhost", 2379, &ss,
+                                                sizeof(ss)),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ss.ss_family == AF_INET || ss.ss_family == AF_INET6);
+    if (ss.ss_family == AF_INET) {
+        struct sockaddr_in *in = (struct sockaddr_in *)&ss;
+        CETCD_ASSERT_EQ_INT((int)ntohs(in->sin_port), 2379);
+    } else {
+        struct sockaddr_in6 *in6 = (struct sockaddr_in6 *)&ss;
+        CETCD_ASSERT_EQ_INT((int)ntohs(in6->sin6_port), 2379);
+    }
+    struct sockaddr_storage many[8];
+    size_t n = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_host_port_resolve_n("localhost", 2379, many, 8,
+                                                  &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n >= 1 && n <= 8);
+    CETCD_ASSERT_EQ_INT((int)many[0].ss_family, (int)ss.ss_family);
+}
+
+CETCD_TEST_CASE(host_port_resolve_fail_closed) {
+    struct sockaddr_storage ss;
+    CETCD_ASSERT_EQ_INT(cetcd_host_port_resolve(NULL, 2379, &ss, sizeof(ss)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_host_port_resolve("", 2379, &ss, sizeof(ss)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_host_port_resolve("127.0.0.1", 2379, NULL,
+                                                sizeof(ss)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_host_port_resolve("127.0.0.1", 2379, &ss, 4),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_host_port_resolve("127.0.0.1foo", 2379, &ss,
+                                                sizeof(ss)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_host_port_resolve("::1foo", 2379, &ss,
+                                                sizeof(ss)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_host_port_resolve("local host", 2379, &ss,
+                                                sizeof(ss)),
+                        CETCD_ERR_INVAL);
+    size_t n = 99;
+    CETCD_ASSERT_EQ_INT(cetcd_host_port_resolve_n("127.0.0.1", 2379, &ss, 0,
+                                                  &n),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(domain_rejects_empty_and_bad_labels),
     CETCD_TEST_ENTRY(domain_accepts_normal_and_trailing_dot),
@@ -231,5 +305,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(records_to_endpoints_and_peer_id),
     CETCD_TEST_ENTRY(endpoint_parse_list_variants),
     CETCD_TEST_ENTRY(endpoint_parse_fail_closed),
+    CETCD_TEST_ENTRY(host_port_resolve_numeric_and_localhost),
+    CETCD_TEST_ENTRY(host_port_resolve_fail_closed),
 CETCD_TEST_LIST_END
 CETCD_TEST_MAIN()

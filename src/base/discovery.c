@@ -13,10 +13,19 @@
 #include <string.h>
 
 #if defined(_WIN32)
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <winsock2.h>
+#  include <ws2tcpip.h>
 #  include <windows.h>
 #  include <windns.h>
 #else
+#  include <arpa/inet.h>
+#  include <netdb.h>
+#  include <netinet/in.h>
 #  include <resolv.h>
+#  include <sys/socket.h>
 #endif
 
 #ifndef CETCD_NS_IN
@@ -417,6 +426,121 @@ static int parse_one_endpoint_(const char *s, size_t n, cetcd_endpoint *out) {
     out->port = port;
     out->https = https;
     return 0;
+}
+
+#if defined(_WIN32)
+static void winsock_ensure_(void) {
+    static int inited;
+    if (inited) return;
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) == 0) inited = 1;
+}
+#else
+static void winsock_ensure_(void) {}
+#endif
+
+/* Leftover-safe IPv4: 4 octets 0..255 and end of string, or leftover INVAL.
+ * A short prefix (10.0.0) is "not IPv4" so a hostname can still resolve. */
+static int parse_ipv4_exact_(const char *s, struct in_addr *out) {
+    unsigned o[4];
+    const char *p = s;
+    for (int i = 0; i < 4; i++) {
+        if (*p < '0' || *p > '9') return -1;
+        char *ep = NULL;
+        errno = 0;
+        unsigned long v = strtoul(p, &ep, 10);
+        if (errno == ERANGE || !ep || ep == p || v > 255) return -1;
+        o[i] = (unsigned)v;
+        p = ep;
+        if (i < 3) {
+            if (*p != '.') return -1;
+            p++;
+        }
+    }
+    if (*p) return -2; /* leftover after a complete IPv4 */
+    unsigned long packed = (o[0] << 24) | (o[1] << 16) | (o[2] << 8) | o[3];
+    out->s_addr = htonl((uint32_t)packed);
+    return 0;
+}
+
+static void fill_v4_(struct sockaddr_storage *ss, uint16_t port,
+                     const struct in_addr *a) {
+    struct sockaddr_in *in = (struct sockaddr_in *)ss;
+    memset(in, 0, sizeof(*in));
+    in->sin_family = AF_INET;
+    in->sin_port = htons(port);
+    in->sin_addr = *a;
+}
+
+static void fill_v6_(struct sockaddr_storage *ss, uint16_t port,
+                     const struct in6_addr *a) {
+    struct sockaddr_in6 *in6 = (struct sockaddr_in6 *)ss;
+    memset(in6, 0, sizeof(*in6));
+    in6->sin6_family = AF_INET6;
+    in6->sin6_port = htons(port);
+    in6->sin6_addr = *a;
+}
+
+int cetcd_host_port_resolve_n(const char *host, uint16_t port,
+                              void *ss_arr, size_t cap, size_t *n) {
+    if (!host || !host[0] || !ss_arr || cap == 0 || !n)
+        return CETCD_ERR_INVAL;
+    *n = 0;
+    winsock_ensure_();
+    struct sockaddr_storage *out = (struct sockaddr_storage *)ss_arr;
+    struct in_addr v4;
+    memset(&v4, 0, sizeof(v4));
+    int v4rc = parse_ipv4_exact_(host, &v4);
+    if (v4rc == -2) return CETCD_ERR_INVAL;
+    if (v4rc == 0) {
+        fill_v4_(&out[0], port, &v4);
+        *n = 1;
+        return CETCD_OK;
+    }
+    if (strchr(host, ':')) {
+        struct in6_addr v6;
+        memset(&v6, 0, sizeof(v6));
+        if (inet_pton(AF_INET6, host, &v6) != 1) return CETCD_ERR_INVAL;
+        fill_v6_(&out[0], port, &v6);
+        *n = 1;
+        return CETCD_OK;
+    }
+    if (cetcd_discovery_valid_domain(host) != 0) return CETCD_ERR_INVAL;
+    char portbuf[8];
+    int pn = snprintf(portbuf, sizeof(portbuf), "%u", (unsigned)port);
+    if (pn < 0 || (size_t)pn >= sizeof(portbuf)) return CETCD_ERR_OVERFLOW;
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    struct addrinfo *res = NULL;
+    if (getaddrinfo(host, portbuf, &hints, &res) != 0 || !res)
+        return CETCD_ERR_INVAL;
+    int pass;
+    for (pass = 0; pass < 2; pass++) {
+        int want = (pass == 0) ? AF_INET : AF_INET6;
+        for (struct addrinfo *p = res; p && *n < cap; p = p->ai_next) {
+            if (p->ai_family != want || !p->ai_addr) continue;
+            if (p->ai_addrlen > sizeof(out[0])) continue;
+            memset(&out[*n], 0, sizeof(out[0]));
+            memcpy(&out[*n], p->ai_addr, p->ai_addrlen);
+            (*n)++;
+        }
+    }
+    freeaddrinfo(res);
+    if (*n == 0) return CETCD_ERR_INVAL;
+    return CETCD_OK;
+}
+
+int cetcd_host_port_resolve(const char *host, uint16_t port,
+                            void *ss, size_t ss_cap) {
+    if (!ss || ss_cap < sizeof(struct sockaddr_storage))
+        return CETCD_ERR_INVAL;
+    size_t n = 0;
+    int rc = cetcd_host_port_resolve_n(host, port, ss, 1, &n);
+    if (rc != CETCD_OK) return rc;
+    return n == 1 ? CETCD_OK : CETCD_ERR_INVAL;
 }
 
 int cetcd_endpoint_parse_list(const char *spec, cetcd_endpoint *out,

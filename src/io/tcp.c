@@ -13,6 +13,7 @@
 
 #include "cetcd/io.h"
 #include "cetcd/base.h"
+#include "cetcd/discovery.h"
 #include "io_internal.h"
 
 struct cetcd_tcp {
@@ -47,16 +48,17 @@ int cetcd_tcp_bind(cetcd_tcp *tcp, const char *addr, uint16_t port) {
 
 int cetcd_tcp_bind_ex(cetcd_tcp *tcp, const char *addr, uint16_t port,
                       unsigned flags) {
-    if (!tcp || !addr) return -1;
-    struct sockaddr_in addr_in;
-    if (uv_ip4_addr(addr, port, &addr_in) == 0) {
-        int r = uv_tcp_bind(&tcp->handle, (const struct sockaddr *)&addr_in, flags);
-        return (r == 0) ? 0 : -1;
+    if (!tcp || !addr || !addr[0]) return -1;
+    struct sockaddr_storage addrs[8];
+    size_t n = 0;
+    if (cetcd_host_port_resolve_n(addr, port, addrs, 8, &n) != CETCD_OK)
+        return -1;
+    for (size_t i = 0; i < n; i++) {
+        int r = uv_tcp_bind(&tcp->handle, (const struct sockaddr *)&addrs[i],
+                            flags);
+        if (r == 0) return 0;
     }
-    struct sockaddr_in6 addr_in6;
-    if (uv_ip6_addr(addr, port, &addr_in6) != 0) return -1;
-    int r = uv_tcp_bind(&tcp->handle, (const struct sockaddr *)&addr_in6, flags);
-    return (r == 0) ? 0 : -1;
+    return -1;
 }
 
 int cetcd_tcp_listen(cetcd_tcp *tcp, cetcd_tcp_conn_cb cb, void *arg) {

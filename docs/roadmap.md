@@ -527,7 +527,11 @@ Performance-first, fail-closed design:
   ignored.
 - **`--listen-client-urls` / `--listen-peer-urls` lists** — etcd
   UniqueURLs comma lists bind every `http(s)://host:port` (same scheme;
-  unique host:port; port `1..65535`). A comma list is no longer parsed
+  unique host:port; port `1..65535`). A hostname (`localhost`, etcd's
+  default) resolves via `getaddrinfo` (IPv4 preferred) so
+  `http://localhost:2379` binds instead of failing numeric-only
+  `uv_ip4_addr`. Peer and metrics connect/bind use the same helper.
+  Unresolvable names fail-close. A comma list is no longer parsed
   as one garbage host. Mixed http/https, a duplicate, a trailing comma,
   leftover text, or a missing value fail-close. Accepting a list as a
   single URL is rejected.

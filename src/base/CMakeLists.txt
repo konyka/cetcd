@@ -14,7 +14,7 @@ cetcd_add_module(base
         discovery.c)
 
 if(WIN32)
-    target_link_libraries(cetcd_base PUBLIC dnsapi)
+    target_link_libraries(cetcd_base PUBLIC dnsapi ws2_32)
 elseif(NOT APPLE)
     target_link_libraries(cetcd_base PUBLIC resolv)
 endif()

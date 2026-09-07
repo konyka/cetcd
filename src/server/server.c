@@ -292,10 +292,10 @@ static peer_tx_ *peer_tx_get_(cetcd_server *srv, uint64_t id) {
 
 static int uv_host_addr_(const char *host, uint16_t port,
                          struct sockaddr_storage *ss) {
-    if (!host || !ss) return UV_EINVAL;
-    memset(ss, 0, sizeof(*ss));
-    if (uv_ip4_addr(host, port, (struct sockaddr_in *)ss) == 0) return 0;
-    return uv_ip6_addr(host, port, (struct sockaddr_in6 *)ss);
+    if (!host || !host[0] || !ss) return UV_EINVAL;
+    if (cetcd_host_port_resolve(host, port, ss, sizeof(*ss)) == CETCD_OK)
+        return 0;
+    return UV_EINVAL;
 }
 
 static void peer_tx_connect_(peer_tx_ *tx) {
