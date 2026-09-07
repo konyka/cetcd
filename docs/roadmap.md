@@ -561,6 +561,15 @@ Performance-first, fail-closed design:
   `lease grant 10 --rev` cannot grant with a swallowed flag.
   `--` still starts positionals (`put -- --foo v`). Accepting those
   flags as a key or range_end is rejected.
+- **`member` / `watch` / `lock` / `elect` leftover `--` flags** — unknown
+  leftover flags fail-close so `member remove --force ID` cannot
+  swallow `--force` and still remove, `member add --foo URL` cannot
+  silently add, and `watch --foo key` cannot watch key `--foo`.
+  `lock --foo name` cannot take `--foo` as the lock name (COMMAND
+  after LOCKNAME may still be `--` args). `snapshot save --foo` cannot
+  write a file named `--foo`. `user add --foo` / `role add --foo`
+  cannot create that name. `--` still starts positionals. Accepting
+  those flags as a no-op or as NAME/ID/KEY is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

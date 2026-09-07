@@ -875,7 +875,7 @@ file, `ETCD_*` maps to `--flag` (`ETCD_LISTEN_CLIENT_URLS`; empty ignored;
 `--keepalive-time` / `--keepalive-timeout` set TCP keepalive on the client socket
 (invalid durations and timeout without time fail-close).
 `--command-timeout` is a duration (`0` = none); a typo or leftover (`10foo`) fail-closes instead of hanging with no alarm. Global `--flag=value` (`--command-timeout=5s`, `--debug=false`) is accepted; empty `--flag=` fail-closes. `--debug=false` does not eat the next argv.
-Subcommand `--flag=value` (`put --lease=1`, `get --rev=5`, `--write-out=json`, `watch --start-rev=5`, `lock --ttl=60`, `snapshot restore --data-dir=DIR`, `check datascale --load=N`) is accepted; leftover `put --lease 10foo` / `watch cancel 10foo` / `--load=10foo` fail-closes. `--prefix=false` does not eat the key. Unknown leftover `--` flags on `put`/`get`/`del`/`lease` fail-close (`put --foo k v` cannot write key `--foo`; `get k --foo` cannot range to `--foo`). `--` starts positionals.
+Subcommand `--flag=value` (`put --lease=1`, `get --rev=5`, `--write-out=json`, `watch --start-rev=5`, `lock --ttl=60`, `snapshot restore --data-dir=DIR`, `check datascale --load=N`) is accepted; leftover `put --lease 10foo` / `watch cancel 10foo` / `--load=10foo` fail-closes. `--prefix=false` does not eat the key. Unknown leftover `--` flags on `put`/`get`/`del`/`lease` fail-close (`put --foo k v` cannot write key `--foo`; `get k --foo` cannot range to `--foo`). Unknown leftover `--` flags on `member`/`watch`/`lock`/`elect`/`snapshot`/`user`/`role` fail-close (`member remove --force` cannot swallow `--force` and still remove; `watch --foo key` cannot watch `--foo`). `--` starts positionals.
 `--dial-timeout` is `0..86400` seconds (`0` = none); a typo fail-closes instead of connecting with no timeout.
 `cetcdctl --port` is `1..65535`; a typo fail-closes instead of connecting to port `0`.
 `cetcdctl --endpoints` / `--endpoint` port is `1..65535`; a typo fail-closes instead of connecting to port `0`.
@@ -1132,7 +1132,7 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `put [--prev-kv] [--ignore-value] [--ignore-lease] KEY [VALUE]` | 存储键值对（--prev-kv 返回旧值，--ignore-value 保留原值，--ignore-lease 保留原租约；未知 leftover `--` 旗标 fail-close） |
 | `get [--prefix] [--keys-only] [--count-only] [--rev N] [--limit N] KEY` | 获取键值（支持前缀查询、仅键、仅计数、历史版本、数量限制；未知 leftover `--` 旗标 fail-close） |
 | `del [--prefix] [--prev-kv] KEY` | 删除键（支持前缀删除、返回旧值、删除计数；未知 leftover `--` 旗标 fail-close） |
-| `watch [--prefix] [--prev-kv] [--start-rev] KEY` | 观察键变更（双向流，实时推送事件） |
+| `watch [--prefix] [--prev-kv] [--start-rev] KEY` | 观察键变更（双向流，实时推送事件；未知 leftover `--` 旗标 fail-close） |
 | `lease grant TTL` | 授予租约 |
 | `lease revoke ID` | 撤销租约 |
 | `lease timetolive ID` | 查询租约剩余时间和授予 TTL |
@@ -1148,8 +1148,8 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `defrag` | 碎片整理（LMDB compact-copy；`--cluster` 走 MemberList；未知 leftover 旗标 fail-close） |
 | `move-leader TARGET_ID` | 领导者转移到指定节点 |
 | `member list` | 列出集群成员 |
-| `member add PEER_URL` | 添加集群成员 |
-| `member remove ID` | 移除成员（会丢 quorum 的 voter 删除 fail-closed） |
+| `member add PEER_URL` | 添加集群成员（未知 leftover `--` 旗标 fail-close） |
+| `member remove ID` | 移除成员（会丢 quorum 的 voter 删除 fail-closed；未知 leftover `--` 旗标 fail-close） |
 | `member update ID URL` | 更新成员地址 |
 | `member promote ID` | 提升成员为投票节点 |
 | `auth enable/disable/status` | 认证管理 |

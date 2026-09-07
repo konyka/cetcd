@@ -2703,6 +2703,9 @@ static int cmd_txn(int argc, char **argv) {
                     return 1;
                 }
                 prev_kv = on != 0;
+            } else if (argv[i][0] == '-') {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
             } else if (!key) {
                 key = argv[i];
             } else if (!range_end) {
@@ -3740,6 +3743,9 @@ static int cmd_lock(int argc, char **argv) {
             if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
             want_json = wj;
             want_fields = wf;
+        } else if (argv[i][0] == '-') {
+            fprintf(stderr, "unknown flag: %s\n", argv[i]);
+            return 1;
         } else if (!lockname) {
             lockname = argv[i];
         }
@@ -3993,6 +3999,9 @@ static int cmd_elect(int argc, char **argv) {
             if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
             want_json = wj;
             want_fields = wf;
+        } else if (argv[i][0] == '-') {
+            fprintf(stderr, "unknown flag: %s\n", argv[i]);
+            return 1;
         } else if (!election_name) {
             election_name = argv[i];
         } else if (!proposal) {
@@ -4392,8 +4401,20 @@ static int cmd_snapshot(int argc, char **argv) {
                     return 1;
                 }
                 /* no-op: accepted for etcdctl compatibility; does not compact */
+            } else if (strcmp(argv[i], "--") == 0) {
+                if (i + 1 < argc && !filename) filename = argv[++i];
+                else {
+                    fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                    return 1;
+                }
+            } else if (argv[i][0] == '-') {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
             } else if (!filename) {
                 filename = argv[i];
+            } else {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
             }
         }
         uint8_t req[] = {0x00}, resp[65536];
@@ -4493,10 +4514,18 @@ static int cmd_snapshot(int argc, char **argv) {
             fprintf(stderr, "usage: cetcdctl snapshot status FILE [-w json|fields|table]\n");
             return 1;
         }
+        if (argv[3][0] == '-' && strcmp(argv[3], "--") != 0) {
+            fprintf(stderr, "unknown flag: %s\n", argv[3]);
+            return 1;
+        }
         int snap_json = 0, snap_fields = 0;
         for (int i = 4; i < argc; i++) {
             int wr = take_write_out_jf_(&i, argc, argv, &snap_json, &snap_fields);
             if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            if (wr == 0 && argv[i][0] == '-') {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
+            }
         }
         FILE *f = fopen(argv[3], "rb");
         if (!f) { perror("fopen"); return 1; }
@@ -4618,7 +4647,10 @@ static int cmd_snapshot(int argc, char **argv) {
                             cluster_state);
                     return 1;
                 }
-            } else if (!snap_file && argv[i][0] != '-') {
+            } else if (argv[i][0] == '-') {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
+            } else if (!snap_file) {
                 snap_file = argv[i];
             }
         }
@@ -4968,6 +5000,9 @@ static int cmd_member(int argc, char **argv) {
         int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
             if ((wr = take_write_out_jtf_(&i, argc, argv, &json_fmt, &table_fmt, &fields_fmt)) != 0) {
                 if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            } else if (argv[i][0] == '-') {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
             }
         }
         uint8_t req[] = {0x00}, resp[4096];
@@ -4998,8 +5033,9 @@ static int cmd_member(int argc, char **argv) {
                 is_learner = on;
             } else if ((sk = skip_write_out_(&i, argc, argv)) != 0) {
                 if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
-            } else if (argv[i][0] == '-') {
-                continue;
+            } else if (cetcd_cli_is_long_flag(argv[i]) || argv[i][0] == '-') {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
             } else if (!peer_url) {
                 peer_url = argv[i];
             }
@@ -5032,7 +5068,11 @@ static int cmd_member(int argc, char **argv) {
         for (int i = 3; i < argc; i++) {
             int sk = skip_write_out_(&i, argc, argv);
             if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
-            if (sk > 0 || argv[i][0] == '-') continue;
+            if (sk > 0) continue;
+            if (cetcd_cli_is_long_flag(argv[i]) || argv[i][0] == '-') {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
+            }
             if (!id_str) id_str = argv[i];
         }
         if (!id_str) { fprintf(stderr, "usage: cetcdctl member remove [-w json|fields] ID\n"); return 1; }
@@ -5055,7 +5095,11 @@ static int cmd_member(int argc, char **argv) {
         for (int i = 3; i < argc; i++) {
             int sk = skip_write_out_(&i, argc, argv);
             if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
-            if (sk > 0 || argv[i][0] == '-') continue;
+            if (sk > 0) continue;
+            if (cetcd_cli_is_long_flag(argv[i]) || argv[i][0] == '-') {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
+            }
             if (!id_str) id_str = argv[i];
             else if (!peer_url) peer_url = argv[i];
         }
@@ -5084,7 +5128,11 @@ static int cmd_member(int argc, char **argv) {
         for (int i = 3; i < argc; i++) {
             int sk = skip_write_out_(&i, argc, argv);
             if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
-            if (sk > 0 || argv[i][0] == '-') continue;
+            if (sk > 0) continue;
+            if (cetcd_cli_is_long_flag(argv[i]) || argv[i][0] == '-') {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
+            }
             if (!id_str) id_str = argv[i];
         }
         if (!id_str) { fprintf(stderr, "usage: cetcdctl member promote [-w json|fields] ID\n"); return 1; }
@@ -5246,6 +5294,9 @@ static int cmd_user(int argc, char **argv) {
                 no_password = on != 0;
             } else if ((sk = skip_write_out_(&i, argc, argv)) != 0) {
                 if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            } else if (argv[i][0] == '-') {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
             } else if (!user_name) {
                 user_name = argv[i];
             } else if (!password) {
@@ -5275,20 +5326,28 @@ static int cmd_user(int argc, char **argv) {
         else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
         else { printf("OK\n"); }
     } else if (strcmp(argv[2], "delete") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl user delete NAME [-w json|fields]\n"); return 1; }
+        const char *name = NULL;
+        if (cetcd_ctl_parse_one_name_argv(argc, argv, 3, &name) != CETCD_OK) {
+            fprintf(stderr, "usage: cetcdctl user delete NAME [-w json|fields]\n");
+            return 1;
+        }
         uint8_t req[256], resp[256];
         size_t pos = 0;
-        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, name);
         int rlen = do_rpc("/etcdserverpb.Auth/UserDelete", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
         else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
         else { printf("OK\n"); }
     } else if (strcmp(argv[2], "get") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl user get NAME [-w json|fields]\n"); return 1; }
+        const char *name = NULL;
+        if (cetcd_ctl_parse_one_name_argv(argc, argv, 3, &name) != CETCD_OK) {
+            fprintf(stderr, "usage: cetcdctl user get NAME [-w json|fields]\n");
+            return 1;
+        }
         uint8_t req[256], resp[4096];
         size_t pos = 0;
-        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, name);
         int rlen = do_rpc("/etcdserverpb.Auth/UserGet", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (!want_json && !want_fields) printf("roles:\n");
@@ -5305,33 +5364,45 @@ static int cmd_user(int argc, char **argv) {
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         parse_string_list_response(resp, rlen, "users", table_fmt, want_json, fields_fmt);
     } else if (strcmp(argv[2], "change-password") == 0) {
-        if (argc < 5) { fprintf(stderr, "usage: cetcdctl user change-password NAME PASS [-w json]\n"); return 1; }
+        const char *name = NULL, *pass = NULL;
+        if (cetcd_ctl_parse_two_name_argv(argc, argv, 3, &name, &pass) != CETCD_OK) {
+            fprintf(stderr, "usage: cetcdctl user change-password NAME PASS [-w json]\n");
+            return 1;
+        }
         uint8_t req[512], resp[256];
         size_t pos = 0;
-        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
-        pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, name);
+        pos = encode_string_field(req, sizeof(req), pos, 0x12, pass);
         int rlen = do_rpc("/etcdserverpb.Auth/UserChangePassword", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
         else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
         else { printf("OK\n"); }
     } else if (strcmp(argv[2], "grant-role") == 0) {
-        if (argc < 5) { fprintf(stderr, "usage: cetcdctl user grant-role NAME ROLE [-w json|fields]\n"); return 1; }
+        const char *name = NULL, *role = NULL;
+        if (cetcd_ctl_parse_two_name_argv(argc, argv, 3, &name, &role) != CETCD_OK) {
+            fprintf(stderr, "usage: cetcdctl user grant-role NAME ROLE [-w json|fields]\n");
+            return 1;
+        }
         uint8_t req[512], resp[256];
         size_t pos = 0;
-        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
-        pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, name);
+        pos = encode_string_field(req, sizeof(req), pos, 0x12, role);
         int rlen = do_rpc("/etcdserverpb.Auth/UserGrantRole", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
         else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
         else { printf("OK\n"); }
     } else if (strcmp(argv[2], "revoke-role") == 0) {
-        if (argc < 5) { fprintf(stderr, "usage: cetcdctl user revoke-role NAME ROLE [-w json|fields]\n"); return 1; }
+        const char *name = NULL, *role = NULL;
+        if (cetcd_ctl_parse_two_name_argv(argc, argv, 3, &name, &role) != CETCD_OK) {
+            fprintf(stderr, "usage: cetcdctl user revoke-role NAME ROLE [-w json|fields]\n");
+            return 1;
+        }
         uint8_t req[512], resp[256];
         size_t pos = 0;
-        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
-        pos = encode_string_field(req, sizeof(req), pos, 0x12, argv[4]);
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, name);
+        pos = encode_string_field(req, sizeof(req), pos, 0x12, role);
         int rlen = do_rpc("/etcdserverpb.Auth/UserRevokeRole", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
@@ -5363,20 +5434,28 @@ static int cmd_role(int argc, char **argv) {
         }
     }
     if (strcmp(argv[2], "add") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl role add NAME [-w json|fields]\n"); return 1; }
+        const char *name = NULL;
+        if (cetcd_ctl_parse_one_name_argv(argc, argv, 3, &name) != CETCD_OK) {
+            fprintf(stderr, "usage: cetcdctl role add NAME [-w json|fields]\n");
+            return 1;
+        }
         uint8_t req[256], resp[256];
         size_t pos = 0;
-        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, name);
         int rlen = do_rpc("/etcdserverpb.Auth/RoleAdd", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
         else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
         else { printf("OK\n"); }
     } else if (strcmp(argv[2], "delete") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl role delete NAME [-w json|fields]\n"); return 1; }
+        const char *name = NULL;
+        if (cetcd_ctl_parse_one_name_argv(argc, argv, 3, &name) != CETCD_OK) {
+            fprintf(stderr, "usage: cetcdctl role delete NAME [-w json|fields]\n");
+            return 1;
+        }
         uint8_t req[256], resp[256];
         size_t pos = 0;
-        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, name);
         int rlen = do_rpc("/etcdserverpb.Auth/RoleDelete", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
@@ -5394,15 +5473,19 @@ static int cmd_role(int argc, char **argv) {
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         parse_string_list_response(resp, rlen, "roles", table_fmt, want_json, fields_fmt);
     } else if (strcmp(argv[2], "get") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl role get NAME [-w json|fields]\n"); return 1; }
+        const char *name = NULL;
+        if (cetcd_ctl_parse_one_name_argv(argc, argv, 3, &name) != CETCD_OK) {
+            fprintf(stderr, "usage: cetcdctl role get NAME [-w json|fields]\n");
+            return 1;
+        }
         uint8_t req[256], resp[1024];
         size_t pos = 0;
-        pos = encode_string_field(req, sizeof(req), pos, 0x0a, argv[3]);
+        pos = encode_string_field(req, sizeof(req), pos, 0x0a, name);
         int rlen = do_rpc("/etcdserverpb.Auth/RoleGet", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_fields) {
             parse_and_print_header_json(resp, (size_t)rlen);
-            printf("role: %s\n", argv[3]);
+            printf("role: %s\n", name);
             size_t rpos = 0;
             while (rpos < (size_t)rlen) {
                 uint8_t tag = resp[rpos++];
@@ -5434,7 +5517,7 @@ static int cmd_role(int argc, char **argv) {
         } else if (want_json) {
             fputs("{", stdout);
             parse_and_print_header_json(resp, (size_t)rlen);
-            printf(",\"role\":\"%s\",\"perm\":[", argv[3]);
+            printf(",\"role\":\"%s\",\"perm\":[", name);
             int first = 1;
             size_t rpos = 0;
             while (rpos < (size_t)rlen) {
@@ -5474,7 +5557,7 @@ static int cmd_role(int argc, char **argv) {
             }
             printf("]}\n");
         } else {
-            printf("role: %s\n", argv[3]);
+            printf("role: %s\n", name);
             size_t rpos = 0;
             while (rpos < (size_t)rlen) {
                 uint8_t tag = resp[rpos++];
@@ -5523,6 +5606,9 @@ static int cmd_role(int argc, char **argv) {
                 }
             } else if ((sk = skip_write_out_(&i, argc, argv)) != 0) {
                 if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            } else if (argv[i][0] == '-') {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
             } else if (!role_name) {
                 role_name = argv[i];
             } else if (!perm_type_str) {
@@ -5608,6 +5694,9 @@ static int cmd_role(int argc, char **argv) {
                 }
             } else if ((sk = skip_write_out_(&i, argc, argv)) != 0) {
                 if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            } else if (argv[i][0] == '-') {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
             } else if (!role_name) {
                 role_name = argv[i];
             } else if (!perm_type_str) {
@@ -5924,8 +6013,20 @@ static int cmd_watch(int argc, char **argv) {
             if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
             want_json = wj != 0;
             want_fields = wf != 0;
-        } else {
+        } else if (strcmp(argv[i], "--") == 0) {
+            if (i + 1 < argc && !key) key = argv[++i];
+            else {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
+            }
+        } else if (argv[i][0] == '-') {
+            fprintf(stderr, "unknown flag: %s\n", argv[i]);
+            return 1;
+        } else if (!key) {
             key = argv[i];
+        } else {
+            fprintf(stderr, "unknown flag: %s\n", argv[i]);
+            return 1;
         }
     }
     if (!interactive && !key) { fprintf(stderr, "usage: cetcdctl watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--progress-notify] [--start-rev N] [--filter TYPE] [--hex] [--exec CMD] [-w json|fields] KEY\n"); return 1; }
@@ -6542,7 +6643,7 @@ static void print_usage(void) {
     printf("  get [--prefix] [--from-key] [--range-end KEY] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields|table] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
     printf("  del [--prefix] [--from-key] [--range-end KEY] [--prev-kv] [--hex] [--print-value-only] [-w json|fields] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --range-end, --prev-kv, --hex, --print-value-only)\n");
-    printf("  watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--progress-notify] [--start-rev N] [--filter NOPUT|NODELETE] [--hex] [--exec CMD] [-w json|fields] KEY  Watch key changes (-i for interactive mode, --progress-notify for periodic progress updates, --exec runs CMD with ETCD_WATCH_* env vars; --start-rev >= 0)\n");
+    printf("  watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--progress-notify] [--start-rev N] [--filter NOPUT|NODELETE] [--hex] [--exec CMD] [-w json|fields] KEY  Watch key changes (-i for interactive mode, --progress-notify for periodic progress updates, --exec runs CMD with ETCD_WATCH_* env vars; --start-rev >= 0; leftover --flags fail-close)\n");
     printf("  lease grant [--lease-id ID] [-w json|fields] TTL  Grant a lease (TTL > 0; --lease-id hex)\n");
     printf("  lease revoke [-w json|fields] ID  Revoke a lease by ID (> 0)\n");
     printf("  lease timetolive [--keys] [-w json|fields] ID  Query remaining TTL (ID > 0)\n");
@@ -6562,11 +6663,11 @@ static void print_usage(void) {
     printf("  hashkv [--rev N] [-w json|fields|table]  Get KV store hash + compact revision (N leftover-safe; 0 = current)\n");
     printf("  defrag [--cluster] [-w json|fields]  Defragment database (compact-copy; --cluster uses MemberList)\n");
     printf("  move-leader [-w json|fields] TARGET_ID  Transfer leadership to target node (ID hex > 0)\n");
-    printf("  member list [-w json|table|fields]  List cluster members\n");
-    printf("  member add [-w json|fields] [--peer-urls URLS] [--name NAME] [--learner] [PEER_URL]  Add a cluster member (comma-separated URLs supported)\n");
-    printf("  member remove [-w json|fields] ID    Remove a cluster member (ID hex > 0)\n");
-    printf("  member update [-w json|fields] ID PEER_URLS  Update a member's peer URLs (ID hex > 0; comma-separated supported)\n");
-    printf("  member promote [-w json|fields] ID    Promote a member to voting member (ID hex > 0)\n");
+    printf("  member list [-w json|table|fields]  List cluster members (leftover --flags fail-close)\n");
+    printf("  member add [-w json|fields] [--peer-urls URLS] [--name NAME] [--learner] [PEER_URL]  Add a cluster member (comma-separated URLs supported; leftover --flags fail-close)\n");
+    printf("  member remove [-w json|fields] ID    Remove a cluster member (ID hex > 0; leftover --flags fail-close)\n");
+    printf("  member update [-w json|fields] ID PEER_URLS  Update a member's peer URLs (ID hex > 0; comma-separated supported; leftover --flags fail-close)\n");
+    printf("  member promote [-w json|fields] ID    Promote a member to voting member (ID hex > 0; leftover --flags fail-close)\n");
     printf("  auth enable [-w json|fields]     Enable authentication\n");
     printf("  auth disable [-w json|fields]     Disable authentication\n");
     printf("  auth status [-w json|fields]     Query auth status\n");
@@ -6586,7 +6687,7 @@ static void print_usage(void) {
     printf("                         Grant permission (read|write|readwrite)\n");
     printf("  role revoke-permission ROLE [TYPE KEY] [--prefix] [--range-end KEY] [-w json|fields]\n");
     printf("                         Revoke permission (all or specific key) from role\n");
-    printf("  snapshot save [FILE] [--compaction-periodical] [-w json|fields|table]   Save a snapshot to file\n");
+    printf("  snapshot save [FILE] [--compaction-periodical] [-w json|fields|table]   Save a snapshot to file (leftover --flags fail-close)\n");
     printf("  snapshot status FILE [-w json|fields|table]  Show snapshot file info\n");
     printf("  snapshot restore FILE --data-dir DIR [--force] [--skip-hash-check] [--initial-cluster-token TOKEN] [--initial-cluster-state new|existing] [--initial-cluster SPEC] [--name NAME] [--initial-advertise-peer-urls URL] [-w json|fields]  Restore snapshot to data dir\n");
     printf("  downgrade enable [-w json|fields] VER   Enable cluster downgrade\n");
@@ -6598,8 +6699,8 @@ static void print_usage(void) {
     printf("  endpoint hashkv [--cluster] [--rev N] [-w json|table|fields]  Get KV hash per endpoint (N leftover-safe; 0 = current)\n");
     printf("  check perf [--load S|M|L] [--prefix PREFIX] [-w json|fields]    Run a simple performance check\n");
     printf("  check datascale [-w json|fields] [--load N] [--prefix PREFIX]  Test database scalability (--load > 0)\n");
-    printf("  lock [--ttl N] [--print-value-only] [-w json|fields] LOCKNAME [CMD...]  Acquire a distributed lock (--ttl > 0)\n");
-    printf("  elect [--ttl N] [--print-value-only] [-w json|fields] ELECTION_NAME [PROPOSAL]  Leader election (--ttl > 0)\n");
+    printf("  lock [--ttl N] [--print-value-only] [-w json|fields] LOCKNAME [CMD...]  Acquire a distributed lock (--ttl > 0; leftover --flags before LOCKNAME fail-close)\n");
+    printf("  elect [--ttl N] [--print-value-only] [-w json|fields] ELECTION_NAME [PROPOSAL]  Leader election (--ttl > 0; leftover --flags fail-close)\n");
     printf("  completion bash|zsh|fish   Generate shell completion script\n");
 }
 

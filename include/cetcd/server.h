@@ -187,6 +187,15 @@ int cetcd_ctl_parse_compact_argv(int argc, char *const *argv, int start,
  * flags (`hash --rev`, `status --cluster`) are INVAL. */
 int cetcd_ctl_parse_maint_argv(int argc, char *const *argv, int start,
                                int allow_cluster, int *cluster);
+/* leftover-safe one NAME from `start`. Skips -w/--write-out. `--` starts
+ * positionals so `-- --foo` is NAME `--foo`. Unknown leftover flags
+ * (`member remove --force`, `user add --foo`) are INVAL so they cannot
+ * become NAME/ID. Extra positionals or a missing NAME are INVAL. */
+int cetcd_ctl_parse_one_name_argv(int argc, char *const *argv, int start,
+                                  const char **name);
+/* leftover-safe two NAMEs from `start` (member update ID + PEER_URLS). */
+int cetcd_ctl_parse_two_name_argv(int argc, char *const *argv, int start,
+                                  const char **a, const char **b);
 /* 1 if alloc_bytes > threshold_mb MiB. threshold 0 never. */
 int cetcd_backend_should_defrag(uint64_t alloc_bytes, uint64_t threshold_mb);
 /* Cap `target` to compacted+batch_limit. batch_limit 0 leaves target. */

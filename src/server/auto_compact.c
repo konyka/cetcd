@@ -1495,6 +1495,55 @@ int cetcd_ctl_parse_maint_argv(int argc, char *const *argv, int start,
     return CETCD_OK;
 }
 
+static int parse_n_names_argv_(int argc, char *const *argv, int start,
+                               const char **names, int n) {
+    int i, got = 0, saw_ddash = 0;
+    if (!argv || !names || n < 1 || start < 0 || start > argc)
+        return CETCD_ERR_INVAL;
+    for (i = 0; i < n; i++) names[i] = NULL;
+    for (i = start; i < argc; i++) {
+        int wr;
+        if (!argv[i]) return CETCD_ERR_INVAL;
+        if (!saw_ddash) {
+            wr = skip_write_out_arg_(&i, argc, argv);
+            if (wr < 0) return CETCD_ERR_INVAL;
+            if (wr > 0) continue;
+            if (strcmp(argv[i], "--") == 0) {
+                saw_ddash = 1;
+                continue;
+            }
+            if (argv[i][0] == '-') return CETCD_ERR_INVAL;
+        }
+        if (got >= n) return CETCD_ERR_INVAL;
+        names[got++] = argv[i];
+    }
+    if (got != n) return CETCD_ERR_INVAL;
+    return CETCD_OK;
+}
+
+int cetcd_ctl_parse_one_name_argv(int argc, char *const *argv, int start,
+                                  const char **name) {
+    const char *got = NULL;
+    int rc;
+    if (!name) return CETCD_ERR_INVAL;
+    rc = parse_n_names_argv_(argc, argv, start, &got, 1);
+    if (rc != CETCD_OK) return rc;
+    *name = got;
+    return CETCD_OK;
+}
+
+int cetcd_ctl_parse_two_name_argv(int argc, char *const *argv, int start,
+                                  const char **a, const char **b) {
+    const char *got[2];
+    int rc;
+    if (!a || !b) return CETCD_ERR_INVAL;
+    rc = parse_n_names_argv_(argc, argv, start, got, 2);
+    if (rc != CETCD_OK) return rc;
+    *a = got[0];
+    *b = got[1];
+    return CETCD_OK;
+}
+
 int cetcd_parse_pprof_seconds(const char *qs, size_t qs_len, int *out) {
     if (!out) return CETCD_ERR_INVAL;
     *out = 30;

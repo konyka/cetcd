@@ -1482,6 +1482,57 @@ CETCD_TEST_CASE(auto_compact_parse_maint_argv) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_one_name_argv) {
+    const char *name = NULL;
+    const char *a = NULL, *b = NULL;
+
+    char *ok[] = { "cetcdctl", "member", "remove", "abc" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_one_name_argv(4, ok, 3, &name),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(name, "abc");
+
+    char *wo[] = { "cetcdctl", "member", "remove", "-w", "json", "abc" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_one_name_argv(6, wo, 3, &name),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(name, "abc");
+
+    char *ddash[] = { "cetcdctl", "watch", "--", "--foo" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_one_name_argv(4, ddash, 2, &name),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(name, "--foo");
+
+    char *force[] = { "cetcdctl", "member", "remove", "--force", "abc" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_one_name_argv(5, force, 3, &name),
+                        CETCD_ERR_INVAL);
+
+    char *asname[] = { "cetcdctl", "user", "add", "--foo" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_one_name_argv(4, asname, 3, &name),
+                        CETCD_ERR_INVAL);
+
+    char *extra[] = { "cetcdctl", "member", "remove", "abc", "extra" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_one_name_argv(5, extra, 3, &name),
+                        CETCD_ERR_INVAL);
+
+    char *missing[] = { "cetcdctl", "member", "remove" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_one_name_argv(3, missing, 3, &name),
+                        CETCD_ERR_INVAL);
+
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_one_name_argv(4, ok, 3, NULL),
+                        CETCD_ERR_INVAL);
+
+    char *upd[] = { "cetcdctl", "member", "update", "abc",
+                    "http://127.0.0.1:2380" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_two_name_argv(5, upd, 3, &a, &b),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(a, "abc");
+    CETCD_ASSERT_EQ_STR(b, "http://127.0.0.1:2380");
+
+    char *upd_flag[] = { "cetcdctl", "member", "update", "--force", "abc",
+                         "http://127.0.0.1:2380" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_two_name_argv(6, upd_flag, 3, &a, &b),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_pprof_seconds) {
     int secs = 0;
     CETCD_ASSERT_EQ_INT(cetcd_parse_pprof_seconds(NULL, 0, &secs), CETCD_OK);
@@ -1564,6 +1615,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_encode_hashkv_request),
     CETCD_TEST_ENTRY(auto_compact_parse_compact_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),
+    CETCD_TEST_ENTRY(auto_compact_parse_one_name_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_pprof_seconds),
 CETCD_TEST_LIST_END
 

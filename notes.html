@@ -31,14 +31,15 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 104 — IPv6 zone UniqueURLs</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 105 — leftover member/watch --flags</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 104 leftover-safe-parses IPv6 zone
-     UniqueURLs (<code>[fe80::1%1]:2379</code>) and resolves them via
-     <code>getaddrinfo</code> so <code>1foo</code> cannot bind a truncated
-     zone and the scope is not stripped.</p>
+  <p><strong>v0.3.0</strong>. Phase 105 leftover-safe-rejects unknown
+     <code>--</code> flags on <code>member</code>/<code>watch</code>/<code>lock</code>/<code>elect</code>/<code>snapshot</code>/<code>user</code>/<code>role</code>
+     so <code>member remove --force</code> cannot swallow <code>--force</code>
+     and still remove, and <code>watch --foo</code> cannot watch key
+     <code>--foo</code>.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -158,6 +159,7 @@
       <tr><td>102</td><td>leftover compact/hash/status/defrag</td><td>unknown leftover flags fail-close (hash --rev cannot hash the live tree; status --cluster cannot report one node); defrag --cluster walks MemberList — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>103</td><td>leftover put/get/del --flags</td><td>unknown leftover -- flags fail-close so put --foo cannot write key --foo and get k --foo cannot range to --foo; -- starts positionals — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>104</td><td>IPv6 zone UniqueURLs</td><td>http://[fe80::1%1]:2379 leftover-safe-splits addr%zone and resolves via getaddrinfo; empty / 1foo fail-close; scope is not stripped — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>105</td><td>leftover member/watch --flags</td><td>unknown leftover -- flags fail-close so member remove --force cannot swallow --force and still remove; watch --foo cannot watch key --foo; lock/elect/snapshot/user/role same — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

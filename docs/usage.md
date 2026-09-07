@@ -340,6 +340,7 @@ fail-close. `--prefix=false` does not eat the key.
 ./build/bin/cetcdctl put --lease=1 foo bar         # Attach lease; leftover --lease 10foo fail-closes
 # leftover put --foo k v / get k --foo fail-close (not a key or range_end)
 # put -- --foo v writes key --foo
+# leftover watch --foo / member remove --force / lock --foo name fail-close
 ./build/bin/cetcdctl get foo
 ./build/bin/cetcdctl get --prefix foo           # Get all keys with prefix
 ./build/bin/cetcdctl get --prefix ""             # Get all keys (empty prefix = all)
@@ -379,6 +380,7 @@ so many concurrent watchers can share a single TCP connection.
 # Watch from a specific revision
 ./build/bin/cetcdctl watch --start-rev 42 foo
 # --start-rev must be >= 0; leftover text is not a silent truncated revision
+# leftover watch --foo key fail-closes (not a watch on key --foo)
 
 # Include the previous key-value in each event
 ./build/bin/cetcdctl watch --prev-kv foo
@@ -464,6 +466,7 @@ to cancel the watch and close the stream.
 # peer URL port must be 1..65535; leftover 2380foo is not truncated port 2380
 ./build/bin/cetcdctl member remove 1234567890         # Remove member (refused if it would lose quorum)
 # member ID is hex > 0; leftover text is not a truncated decimal id
+# leftover member remove --force / member add --foo URL fail-close
 ./build/bin/cetcdctl member update 1234567890 http://localhost:2380  # Update member peer URL
 ./build/bin/cetcdctl member promote 1234567890        # Promote learner to voting member
 ```
@@ -477,6 +480,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl lock mylock               # Prints lock key, waits for signal
 ./build/bin/cetcdctl lock --ttl 30 mylock     # Lock with 30s lease TTL
 # --ttl must be > 0; leftover text is not a silent truncated TTL
+# leftover lock --foo name / elect --foo name fail-close (not a lock/election named --foo)
 ./build/bin/cetcdctl lock --print-value-only mylock  # Print only lease ID
 ./build/bin/cetcdctl lock mylock echo done    # Run command while holding lock
 ./build/bin/cetcdctl lock -w json mylock       # Lock with JSON output (header+key)
@@ -547,6 +551,7 @@ to cancel the watch and close the stream.
 ```sh
 ./build/bin/cetcdctl snapshot save backup.snap   # Save KV snapshot to file
 ./build/bin/cetcdctl snapshot save backup.snap --compaction-periodical  # With etcd-compatible flag (no-op)
+# leftover snapshot save --foo fail-closes (not a file named --foo)
 ./build/bin/cetcdctl snapshot save backup.snap -w json  # Save with JSON output
 ./build/bin/cetcdctl snapshot save backup.snap -w fields  # Save with fields output
 ./build/bin/cetcdctl snapshot status backup.snap # Show snapshot file info
