@@ -175,6 +175,16 @@ int cetcd_parse_i64(const char *s, int64_t *out);
 int cetcd_parse_pprof_seconds(const char *qs, size_t qs_len, int *out);
 /* HashKVRequest field 1 (revision). 0 = current (empty body). Negative INVAL. */
 int cetcd_encode_hashkv_request(int64_t rev, uint8_t *out, size_t cap, size_t *n);
+/* leftover-safe compact argv from `start`. Honors --physical[=bool] and one
+ * REV > 0. Skips -w/--write-out VALUE. Unknown leftover flags, extra
+ * positionals, leftover REV text, or missing REV are INVAL. */
+int cetcd_ctl_parse_compact_argv(int argc, char *const *argv, int start,
+                                 int *physical, int64_t *rev);
+/* leftover-safe hash/status/defrag argv from `start`. Skips -w/--write-out.
+ * allow_cluster honors --cluster[=bool] (etcd defrag). Unknown leftover
+ * flags (`hash --rev`, `status --cluster`) are INVAL. */
+int cetcd_ctl_parse_maint_argv(int argc, char *const *argv, int start,
+                               int allow_cluster, int *cluster);
 /* 1 if alloc_bytes > threshold_mb MiB. threshold 0 never. */
 int cetcd_backend_should_defrag(uint64_t alloc_bytes, uint64_t threshold_mb);
 /* Cap `target` to compacted+batch_limit. batch_limit 0 leaves target. */

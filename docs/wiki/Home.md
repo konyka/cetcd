@@ -889,7 +889,9 @@ Subcommand `--flag=value` (`put --lease=1`, `get --rev=5`, `--write-out=json`, `
 MemberAdd/Update peer URL ports are leftover-safe (`1..65535`; missing → 2380); `2380foo` fail-closes instead of joining on truncated port 2380.
 `cetcdctl endpoint --cluster` leftover-safe-parses member client URLs (missing port → 2379).
 `cetcdctl move-leader TARGET_ID` must be hex `> 0`; leftover text fail-closes instead of transferring to a truncated id.
-`cetcdctl compact REV` must be `> 0`; leftover text fail-closes instead of compacting to a truncated revision.
+`cetcdctl compact REV` must be `> 0`; leftover text fail-closes instead of compacting to a truncated revision. Unknown leftover flags (`compact 10 --rev 5`) fail-close.
+`cetcdctl hash` / `status` unknown leftover flags fail-close (`hash --rev` cannot hash the live tree; `status --cluster` cannot report one node).
+`cetcdctl defrag --cluster` defragments every MemberList client URL; a swallowed `--cluster` would defrag only the connected member. Other leftover flags fail-close.
 `cetcdctl get --rev` / `--limit` / `--min-mod-rev` and related flags must be integers `>= 0`; leftover text fail-closes instead of a truncated revision.
 `cetcdctl watch --start-rev` must be an integer `>= 0`; leftover text fail-closes instead of starting at a truncated revision.
 `--help` does not pre-empt an earlier invalid flag. `--config-file` is skipped when `--help` is present.
@@ -1138,12 +1140,12 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `lease keepalive ID` | 续约指定租约 |
 | `txn put KEY VALUE` | 事务写入 |
 | `txn cas KEY EXPECTED NEW` | 条件事务（CAS）：当 KEY 的值等于 EXPECTED 时设为 NEW |
-| `compact REV` | 压缩 MVCC 历史到指定修订号 |
-| `status` | 获取服务器状态 |
+| `compact REV` | 压缩 MVCC 历史到指定修订号（未知 leftover 旗标 fail-close） |
+| `status` | 获取服务器状态（未知 leftover 旗标 fail-close） |
 | `alarm` | 查询告警 |
-| `hash` | 获取 KV 存储哈希值 |
+| `hash` | 获取 KV 存储哈希值（`--rev` 等未知旗标 fail-close） |
 | `hashkv` | 获取 KV 存储 CRC32C 哈希值和压缩修订号（`--rev N` leftover-safe；省略 / `0` = 当前；`10foo` fail-close） |
-| `defrag` | 碎片整理（LMDB 自动管理，no-op） |
+| `defrag` | 碎片整理（LMDB compact-copy；`--cluster` 走 MemberList；未知 leftover 旗标 fail-close） |
 | `move-leader TARGET_ID` | 领导者转移到指定节点 |
 | `member list` | 列出集群成员 |
 | `member add PEER_URL` | 添加集群成员 |

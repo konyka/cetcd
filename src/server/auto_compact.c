@@ -1413,6 +1413,76 @@ int cetcd_encode_hashkv_request(int64_t rev, uint8_t *out, size_t cap, size_t *n
     return CETCD_OK;
 }
 
+static int is_write_out_flag_(const char *arg) {
+    if (!arg) return 0;
+    if (cetcd_cli_flag_is(arg, "--write-out")) return 1;
+    /* -w is a short flag; cetcd_cli_flag_is only matches --long. */
+    if (strcmp(arg, "-w") == 0) return 1;
+    if (strncmp(arg, "-w=", 3) == 0) return 1;
+    return 0;
+}
+
+static int skip_write_out_arg_(int *i, int argc, char *const *argv) {
+    const char *fmt = NULL;
+    if (!is_write_out_flag_(argv[*i])) return 0;
+    if (cetcd_take_cli_flag_value(i, argc, argv, &fmt) != CETCD_OK)
+        return -1;
+    return 1;
+}
+
+int cetcd_ctl_parse_compact_argv(int argc, char *const *argv, int start,
+                                 int *physical, int64_t *rev) {
+    int i;
+    if (!argv || !physical || !rev || start < 0 || start > argc)
+        return CETCD_ERR_INVAL;
+    *physical = 0;
+    *rev = 0;
+    for (i = start; i < argc; i++) {
+        int wr;
+        int on = 1;
+        if (!argv[i]) return CETCD_ERR_INVAL;
+        wr = skip_write_out_arg_(&i, argc, argv);
+        if (wr < 0) return CETCD_ERR_INVAL;
+        if (wr > 0) continue;
+        if (cetcd_cli_flag_is(argv[i], "--physical")) {
+            if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            *physical = on;
+            continue;
+        }
+        if (argv[i][0] == '-') return CETCD_ERR_INVAL;
+        if (*rev != 0) return CETCD_ERR_INVAL;
+        if (cetcd_parse_i64(argv[i], rev) != CETCD_OK || *rev < 1)
+            return CETCD_ERR_INVAL;
+    }
+    if (*rev < 1) return CETCD_ERR_INVAL;
+    return CETCD_OK;
+}
+
+int cetcd_ctl_parse_maint_argv(int argc, char *const *argv, int start,
+                               int allow_cluster, int *cluster) {
+    int i;
+    if (!argv || start < 0 || start > argc) return CETCD_ERR_INVAL;
+    if (allow_cluster && !cluster) return CETCD_ERR_INVAL;
+    if (cluster) *cluster = 0;
+    for (i = start; i < argc; i++) {
+        int wr;
+        int on = 1;
+        if (!argv[i]) return CETCD_ERR_INVAL;
+        wr = skip_write_out_arg_(&i, argc, argv);
+        if (wr < 0) return CETCD_ERR_INVAL;
+        if (wr > 0) continue;
+        if (allow_cluster && cetcd_cli_flag_is(argv[i], "--cluster")) {
+            if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            *cluster = on;
+            continue;
+        }
+        return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_parse_pprof_seconds(const char *qs, size_t qs_len, int *out) {
     if (!out) return CETCD_ERR_INVAL;
     *out = 30;

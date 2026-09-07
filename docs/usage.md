@@ -445,6 +445,7 @@ to cancel the watch and close the stream.
 ```sh
 ./build/bin/cetcdctl compact 100           # Compact via Raft (followers share compacted_rev)
 # REV must be > 0; leftover text is not a silent truncated revision
+# leftover flags (compact 10 --rev 5) fail-close; --physical waits (already sync)
 ```
 
 ### Cluster management
@@ -591,6 +592,8 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl endpoint status -w fields        # Endpoint status in fields format
 ./build/bin/cetcdctl compact -w fields 5              # Compact with fields output
 ./build/bin/cetcdctl defrag -w fields                # Defragment with fields output
+./build/bin/cetcdctl defrag --cluster                # Defrag every MemberList client URL
+# leftover hash --rev / status --cluster / compact 10 --rev fail-close
 ./build/bin/cetcdctl move-leader -w fields 1234567890  # Transfer leadership with fields output
 # TARGET_ID is hex > 0; leftover text is not a truncated decimal id
 ./build/bin/cetcdctl snapshot status backup.snap -w fields  # Snapshot info in fields format

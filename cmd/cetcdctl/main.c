@@ -1037,6 +1037,19 @@ static int cmd_flag_is_(const char *arg, const char *name) {
     return arg[n] == '\0' || arg[n] == '=';
 }
 
+static void print_unknown_maint_flag_(int argc, char **argv, int start,
+                                      int allow_cluster) {
+    for (int i = start; i < argc; i++) {
+        if (cmd_flag_is_(argv[i], "-w") || cmd_flag_is_(argv[i], "--write-out"))
+            continue;
+        if (allow_cluster && cmd_flag_is_(argv[i], "--cluster"))
+            continue;
+        fprintf(stderr, "unknown flag: %s\n", argv[i]);
+        return;
+    }
+    fprintf(stderr, "unknown flag\n");
+}
+
 static int take_cmd_value_(int *i, int argc, char **argv, const char **out) {
     return cetcd_take_cli_flag_value(i, argc, argv, out) == CETCD_OK ? 0 : -1;
 }
@@ -2343,32 +2356,29 @@ static int cmd_compact(int argc, char **argv) {
     bool want_json = false;
     bool want_fields = false;
     int64_t rev = 0;
+    int phys = 0;
     for (int i = 2; i < argc; i++) {
         int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
-        int on = 1;
-        if (cmd_flag_is_(argv[i], "--physical")) {
-            if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
-                fprintf(stderr, "--physical must be true or false\n");
-                return 1;
-            }
-            physical = on != 0;
-        } else if ((wr = take_write_out_jf_(&i, argc, argv, &wj, &wf)) != 0) {
+        if ((wr = take_write_out_jf_(&i, argc, argv, &wj, &wf)) != 0) {
             if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
             want_json = wj != 0;
             want_fields = wf != 0;
-        } else if (!rev) {
-            char *end = NULL;
-            errno = 0;
-            long long v = strtoll(argv[i], &end, 10);
-            if (errno == ERANGE || !end || end == argv[i] || *end ||
-                v < 1) {
-                fprintf(stderr, "compact REV must be > 0\n");
-                return 1;
-            }
-            rev = v;
         }
     }
-    if (rev <= 0) { fprintf(stderr, "usage: cetcdctl compact [--physical] [-w json|fields] REV\n"); return 1; }
+    if (cetcd_ctl_parse_compact_argv(argc, argv, 2, &phys, &rev) != CETCD_OK) {
+        for (int i = 2; i < argc; i++) {
+            if (cmd_flag_is_(argv[i], "-w") || cmd_flag_is_(argv[i], "--write-out") ||
+                cmd_flag_is_(argv[i], "--physical"))
+                continue;
+            if (argv[i][0] == '-') {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
+            }
+        }
+        fprintf(stderr, "usage: cetcdctl compact [--physical] [-w json|fields] REV\n");
+        return 1;
+    }
+    physical = phys != 0;
     uint8_t req[32], resp[256];
     size_t pos = 0;
     pos = encode_varint_field(req, sizeof(req), pos, 0x08, (uint64_t)rev);
@@ -2862,6 +2872,10 @@ static int cmd_status(int argc, char **argv) {
         if ((wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields)) != 0) {
             if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
         }
+    }
+    if (cetcd_ctl_parse_maint_argv(argc, argv, 2, 0, NULL) != CETCD_OK) {
+        print_unknown_maint_flag_(argc, argv, 2, 0);
+        return 1;
     }
     uint8_t req[] = {0x00}, resp[1024];
     int rlen = do_rpc("/etcdserverpb.Maintenance/Status", req, 1, resp, sizeof(resp));
@@ -5979,6 +5993,10 @@ static int cmd_hash(int argc, char **argv) {
             want_json = wj != 0; want_table = wt != 0; want_fields = wf != 0;
         }
     }
+    if (cetcd_ctl_parse_maint_argv(argc, argv, 2, 0, NULL) != CETCD_OK) {
+        print_unknown_maint_flag_(argc, argv, 2, 0);
+        return 1;
+    }
     uint8_t req[] = {0x00}, resp[256];
     int rlen = do_rpc("/etcdserverpb.Maintenance/Hash", req, 1, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
@@ -6080,9 +6098,37 @@ static int cmd_hashkv(int argc, char **argv) {
     return 0;
 }
 
+static int defrag_one_(int want_json, int want_fields, int with_endpoint) {
+    uint8_t req[] = {0x00}, resp[256];
+    int rlen = do_rpc("/etcdserverpb.Maintenance/Defragment", req, 1, resp, sizeof(resp));
+    if (rlen < 0) return -1;
+    if (with_endpoint) {
+        if (want_json) {
+            printf("{\"endpoint\":\"%s\",", ep_str_());
+            parse_and_print_header_json(resp, (size_t)rlen);
+            fputs("}\n", stdout);
+        } else if (want_fields) {
+            printf("endpoint: %s\n", ep_str_());
+            parse_and_print_header_json(resp, (size_t)rlen);
+            fputs("\n", stdout);
+        } else {
+            printf("Finished defragmenting etcd member[%s]\n", ep_str_());
+        }
+    } else if (want_json) {
+        fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout);
+    } else if (want_fields) {
+        parse_and_print_header_json(resp, (size_t)rlen);
+        fputs("\n", stdout);
+    } else {
+        printf("OK\n");
+    }
+    return 0;
+}
+
 static int cmd_defrag(int argc, char **argv) {
     bool want_json = false;
     bool want_fields = false;
+    int cluster = 0;
     for (int i = 2; i < argc; i++) {
         int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
         if ((wr = take_write_out_jf_(&i, argc, argv, &wj, &wf)) != 0) {
@@ -6090,16 +6136,34 @@ static int cmd_defrag(int argc, char **argv) {
             want_json = wj != 0; want_fields = wf != 0;
         }
     }
-    uint8_t req[] = {0x00}, resp[256];
-    int rlen = do_rpc("/etcdserverpb.Maintenance/Defragment", req, 1, resp, sizeof(resp));
-    if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-    if (want_json) {
-        fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout);
-    } else if (want_fields) {
-        parse_and_print_header_json(resp, (size_t)rlen);
-        fputs("\n", stdout);
-    } else {
-        printf("OK\n");
+    if (cetcd_ctl_parse_maint_argv(argc, argv, 2, 1, &cluster) != CETCD_OK) {
+        print_unknown_maint_flag_(argc, argv, 2, 1);
+        return 1;
+    }
+    if (cluster) {
+        struct cluster_endpoint eps[32];
+        int n = collect_cluster_endpoints(eps, 32);
+        int failed = 0;
+        const char *orig_host;
+        uint16_t orig_port;
+        if (n <= 0) { fprintf(stderr, "failed to get member list\n"); return 1; }
+        orig_host = g_host;
+        orig_port = g_port;
+        for (int i = 0; i < n; i++) {
+            g_host = eps[i].host;
+            g_port = eps[i].port;
+            if (defrag_one_(want_json, want_fields, 1) < 0) {
+                fprintf(stderr, "Failed to defragment etcd member[%s]\n", ep_str_());
+                failed = 1;
+            }
+        }
+        g_host = orig_host;
+        g_port = orig_port;
+        return failed;
+    }
+    if (defrag_one_(want_json, want_fields, 0) < 0) {
+        fprintf(stderr, "request failed\n");
+        return 1;
     }
     return 0;
 }
@@ -6113,8 +6177,14 @@ static int cmd_move_leader(int argc, char **argv) {
         if ((wr = take_write_out_jf_(&i, argc, argv, &wj, &wf)) != 0) {
             if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
             want_json = wj != 0; want_fields = wf != 0;
+        } else if (argv[i][0] == '-') {
+            fprintf(stderr, "unknown flag: %s\n", argv[i]);
+            return 1;
         } else if (!target_str) {
             target_str = argv[i];
+        } else {
+            fprintf(stderr, "unknown flag: %s\n", argv[i]);
+            return 1;
         }
     }
     if (!target_str) { fprintf(stderr, "usage: cetcdctl move-leader [-w json|fields] TARGET_ID\n"); return 1; }
@@ -6227,6 +6297,9 @@ static int cmd_completion(int argc, char **argv) {
         printf("              local subs=\"grant revoke timetolive list keepalive\";;\n");
         printf("        txn) local opts=\"-w --write-out\"; local subs=\"-i put cas get del\";;\n");
         printf("        compact) local opts=\"--physical -w --write-out\";;\n");
+        printf("        status) local opts=\"-w --write-out\";;\n");
+        printf("        hash) local opts=\"-w --write-out\";;\n");
+        printf("        defrag) local opts=\"--cluster -w --write-out\";;\n");
         printf("        alarm) local opts=\"-w --write-out\"; local subs=\"list activate disarm\";;\n");
         printf("        member) local opts=\"--peer-urls --name --learner -w --write-out\"; local subs=\"list add remove update promote\";;\n");
         printf("        auth) local opts=\"-w --write-out\"; local subs=\"enable disable status login\";;\n");
@@ -6361,6 +6434,7 @@ static int cmd_completion(int argc, char **argv) {
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from lease' -l lease-id -l keys -l once -l interval -s w -l write-out\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from txn' -s w -l write-out\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from compact' -l physical -s w -l write-out\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from defrag' -l cluster -s w -l write-out\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from member' -l peer-urls -l name -l learner -s w -l write-out\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from role' -l prefix -l range-end -s w -l write-out\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from snapshot' -l compaction-periodical -l data-dir -l force -s w -l write-out\n");
@@ -6413,14 +6487,14 @@ static void print_usage(void) {
     printf("  txn cas [-w json|fields] KEY EXP NEW  Compare-and-swap (if KEY==EXP then KEY=NEW)\n");
     printf("  txn get [-w json|fields] KEY [RANGE_END]  Execute a transaction (Range)\n");
     printf("  txn del [-w json|fields] [--prefix] [--prev-kv] KEY [RANGE_END]  Execute a transaction (Delete)\n");
-    printf("  compact [--physical] [-w json|fields] REV  Compact MVCC history to revision (REV > 0)\n");
-    printf("  status [-w json|fields]  Get server status\n");
+    printf("  compact [--physical] [-w json|fields] REV  Compact MVCC history to revision (REV > 0; leftover flags fail-close)\n");
+    printf("  status [-w json|fields]  Get server status (unknown leftover flags fail-close)\n");
     printf("  alarm list [-w table|json|fields]  List all alarms\n");
     printf("  alarm activate [-w json|fields] [TYPE]  Activate an alarm (NOSPACE|CORRUPT|NONE)\n");
     printf("  alarm disarm [-w json|fields] [TYPE]     Disarm an alarm (NOSPACE|CORRUPT|NONE)\n");
-    printf("  hash [-w json|fields|table]         Get KV store hash\n");
+    printf("  hash [-w json|fields|table]         Get KV store hash (unknown leftover flags fail-close)\n");
     printf("  hashkv [--rev N] [-w json|fields|table]  Get KV store hash + compact revision (N leftover-safe; 0 = current)\n");
-    printf("  defrag [-w json|fields]       Defragment database (compact-copy data.mdb)\n");
+    printf("  defrag [--cluster] [-w json|fields]  Defragment database (compact-copy; --cluster uses MemberList)\n");
     printf("  move-leader [-w json|fields] TARGET_ID  Transfer leadership to target node (ID hex > 0)\n");
     printf("  member list [-w json|table|fields]  List cluster members\n");
     printf("  member add [-w json|fields] [--peer-urls URLS] [--name NAME] [--learner] [PEER_URL]  Add a cluster member (comma-separated URLs supported)\n");

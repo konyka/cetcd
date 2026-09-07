@@ -1360,6 +1360,101 @@ CETCD_TEST_CASE(auto_compact_encode_hashkv_request) {
     CETCD_ASSERT_EQ_INT(cetcd_parse_i64("10foo", &rev), CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_compact_argv) {
+    int physical = 0;
+    int64_t rev = 0;
+    char *ok[] = { "cetcdctl", "compact", "10" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_compact_argv(3, ok, 2, &physical, &rev),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(physical, 0);
+    CETCD_ASSERT_TRUE(rev == 10);
+
+    char *phys[] = { "cetcdctl", "compact", "--physical", "10" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_compact_argv(4, phys, 2, &physical, &rev),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(physical, 1);
+    CETCD_ASSERT_TRUE(rev == 10);
+
+    char *after[] = { "cetcdctl", "compact", "10", "--physical" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_compact_argv(4, after, 2, &physical, &rev),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(physical, 1);
+
+    char *eqf[] = { "cetcdctl", "compact", "--physical=false", "10" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_compact_argv(4, eqf, 2, &physical, &rev),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(physical, 0);
+
+    char *wo[] = { "cetcdctl", "compact", "-w", "json", "10" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_compact_argv(5, wo, 2, &physical, &rev),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rev == 10);
+
+    char *woeq[] = { "cetcdctl", "compact", "--write-out=fields", "10" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_compact_argv(4, woeq, 2, &physical, &rev),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rev == 10);
+
+    char *revflag[] = { "cetcdctl", "compact", "10", "--rev", "5" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_compact_argv(5, revflag, 2, &physical, &rev),
+                        CETCD_ERR_INVAL);
+
+    char *leftover[] = { "cetcdctl", "compact", "10foo" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_compact_argv(3, leftover, 2, &physical, &rev),
+                        CETCD_ERR_INVAL);
+
+    char *extra[] = { "cetcdctl", "compact", "10", "20" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_compact_argv(4, extra, 2, &physical, &rev),
+                        CETCD_ERR_INVAL);
+
+    char *norev[] = { "cetcdctl", "compact", "--physical" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_compact_argv(3, norev, 2, &physical, &rev),
+                        CETCD_ERR_INVAL);
+
+    char *zero[] = { "cetcdctl", "compact", "0" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_compact_argv(3, zero, 2, &physical, &rev),
+                        CETCD_ERR_INVAL);
+
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_compact_argv(3, ok, 2, NULL, &rev),
+                        CETCD_ERR_INVAL);
+}
+
+CETCD_TEST_CASE(auto_compact_parse_maint_argv) {
+    int cluster = 99;
+    char *hash_ok[] = { "cetcdctl", "hash", "-w", "json" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_maint_argv(4, hash_ok, 2, 0, &cluster),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cluster, 0);
+
+    char *hash_rev[] = { "cetcdctl", "hash", "--rev", "10" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_maint_argv(4, hash_rev, 2, 0, &cluster),
+                        CETCD_ERR_INVAL);
+
+    char *st_cl[] = { "cetcdctl", "status", "--cluster" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_maint_argv(3, st_cl, 2, 0, &cluster),
+                        CETCD_ERR_INVAL);
+
+    char *df[] = { "cetcdctl", "defrag", "--cluster" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_maint_argv(3, df, 2, 1, &cluster),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cluster, 1);
+
+    char *df_eq[] = { "cetcdctl", "defrag", "--cluster=false" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_maint_argv(3, df_eq, 2, 1, &cluster),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cluster, 0);
+
+    char *df_rev[] = { "cetcdctl", "defrag", "--rev", "1" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_maint_argv(4, df_rev, 2, 1, &cluster),
+                        CETCD_ERR_INVAL);
+
+    char *bare[] = { "cetcdctl", "hash" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_maint_argv(2, bare, 2, 0, &cluster),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_maint_argv(2, bare, 2, 1, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_pprof_seconds) {
     int secs = 0;
     CETCD_ASSERT_EQ_INT(cetcd_parse_pprof_seconds(NULL, 0, &secs), CETCD_OK);
@@ -1440,6 +1535,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_command_timeout),
     CETCD_TEST_ENTRY(auto_compact_parse_i64),
     CETCD_TEST_ENTRY(auto_compact_encode_hashkv_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_compact_argv),
+    CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_pprof_seconds),
 CETCD_TEST_LIST_END
 

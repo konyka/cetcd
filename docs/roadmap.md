@@ -543,6 +543,12 @@ Performance-first, fail-closed design:
   revision (`>= 0`; omitted / `0` = current). `10foo` fail-closes.
   A swallowed `--rev` would hash the live tree instead of the requested
   revision. Unknown leftover flags on those commands also fail-close.
+- **`compact` / `hash` / `status` / `defrag` leftover flags** — unknown
+  leftover flags fail-close (`hash --rev` cannot hash the live tree;
+  `status --cluster` cannot report one node; `compact 10 --rev 5`
+  cannot compact the wrong revision). `defrag --cluster` honors etcd's
+  MemberList walk (a swallowed `--cluster` would defrag only the
+  connected member). Accepting those flags as a no-op is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

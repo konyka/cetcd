@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 101 — unix:// fail-closed</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 102 — leftover compact/hash/status/defrag flags</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 101 fail-closes etcd
-     <code>unix://</code> listen/peer/endpoints as known-unsupported
-     so <code>unix://localhost:2380</code> cannot bind as host
-     <code>unix://localhost</code>.</p>
+  <p><strong>v0.3.0</strong>. Phase 102 fail-closes leftover
+     <code>cetcdctl compact</code>/<code>hash</code>/<code>status</code>/<code>defrag</code>
+     flags so <code>hash --rev</code> cannot hash the live tree, and
+     honors <code>defrag --cluster</code> via MemberList.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -155,6 +155,7 @@
       <tr><td>99</td><td>IPv6 host:port emit</td><td>cetcd_format_host_port leftover-safe-emits [::1]:2379 for advertise / MemberList / cetcdctl endpoint so ::1:2379 cannot look like port 1 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>100</td><td>hashkv --rev</td><td>cetcdctl hashkv / endpoint hashkv leftover-safe-send HashKVRequest.revision; 10foo fail-closes; omitted / 0 = current; unknown leftover flags fail-close — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>101</td><td>unix:// fail-closed</td><td>unix:// / unixs:// listen, advertise, initial-cluster, metrics, and --endpoints fail-close as known-unsupported (no unix listener; not host unix://localhost) — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>102</td><td>leftover compact/hash/status/defrag</td><td>unknown leftover flags fail-close (hash --rev cannot hash the live tree; status --cluster cannot report one node); defrag --cluster walks MemberList — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>
