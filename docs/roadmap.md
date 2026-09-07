@@ -223,6 +223,8 @@ Performance-first, fail-closed design:
   instead of joining or updating on truncated port `2380` via `atoi`.
   `cetcdctl endpoint --cluster` leftover-safe-parses member client URLs
   (missing port → 2379) so a typo cannot connect to a truncated port.
+- **pprof `?seconds=` leftover** — `/debug/pprof/profile?seconds=30foo` is
+  HTTP 400 instead of profiling for truncated 30 seconds via `atoi`.
 - **`cetcdctl --dial-timeout`** — `0..86400` seconds (optional `s`). A typo
   used to become “no timeout” via `atoi`; that now fails at parse. `0` stays
   none.
@@ -465,7 +467,8 @@ Performance-first, fail-closed design:
 - **`--enable-pprof`** — bool (omitted default off; bare / `true` on).
   `/debug/pprof/profile|heap|coroutines` on the metrics port require it;
   otherwise those paths 404. `/metrics` is unchanged. A non-bool
-  fail-closes (no longer an unknown flag).
+  fail-closes (no longer an unknown flag). `?seconds=N` leftover
+  (`30foo`) / `0` / `>300` is HTTP 400, not a truncated `atoi` duration.
 - **`GET /health`** — metrics port returns etcd JSON
   (`{"health":"true"}` or `{"health":"false","reason":"..."}`). Unhealthy
   is HTTP 503. NOSPACE / CORRUPT then `RAFT NO LEADER`.

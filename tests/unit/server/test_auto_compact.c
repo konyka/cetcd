@@ -1277,6 +1277,31 @@ CETCD_TEST_CASE(auto_compact_parse_i64) {
     CETCD_ASSERT_EQ_INT(cetcd_parse_i64("10", NULL), CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_pprof_seconds) {
+    int secs = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_pprof_seconds(NULL, 0, &secs), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(secs, 30);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_pprof_seconds("", 0, &secs), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(secs, 30);
+    const char *ok = "seconds=10";
+    CETCD_ASSERT_EQ_INT(cetcd_parse_pprof_seconds(ok, strlen(ok), &secs), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(secs, 10);
+    const char *leftover = "seconds=30foo";
+    CETCD_ASSERT_EQ_INT(cetcd_parse_pprof_seconds(leftover, strlen(leftover), &secs),
+                        CETCD_ERR_INVAL);
+    const char *zero = "seconds=0";
+    CETCD_ASSERT_EQ_INT(cetcd_parse_pprof_seconds(zero, strlen(zero), &secs),
+                        CETCD_ERR_RANGE);
+    const char *big = "seconds=301";
+    CETCD_ASSERT_EQ_INT(cetcd_parse_pprof_seconds(big, strlen(big), &secs),
+                        CETCD_ERR_RANGE);
+    const char *empty = "seconds=";
+    CETCD_ASSERT_EQ_INT(cetcd_parse_pprof_seconds(empty, strlen(empty), &secs),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_pprof_seconds("seconds=10", 10, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_mode),
     CETCD_TEST_ENTRY(auto_compact_parse_retention_periodic),
@@ -1331,6 +1356,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_cli_bool_eq),
     CETCD_TEST_ENTRY(auto_compact_parse_command_timeout),
     CETCD_TEST_ENTRY(auto_compact_parse_i64),
+    CETCD_TEST_ENTRY(auto_compact_parse_pprof_seconds),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

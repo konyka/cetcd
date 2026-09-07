@@ -31,14 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 94 — leftover peer URL port</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 95 — leftover pprof seconds</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 94 leftover-safe-parses
-     MemberAdd/Update peer URL ports and <code>endpoint --cluster</code>
-     client URLs so <code>2380foo</code> cannot join or connect on
-     truncated port 2380/2379.</p>
+  <p><strong>v0.3.0</strong>. Phase 95 leftover-safe-parses
+     <code>/debug/pprof/profile?seconds=</code> so <code>30foo</code>
+     is HTTP 400 instead of a 30-second profile.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -148,6 +147,7 @@
       <tr><td>92</td><td>cetcdctl subcommand =</td><td>put/get/del/watch/compact/lease/lock/elect accept --flag=value; leftover put --lease 10foo fail-closes; --prefix=false does not eat the key — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>93</td><td>cetcdctl remaining =</td><td>status/txn/member/snapshot/auth/check/… honor --write-out=json and restore --data-dir=; leftover watch cancel 10foo / --load=10foo fail-closes — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>94</td><td>leftover peer URL port</td><td>MemberAdd/Update and endpoint --cluster leftover-safe-parse host:port; 2380foo fail-closes instead of joining/connecting on truncated 2380/2379 — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>95</td><td>leftover pprof seconds</td><td>/debug/pprof/profile?seconds= leftover-safe; 30foo / 0 / &gt;300 is HTTP 400 instead of a truncated atoi duration — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

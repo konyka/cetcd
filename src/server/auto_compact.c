@@ -1370,3 +1370,19 @@ int cetcd_parse_i64(const char *s, int64_t *out) {
     *out = (int64_t)v;
     return CETCD_OK;
 }
+
+int cetcd_parse_pprof_seconds(const char *qs, size_t qs_len, int *out) {
+    if (!out) return CETCD_ERR_INVAL;
+    *out = 30;
+    if (!qs || qs_len == 0) return CETCD_OK;
+    if (qs_len >= 256) return CETCD_ERR_INVAL;
+    char buf[256];
+    memcpy(buf, qs, qs_len);
+    buf[qs_len] = '\0';
+    if (strncmp(buf, "seconds=", 8) != 0) return CETCD_OK;
+    int64_t v = 0;
+    if (cetcd_parse_i64(buf + 8, &v) != CETCD_OK) return CETCD_ERR_INVAL;
+    if (v < 1 || v > 300) return CETCD_ERR_RANGE;
+    *out = (int)v;
+    return CETCD_OK;
+}

@@ -1119,12 +1119,9 @@ static int metrics_parse_request_(metrics_conn_ctx_ *ctx) {
         /* Parse ?seconds=N query parameter */
         ctx->pprof_seconds = 30;  /* etcd default */
         if (path_len > 20 && path[20] == '?') {
-            const char *qs = path + 21;
-            size_t qs_len = path_len - 21;
-            if (qs_len > 8 && memcmp(qs, "seconds=", 8) == 0) {
-                int secs = atoi(qs + 8);
-                if (secs > 0 && secs <= 300) ctx->pprof_seconds = secs;
-            }
+            if (cetcd_parse_pprof_seconds(path + 21, path_len - 21,
+                                          &ctx->pprof_seconds) != CETCD_OK)
+                return -1;
         }
     }
     return route;

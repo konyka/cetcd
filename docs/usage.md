@@ -823,7 +823,7 @@ Without the flag those paths return 404. `/metrics` stays available.
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /debug/pprof/profile?seconds=N` | CPU profile for `N` seconds (default 30) |
+| `GET /debug/pprof/profile?seconds=N` | CPU profile for `N` seconds (default 30; leftover `30foo` is 400) |
 | `GET /debug/pprof/heap` | Heap profile (in-use and allocated) |
 | `GET /debug/pprof/coroutines` | Snapshot of active libco coroutines and their states |
 

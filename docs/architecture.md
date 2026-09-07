@@ -941,7 +941,8 @@ Key metric families:
 `--enable-pprof` (omitted default off) exposes pprof-compatible endpoints on
 the same port under `/debug/pprof/`. Without the flag those paths return 404.
 
-- `/debug/pprof/profile?seconds=N` — CPU profile for `N` seconds (default 30).
+- `/debug/pprof/profile?seconds=N` — CPU profile for `N` seconds (default 30;
+  leftover `30foo` / `0` / `>300` is HTTP 400, not a truncated duration).
   Collection runs on a libuv worker thread; `SIGPROF` samples whichever thread
   is on-CPU (typically the reactor). Concurrent profiles fail with HTTP 409.
   Output is folded-stack text (`--- profile`), not protobuf.
