@@ -595,16 +595,27 @@ int cetcd_parse_listen_url(const char *s, char *host, size_t host_cap,
     } else {
         return CETCD_ERR_INVAL;
     }
-    if (p[0] == '[' || p[0] == '\0' || p[0] == ':')
-        return CETCD_ERR_INVAL;
-    const char *colon = strrchr(p, ':');
-    if (!colon || colon == p) return CETCD_ERR_INVAL;
-    size_t hlen = (size_t)(colon - p);
+    if (p[0] == '\0') return CETCD_ERR_INVAL;
+    const char *port_s = NULL;
+    size_t hlen = 0;
+    if (p[0] == '[') {
+        const char *rb = strchr(p, ']');
+        if (!rb || rb == p + 1 || rb[1] != ':') return CETCD_ERR_INVAL;
+        hlen = (size_t)(rb - p - 1);
+        port_s = rb + 2;
+        p += 1;
+    } else {
+        if (p[0] == ':') return CETCD_ERR_INVAL;
+        const char *colon = strrchr(p, ':');
+        if (!colon || colon == p) return CETCD_ERR_INVAL;
+        hlen = (size_t)(colon - p);
+        port_s = colon + 1;
+    }
     if (hlen == 0 || hlen + 1 > host_cap) return CETCD_ERR_INVAL;
     errno = 0;
     char *end = NULL;
-    long v = strtol(colon + 1, &end, 10);
-    if (errno == ERANGE || !end || end == colon + 1 || *end ||
+    long v = strtol(port_s, &end, 10);
+    if (errno == ERANGE || !end || end == port_s || *end ||
         v < 1 || v > 65535)
         return CETCD_ERR_INVAL;
     memcpy(host, p, hlen);
@@ -686,7 +697,13 @@ static int join_listen_urls_(const cetcd_listen_url *urls, size_t n,
     size_t off = 0;
     for (size_t i = 0; i < n; i++) {
         char one[320];
-        int wr = snprintf(one, sizeof(one), "%s://%s:%u",
+        int wr;
+        if (strchr(urls[i].host, ':'))
+            wr = snprintf(one, sizeof(one), "%s://[%s]:%u",
+                          urls[i].https ? "https" : "http",
+                          urls[i].host, urls[i].port);
+        else
+            wr = snprintf(one, sizeof(one), "%s://%s:%u",
                           urls[i].https ? "https" : "http",
                           urls[i].host, urls[i].port);
         if (wr < 0 || (size_t)wr >= sizeof(one)) return CETCD_ERR_OVERFLOW;

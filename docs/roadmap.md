@@ -179,6 +179,8 @@ Performance-first, fail-closed design:
   an https endpoint also fails. A non-port in `--listen-client-urls` used to
   bind port `0`; that now fails at parse. The same check applies to
   `--listen-peer-urls` and to `--initial-cluster` peer URLs.
+  `http://[::1]:2379` leftover-safe-parses and binds IPv6; leftover
+  `[::1]:2379foo` fail-closes.
 - **`--initial-cluster-state` / `--force-new-cluster`** — `new` (or omitted)
   bootstraps. `existing` restarts from cluster evidence (`cluster_token`,
   `data.mdb`, WAL, or `snapshot.kv`) or joins with `--initial-cluster` peers
@@ -225,6 +227,10 @@ Performance-first, fail-closed design:
   (missing port → 2379) so a typo cannot connect to a truncated port.
 - **pprof `?seconds=` leftover** — `/debug/pprof/profile?seconds=30foo` is
   HTTP 400 instead of profiling for truncated 30 seconds via `atoi`.
+- **IPv6 listen / peer URLs** — `http://[::1]:2379` leftover-safe-parses
+  and binds/connects via `uv_ip6_addr` instead of being rejected as invalid
+  or silently treated as IPv4. Advertise emits brackets. `unix://` still
+  fail-closes (no unix-socket listener). Leftover `[::1]:2379foo` fail-closes.
 - **etcd snapshot/WAL/bolt/client-cert leftovers** — `--max-snapshots` /
   `--max-wals` (single rewritten WAL), `--client-cert-file` /
   `--client-key-file` (no outbound client TLS), and `--backend-batch-*` /

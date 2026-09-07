@@ -290,6 +290,14 @@ static peer_tx_ *peer_tx_get_(cetcd_server *srv, uint64_t id) {
     return tx;
 }
 
+static int uv_host_addr_(const char *host, uint16_t port,
+                         struct sockaddr_storage *ss) {
+    if (!host || !ss) return UV_EINVAL;
+    memset(ss, 0, sizeof(*ss));
+    if (uv_ip4_addr(host, port, (struct sockaddr_in *)ss) == 0) return 0;
+    return uv_ip6_addr(host, port, (struct sockaddr_in6 *)ss);
+}
+
 static void peer_tx_connect_(peer_tx_ *tx) {
     if (tx->state != PEER_TX_IDLE || tx->shutting_down) return;
     if (!tx->tcp_init) {
@@ -299,13 +307,11 @@ static void peer_tx_connect_(peer_tx_ *tx) {
     }
     const cetcd_peer_info *pi = cetcd_cluster_get_peer(tx->srv->cluster, tx->id);
     if (!pi) return;
-    struct sockaddr_in sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sin_family = AF_INET;
-    sa.sin_port = htons(pi->port);
-    if (inet_pton(AF_INET, pi->addr, &sa.sin_addr) != 1) return;
+    struct sockaddr_storage ss;
+    if (uv_host_addr_(pi->addr, pi->port, &ss) != 0) return;
     tx->connect_req.data = tx;
-    if (uv_tcp_connect(&tx->connect_req, &tx->tcp, (const struct sockaddr *)&sa,
+    if (uv_tcp_connect(&tx->connect_req, &tx->tcp,
+                       (const struct sockaddr *)&ss,
                        on_peer_tx_connect_) == 0) {
         tx->state = PEER_TX_CONNECTING;
     }
@@ -3574,10 +3580,10 @@ int cetcd_server_serve(cetcd_server *srv) {
         srv->metrics_listener.data = srv;
         srv->metrics_listener_init = true;
 
-        struct sockaddr_in addr_in;
-        rc = uv_ip4_addr(maddr, srv->cfg.metrics_port, &addr_in);
+        struct sockaddr_storage addr_ss;
+        rc = uv_host_addr_(maddr, srv->cfg.metrics_port, &addr_ss);
         if (rc == 0)
-            rc = uv_tcp_bind(&srv->metrics_listener, (const struct sockaddr *)&addr_in,
+            rc = uv_tcp_bind(&srv->metrics_listener, (const struct sockaddr *)&addr_ss,
                              mbf);
         if (rc == 0)
             rc = uv_listen((uv_stream_t *)&srv->metrics_listener, 128, on_metrics_connection_);
@@ -3598,10 +3604,10 @@ int cetcd_server_serve(cetcd_server *srv) {
                 uv_tcp_t *ls = &srv->extra_metrics_listeners[i];
                 uv_tcp_init(loop, ls);
                 ls->data = srv;
-                rc = uv_ip4_addr(srv->cfg.extra_metrics_urls[i].host,
-                                 srv->cfg.extra_metrics_urls[i].port, &addr_in);
+                rc = uv_host_addr_(srv->cfg.extra_metrics_urls[i].host,
+                                   srv->cfg.extra_metrics_urls[i].port, &addr_ss);
                 if (rc == 0)
-                    rc = uv_tcp_bind(ls, (const struct sockaddr *)&addr_in, mbf);
+                    rc = uv_tcp_bind(ls, (const struct sockaddr *)&addr_ss, mbf);
                 if (rc == 0)
                     rc = uv_listen((uv_stream_t *)ls, 128, on_metrics_connection_);
                 if (rc != 0) {

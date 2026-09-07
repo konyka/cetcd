@@ -112,6 +112,16 @@ CETCD_TEST_CASE(parse_peer_url_leftover) {
                                              addr, sizeof(addr), &port, 2379),
                         CETCD_OK);
     CETCD_ASSERT_EQ_INT((int)port, 2379);
+    const char *v6 = "http://[::1]:2380";
+    CETCD_ASSERT_EQ_INT(cetcd_parse_peer_url(v6, strlen(v6),
+                                            addr, sizeof(addr), &port),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(strcmp(addr, "::1") == 0);
+    CETCD_ASSERT_EQ_INT((int)port, 2380);
+    const char *v6left = "http://[::1]:2380foo";
+    CETCD_ASSERT_EQ_INT(cetcd_parse_peer_url(v6left, strlen(v6left),
+                                            addr, sizeof(addr), &port),
+                        CETCD_ERR_RANGE);
 }
 
 CETCD_TEST_CASE(parse_rejects_empty_duplicate_overflow) {

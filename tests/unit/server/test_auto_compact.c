@@ -269,6 +269,28 @@ CETCD_TEST_CASE(auto_compact_parse_listen_url) {
                         CETCD_ERR_INVAL);
     CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://[::1]:2381", host,
                                                sizeof(host), &port, &https),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(strcmp(host, "::1"), 0);
+    CETCD_ASSERT_EQ_INT((int)port, 2381);
+    CETCD_ASSERT_EQ_INT(https, 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("https://[2001:db8::1]:2379", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(strcmp(host, "2001:db8::1"), 0);
+    CETCD_ASSERT_EQ_INT((int)port, 2379);
+    CETCD_ASSERT_EQ_INT(https, 1);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://[::1]:2381foo", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://[::1]", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://[::]:2381", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(strcmp(host, "::"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://[]:2381", host,
+                                               sizeof(host), &port, &https),
                         CETCD_ERR_INVAL);
     CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("unix:///tmp/m", host,
                                                sizeof(host), &port, &https),
@@ -369,6 +391,9 @@ CETCD_TEST_CASE(auto_compact_parse_advertise_urls) {
     CETCD_ASSERT_EQ_INT(strcmp(out,
                                "http://127.0.0.1:2379,http://10.0.0.1:12379"),
                         0);
+    CETCD_ASSERT_EQ_INT(cetcd_format_listen_advertise(
+        "::1", 2379, 0, NULL, 0, out, sizeof(out)), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(strcmp(out, "http://[::1]:2379"), 0);
 
     uint8_t pb[64];
     size_t pos = 0;

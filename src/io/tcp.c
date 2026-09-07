@@ -47,12 +47,15 @@ int cetcd_tcp_bind(cetcd_tcp *tcp, const char *addr, uint16_t port) {
 
 int cetcd_tcp_bind_ex(cetcd_tcp *tcp, const char *addr, uint16_t port,
                       unsigned flags) {
-    if (!tcp) return -1;
+    if (!tcp || !addr) return -1;
     struct sockaddr_in addr_in;
-    if (uv_ip4_addr(addr, port, &addr_in) != 0) {
-        return -1;
+    if (uv_ip4_addr(addr, port, &addr_in) == 0) {
+        int r = uv_tcp_bind(&tcp->handle, (const struct sockaddr *)&addr_in, flags);
+        return (r == 0) ? 0 : -1;
     }
-    int r = uv_tcp_bind(&tcp->handle, (const struct sockaddr *)&addr_in, flags);
+    struct sockaddr_in6 addr_in6;
+    if (uv_ip6_addr(addr, port, &addr_in6) != 0) return -1;
+    int r = uv_tcp_bind(&tcp->handle, (const struct sockaddr *)&addr_in6, flags);
     return (r == 0) ? 0 : -1;
 }
 

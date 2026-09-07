@@ -229,7 +229,10 @@ cetcd_rpc_bytes cluster_handle_member_list(cetcd_v3rpc *rpc,
             const cetcd_peer_info *pi = cetcd_cluster_get_peer_by_index(g_rpc_cluster, i);
             if (!pi) continue;
             char peer_url[300];
-            snprintf(peer_url, sizeof(peer_url), "%s:%u", pi->addr, pi->port);
+            if (strchr(pi->addr, ':'))
+                snprintf(peer_url, sizeof(peer_url), "[%s]:%u", pi->addr, pi->port);
+            else
+                snprintf(peer_url, sizeof(peer_url), "%s:%u", pi->addr, pi->port);
             uint8_t member_buf[256];
             size_t mlen = encode_member(member_buf, sizeof(member_buf),
                                          pi->id, NULL, peer_url, NULL, pi->is_learner);

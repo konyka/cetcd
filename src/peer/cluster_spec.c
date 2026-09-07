@@ -32,17 +32,35 @@ int cetcd_parse_host_port(const char *url, size_t url_len,
     if (!p[0]) return CETCD_ERR_INVAL;
 
     *port = default_port;
-    char *colon = strrchr(p, ':');
-    if (colon) {
-        *colon = '\0';
-        if (!p[0]) return CETCD_ERR_INVAL;
-        char *end = NULL;
-        errno = 0;
-        long v = strtol(colon + 1, &end, 10);
-        if (errno == ERANGE || !end || end == colon + 1 || *end ||
-            v < 1 || v > 65535)
-            return CETCD_ERR_RANGE;
-        *port = (uint16_t)v;
+    if (p[0] == '[') {
+        char *rb = strchr(p, ']');
+        if (!rb || rb == p + 1) return CETCD_ERR_INVAL;
+        if (rb[1] == ':') {
+            char *end = NULL;
+            errno = 0;
+            long v = strtol(rb + 2, &end, 10);
+            if (errno == ERANGE || !end || end == rb + 2 || *end ||
+                v < 1 || v > 65535)
+                return CETCD_ERR_RANGE;
+            *port = (uint16_t)v;
+        } else if (rb[1] != '\0') {
+            return CETCD_ERR_INVAL;
+        }
+        *rb = '\0';
+        p += 1;
+    } else {
+        char *colon = strrchr(p, ':');
+        if (colon) {
+            *colon = '\0';
+            if (!p[0]) return CETCD_ERR_INVAL;
+            char *end = NULL;
+            errno = 0;
+            long v = strtol(colon + 1, &end, 10);
+            if (errno == ERANGE || !end || end == colon + 1 || *end ||
+                v < 1 || v > 65535)
+                return CETCD_ERR_RANGE;
+            *port = (uint16_t)v;
+        }
     }
     size_t alen = strlen(p);
     if (alen == 0 || alen >= addr_cap) return CETCD_ERR_INVAL;

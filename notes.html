@@ -31,14 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 96 — leftover etcd VALUE flags</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 97 — IPv6 listen URLs</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 96 fail-closes
-     <code>--max-snapshots</code> / <code>--max-wals</code> /
-     <code>--client-cert-file</code> / bolt batch flags as known-unsupported
-     (single WAL; no outbound client TLS; LMDB) instead of unknown or a no-op.</p>
+  <p><strong>v0.3.0</strong>. Phase 97 leftover-safe-parses
+     <code>http://[::1]:2379</code> and binds/connects IPv6 so an etcd
+     UniqueURLs IPv6 listen cannot be rejected as invalid or treated as IPv4.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -150,6 +149,7 @@
       <tr><td>94</td><td>leftover peer URL port</td><td>MemberAdd/Update and endpoint --cluster leftover-safe-parse host:port; 2380foo fail-closes instead of joining/connecting on truncated 2380/2379 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>95</td><td>leftover pprof seconds</td><td>/debug/pprof/profile?seconds= leftover-safe; 30foo / 0 / &gt;300 is HTTP 400 instead of a truncated atoi duration — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>96</td><td>leftover etcd VALUE flags</td><td>--max-snapshots / --max-wals / --client-cert-file / --backend-batch-* / --backend-bbolt-freelist-type fail-close as known-unsupported (not unknown, not a no-op 5) — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>97</td><td>IPv6 listen URLs</td><td>http://[::1]:2379 leftover-safe-parses and binds/connects via uv_ip6_addr; advertise emits brackets; [::1]:2379foo fail-closes — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>
