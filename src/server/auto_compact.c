@@ -696,16 +696,13 @@ static int join_listen_urls_(const cetcd_listen_url *urls, size_t n,
     if (!urls || !n || !out || cap < 8) return CETCD_ERR_INVAL;
     size_t off = 0;
     for (size_t i = 0; i < n; i++) {
+        char hp[288];
+        if (cetcd_format_host_port(urls[i].host, urls[i].port, hp,
+                                   sizeof(hp)) != CETCD_OK)
+            return CETCD_ERR_INVAL;
         char one[320];
-        int wr;
-        if (strchr(urls[i].host, ':'))
-            wr = snprintf(one, sizeof(one), "%s://[%s]:%u",
-                          urls[i].https ? "https" : "http",
-                          urls[i].host, urls[i].port);
-        else
-            wr = snprintf(one, sizeof(one), "%s://%s:%u",
-                          urls[i].https ? "https" : "http",
-                          urls[i].host, urls[i].port);
+        int wr = snprintf(one, sizeof(one), "%s://%s",
+                          urls[i].https ? "https" : "http", hp);
         if (wr < 0 || (size_t)wr >= sizeof(one)) return CETCD_ERR_OVERFLOW;
         size_t need = (size_t)wr + (i ? 1 : 0) + 1;
         if (off + need > cap) return CETCD_ERR_OVERFLOW;

@@ -535,6 +535,10 @@ Performance-first, fail-closed design:
   as one garbage host. Mixed http/https, a duplicate, a trailing comma,
   leftover text, or a missing value fail-close. Accepting a list as a
   single URL is rejected.
+- **IPv6 `host:port` emit** — advertise URLs, MemberList peer URLs, and
+  `cetcdctl endpoint {health,status,hashkv}` use `cetcd_format_host_port`
+  (`[::1]:2379`, etcd `JoinHostPort`). Unbracketed `::1:2379` is not
+  leftover-safe (looks like port 1) and cannot be parsed back.
 - **`--host-whitelist`** — comma-separated Host names on the metrics
   HTTP port. Empty / `*` (omitted default) allows all. A restricted list
   waits for headers and returns 403 if Host is missing or not listed

@@ -87,6 +87,11 @@ int cetcd_host_port_resolve(const char *host, uint16_t port,
 int cetcd_host_port_resolve_n(const char *host, uint16_t port,
                               void *ss_arr, size_t cap, size_t *n);
 
+/* Emit `host:port` or `[v6]:port` (etcd JoinHostPort). Host is unbracketed.
+ * Empty host is INVAL; overflow if cap is too small. */
+int cetcd_format_host_port(const char *host, uint16_t port,
+                           char *out, size_t cap);
+
 #ifdef __cplusplus
 }
 #endif

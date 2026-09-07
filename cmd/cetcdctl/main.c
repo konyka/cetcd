@@ -88,6 +88,14 @@
 
 static const char *g_host = "127.0.0.1";
 static uint16_t    g_port = 2379;
+
+/* etcdctl JoinHostPort: IPv6 is [host]:port so ::1:2379 cannot look like port 1. */
+static const char *ep_str_(void) {
+    static char buf[288];
+    if (cetcd_format_host_port(g_host, g_port, buf, sizeof(buf)) != CETCD_OK)
+        return g_host ? g_host : "";
+    return buf;
+}
 static cetcd_endpoint g_eps[CETCD_DISCOVERY_MAX_ENDPOINTS];
 static size_t      g_n_eps;
 static int         g_endpoints_set;
@@ -3019,34 +3027,34 @@ static int cmd_endpoint(int argc, char **argv) {
                 if (hrlen < 0) {
                     any_unhealthy = 1;
                     if (want_json) {
-                        printf("{\"endpoint\":\"%s:%d\",\"status\":\"unhealthy\",\"took\":\"%.3fms\",\"error\":\"failed to connect\"}\n", g_host, g_port, took_ms);
+                        printf("{\"endpoint\":\"%s\",\"status\":\"unhealthy\",\"took\":\"%.3fms\",\"error\":\"failed to connect\"}\n", ep_str_(), took_ms);
                     } else if (want_fields) {
-                        printf("endpoint: %s:%d\n", g_host, g_port);
+                        printf("endpoint: %s\n", ep_str_());
                         printf("status: unhealthy\n");
                         printf("took: %.3fms\n", took_ms);
                         printf("error: failed to connect\n\n");
                     } else if (want_table) {
-                        char ep_addr[64]; snprintf(ep_addr, sizeof(ep_addr), "%s:%d", g_host, g_port);
+                        char ep_addr[288]; snprintf(ep_addr, sizeof(ep_addr), "%s", ep_str_());
                         printf("| %-20s | %-6s | %7.1fms | %-18s |\n", ep_addr, "false", took_ms, "failed to connect");
                     } else {
-                        printf("%s:%d is unhealthy: failed to connect\n", g_host, g_port);
+                        printf("%s is unhealthy: failed to connect\n", ep_str_());
                     }
                 } else {
                     if (want_json) {
                         fputs("{\"endpoint\":\"", stdout);
-                        printf("%s:%d\",", g_host, g_port);
+                        printf("%s\",", ep_str_());
                         parse_and_print_header_json(hresp, (size_t)hrlen);
                         printf(",\"status\":\"healthy\",\"took\":\"%.3fms\"}\n", took_ms);
                     } else if (want_fields) {
-                        printf("endpoint: %s:%d\n", g_host, g_port);
+                        printf("endpoint: %s\n", ep_str_());
                         parse_and_print_header_json(hresp, (size_t)hrlen);
                         printf("status: healthy\n");
                         printf("took: %.3fms\n\n", took_ms);
                     } else if (want_table) {
-                        char ep_addr2[64]; snprintf(ep_addr2, sizeof(ep_addr2), "%s:%d", g_host, g_port);
+                        char ep_addr2[288]; snprintf(ep_addr2, sizeof(ep_addr2), "%s", ep_str_());
                         printf("| %-20s | %-6s | %7.1fms | %-18s |\n", ep_addr2, "true", took_ms, "");
                     } else {
-                        printf("%s:%d is healthy (%.3fms)\n", g_host, g_port, took_ms);
+                        printf("%s is healthy (%.3fms)\n", ep_str_(), took_ms);
                     }
                 }
             }
@@ -3066,39 +3074,39 @@ static int cmd_endpoint(int argc, char **argv) {
         double took_ms = (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_usec - t0.tv_usec) / 1000.0;
         if (rlen < 0) {
             if (want_json) {
-                printf("{\"endpoint\":\"%s:%d\",\"status\":\"unhealthy\",\"took\":\"%.3fms\",\"error\":\"failed to connect\"}\n", g_host, g_port, took_ms);
+                printf("{\"endpoint\":\"%s\",\"status\":\"unhealthy\",\"took\":\"%.3fms\",\"error\":\"failed to connect\"}\n", ep_str_(), took_ms);
             } else if (want_fields) {
-                printf("endpoint: %s:%d\n", g_host, g_port);
+                printf("endpoint: %s\n", ep_str_());
                 printf("status: unhealthy\n");
                 printf("took: %.3fms\n", took_ms);
                 printf("error: failed to connect\n");
                 fputs("\n", stdout);
             } else if (want_table) {
-                char ep_addr[64]; snprintf(ep_addr, sizeof(ep_addr), "%s:%d", g_host, g_port);
+                char ep_addr[288]; snprintf(ep_addr, sizeof(ep_addr), "%s", ep_str_());
                 printf("| %-20s | %-6s | %7.1fms | %-18s |\n", ep_addr, "false", took_ms, "failed to connect");
                 printf("+----------------------+--------+-----------+--------------------+\n");
             } else {
-                printf("%s:%d is unhealthy: failed to connect\n", g_host, g_port);
+                printf("%s is unhealthy: failed to connect\n", ep_str_());
             }
             return 1;
         }
         if (want_json) {
             fputs("{\"endpoint\":\"", stdout);
-            printf("%s:%d\",", g_host, g_port);
+            printf("%s\",", ep_str_());
             parse_and_print_header_json(resp, (size_t)rlen);
             printf(",\"status\":\"healthy\",\"took\":\"%.3fms\"}\n", took_ms);
         } else if (want_fields) {
-            printf("endpoint: %s:%d\n", g_host, g_port);
+            printf("endpoint: %s\n", ep_str_());
             parse_and_print_header_json(resp, (size_t)rlen);
             printf("status: healthy\n");
             printf("took: %.3fms\n", took_ms);
             fputs("\n", stdout);
         } else if (want_table) {
-            char ep_addr[64]; snprintf(ep_addr, sizeof(ep_addr), "%s:%d", g_host, g_port);
+            char ep_addr[288]; snprintf(ep_addr, sizeof(ep_addr), "%s", ep_str_());
             printf("| %-20s | %-6s | %7.1fms | %-18s |\n", ep_addr, "true", took_ms, "");
             printf("+----------------------+--------+-----------+--------------------+\n");
         } else {
-            printf("%s:%d is healthy (%.3fms)\n", g_host, g_port, took_ms);
+            printf("%s is healthy (%.3fms)\n", ep_str_(), took_ms);
         }
         return 0;
     } else if (strcmp(argv[2], "status") == 0) {
@@ -3155,7 +3163,7 @@ static int cmd_endpoint(int argc, char **argv) {
                 }
                 if (want_json) {
                     fputs("{\"endpoint\":\"", stdout);
-                    printf("%s:%d\",", g_host, g_port);
+                    printf("%s\",", ep_str_());
                     parse_and_print_header_json(sresp, (size_t)srlen);
                     fputs(",\"version\":", stdout);
                     if (ver) print_json_string(ver, ver_len); else fputs("\"\"", stdout);
@@ -3167,10 +3175,10 @@ static int cmd_endpoint(int argc, char **argv) {
                            (unsigned long long)revision);
                 } else if (want_table) {
                     printf("| %-24s | %14llu | %9llu | %9llu |\n",
-                           g_host, (unsigned long long)leader, (unsigned long long)revision,
+                           ep_str_(), (unsigned long long)leader, (unsigned long long)revision,
                            (unsigned long long)db_size);
                 } else if (want_fields) {
-                    printf("endpoint: %s:%d\n", g_host, g_port);
+                    printf("endpoint: %s\n", ep_str_());
                     printf("ID: %llu\n", (unsigned long long)leader);
                     printf("revision: %llu\n", (unsigned long long)revision);
                     printf("dbSize: %llu\n", (unsigned long long)db_size);
@@ -3180,8 +3188,8 @@ static int cmd_endpoint(int argc, char **argv) {
                     if (ver) printf("version: %.*s\n", (int)ver_len, ver);
                     printf("\n");
                 } else {
-                    printf("endpoint: %s:%d  revision: %llu  db_size: %llu\n",
-                           g_host, g_port, (unsigned long long)revision, (unsigned long long)db_size);
+                    printf("endpoint: %s  revision: %llu  db_size: %llu\n",
+                           ep_str_(), (unsigned long long)revision, (unsigned long long)db_size);
                 }
             }
             if (want_table) {
@@ -3231,7 +3239,7 @@ static int cmd_endpoint(int argc, char **argv) {
         }
         if (want_json) {
             fputs("{\"endpoint\":\"", stdout);
-            printf("%s:%d\",", g_host, g_port);
+            printf("%s\",", ep_str_());
             parse_and_print_header_json(resp, (size_t)rlen);
             fputs(",\"version\":", stdout);
             if (ver) print_json_string(ver, ver_len); else fputs("\"\"", stdout);
@@ -3246,11 +3254,11 @@ static int cmd_endpoint(int argc, char **argv) {
             printf("|         ENDPOINT         |      ID        |  REVISION | DB SIZE   |\n");
             printf("+--------------------------+----------------+-----------+-----------+\n");
             printf("| %-24s | %14llu | %9llu | %9llu |\n",
-                   g_host, (unsigned long long)leader, (unsigned long long)revision,
+                   ep_str_(), (unsigned long long)leader, (unsigned long long)revision,
                    (unsigned long long)db_size);
             printf("+--------------------------+----------------+-----------+-----------+\n");
         } else if (want_fields) {
-            printf("endpoint: %s:%d\n", g_host, g_port);
+            printf("endpoint: %s\n", ep_str_());
             printf("ID: %llu\n", (unsigned long long)leader);
             printf("revision: %llu\n", (unsigned long long)revision);
             printf("dbSize: %llu\n", (unsigned long long)db_size);
@@ -3292,21 +3300,21 @@ static int cmd_endpoint(int argc, char **argv) {
                 }
                 if (want_json) {
                     fputs("{\"endpoint\":\"", stdout);
-                    printf("%s:%d\",", g_host, g_port);
+                    printf("%s\",", ep_str_());
                     parse_and_print_header_json(hresp, (size_t)hrlen);
                     printf(",\"hash\":%llu,\"compact_revision\":%llu}\n",
                            (unsigned long long)hash_val, (unsigned long long)compact_rev);
                 } else if (want_fields) {
-                    printf("endpoint: %s:%d\n", g_host, g_port);
+                    printf("endpoint: %s\n", ep_str_());
                     parse_and_print_header_json(hresp, (size_t)hrlen);
                     printf("hash: %llu\n", (unsigned long long)hash_val);
                     printf("compact_revision: %llu\n\n", (unsigned long long)compact_rev);
                 } else if (want_table) {
-                    char ep_addr[64]; snprintf(ep_addr, sizeof(ep_addr), "%s:%d", g_host, g_port);
+                    char ep_addr[288]; snprintf(ep_addr, sizeof(ep_addr), "%s", ep_str_());
                     printf("| %-20s | %016llx | %18llu |\n", ep_addr, (unsigned long long)hash_val, (unsigned long long)compact_rev);
                 } else {
-                    printf("endpoint: %s:%d  hash: %llu  compact_revision: %llu\n",
-                           g_host, g_port, (unsigned long long)hash_val, (unsigned long long)compact_rev);
+                    printf("endpoint: %s  hash: %llu  compact_revision: %llu\n",
+                           ep_str_(), (unsigned long long)hash_val, (unsigned long long)compact_rev);
                 }
             }
             if (want_table) {
@@ -3331,7 +3339,7 @@ static int cmd_endpoint(int argc, char **argv) {
         }
         if (want_json) {
             fputs("{\"endpoint\":\"", stdout);
-            printf("%s:%d\",", g_host, g_port);
+            printf("%s\",", ep_str_());
             parse_and_print_header_json(resp, (size_t)rlen);
             printf(",\"hash\":%llu,\"compact_revision\":%llu}\n",
                    (unsigned long long)hash_val, (unsigned long long)compact_rev);
@@ -3344,12 +3352,12 @@ static int cmd_endpoint(int argc, char **argv) {
             printf("+----------------------+------------------+--------------------+\n");
             printf("|      ENDPOINT        |       HASH       |  COMPACT_REV       |\n");
             printf("+----------------------+------------------+--------------------+\n");
-            char ep_addr[64]; snprintf(ep_addr, sizeof(ep_addr), "%s:%d", g_host, g_port);
+            char ep_addr[288]; snprintf(ep_addr, sizeof(ep_addr), "%s", ep_str_());
             printf("| %-20s | %016llx | %18llu |\n", ep_addr, (unsigned long long)hash_val, (unsigned long long)compact_rev);
             printf("+----------------------+------------------+--------------------+\n");
         } else {
-            printf("endpoint: %s:%d  hash: %llu  compact_revision: %llu\n",
-                   g_host, g_port, (unsigned long long)hash_val, (unsigned long long)compact_rev);
+            printf("endpoint: %s  hash: %llu  compact_revision: %llu\n",
+                   ep_str_(), (unsigned long long)hash_val, (unsigned long long)compact_rev);
         }
         return 0;
     } else {

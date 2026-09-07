@@ -267,6 +267,38 @@ CETCD_TEST_CASE(host_port_resolve_numeric_and_localhost) {
     CETCD_ASSERT_EQ_INT((int)many[0].ss_family, (int)ss.ss_family);
 }
 
+CETCD_TEST_CASE(format_host_port_brackets_ipv6) {
+    char out[64];
+    CETCD_ASSERT_EQ_INT(cetcd_format_host_port("127.0.0.1", 2379, out,
+                                               sizeof(out)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(out, "127.0.0.1:2379");
+    CETCD_ASSERT_EQ_INT(cetcd_format_host_port("localhost", 2380, out,
+                                               sizeof(out)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(out, "localhost:2380");
+    CETCD_ASSERT_EQ_INT(cetcd_format_host_port("::1", 2379, out, sizeof(out)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(out, "[::1]:2379");
+    CETCD_ASSERT_EQ_INT(cetcd_format_host_port("2001:db8::1", 2380, out,
+                                               sizeof(out)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(out, "[2001:db8::1]:2380");
+    cetcd_endpoint eps[1];
+    size_t n = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_endpoint_parse_list(out, eps, 1, &n), 0);
+    CETCD_ASSERT_EQ_STR(eps[0].host, "2001:db8::1");
+    CETCD_ASSERT_EQ_INT((int)eps[0].port, 2380);
+    CETCD_ASSERT_EQ_INT(cetcd_format_host_port("", 2379, out, sizeof(out)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_format_host_port(NULL, 2379, out, sizeof(out)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_format_host_port("::1", 2379, NULL, sizeof(out)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_format_host_port("::1", 2379, out, 4),
+                        CETCD_ERR_OVERFLOW);
+}
+
 CETCD_TEST_CASE(host_port_resolve_fail_closed) {
     struct sockaddr_storage ss;
     CETCD_ASSERT_EQ_INT(cetcd_host_port_resolve(NULL, 2379, &ss, sizeof(ss)),
@@ -306,6 +338,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(endpoint_parse_list_variants),
     CETCD_TEST_ENTRY(endpoint_parse_fail_closed),
     CETCD_TEST_ENTRY(host_port_resolve_numeric_and_localhost),
+    CETCD_TEST_ENTRY(format_host_port_brackets_ipv6),
     CETCD_TEST_ENTRY(host_port_resolve_fail_closed),
 CETCD_TEST_LIST_END
 CETCD_TEST_MAIN()

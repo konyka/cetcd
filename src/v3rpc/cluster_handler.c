@@ -45,6 +45,7 @@
 #include "cetcd/peer.h"
 #include "cetcd/mvcc.h"
 #include "cetcd/raft.h"
+#include "cetcd/discovery.h"
 
 extern cetcd_cluster *g_rpc_cluster;
 extern uint64_t       g_rpc_node_id;
@@ -229,10 +230,9 @@ cetcd_rpc_bytes cluster_handle_member_list(cetcd_v3rpc *rpc,
             const cetcd_peer_info *pi = cetcd_cluster_get_peer_by_index(g_rpc_cluster, i);
             if (!pi) continue;
             char peer_url[300];
-            if (strchr(pi->addr, ':'))
-                snprintf(peer_url, sizeof(peer_url), "[%s]:%u", pi->addr, pi->port);
-            else
-                snprintf(peer_url, sizeof(peer_url), "%s:%u", pi->addr, pi->port);
+            if (cetcd_format_host_port(pi->addr, pi->port, peer_url,
+                                       sizeof(peer_url)) != CETCD_OK)
+                continue;
             uint8_t member_buf[256];
             size_t mlen = encode_member(member_buf, sizeof(member_buf),
                                          pi->id, NULL, peer_url, NULL, pi->is_learner);

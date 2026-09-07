@@ -533,6 +533,18 @@ int cetcd_host_port_resolve_n(const char *host, uint16_t port,
     return CETCD_OK;
 }
 
+int cetcd_format_host_port(const char *host, uint16_t port,
+                           char *out, size_t cap) {
+    if (!host || !host[0] || !out || cap < 4) return CETCD_ERR_INVAL;
+    int n;
+    if (strchr(host, ':'))
+        n = snprintf(out, cap, "[%s]:%u", host, (unsigned)port);
+    else
+        n = snprintf(out, cap, "%s:%u", host, (unsigned)port);
+    if (n < 0 || (size_t)n >= cap) return CETCD_ERR_OVERFLOW;
+    return CETCD_OK;
+}
+
 int cetcd_host_port_resolve(const char *host, uint16_t port,
                             void *ss, size_t ss_cap) {
     if (!ss || ss_cap < sizeof(struct sockaddr_storage))
