@@ -862,11 +862,11 @@ file, `ETCD_*` maps to `--flag` (`ETCD_LISTEN_CLIENT_URLS`; empty ignored;
 `--max-concurrent-streams` must be `> 0`; it advertises HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS` (clamped to `CETCD_H2_MAX_STREAMS`). Omitted leaves nghttp2's default. `0` or leftover text fail-closes. Each HTTP/2 stream keeps its own path, token, and body (client gRPC and peer `POST /raft`).
 `--auth-token-ttl` is an integer seconds `> 0` (omitted default 300) for simple tokens; leftover text fail-closes. JWT `ttl=` in `--auth-token` still wins.
 `--bcrypt-cost` is `0` or `4..31`; a typo fail-closes instead of becoming SHA-256.
-`--log-outputs` is `stderr`, `stdout`, a file path, or `journal`/`syslog` (unix dgram); mixed comma-lists fail-close.
+`--log-outputs` is `stderr`, `stdout`, a file path, or `journal`/`syslog`/`systemd/journal` (unix dgram). etcd `default` fail-closes. `=` form is accepted. Mixed comma-lists fail-close.
 `--enable-log-rotation` (omitted default off) rotates a single file `--log-outputs` to a timestamped backup when size reaches `maxsize` MiB. `--log-rotation-config-json` is lumberjack JSON (`maxsize`/`maxage`/`maxbackups`/`localtime`/`compress`; `{}` is 100 MiB). `compress:true`, stdio/journal, or mixed outputs fail-close.
 `--raft-read-timeout` / `--raft-write-timeout` recycle a hung peer socket (Go duration; omitted default 5s; values `<5s` including `0` floor to 5s). Missing value or leftover text fail-close.
 `--logger` is `zap` or `capnslog`; any other type fail-closes.
-`--log-level` is `trace`/`debug`/`info`/`warn`/`error` (etcd `warning`/`dpanic`/`panic`/`fatal` aliases); any other level fail-closes.
+`--log-level` is `trace`/`debug`/`info`/`warn`/`error` (etcd `warning`/`dpanic`/`panic`/`fatal` aliases). `=` form is accepted (`--log-level=debug`). Any other level fail-closes.
 `--log-format` is `json` or `text` (etcd `console` = text); any other format fail-closes.
 `cetcdctl --discovery-srv` / `--discovery-srv-name` resolve
 `_etcd-client[-ssl]._tcp.<domain>` (0 records, invalid domain, or mix with

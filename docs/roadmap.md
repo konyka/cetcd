@@ -192,7 +192,9 @@ Performance-first, fail-closed design:
 - **Unknown server flags** — a typo or an unimplemented etcd flag such as
   `--wal-dir` fails at parse instead of starting with the option ignored.
 - **`--log-outputs`** — `stderr`/`stdout` (and `/dev/std{err,out}`), a file
-  path (append), or `journal`/`syslog` (unix dgram). Mixed comma-lists and
+  path (append), or `journal`/`syslog`/`systemd/journal` (unix dgram).
+  etcd `default` fail-closes (zap does not support it; do not create a
+  file named `default`). `=` form is accepted. Mixed comma-lists and
   open failure fail-close (no silent stderr).
 - **`--discovery-srv`** — DNS SRV lookup is not implemented. The flag used to
   be ignored while the client still used `--host`/`--endpoints` (default
@@ -259,13 +261,15 @@ Performance-first, fail-closed design:
   fail-closes. Peers omit `clientURLs` rather than advertising a hardcoded 2379.
 - **`--name`** — MemberList self `name`. Omitted or empty stays `default`.
   The flag used to be logged only while every member was named `default`.
-- **`--logger`** — `zap` or `capnslog` are accepted (built-in logger). Any
-  other type used to be ignored while still starting; that now fails at parse.
+- **`--logger`** — `zap` or `capnslog` are accepted (built-in logger). `=`
+  form is accepted. Any other type used to be ignored while still starting;
+  that now fails at parse.
 - **`--log-level`** — `trace`/`debug`/`info`/`warn`/`error` (etcd aliases
-  `warning`/`dpanic`/`panic`/`fatal`). A typo used to become `info`; that now
-  fails at parse.
-- **`--log-format`** — `json` or `text` (etcd `console` = text). A typo used
-  to become text; that now fails at parse.
+  `warning`/`dpanic`/`panic`/`fatal`). `=` form is accepted (`--log-level=debug`
+  is the etcd 3.5 replacement for `--debug`). A typo used to become `info`;
+  that now fails at parse.
+- **`--log-format`** — `json` or `text` (etcd `console` = text). `=` form is
+  accepted. A typo used to become text; that now fails at parse.
 - **`--port`** — `1..65535`. A typo used to bind port `0` (ephemeral); that
   now fails at parse.
 - **`--peer-port`** — `1..65535`. A typo used to bind the Raft port on `0`;
@@ -300,8 +304,9 @@ Performance-first, fail-closed design:
   path fail-closes. Set without `--data-dir` fail-closes at start. Operators
   can put the fsync-heavy WAL on a separate NVMe without moving LMDB.
 - **`--log-outputs` file / journal** — `stderr`/`stdout`/`/dev/std{err,out}`,
-  a file path (append), or `journal`/`syslog` (unix dgram to
-  `/run/systemd/journal/dev-log` then `/dev/log`). Mixed comma-lists and
+  a file path (append), or `journal`/`syslog`/`systemd/journal` (unix dgram to
+  `/run/systemd/journal/dev-log` then `/dev/log`). etcd `default` fail-closes.
+  `=` form is accepted. Mixed comma-lists and
   open failure fail-closed (no silent stderr). Windows has no unix dgram
   journal and fail-closes.
 - **`--initial-cluster-state existing`** — restart from cluster evidence, or

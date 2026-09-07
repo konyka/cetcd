@@ -1,4 +1,5 @@
 #include "cetcd/base.h"
+#include "cetcd/log.h"
 #include "cetcd_test.h"
 
 #include <stdio.h>
@@ -129,7 +130,36 @@ CETCD_TEST_CASE(log_outputs_fail_closed) {
     CETCD_ASSERT_TRUE(cetcd_log_open_outputs("stderr,stdout", &owned) != 0);
     CETCD_ASSERT_TRUE(cetcd_log_open_outputs("stderr,/tmp/cetcd-mixed.log", &owned) != 0);
     CETCD_ASSERT_TRUE(cetcd_log_open_outputs("stderr,journal", &owned) != 0);
+    CETCD_ASSERT_TRUE(cetcd_log_open_outputs("default", &owned) != 0);
+    CETCD_ASSERT_TRUE(cetcd_log_open_outputs("default,stderr", &owned) != 0);
     cetcd_log_set_sink(stderr);
+}
+
+CETCD_TEST_CASE(log_parse_level_format_logger) {
+    cetcd_log_level lvl = CETCD_LOG_OFF;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_level("debug", &lvl), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)lvl, (int)CETCD_LOG_DEBUG);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_level("warning", &lvl), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)lvl, (int)CETCD_LOG_WARN);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_level("fatal", &lvl), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)lvl, (int)CETCD_LOG_ERROR);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_level("verbose", &lvl), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_level(NULL, &lvl), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_level("debug", NULL), CETCD_ERR_INVAL);
+
+    cetcd_log_format fmt = CETCD_LOG_FORMAT_JSON;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_format("text", &fmt), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)fmt, (int)CETCD_LOG_FORMAT_TEXT);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_format("console", &fmt), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)fmt, (int)CETCD_LOG_FORMAT_TEXT);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_format("json", &fmt), CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)fmt, (int)CETCD_LOG_FORMAT_JSON);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_log_format("pretty", &fmt), CETCD_ERR_INVAL);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_logger("zap"), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_logger("capnslog"), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_logger("logrus"), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_logger(NULL), CETCD_ERR_INVAL);
 }
 
 #if !defined(_WIN32)
@@ -284,6 +314,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(json_format_emits_valid_ish_json),
     CETCD_TEST_ENTRY(log_outputs_stdio_and_file),
     CETCD_TEST_ENTRY(log_outputs_fail_closed),
+    CETCD_TEST_ENTRY(log_parse_level_format_logger),
 #if !defined(_WIN32)
     CETCD_TEST_ENTRY(log_outputs_journal_unix_socket),
 #endif

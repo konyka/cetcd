@@ -527,35 +527,30 @@ int main(int argc, char **argv) {
             }
             cfg.n_initial_peers = n;
             if (https) cfg.initial_cluster_https = true;
-        } else if (strcmp(argv[i], "--log-level") == 0 && i + 1 < argc) {
-            const char *lvl = argv[++i];
-            if (strcmp(lvl, "trace") == 0) cetcd_log_set_level(CETCD_LOG_TRACE);
-            else if (strcmp(lvl, "debug") == 0) cetcd_log_set_level(CETCD_LOG_DEBUG);
-            else if (strcmp(lvl, "info") == 0) cetcd_log_set_level(CETCD_LOG_INFO);
-            else if (strcmp(lvl, "warn") == 0 || strcmp(lvl, "warning") == 0)
-                cetcd_log_set_level(CETCD_LOG_WARN);
-            else if (strcmp(lvl, "error") == 0 ||
-                     strcmp(lvl, "dpanic") == 0 ||
-                     strcmp(lvl, "panic") == 0 ||
-                     strcmp(lvl, "fatal") == 0)
-                cetcd_log_set_level(CETCD_LOG_ERROR);
-            else {
+        } else if (strcmp(argv[i], "--log-level") == 0 ||
+                   strncmp(argv[i], "--log-level=", 12) == 0) {
+            const char *lvl = NULL;
+            cetcd_log_level parsed = CETCD_LOG_INFO;
+            if (take_flag_value_(&i, argc, argv, &lvl) != 0 ||
+                cetcd_parse_log_level(lvl, &parsed) != CETCD_OK) {
                 fprintf(stderr,
                         "--log-level %s is not supported (trace, debug, info, warn, error)\n",
-                        lvl);
+                        lvl ? lvl : "");
                 return 1;
             }
-        } else if (strcmp(argv[i], "--log-format") == 0 && i + 1 < argc) {
-            const char *fmt = argv[++i];
-            if (strcmp(fmt, "json") == 0) cetcd_log_set_format(CETCD_LOG_FORMAT_JSON);
-            else if (strcmp(fmt, "text") == 0 || strcmp(fmt, "console") == 0)
-                cetcd_log_set_format(CETCD_LOG_FORMAT_TEXT);
-            else {
+            cetcd_log_set_level(parsed);
+        } else if (strcmp(argv[i], "--log-format") == 0 ||
+                   strncmp(argv[i], "--log-format=", 13) == 0) {
+            const char *fmt = NULL;
+            cetcd_log_format parsed = CETCD_LOG_FORMAT_TEXT;
+            if (take_flag_value_(&i, argc, argv, &fmt) != 0 ||
+                cetcd_parse_log_format(fmt, &parsed) != CETCD_OK) {
                 fprintf(stderr,
                         "--log-format %s is not supported (text, json)\n",
-                        fmt);
+                        fmt ? fmt : "");
                 return 1;
             }
+            cetcd_log_set_format(parsed);
         } else if (strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return 0;
@@ -1048,15 +1043,22 @@ int main(int argc, char **argv) {
             }
             cfg.tls_max_version_set = true;
             cfg.tls_max_version = v;
-        } else if (strcmp(argv[i], "--logger") == 0 && i + 1 < argc) {
-            const char *lg = argv[++i];
-            if (strcmp(lg, "zap") != 0 && strcmp(lg, "capnslog") != 0) {
+        } else if (strcmp(argv[i], "--logger") == 0 ||
+                   strncmp(argv[i], "--logger=", 9) == 0) {
+            const char *lg = NULL;
+            if (take_flag_value_(&i, argc, argv, &lg) != 0 ||
+                cetcd_parse_logger(lg) != CETCD_OK) {
                 fprintf(stderr, "--logger %s is not supported (zap or capnslog)\n",
-                        lg);
+                        lg ? lg : "");
                 return 1;
             }
-        } else if (strcmp(argv[i], "--log-outputs") == 0 && i + 1 < argc) {
-            const char *out = argv[++i];
+        } else if (strcmp(argv[i], "--log-outputs") == 0 ||
+                   strncmp(argv[i], "--log-outputs=", 14) == 0) {
+            const char *out = NULL;
+            if (take_flag_value_(&i, argc, argv, &out) != 0 || !out[0]) {
+                fprintf(stderr, "--log-outputs requires a target\n");
+                return 1;
+            }
             if (log_owned) {
                 fclose(log_owned);
                 log_owned = NULL;

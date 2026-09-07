@@ -239,11 +239,12 @@ cetcd accepts several etcd server flags for migration compatibility:
 # --grpc-keepalive-permit-without-stream is a bool (not applied); a typo fails at parse
 # other --grpc-keepalive-* are unknown flags and do not swallow the next argv
 # --logger zap|capnslog is accepted; other types fail at parse
-# --log-level is trace|debug|info|warn|error (etcd aliases); a typo fails at parse
+# --log-level is trace|debug|info|warn|error (etcd aliases); = form is accepted
+# --log-outputs=default fail-closes (etcd zap); systemd/journal is journal
 # --log-format is json|text (etcd console = text); a typo fails at parse
 ./build/bin/cetcd --grpc-keepalive-interval 2h --grpc-keepalive-timeout 20s \
   --grpc-keepalive-min-time 5s --grpc-keepalive-permit-without-stream true \
-  --logger zap --log-level info --log-format text --log-outputs stderr
+  --logger=zap --log-level=info --log-format=text --log-outputs=stderr
 # --enable-log-rotation requires a single file --log-outputs; compress=true fails
 # --log-rotation-config-json '{"maxsize":100,"maxage":0,"maxbackups":0,"localtime":false,"compress":false}'
 

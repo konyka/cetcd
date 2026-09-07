@@ -38,8 +38,16 @@ cetcd_log_format cetcd_log_get_format(void);
 void             cetcd_log_set_sink(FILE *fp);
 FILE            *cetcd_log_get_sink(void);
 
+/* etcd aliases: warning→warn; dpanic/panic/fatal→error. */
+int              cetcd_parse_log_level(const char *s, cetcd_log_level *out);
+/* json, or text (etcd console = text). */
+int              cetcd_parse_log_format(const char *s, cetcd_log_format *out);
+/* zap or capnslog. Other types are INVAL. */
+int              cetcd_parse_logger(const char *s);
+
 /* Parse --log-outputs: stderr/stdout (/dev/std{err,out}), a file path
- * (append), or journal/syslog. Mixed comma-lists fail-closed. *owned is
+ * (append), or journal/syslog/systemd/journal. etcd `default` is INVAL
+ * (zap does not support it). Mixed comma-lists fail-closed. *owned is
  * the FILE to fclose at shutdown (NULL for stdio). */
 int              cetcd_log_open_outputs(const char *spec, FILE **owned);
 

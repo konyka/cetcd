@@ -154,6 +154,39 @@ static int same_stdio_(const char *tok, FILE **sink) {
     return 0;
 }
 
+int cetcd_parse_log_level(const char *s, cetcd_log_level *out) {
+    if (!s || !s[0] || !out) return CETCD_ERR_INVAL;
+    if (strcmp(s, "trace") == 0) { *out = CETCD_LOG_TRACE; return CETCD_OK; }
+    if (strcmp(s, "debug") == 0) { *out = CETCD_LOG_DEBUG; return CETCD_OK; }
+    if (strcmp(s, "info") == 0) { *out = CETCD_LOG_INFO; return CETCD_OK; }
+    if (strcmp(s, "warn") == 0 || strcmp(s, "warning") == 0) {
+        *out = CETCD_LOG_WARN;
+        return CETCD_OK;
+    }
+    if (strcmp(s, "error") == 0 || strcmp(s, "dpanic") == 0 ||
+        strcmp(s, "panic") == 0 || strcmp(s, "fatal") == 0) {
+        *out = CETCD_LOG_ERROR;
+        return CETCD_OK;
+    }
+    return CETCD_ERR_INVAL;
+}
+
+int cetcd_parse_log_format(const char *s, cetcd_log_format *out) {
+    if (!s || !s[0] || !out) return CETCD_ERR_INVAL;
+    if (strcmp(s, "json") == 0) { *out = CETCD_LOG_FORMAT_JSON; return CETCD_OK; }
+    if (strcmp(s, "text") == 0 || strcmp(s, "console") == 0) {
+        *out = CETCD_LOG_FORMAT_TEXT;
+        return CETCD_OK;
+    }
+    return CETCD_ERR_INVAL;
+}
+
+int cetcd_parse_logger(const char *s) {
+    if (!s || !s[0]) return CETCD_ERR_INVAL;
+    if (strcmp(s, "zap") == 0 || strcmp(s, "capnslog") == 0) return CETCD_OK;
+    return CETCD_ERR_INVAL;
+}
+
 int cetcd_log_open_outputs(const char *spec, FILE **owned) {
     if (owned) *owned = NULL;
     if (!spec || !spec[0]) return CETCD_ERR_INVAL;
@@ -174,7 +207,9 @@ int cetcd_log_open_outputs(const char *spec, FILE **owned) {
         while (tl > 0 && (tok[tl - 1] == ' ' || tok[tl - 1] == '\t'))
             tok[--tl] = '\0';
         if (tl == 0) return CETCD_ERR_INVAL;
-        if (strcmp(tok, "journal") == 0 || strcmp(tok, "syslog") == 0) {
+        if (strcmp(tok, "default") == 0) return CETCD_ERR_INVAL;
+        if (strcmp(tok, "journal") == 0 || strcmp(tok, "syslog") == 0 ||
+            strcmp(tok, "systemd/journal") == 0) {
             if (chosen || saw_file) return CETCD_ERR_INVAL;
             FILE *j = NULL;
             int jc = cetcd_log_open_journal(NULL, &j);

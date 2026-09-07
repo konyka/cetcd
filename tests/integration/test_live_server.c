@@ -2720,6 +2720,16 @@ CETCD_TEST_CASE(live_cetcd_log_level) {
              "'%s' --log-level verbose >/dev/null 2>&1",
              CETCD_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --log-level=debug --log-outputs=stderr --logger=zap --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --log-outputs=default >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
 CETCD_TEST_CASE(live_cetcd_log_format) {
