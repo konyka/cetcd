@@ -510,9 +510,13 @@ Performance-first, fail-closed design:
 - **`--socket-reuse-port`** — bool (omitted default off; bare / `true`
   sets `SO_REUSEPORT` via `UV_TCP_REUSEPORT` on client, peer, and
   metrics listeners). Windows has no `SO_REUSEPORT` and fail-closes
-  at start. A non-bool fail-closes. `--socket-reuse-address` is not
-  accepted (libuv already sets `SO_REUSEADDR`; a false value would be
-  a lie).
+  at start. A non-bool fail-closes. `--socket-reuse-address` `true` /
+  bare is accepted (libuv already sets `SO_REUSEADDR`); `false`
+  fail-closes (cannot disable it).
+- **etcd disable-forms** — `--enable-grpc-gateway=false` / `--enable-v2=false`
+  / `--unsafe-no-fsync=false` are accepted (gateway, v2, and skipped
+  fsync are already off). Bare / `true` fail-closes (do not pretend).
+  `--listen-client-http-urls` fail-closes (gRPC-gateway is a non-goal).
 - **`--enable-log-rotation` / `--log-rotation-config-json`** — omitted
   default off. Requires a single `--log-outputs` file path (stdio /
   journal / comma-list fail-close). JSON is lumberjack

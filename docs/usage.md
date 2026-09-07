@@ -199,6 +199,7 @@ cetcd accepts several etcd server flags for migration compatibility:
 # Self-signed ECDSA P-256 into {data-dir}/fixtures/ (requires --data-dir)
 # --self-signed-cert-validity is years (default 1; must be > 0)
 # --auto-tls=false / --peer-auto-tls=false / --force-new-cluster=false are off, not unknown
+# --enable-grpc-gateway=false / --enable-v2=false / --unsafe-no-fsync=false are already-off (true fail-closes)
 ./build/bin/cetcd --auto-tls --peer-auto-tls --self-signed-cert-validity 1 \
   --data-dir ./data
 

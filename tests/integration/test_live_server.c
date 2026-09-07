@@ -2923,6 +2923,39 @@ CETCD_TEST_CASE(live_cetcd_experimental_unsupported) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_etcd_compat) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --enable-grpc-gateway=false --enable-v2=false --unsafe-no-fsync=false --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --socket-reuse-address=true --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --enable-grpc-gateway >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --unsafe-no-fsync=true >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --socket-reuse-address=false >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --listen-client-http-urls=http://127.0.0.1:2379 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_raft_io_timeout) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -3857,6 +3890,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_log_rotation),
     CETCD_TEST_ENTRY(live_cetcd_log_outputs),
     CETCD_TEST_ENTRY(live_cetcd_grpc_keepalive),
+    CETCD_TEST_ENTRY(live_cetcd_experimental_unsupported),
+    CETCD_TEST_ENTRY(live_cetcd_etcd_compat),
     CETCD_TEST_ENTRY(live_cetcd_auto_tls_requires_certs),
     CETCD_TEST_ENTRY(live_cetcd_self_signed_cert_validity),
     CETCD_TEST_ENTRY(live_cetcd_advertise_https_requires_certs),

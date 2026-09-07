@@ -118,6 +118,12 @@ int cetcd_format_etcd_version(char *out, size_t cap);
 /* arg is --experimental-name or --experimental-name=.... Implemented
  * experimental flags are NONE. */
 int cetcd_experimental_unsupported_kind(const char *arg);
+/* Known etcd 3.5 flags we cannot honor without lying (gateway/v2/no-fsync). */
+#define CETCD_COMPAT_NONE     0
+#define CETCD_COMPAT_BOOL_OFF 1 /* false OK; true/bare fail-closed */
+#define CETCD_COMPAT_BOOL_ON  2 /* true/bare OK (already on); false fail-closed */
+#define CETCD_COMPAT_VALUE    3 /* any presence is UNSUPPORT */
+int cetcd_etcd_compat_kind(const char *arg);
 /* Known --grpc-keepalive-* names. Unknown names must not swallow argv. */
 #define CETCD_KA_NONE     0
 #define CETCD_KA_IDLE     1 /* time / interval → TCP_KEEPIDLE */

@@ -116,6 +116,8 @@ static void print_usage(const char *prog) {
     printf("  --experimental-compact-hash-check-enabled  Leader compares follower compact HashKV (default off)\n");
     printf("  --experimental-compact-hash-check-time DUR  Compact HashKV compare period (default 1m; 0 = every tick)\n");
     printf("  --experimental-*    Unimplemented or unknown experimental flags fail at parse (false is OK)\n");
+    printf("  --enable-grpc-gateway / --enable-v2 / --unsafe-no-fsync  false is OK; true fail-closed\n");
+    printf("  --socket-reuse-address  true is OK (libuv SO_REUSEADDR); false fail-closed\n");
     printf("  --help           Show this help\n");
 }
 
@@ -1634,6 +1636,31 @@ int main(int argc, char **argv) {
         } else if (strncmp(argv[i], "--experimental-", 15) == 0) {
             fprintf(stderr, "unknown flag: %s\n", argv[i]);
             return 1;
+        } else if (cetcd_etcd_compat_kind(argv[i]) == CETCD_COMPAT_VALUE) {
+            fprintf(stderr, "%s is not supported\n", argv[i]);
+            return 1;
+        } else if (cetcd_etcd_compat_kind(argv[i]) == CETCD_COMPAT_BOOL_OFF) {
+            const char *flag = argv[i];
+            int on = 1;
+            if (take_bool_flag_(&i, argc, argv, &on) != 0) {
+                fprintf(stderr, "%s must be true or false\n", flag);
+                return 1;
+            }
+            if (on) {
+                fprintf(stderr, "%s is not supported\n", flag);
+                return 1;
+            }
+        } else if (cetcd_etcd_compat_kind(argv[i]) == CETCD_COMPAT_BOOL_ON) {
+            const char *flag = argv[i];
+            int on = 1;
+            if (take_bool_flag_(&i, argc, argv, &on) != 0) {
+                fprintf(stderr, "%s must be true or false\n", flag);
+                return 1;
+            }
+            if (!on) {
+                fprintf(stderr, "%s=false is not supported\n", flag);
+                return 1;
+            }
         } else {
             fprintf(stderr, "unknown flag: %s\n", argv[i]);
             return 1;

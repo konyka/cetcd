@@ -1191,6 +1191,19 @@ int cetcd_experimental_unsupported_kind(const char *arg) {
     return CETCD_EX_UNSUP_NONE;
 }
 
+int cetcd_etcd_compat_kind(const char *arg) {
+    if (!arg) return CETCD_COMPAT_NONE;
+    if (cetcd_cli_flag_is(arg, "--enable-grpc-gateway") ||
+        cetcd_cli_flag_is(arg, "--enable-v2") ||
+        cetcd_cli_flag_is(arg, "--unsafe-no-fsync"))
+        return CETCD_COMPAT_BOOL_OFF;
+    if (cetcd_cli_flag_is(arg, "--socket-reuse-address"))
+        return CETCD_COMPAT_BOOL_ON;
+    if (cetcd_cli_flag_is(arg, "--listen-client-http-urls"))
+        return CETCD_COMPAT_VALUE;
+    return CETCD_COMPAT_NONE;
+}
+
 int cetcd_grpc_keepalive_kind(const char *arg) {
     if (!arg) return CETCD_KA_NONE;
     const char *p = arg;

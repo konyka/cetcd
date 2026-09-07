@@ -1011,6 +1011,33 @@ CETCD_TEST_CASE(auto_compact_experimental_unsupported) {
                         CETCD_EX_UNSUP_NONE);
 }
 
+CETCD_TEST_CASE(auto_compact_etcd_compat) {
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--enable-grpc-gateway"),
+                        CETCD_COMPAT_BOOL_OFF);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--enable-grpc-gateway=false"),
+                        CETCD_COMPAT_BOOL_OFF);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--enable-v2=false"),
+                        CETCD_COMPAT_BOOL_OFF);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--unsafe-no-fsync=true"),
+                        CETCD_COMPAT_BOOL_OFF);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--socket-reuse-address"),
+                        CETCD_COMPAT_BOOL_ON);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--socket-reuse-address=false"),
+                        CETCD_COMPAT_BOOL_ON);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--listen-client-http-urls"),
+                        CETCD_COMPAT_VALUE);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind(
+        "--listen-client-http-urls=http://127.0.0.1:2379"),
+                        CETCD_COMPAT_VALUE);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--enable-v2v3"),
+                        CETCD_COMPAT_NONE);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--discovery-srv"),
+                        CETCD_COMPAT_NONE);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--listen-client-urls"),
+                        CETCD_COMPAT_NONE);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind(NULL), CETCD_COMPAT_NONE);
+}
+
 CETCD_TEST_CASE(auto_compact_grpc_keepalive) {
     CETCD_ASSERT_EQ_INT(cetcd_grpc_keepalive_kind("--grpc-keepalive-time"),
                         CETCD_KA_IDLE);
@@ -1200,6 +1227,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_format_etcd_version),
     CETCD_TEST_ENTRY(auto_compact_etcd_env),
     CETCD_TEST_ENTRY(auto_compact_experimental_unsupported),
+    CETCD_TEST_ENTRY(auto_compact_etcd_compat),
     CETCD_TEST_ENTRY(auto_compact_grpc_keepalive),
     CETCD_TEST_ENTRY(auto_compact_quota_backend_bytes),
     CETCD_TEST_ENTRY(auto_compact_snapshot_count),
