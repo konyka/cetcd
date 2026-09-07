@@ -273,10 +273,7 @@ int main(int argc, char **argv) {
     {
         const char *config_file = NULL;
         for (int i = 1; i < argc; i++) {
-            if (strcmp(argv[i], "--help") == 0) {
-                print_usage(argv[0]);
-                return 0;
-            } else if (strcmp(argv[i], "--version") == 0) {
+            if (strcmp(argv[i], "--version") == 0) {
                 if (i + 1 < argc && argv[i + 1][0] != '-') {
                     int b = 0;
                     if (cetcd_parse_bool_flag(argv[++i], &b) != CETCD_OK) {
@@ -311,6 +308,17 @@ int main(int argc, char **argv) {
         if (!config_file) {
             const char *e = getenv("ETCD_CONFIG_FILE");
             if (e && e[0]) config_file = e;
+        }
+        {
+            int want_help = 0;
+            for (int hi = 1; hi < argc; hi++) {
+                if (strcmp(argv[hi], "--help") == 0) {
+                    want_help = 1;
+                    break;
+                }
+            }
+            if (config_file && want_help)
+                config_file = NULL;
         }
         if (config_file) {
             static char cfg_text[65536];
@@ -1287,6 +1295,15 @@ int main(int argc, char **argv) {
             if (take_flag_value_(&i, argc, argv, &ac_mode_s) != 0) {
                 fprintf(stderr, "--auto-compaction-mode requires periodic or revision\n");
                 return 1;
+            }
+            {
+                cetcd_auto_compact_mode tmp = CETCD_AUTO_COMPACT_PERIODIC;
+                if (cetcd_parse_auto_compaction_mode(ac_mode_s, &tmp) != CETCD_OK) {
+                    fprintf(stderr,
+                            "--auto-compaction-mode %s is invalid (periodic or revision)\n",
+                            ac_mode_s);
+                    return 1;
+                }
             }
         } else if (cetcd_cli_flag_is(argv[i], "--auto-compaction-retention")) {
             if (take_flag_value_(&i, argc, argv, &ac_ret_s) != 0) {

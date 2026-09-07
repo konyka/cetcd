@@ -4,6 +4,9 @@
 #include "cetcd/metrics.h"
 #include "cetcd/slab.h"
 #include "cetcd/io.h"
+#if defined(__clang__) || defined(__GNUC__)
+#pragma weak cetcd_co_walk
+#endif
 #include "cetcd/log.h"
 #include <stdlib.h>
 #include <string.h>
@@ -268,7 +271,8 @@ int cetcd_pprof_coroutines_render(cetcd_buf_t *buf) {
     cetcd_buf_t rows;
     cetcd_buf_init(&rows);
     co_render_ctx_ ctx = { &rows, 0 };
-    cetcd_co_walk(co_render_walk_cb_, &ctx);
+    if (cetcd_co_walk)
+        cetcd_co_walk(co_render_walk_cb_, &ctx);
 
     cetcd_buf_printf(buf, "--- coroutines\n");
     cetcd_buf_printf(buf, "Total: %zu\n", ctx.count);

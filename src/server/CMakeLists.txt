@@ -2,7 +2,7 @@ cetcd_add_module(server
     SOURCES
         server.c
         auto_compact.c
-        corrupt_check.c)
+        corrupt_check.c
     PUBLIC_DEPS
         cetcd_base
     PRIVATE_DEPS

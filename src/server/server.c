@@ -255,6 +255,7 @@ static void on_peer_tx_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t 
 static void peer_tx_drain_(peer_tx_ *tx);
 static void peer_tx_close_(peer_tx_ *tx);
 static int apply_socket_keepalive_(cetcd_server *srv, uv_tcp_t *tcp);
+static int apply_snap_context_(cetcd_server *srv, const cetcd_msg *msg);
 static int  tls_flush_uv_(uv_stream_t *stream, cetcd_tls_conn *tls);
 static int tls_peer_identity_ok_(cetcd_server *srv, cetcd_tls_conn *tls) {
     if (!srv || !tls) return 0;
@@ -1844,7 +1845,7 @@ static void on_client_conn_(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
 
     uv_stream_t *stream = cetcd_tcp_stream(client);
     if (stream) {
-        if (srv->tls_client && srv->cfg.listen_https) {
+        if (srv->tls_client) {
             ctx->tls = cetcd_tls_conn_accept(srv->tls_client);
             if (!ctx->tls) {
                 free(ctx->buf);
@@ -2754,7 +2755,10 @@ cetcd_server *cetcd_server_new(const cetcd_server_config *cfg) {
     g_rpc_raft = srv->raft;
 
     cetcd_v3rpc_set_ready_flush(ready_flush_cb_, srv);
-    maybe_campaign_single_(srv);
+    /* start() campaigns after loading persisted peers; data-dir joins must not
+     * elect as a singleton here. Tests that never call start still need this. */
+    if (!cfg->data_dir[0])
+        maybe_campaign_single_(srv);
 
     srv->metrics = cetcd_metrics_new();
     if (srv->metrics) {
@@ -3076,7 +3080,7 @@ int cetcd_server_start(cetcd_server *srv) {
                                                    srv->cfg.peer_trusted_ca_file) ||
                         !cetcd_tls_name_list_open(srv->cfg.peer_cert_allowed_cn) ||
                         !cetcd_tls_name_list_open(srv->cfg.peer_cert_allowed_hostname);
-        int want_client_tls = srv->cfg.listen_https;
+        int want_client_tls = srv->cfg.listen_https || srv->cfg.cert_file[0];
         int want_metrics_tls = cetcd_metrics_listen_has_https(
             srv->cfg.metrics_listen_https,
             srv->cfg.extra_metrics_urls,

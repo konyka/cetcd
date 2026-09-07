@@ -239,7 +239,7 @@ cetcd_snap *cetcd_snap_decode_kv(const uint8_t *data, size_t len) {
     } else if (n >= 12 && p && memcmp(p, "CTS1", 4) == 0) {
         p += 12;
         n -= 12;
-    } else if (n > 0 && p && n < 16 && memcmp(p, "CTS2", 4) == 0) {
+    } else if (n >= 4 && n < 16 && p && memcmp(p, "CTS2", 4) == 0) {
         return NULL;
     }
     if (n == 0) {

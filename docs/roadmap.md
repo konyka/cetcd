@@ -249,7 +249,15 @@ Performance-first, fail-closed design:
   non-duration value now fails at parse.
   `--grpc-keepalive-permit-without-stream` stays a no-op (not TCP-mappable) but
   a non-boolean value now fails at parse. A bare flag is accepted.
-  Other `--grpc-keepalive-*` are unknown flags and do not swallow the next argv.
+  Other `--grpc-keepalive-*` are unknown flags and do not swallow the next argv
+  (including `--help`).
+- **`--help`** is handled in the parse loop, not a pre-scan, so an invalid flag
+  that appears before `--help` still fail-closes. `--config-file` is not opened
+  when `--help` is present (usage still prints).
+- **Client TLS** is enabled when `cert_file` is set, not only `--listen-client-urls`
+  https. Accept uses the client TLS ctx whenever it was loaded.
+- **Single-node campaign** in `server_new` is skipped when `data-dir` is set so
+  a join can load persisted peers before electing.
 - **`--auto-tls` / `--peer-auto-tls`** — mint self-signed ECDSA P-256 into
   `{data-dir}/fixtures/` when the matching cert flag is empty. Reuse if both
   files exist; one-without-the-other fail-closes. Requires `--data-dir`.
