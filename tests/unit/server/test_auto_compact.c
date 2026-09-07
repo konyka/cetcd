@@ -1656,6 +1656,7 @@ CETCD_TEST_CASE(auto_compact_encode_member_list_request) {
     size_t n = 99;
     int lin = 99;
 
+    /* --cluster MemberList (defrag/endpoint) leftover-safe-sends field 1 = true. */
     CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_request(1, buf, sizeof(buf),
                                                          &n),
                         CETCD_OK);

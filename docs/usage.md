@@ -611,7 +611,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl endpoint status -w fields        # Endpoint status in fields format
 ./build/bin/cetcdctl compact -w fields 5              # Compact with fields output
 ./build/bin/cetcdctl defrag -w fields                # Defragment with fields output
-./build/bin/cetcdctl defrag --cluster                # Defrag every MemberList client URL
+./build/bin/cetcdctl defrag --cluster                # Defrag every linearizable MemberList client URL (follower fail-closes)
 ./build/bin/cetcdctl defrag --data-dir ./data        # Offline LMDB compact-copy (server stopped)
 # leftover --data-dir --cluster / --cluster --data-dir fail-close
 # leftover hash --rev / status --cluster / compact 10 --rev fail-close

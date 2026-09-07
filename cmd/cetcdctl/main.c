@@ -3051,8 +3051,12 @@ struct cluster_endpoint {
 };
 
 static int collect_cluster_endpoints(struct cluster_endpoint *eps, int max_eps) {
-    uint8_t mreq[] = {0x00}, mresp[4096];
-    int mrlen = do_rpc("/etcdserverpb.Cluster/MemberList", mreq, 1, mresp, sizeof(mresp));
+    uint8_t mreq[8], mresp[4096];
+    size_t mn = 0;
+    /* etcdctl --cluster MemberList is linearizable (same default as member list). */
+    if (cetcd_encode_member_list_request(1, mreq, sizeof(mreq), &mn) != CETCD_OK)
+        return -1;
+    int mrlen = do_rpc("/etcdserverpb.Cluster/MemberList", mreq, mn, mresp, sizeof(mresp));
     if (mrlen < 0) return -1;
     size_t mpos = 0;
     int count = 0;

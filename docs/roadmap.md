@@ -624,7 +624,9 @@ Performance-first, fail-closed design:
   --linearizable --foo` cannot list members. Default is true (etcdctl).
   Encodes MemberListRequest field 1; a follower fail-closes. Dummy
   `0x00` / omitted field is serializable. Accepting the flag as a
-  no-op or swallowing leftover `--` is rejected.
+  no-op or swallowing leftover `--` is rejected. `defrag --cluster` /
+  `endpoint --cluster` leftover-safe-send the same field 1 = true so a
+  follower cannot walk a stale member list.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

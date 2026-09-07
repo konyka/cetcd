@@ -887,11 +887,11 @@ Subcommand `--flag=value` (`put --lease=1`, `get --rev=5`, `--write-out=json`, `
 `cetcdctl lease revoke` / `timetolive` / `keepalive` ID must be `> 0`; a typo fail-closes instead of lease id `0`.
 `cetcdctl member remove` / `update` / `promote` ID must be hex `> 0`; leftover text fail-closes instead of a truncated decimal id.
 MemberAdd/Update peer URL ports are leftover-safe (`1..65535`; missing → 2380); `2380foo` fail-closes instead of joining on truncated port 2380.
-`cetcdctl endpoint --cluster` leftover-safe-parses member client URLs (missing port → 2379).
+`cetcdctl endpoint --cluster` leftover-safe-parses member client URLs (missing port → 2379). `--cluster` leftover-safe-sends linearizable MemberList (field 1 = true; a follower fail-closes).
 `cetcdctl move-leader TARGET_ID` must be hex `> 0`; leftover text fail-closes instead of transferring to a truncated id.
 `cetcdctl compact REV` must be `> 0`; leftover text fail-closes instead of compacting to a truncated revision. Unknown leftover flags (`compact 10 --rev 5`) fail-close.
 `cetcdctl hash` / `status` unknown leftover flags fail-close (`hash --rev` cannot hash the live tree; `status --cluster` cannot report one node).
-`cetcdctl defrag --cluster` defragments every MemberList client URL; a swallowed `--cluster` would defrag only the connected member. `defrag --data-dir` leftover-safe-opens the local LMDB and compact-copies (`--data-dir --cluster` cannot eat a flag as the path; `--cluster` + `--data-dir` fail-close). Other leftover flags fail-close.
+`cetcdctl defrag --cluster` leftover-safe-sends linearizable MemberList and defragments every client URL; a swallowed `--cluster` would defrag only the connected member; a follower cannot walk a stale list. `defrag --data-dir` leftover-safe-opens the local LMDB and compact-copies (`--data-dir --cluster` cannot eat a flag as the path; `--cluster` + `--data-dir` fail-close). Other leftover flags fail-close.
 `cetcdctl get --rev` / `--limit` / `--min-mod-rev` and related flags must be integers `>= 0`; leftover text fail-closes instead of a truncated revision.
 `cetcdctl watch --start-rev` must be an integer `>= 0`; leftover text fail-closes instead of starting at a truncated revision.
 `--help` does not pre-empt an earlier invalid flag. `--config-file` is skipped when `--help` is present.

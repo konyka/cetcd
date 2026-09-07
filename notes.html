@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 117 — leftover-safe member list --linearizable</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 118 — leftover-safe --cluster MemberList linearizable</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 117 leftover-safe-honors
-     <code>member list --linearizable</code> so
-     <code>member list --linearizable --foo</code> cannot list members;
-     default true encodes field 1 and a follower fail-closes.</p>
+  <p><strong>v0.3.0</strong>. Phase 118 leftover-safe-honors
+     <code>defrag --cluster</code> / <code>endpoint --cluster</code>
+     linearizable MemberList so a follower cannot walk a stale
+     member list.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -171,6 +171,7 @@
       <tr><td>115</td><td>leftover-safe defrag --data-dir</td><td>cetcdctl defrag --data-dir leftover-safe-opens the local LMDB and compact-copies; --data-dir --cluster cannot eat a flag as the path; --cluster + --data-dir fail-close — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>116</td><td>leftover-safe restore --bump-revision</td><td>snapshot restore leftover-safe-honors --wal-dir / --bump-revision / --mark-compacted so --data-dir --wal-dir cannot eat a flag as the path; bump writes CTS2 at old+1 and advances MVCC — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>117</td><td>leftover-safe member list --linearizable</td><td>member list leftover-safe-honors --linearizable (etcd default true) and encodes field 1 so --linearizable --foo cannot list members; a follower fail-closes — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>118</td><td>leftover-safe --cluster MemberList</td><td>defrag/endpoint --cluster leftover-safe-sends linearizable MemberList (field 1 = true) so a follower cannot walk a stale member list — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>
