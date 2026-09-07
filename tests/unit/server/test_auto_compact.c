@@ -1212,6 +1212,57 @@ CETCD_TEST_CASE(auto_compact_cli_bool_form) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_cli_bool_eq) {
+    int on = 0;
+    int i;
+    char *bare[] = { "p", "--debug", "version" };
+    char *eqf[] = { "p", "--debug=false", "version" };
+    char *eqt[] = { "p", "--debug=true" };
+    char *bad[] = { "p", "--debug=abc" };
+
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_bool_eq(&i, 3, bare, &on), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(on, 1);
+    CETCD_ASSERT_EQ_INT(i, 1);
+
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_bool_eq(&i, 3, eqf, &on), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(on, 0);
+    CETCD_ASSERT_EQ_INT(i, 1);
+
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_bool_eq(&i, 2, eqt, &on), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(on, 1);
+
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_bool_eq(&i, 2, bad, &on),
+                        CETCD_ERR_INVAL);
+}
+
+CETCD_TEST_CASE(auto_compact_parse_command_timeout) {
+    uint64_t n = 99;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_command_timeout_sec("0", &n), CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_command_timeout_sec("5", &n), CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 5);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_command_timeout_sec("5s", &n), CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 5);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_command_timeout_sec("1m", &n), CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 60);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_command_timeout_sec("500ms", &n), CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 1);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_command_timeout_sec("10foo", &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_command_timeout_sec("5sfoo", &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_command_timeout_sec("", &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_command_timeout_sec(NULL, &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_command_timeout_sec("5", NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_mode),
     CETCD_TEST_ENTRY(auto_compact_parse_retention_periodic),
@@ -1263,6 +1314,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_snapshot_count),
     CETCD_TEST_ENTRY(auto_compact_cli_equals_form),
     CETCD_TEST_ENTRY(auto_compact_cli_bool_form),
+    CETCD_TEST_ENTRY(auto_compact_cli_bool_eq),
+    CETCD_TEST_ENTRY(auto_compact_parse_command_timeout),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

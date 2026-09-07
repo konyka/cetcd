@@ -873,7 +873,7 @@ file, `ETCD_*` maps to `--flag` (`ETCD_LISTEN_CLIENT_URLS`; empty ignored;
 `--endpoints` fail-close). `--endpoints a,b,c` failovers in list order.
 `--keepalive-time` / `--keepalive-timeout` set TCP keepalive on the client socket
 (invalid durations and timeout without time fail-close).
-`--command-timeout` is a duration (`0` = none); a typo fail-closes instead of hanging with no alarm.
+`--command-timeout` is a duration (`0` = none); a typo or leftover (`10foo`) fail-closes instead of hanging with no alarm. Global `--flag=value` (`--command-timeout=5s`, `--debug=false`) is accepted; empty `--flag=` fail-closes. `--debug=false` does not eat the next argv.
 `--dial-timeout` is `0..86400` seconds (`0` = none); a typo fail-closes instead of connecting with no timeout.
 `cetcdctl --port` is `1..65535`; a typo fail-closes instead of connecting to port `0`.
 `cetcdctl --endpoints` / `--endpoint` port is `1..65535`; a typo fail-closes instead of connecting to port `0`.

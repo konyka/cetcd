@@ -205,6 +205,9 @@ Performance-first, fail-closed design:
   time fail at parse. Omitted flags keep the OS default.
 - **`cetcdctl --command-timeout`** — integer seconds or Go duration. A typo
   used to become “no timeout”; that now fails at parse. `0` stays none.
+  `--command-timeout=5s` and other global `--flag=value` forms are accepted
+  (empty `--flag=` fail-closes). `--debug=false` does not eat the next
+  argv (the subcommand). Leftover text (`10foo`) fail-closes.
 - **`cetcdctl --dial-timeout`** — `0..86400` seconds (optional `s`). A typo
   used to become “no timeout” via `atoi`; that now fails at parse. `0` stays
   none.

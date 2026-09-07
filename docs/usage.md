@@ -317,7 +317,9 @@ cetcd accepts several etcd server flags for migration compatibility:
 ## 3. Using `cetcdctl`
 
 `cetcdctl` is a command-line client that speaks cetcd's gRPC protocol.
-It mirrors `etcdctl` command structure for familiarity.
+It mirrors `etcdctl` command structure for familiarity. Global flags
+accept etcdctl `--flag=value` (`--command-timeout=5s`, `--debug=false`);
+empty `--flag=` and leftover text fail-close.
 
 ### KV operations
 

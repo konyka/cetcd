@@ -84,6 +84,7 @@
 #include "cetcd/tls.h"
 #include "cetcd/peer.h"
 #include "cetcd/snap.h"
+#include "cetcd/server.h"
 
 static const char *g_host = "127.0.0.1";
 static uint16_t    g_port = 2379;
@@ -6005,7 +6006,7 @@ static void print_usage(void) {
     printf("  --port PORT    Server port (default: 2379; 1..65535)\n");
     printf("  --endpoints EP Comma-separated endpoints (failover; https requires --cacert or --insecure; port 1..65535)\n");
     printf("  --user USER:PASS  Authenticate with server before executing command\n");
-    printf("  --command-timeout SEC  Timeout for commands (duration; 0 = none; invalid fails)\n");
+    printf("  --command-timeout SEC  Timeout for commands (duration or --flag=SEC; 0 = none; leftover fails)\n");
     printf("  --debug       Print debug info (RPC path and response size)\n");
     printf("  --insecure    Skip TLS certificate verification (with --cacert/--cert)\n");
     printf("  --dial-timeout SEC  Connection timeout (0..86400; 0 = none; invalid fails)\n");
@@ -6087,27 +6088,59 @@ static void print_usage(void) {
     printf("  completion bash|zsh|fish   Generate shell completion script\n");
 }
 
+static int take_ctl_value_(int *i, int argc, char **argv, const char **out) {
+    return cetcd_take_cli_flag_value(i, argc, argv, out) == CETCD_OK ? 0 : -1;
+}
+
+static int parse_sec_range_(const char *s, long min, long max, long *out) {
+    char *end = NULL;
+    errno = 0;
+    long v = strtol(s, &end, 10);
+    if (errno == ERANGE || !end || end == s || v < min || v > max)
+        return -1;
+    if (*end == 's') end++;
+    if (*end) return -1;
+    *out = v;
+    return 0;
+}
+
 int main(int argc, char **argv) {
     /* Parse global options */
     int cmd_start = 1;
     const char *user_cred = NULL;
     while (cmd_start < argc) {
-        if (strcmp(argv[cmd_start], "--host") == 0 && cmd_start + 1 < argc) {
-            g_host = argv[cmd_start + 1];
-            cmd_start += 2;
-        } else if (strcmp(argv[cmd_start], "--port") == 0 && cmd_start + 1 < argc) {
+        if (cetcd_cli_flag_is(argv[cmd_start], "--host")) {
+            const char *s = NULL;
+            if (take_ctl_value_(&cmd_start, argc, argv, &s) != 0) {
+                fprintf(stderr, "--host requires a value\n");
+                return 1;
+            }
+            g_host = s;
+            cmd_start += 1;
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--port")) {
+            const char *s = NULL;
+            if (take_ctl_value_(&cmd_start, argc, argv, &s) != 0) {
+                fprintf(stderr, "--port requires a value\n");
+                return 1;
+            }
             char *end = NULL;
             errno = 0;
-            long v = strtol(argv[cmd_start + 1], &end, 10);
+            long v = strtol(s, &end, 10);
             if (errno == ERANGE || !end || *end || v < 1 || v > 65535) {
                 fprintf(stderr, "--port must be 1..65535\n");
                 return 1;
             }
             g_port = (uint16_t)v;
-            cmd_start += 2;
-        } else if ((strcmp(argv[cmd_start], "--endpoints") == 0 || strcmp(argv[cmd_start], "--endpoint") == 0) && cmd_start + 1 < argc) {
+            cmd_start += 1;
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--endpoints") ||
+                   cetcd_cli_flag_is(argv[cmd_start], "--endpoint")) {
+            const char *s = NULL;
+            if (take_ctl_value_(&cmd_start, argc, argv, &s) != 0) {
+                fprintf(stderr, "--endpoints requires a value\n");
+                return 1;
+            }
             size_t n = 0;
-            if (cetcd_endpoint_parse_list(argv[cmd_start + 1], g_eps,
+            if (cetcd_endpoint_parse_list(s, g_eps,
                                           CETCD_DISCOVERY_MAX_ENDPOINTS, &n) != 0) {
                 fprintf(stderr, "--endpoints is invalid (host:port 1..65535, comma list)\n");
                 return 1;
@@ -6120,48 +6153,15 @@ int main(int argc, char **argv) {
             for (size_t i = 0; i < n; i++) {
                 if (g_eps[i].https) g_endpoint_https = 1;
             }
-            cmd_start += 2;
-        } else if (strcmp(argv[cmd_start], "--command-timeout") == 0 && cmd_start + 1 < argc) {
-            /* Parse timeout: integer seconds or Go duration (5s, 1m, 1m30s, 500ms). */
-            const char *ts = argv[cmd_start + 1];
-            int timeout_sec = 0;
-            int ok = 0;
-            if (ts[0]) {
-                int is_pure_num = 1;
-                for (const char *p = ts; *p; p++) {
-                    if (*p < '0' || *p > '9') { is_pure_num = 0; break; }
-                }
-                if (is_pure_num) {
-                    timeout_sec = atoi(ts);
-                    ok = 1;
-                } else {
-                    const char *p = ts;
-                    while (*p) {
-                        char *endp;
-                        errno = 0;
-                        long val = strtol(p, &endp, 10);
-                        if (errno == ERANGE || endp == p || val < 0) break;
-                        p = endp;
-                        if (strncmp(p, "ms", 2) == 0) {
-                            timeout_sec += (int)((val + 999) / 1000);
-                            p += 2;
-                        } else if (*p == 'h') {
-                            timeout_sec += (int)(val * 3600);
-                            p++;
-                        } else if (*p == 'm') {
-                            timeout_sec += (int)(val * 60);
-                            p++;
-                        } else if (*p == 's') {
-                            timeout_sec += (int)val;
-                            p++;
-                        } else {
-                            break;
-                        }
-                    }
-                    if (*p == '\0') ok = 1;
-                }
+            cmd_start += 1;
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--command-timeout")) {
+            const char *ts = NULL;
+            if (take_ctl_value_(&cmd_start, argc, argv, &ts) != 0) {
+                fprintf(stderr, "--command-timeout requires a duration\n");
+                return 1;
             }
-            if (!ok) {
+            uint64_t timeout_sec = 0;
+            if (cetcd_parse_command_timeout_sec(ts, &timeout_sec) != CETCD_OK) {
                 fprintf(stderr, "--command-timeout must be a duration\n");
                 return 1;
             }
@@ -6169,119 +6169,177 @@ int main(int argc, char **argv) {
                 signal(SIGALRM, (void (*)(int))_exit);
                 alarm((unsigned)timeout_sec);
             }
-            cmd_start += 2;
-        } else if (strcmp(argv[cmd_start], "--debug") == 0) {
-            g_debug = 1;
             cmd_start += 1;
-        } else if (strcmp(argv[cmd_start], "--insecure") == 0) {
-            g_insecure = 1;
-            cmd_start += 1;
-        } else if (strcmp(argv[cmd_start], "--dial-timeout") == 0 && cmd_start + 1 < argc) {
-            char *end = NULL;
-            errno = 0;
-            long v = strtol(argv[cmd_start + 1], &end, 10);
-            if (errno == ERANGE || !end || end == argv[cmd_start + 1] || v < 0 || v > 86400) {
-                fprintf(stderr, "--dial-timeout must be 0..86400 seconds\n");
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--debug")) {
+            int on = 1;
+            if (cetcd_take_cli_bool_eq(&cmd_start, argc, argv, &on) != CETCD_OK) {
+                fprintf(stderr, "--debug must be true or false\n");
                 return 1;
             }
-            if (*end == 's') end++;
-            if (*end) {
+            g_debug = on;
+            cmd_start += 1;
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--insecure-skip-tls-verify")) {
+            int on = 1;
+            if (cetcd_take_cli_bool_eq(&cmd_start, argc, argv, &on) != CETCD_OK) {
+                fprintf(stderr, "--insecure-skip-tls-verify must be true or false\n");
+                return 1;
+            }
+            g_insecure = on;
+            cmd_start += 1;
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--insecure-transport")) {
+            int on = 1;
+            if (cetcd_take_cli_bool_eq(&cmd_start, argc, argv, &on) != CETCD_OK) {
+                fprintf(stderr, "--insecure-transport must be true or false\n");
+                return 1;
+            }
+            g_insecure_transport = on;
+            cmd_start += 1;
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--insecure")) {
+            int on = 1;
+            if (cetcd_take_cli_bool_eq(&cmd_start, argc, argv, &on) != CETCD_OK) {
+                fprintf(stderr, "--insecure must be true or false\n");
+                return 1;
+            }
+            g_insecure = on;
+            cmd_start += 1;
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--dial-timeout")) {
+            const char *s = NULL;
+            if (take_ctl_value_(&cmd_start, argc, argv, &s) != 0) {
+                fprintf(stderr, "--dial-timeout requires a value\n");
+                return 1;
+            }
+            long v = 0;
+            if (parse_sec_range_(s, 0, 86400, &v) != 0) {
                 fprintf(stderr, "--dial-timeout must be 0..86400 seconds\n");
                 return 1;
             }
             g_dial_timeout = (int)v;
-            cmd_start += 2;
-        } else if (strcmp(argv[cmd_start], "--keepalive-time") == 0 && cmd_start + 1 < argc) {
-            char *end = NULL;
-            errno = 0;
-            long v = strtol(argv[cmd_start + 1], &end, 10);
-            if (errno == ERANGE || !end || end == argv[cmd_start + 1] || v < 0 || v > 86400) {
-                fprintf(stderr, "--keepalive-time must be 0..86400 seconds\n");
+            cmd_start += 1;
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--keepalive-time")) {
+            const char *s = NULL;
+            if (take_ctl_value_(&cmd_start, argc, argv, &s) != 0) {
+                fprintf(stderr, "--keepalive-time requires a value\n");
                 return 1;
             }
-            if (*end == 's') end++;
-            if (*end) {
+            long v = 0;
+            if (parse_sec_range_(s, 0, 86400, &v) != 0) {
                 fprintf(stderr, "--keepalive-time must be 0..86400 seconds\n");
                 return 1;
             }
             g_tcp_keepalive_time = (int)v;
-            cmd_start += 2;
-        } else if (strcmp(argv[cmd_start], "--keepalive-timeout") == 0 && cmd_start + 1 < argc) {
-            char *end = NULL;
-            errno = 0;
-            long v = strtol(argv[cmd_start + 1], &end, 10);
-            if (errno == ERANGE || !end || end == argv[cmd_start + 1] || v <= 0 || v > 86400) {
-                fprintf(stderr, "--keepalive-timeout must be 1..86400 seconds\n");
+            cmd_start += 1;
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--keepalive-timeout")) {
+            const char *s = NULL;
+            if (take_ctl_value_(&cmd_start, argc, argv, &s) != 0) {
+                fprintf(stderr, "--keepalive-timeout requires a value\n");
                 return 1;
             }
-            if (*end == 's') end++;
-            if (*end) {
+            long v = 0;
+            if (parse_sec_range_(s, 1, 86400, &v) != 0) {
                 fprintf(stderr, "--keepalive-timeout must be 1..86400 seconds\n");
                 return 1;
             }
             g_tcp_keepalive_timeout = (int)v;
-            cmd_start += 2;
-        } else if (strcmp(argv[cmd_start], "--cacert") == 0 && cmd_start + 1 < argc) {
-            strncpy(g_cacert, argv[cmd_start + 1], sizeof(g_cacert) - 1);
+            cmd_start += 1;
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--cacert")) {
+            const char *s = NULL;
+            if (take_ctl_value_(&cmd_start, argc, argv, &s) != 0) {
+                fprintf(stderr, "--cacert requires a file\n");
+                return 1;
+            }
+            strncpy(g_cacert, s, sizeof(g_cacert) - 1);
             g_cacert[sizeof(g_cacert) - 1] = '\0';
-            cmd_start += 2;
-        } else if (strcmp(argv[cmd_start], "--cert") == 0 && cmd_start + 1 < argc) {
-            strncpy(g_cert, argv[cmd_start + 1], sizeof(g_cert) - 1);
+            cmd_start += 1;
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--cert")) {
+            const char *s = NULL;
+            if (take_ctl_value_(&cmd_start, argc, argv, &s) != 0) {
+                fprintf(stderr, "--cert requires a file\n");
+                return 1;
+            }
+            strncpy(g_cert, s, sizeof(g_cert) - 1);
             g_cert[sizeof(g_cert) - 1] = '\0';
-            cmd_start += 2;
-        } else if (strcmp(argv[cmd_start], "--key") == 0 && cmd_start + 1 < argc) {
-            strncpy(g_key, argv[cmd_start + 1], sizeof(g_key) - 1);
+            cmd_start += 1;
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--key")) {
+            const char *s = NULL;
+            if (take_ctl_value_(&cmd_start, argc, argv, &s) != 0) {
+                fprintf(stderr, "--key requires a file\n");
+                return 1;
+            }
+            strncpy(g_key, s, sizeof(g_key) - 1);
             g_key[sizeof(g_key) - 1] = '\0';
-            cmd_start += 2;
-        } else if (strcmp(argv[cmd_start], "--max-call-send-msg-size") == 0 && cmd_start + 1 < argc) {
+            cmd_start += 1;
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--max-call-send-msg-size")) {
+            const char *s = NULL;
+            if (take_ctl_value_(&cmd_start, argc, argv, &s) != 0) {
+                fprintf(stderr, "--max-call-send-msg-size requires a value\n");
+                return 1;
+            }
             char *end = NULL;
             errno = 0;
-            unsigned long long v = strtoull(argv[cmd_start + 1], &end, 10);
+            unsigned long long v = strtoull(s, &end, 10);
             if (errno == ERANGE || !end || *end || v == 0) {
                 fprintf(stderr, "--max-call-send-msg-size must be > 0\n");
                 return 1;
             }
             g_max_call_send = (uint64_t)v;
-            cmd_start += 2;
-        } else if (strcmp(argv[cmd_start], "--max-call-recv-msg-size") == 0 && cmd_start + 1 < argc) {
+            cmd_start += 1;
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--max-call-recv-msg-size")) {
+            const char *s = NULL;
+            if (take_ctl_value_(&cmd_start, argc, argv, &s) != 0) {
+                fprintf(stderr, "--max-call-recv-msg-size requires a value\n");
+                return 1;
+            }
             char *end = NULL;
             errno = 0;
-            unsigned long long v = strtoull(argv[cmd_start + 1], &end, 10);
+            unsigned long long v = strtoull(s, &end, 10);
             if (errno == ERANGE || !end || *end || v == 0) {
                 fprintf(stderr, "--max-call-recv-msg-size must be > 0\n");
                 return 1;
             }
             g_max_call_recv = (uint64_t)v;
-            cmd_start += 2;
-        } else if (strcmp(argv[cmd_start], "--insecure-skip-tls-verify") == 0) {
-            g_insecure = 1;
             cmd_start += 1;
-        } else if (strcmp(argv[cmd_start], "--insecure-transport") == 0) {
-            g_insecure_transport = 1;
-            cmd_start += 1;
-        } else if (strcmp(argv[cmd_start], "--password") == 0 && cmd_start + 1 < argc) {
-            /* Password for --user: stored and appended when --user has no password */
-            strncpy(g_password, argv[cmd_start + 1], sizeof(g_password) - 1);
-            g_password[sizeof(g_password) - 1] = '\0';
-            cmd_start += 2;
-        } else if (strcmp(argv[cmd_start], "--discovery-srv") == 0 && cmd_start + 1 < argc) {
-            g_discovery_srv = argv[cmd_start + 1];
-            if (cetcd_discovery_valid_domain(g_discovery_srv) != 0) {
-                fprintf(stderr, "--discovery-srv domain is invalid\n");
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--password")) {
+            const char *s = NULL;
+            if (take_ctl_value_(&cmd_start, argc, argv, &s) != 0) {
+                fprintf(stderr, "--password requires a value\n");
                 return 1;
             }
-            cmd_start += 2;
-        } else if (strcmp(argv[cmd_start], "--discovery-srv-name") == 0 && cmd_start + 1 < argc) {
-            g_discovery_srv_name = argv[cmd_start + 1];
+            strncpy(g_password, s, sizeof(g_password) - 1);
+            g_password[sizeof(g_password) - 1] = '\0';
+            cmd_start += 1;
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--discovery-srv-name")) {
+            const char *s = NULL;
+            if (take_ctl_value_(&cmd_start, argc, argv, &s) != 0) {
+                fprintf(stderr, "--discovery-srv-name requires a value\n");
+                return 1;
+            }
+            g_discovery_srv_name = s;
             if (cetcd_discovery_valid_name(g_discovery_srv_name) != 0 ||
                 !g_discovery_srv_name[0]) {
                 fprintf(stderr, "--discovery-srv-name is invalid\n");
                 return 1;
             }
-            cmd_start += 2;
-        } else if (strcmp(argv[cmd_start], "--user") == 0 && cmd_start + 1 < argc) {
-            user_cred = argv[cmd_start + 1];
-            cmd_start += 2;
+            cmd_start += 1;
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--discovery-srv")) {
+            const char *s = NULL;
+            if (take_ctl_value_(&cmd_start, argc, argv, &s) != 0) {
+                fprintf(stderr, "--discovery-srv requires a value\n");
+                return 1;
+            }
+            g_discovery_srv = s;
+            if (cetcd_discovery_valid_domain(g_discovery_srv) != 0) {
+                fprintf(stderr, "--discovery-srv domain is invalid\n");
+                return 1;
+            }
+            cmd_start += 1;
+        } else if (cetcd_cli_flag_is(argv[cmd_start], "--user")) {
+            const char *s = NULL;
+            if (take_ctl_value_(&cmd_start, argc, argv, &s) != 0) {
+                fprintf(stderr, "--user requires a value\n");
+                return 1;
+            }
+            user_cred = s;
+            cmd_start += 1;
         } else if (strcmp(argv[cmd_start], "--help") == 0 || strcmp(argv[cmd_start], "-h") == 0) {
             print_usage();
             return 0;

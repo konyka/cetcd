@@ -1327,3 +1327,35 @@ int cetcd_take_cli_bool_flag(int *i, int argc, char *const *argv, int *out) {
     *out = on;
     return CETCD_OK;
 }
+
+int cetcd_take_cli_bool_eq(int *i, int argc, char *const *argv, int *out) {
+    const char *eq;
+    int on = 1;
+    if (!i || *i < 0 || *i >= argc || !argv || !argv[*i] || !out)
+        return CETCD_ERR_INVAL;
+    eq = strchr(argv[*i], '=');
+    if (eq) {
+        if (cetcd_parse_bool_flag(eq + 1, &on) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    *out = on;
+    return CETCD_OK;
+}
+
+int cetcd_parse_command_timeout_sec(const char *s, uint64_t *out) {
+    if (!s || !s[0] || !out) return CETCD_ERR_INVAL;
+    int all_digits = 1;
+    for (const char *p = s; *p; p++) {
+        if (*p < '0' || *p > '9') { all_digits = 0; break; }
+    }
+    if (all_digits) {
+        errno = 0;
+        char *end = NULL;
+        unsigned long long v = strtoull(s, &end, 10);
+        if (errno == ERANGE || !end || end == s || *end)
+            return CETCD_ERR_INVAL;
+        *out = (uint64_t)v;
+        return CETCD_OK;
+    }
+    return cetcd_parse_go_duration_sec(s, out);
+}

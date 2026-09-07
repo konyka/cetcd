@@ -3609,6 +3609,26 @@ CETCD_TEST_CASE(live_cetcdctl_command_timeout) {
              "'%s' --command-timeout abc version >/dev/null 2>&1",
              CETCDCTL_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --command-timeout=5s version >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --command-timeout=10foo version >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --debug=false --dial-timeout=2s version >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --debug=abc version >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
 CETCD_TEST_CASE(live_cetcdctl_dial_timeout) {
