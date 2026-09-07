@@ -173,6 +173,8 @@ int cetcd_parse_command_timeout_sec(const char *s, uint64_t *out);
 int cetcd_parse_i64(const char *s, int64_t *out);
 /* `/debug/pprof/profile?seconds=N`. Omitted query → 30. leftover / 0 / >300 INVAL. */
 int cetcd_parse_pprof_seconds(const char *qs, size_t qs_len, int *out);
+/* HashKVRequest field 1 (revision). 0 = current (empty body). Negative INVAL. */
+int cetcd_encode_hashkv_request(int64_t rev, uint8_t *out, size_t cap, size_t *n);
 /* 1 if alloc_bytes > threshold_mb MiB. threshold 0 never. */
 int cetcd_backend_should_defrag(uint64_t alloc_bytes, uint64_t threshold_mb);
 /* Cap `target` to compacted+batch_limit. batch_limit 0 leaves target. */

@@ -1324,6 +1324,35 @@ CETCD_TEST_CASE(auto_compact_parse_i64) {
     CETCD_ASSERT_EQ_INT(cetcd_parse_i64("10", NULL), CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_encode_hashkv_request) {
+    uint8_t buf[16];
+    size_t n = 99;
+    CETCD_ASSERT_EQ_INT(cetcd_encode_hashkv_request(0, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_hashkv_request(10, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 2);
+    CETCD_ASSERT_EQ_INT((int)buf[0], 0x08);
+    CETCD_ASSERT_EQ_INT((int)buf[1], 10);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_hashkv_request(128, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 3);
+    CETCD_ASSERT_EQ_INT((int)buf[0], 0x08);
+    CETCD_ASSERT_EQ_INT((int)buf[1], 0x80);
+    CETCD_ASSERT_EQ_INT((int)buf[2], 0x01);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_hashkv_request(-1, buf, sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_hashkv_request(1, NULL, sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_hashkv_request(1, buf, sizeof(buf), NULL),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_hashkv_request(1, buf, 1, &n),
+                        CETCD_ERR_OVERFLOW);
+    int64_t rev = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_i64("10foo", &rev), CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_pprof_seconds) {
     int secs = 0;
     CETCD_ASSERT_EQ_INT(cetcd_parse_pprof_seconds(NULL, 0, &secs), CETCD_OK);
@@ -1403,6 +1432,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_cli_bool_eq),
     CETCD_TEST_ENTRY(auto_compact_parse_command_timeout),
     CETCD_TEST_ENTRY(auto_compact_parse_i64),
+    CETCD_TEST_ENTRY(auto_compact_encode_hashkv_request),
     CETCD_TEST_ENTRY(auto_compact_parse_pprof_seconds),
 CETCD_TEST_LIST_END
 

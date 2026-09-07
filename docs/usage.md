@@ -560,7 +560,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl get --prefix foo --count-only -w fields  # Count-only with fields output
 ./build/bin/cetcdctl endpoint health -w json  # Health check with ResponseHeader (IPv6 is [::1]:2379)
 ./build/bin/cetcdctl endpoint status -w table  # Status in table format
-./build/bin/cetcdctl endpoint hashkv -w json   # HashKV with ResponseHeader
+./build/bin/cetcdctl endpoint hashkv --rev 10 -w json  # HashKV at rev (leftover 10foo fail-closes)
 ./build/bin/cetcdctl endpoint hashkv -w fields  # HashKV with fields output
 ./build/bin/cetcdctl alarm list                           # List all alarms
 ./build/bin/cetcdctl alarm activate NOSPACE               # Activate NOSPACE alarm
@@ -727,7 +727,7 @@ Several commands support `-w table` for tabular output:
 
 # Hash/hashkv in table format
 ./build/bin/cetcdctl hash -w table
-./build/bin/cetcdctl hashkv -w table
+./build/bin/cetcdctl hashkv --rev 0 -w table  # 0 / omitted = current; leftover 10foo fail-closes
 
 # Endpoint hashkv in table format
 ./build/bin/cetcdctl endpoint hashkv -w table

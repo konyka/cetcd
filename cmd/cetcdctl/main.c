@@ -1045,6 +1045,15 @@ static int parse_i64_(const char *s, int64_t *out) {
     return cetcd_parse_i64(s, out) == CETCD_OK ? 0 : -1;
 }
 
+static int take_hashkv_rev_(int *i, int argc, char **argv, int64_t *rev) {
+    const char *s = NULL;
+    if (take_cmd_value_(i, argc, argv, &s) != 0) return -1;
+    int64_t v = 0;
+    if (cetcd_parse_i64(s, &v) != CETCD_OK || v < 0) return -1;
+    *rev = v;
+    return 0;
+}
+
 static int apply_write_out_jf_(const char *fmt, int *want_json, int *want_fields) {
     if (!fmt) return -1;
     if (strcmp(fmt, "json") == 0) { *want_json = 1; *want_fields = 0; return 0; }
@@ -2983,13 +2992,14 @@ static int collect_cluster_endpoints(struct cluster_endpoint *eps, int max_eps) 
 
 static int cmd_endpoint(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl endpoint {health,status,hashkv} [--cluster]\n");
+        fprintf(stderr, "usage: cetcdctl endpoint {health,status,hashkv} [--cluster] [--rev N]\n");
         return 1;
     }
     int want_json = 0;
     int want_table = 0;
     int want_fields = 0;
     int cluster = 0;
+    int64_t hashkv_rev = 0;
     for (int i = 3; i < argc; i++) {
         int wr = 0, on = 1;
         if ((wr = take_write_out_jtf_(&i, argc, argv, &want_json, &want_table, &want_fields)) != 0) {
@@ -3000,6 +3010,14 @@ static int cmd_endpoint(int argc, char **argv) {
                 return 1;
             }
             cluster = on;
+        } else if (strcmp(argv[2], "hashkv") == 0 && cmd_flag_is_(argv[i], "--rev")) {
+            if (take_hashkv_rev_(&i, argc, argv, &hashkv_rev) != 0) {
+                fprintf(stderr, "--rev must be >= 0\n");
+                return 1;
+            }
+        } else {
+            fprintf(stderr, "unknown flag: %s\n", argv[i]);
+            return 1;
         }
     }
     if (strcmp(argv[2], "health") == 0) {
@@ -3286,8 +3304,13 @@ static int cmd_endpoint(int argc, char **argv) {
             for (int i = 0; i < n; i++) {
                 g_host = eps[i].host;
                 g_port = eps[i].port;
-                uint8_t hreq[] = {0x00}, hresp[256];
-                int hrlen = do_rpc("/etcdserverpb.Maintenance/HashKV", hreq, 1, hresp, sizeof(hresp));
+                uint8_t hreq[16], hresp[256];
+                size_t hn = 0;
+                if (cetcd_encode_hashkv_request(hashkv_rev, hreq, sizeof(hreq),
+                                                &hn) != CETCD_OK)
+                    return 1;
+                int hrlen = do_rpc("/etcdserverpb.Maintenance/HashKV", hreq, hn,
+                                   hresp, sizeof(hresp));
                 if (hrlen < 0) continue;
                 size_t rpos = 0;
                 uint64_t hash_val = 0, compact_rev = 0;
@@ -3325,8 +3348,13 @@ static int cmd_endpoint(int argc, char **argv) {
             return 0;
         }
         /* Non-cluster endpoint hashkv */
-        uint8_t req[] = {0x00}, resp[256];
-        int rlen = do_rpc("/etcdserverpb.Maintenance/HashKV", req, 1, resp, sizeof(resp));
+        uint8_t req[16], resp[256];
+        size_t req_n = 0;
+        if (cetcd_encode_hashkv_request(hashkv_rev, req, sizeof(req),
+                                        &req_n) != CETCD_OK)
+            return 1;
+        int rlen = do_rpc("/etcdserverpb.Maintenance/HashKV", req, req_n, resp,
+                          sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         size_t rpos = 0;
         uint64_t hash_val = 0, compact_rev = 0;
@@ -5990,15 +6018,29 @@ static int cmd_hash(int argc, char **argv) {
 static int cmd_hashkv(int argc, char **argv) {
     bool want_json = false;
     bool want_fields = false, want_table = false;
+    int64_t rev = 0;
     for (int i = 2; i < argc; i++) {
         int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
         if ((wr = take_write_out_jtf_(&i, argc, argv, &wj, &wt, &wf)) != 0) {
             if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
             want_json = wj != 0; want_table = wt != 0; want_fields = wf != 0;
+        } else if (cmd_flag_is_(argv[i], "--rev")) {
+            if (take_hashkv_rev_(&i, argc, argv, &rev) != 0) {
+                fprintf(stderr, "--rev must be >= 0\n");
+                return 1;
+            }
+        } else {
+            fprintf(stderr, "unknown flag: %s\n", argv[i]);
+            return 1;
         }
     }
-    uint8_t req[] = {0x00}, resp[256];
-    int rlen = do_rpc("/etcdserverpb.Maintenance/HashKV", req, 1, resp, sizeof(resp));
+    uint8_t req[16], resp[256];
+    size_t req_n = 0;
+    if (cetcd_encode_hashkv_request(rev, req, sizeof(req), &req_n) != CETCD_OK) {
+        fprintf(stderr, "--rev must be >= 0\n");
+        return 1;
+    }
+    int rlen = do_rpc("/etcdserverpb.Maintenance/HashKV", req, req_n, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
     /* HashKVResponse: field 1 (header), field 2 (hash), field 3 (compact_revision) */
     size_t rpos = 0;
@@ -6192,7 +6234,8 @@ static int cmd_completion(int argc, char **argv) {
         printf("        role) local opts=\"--prefix --range-end -w --write-out\"; local subs=\"add delete get list grant-permission revoke-permission\";;\n");
         printf("        snapshot) local opts=\"--compaction-periodical --data-dir --force -w --write-out\"; local subs=\"save status restore\";;\n");
         printf("        downgrade) local opts=\"-w --write-out\"; local subs=\"enable cancel validate\";;\n");
-        printf("        endpoint) local opts=\"--cluster -w --write-out\"; local subs=\"health status hashkv\";;\n");
+        printf("        hashkv) local opts=\"--rev -w --write-out\";;\n");
+        printf("        endpoint) local opts=\"--cluster --rev -w --write-out\"; local subs=\"health status hashkv\";;\n");
         printf("        check) local opts=\"--load --prefix -w --write-out\"; local subs=\"perf datascale\";;\n");
         printf("        lock) local opts=\"--ttl --print-value-only -w --write-out\";;\n");
         printf("        elect) local opts=\"--ttl --print-value-only -w --write-out\";;\n");
@@ -6306,7 +6349,8 @@ static int cmd_completion(int argc, char **argv) {
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from snapshot' -a 'save status restore'\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from downgrade' -a 'enable cancel validate'\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from endpoint' -a 'health status hashkv'\n");
-        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from endpoint' -l cluster\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from endpoint' -l cluster -l rev\n");
+        printf("complete -c cetcdctl -n '___fish_seen_subcommand_from hashkv' -l rev\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from check' -a 'perf datascale'\n");
         printf("complete -c cetcdctl -n '___fish_seen_subcommand_from completion' -a 'bash zsh fish'\n");
         printf("# Common flags\n");
@@ -6375,7 +6419,7 @@ static void print_usage(void) {
     printf("  alarm activate [-w json|fields] [TYPE]  Activate an alarm (NOSPACE|CORRUPT|NONE)\n");
     printf("  alarm disarm [-w json|fields] [TYPE]     Disarm an alarm (NOSPACE|CORRUPT|NONE)\n");
     printf("  hash [-w json|fields|table]         Get KV store hash\n");
-    printf("  hashkv [-w json|fields|table]       Get KV store hash + compact revision\n");
+    printf("  hashkv [--rev N] [-w json|fields|table]  Get KV store hash + compact revision (N leftover-safe; 0 = current)\n");
     printf("  defrag [-w json|fields]       Defragment database (compact-copy data.mdb)\n");
     printf("  move-leader [-w json|fields] TARGET_ID  Transfer leadership to target node (ID hex > 0)\n");
     printf("  member list [-w json|table|fields]  List cluster members\n");
@@ -6411,7 +6455,7 @@ static void print_usage(void) {
     printf("  version [-w json|fields]      Print the client version\n");
     printf("  endpoint health [--cluster] [-w json|fields|table]  Check server health (or all cluster members with --cluster)\n");
     printf("  endpoint status [--cluster] [-w json|table|fields]  Get server status (or all cluster members with --cluster)\n");
-    printf("  endpoint hashkv [--cluster] [-w json|table|fields]      Get KV hash per endpoint (or all cluster members with --cluster)\n");
+    printf("  endpoint hashkv [--cluster] [--rev N] [-w json|table|fields]  Get KV hash per endpoint (N leftover-safe; 0 = current)\n");
     printf("  check perf [--load S|M|L] [--prefix PREFIX] [-w json|fields]    Run a simple performance check\n");
     printf("  check datascale [-w json|fields] [--load N] [--prefix PREFIX]  Test database scalability (--load > 0)\n");
     printf("  lock [--ttl N] [--print-value-only] [-w json|fields] LOCKNAME [CMD...]  Acquire a distributed lock (--ttl > 0)\n");

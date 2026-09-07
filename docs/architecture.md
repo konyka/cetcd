@@ -604,6 +604,7 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `del -w json` enhanced (now parses ResponseHeader and outputs prev_kvs array with full KV metadata when --prev-kv is set),
 All `-w json` commands now parse ResponseHeader (compact, lease revoke/timetolive/list/grant/keepalive, txn put/del, alarm list, auth enable/disable/status, user/role CRUD, member remove/update/promote, downgrade, defrag, move-leader — all output real cluster_id/member_id/revision/raft_term instead of empty `{}`).
 `hash -w json` / `hashkv -w json` enhanced (now parses ResponseHeader instead of empty `{}`),
+`hashkv --rev` / `endpoint hashkv --rev` leftover-safe-sends HashKVRequest.revision (`10foo` fail-closes; omitted / `0` = current; a swallowed `--rev` would hash the wrong tree),
 `status -w json` enhanced (now includes ResponseHeader with cluster_id/member_id/revision/raft_term before version/dbSize/leader fields),
 `watch -w json` enhanced (now outputs `{"header":{...},"Events":[...]}` format with full KV fields: create_revision/mod_revision/version/lease in each event, and prev_kv support with full metadata),
 `parse_string_list_response -w json` enhanced (user list/role list/user get now parse real ResponseHeader),

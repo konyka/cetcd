@@ -1392,6 +1392,26 @@ int cetcd_parse_i64(const char *s, int64_t *out) {
     return CETCD_OK;
 }
 
+int cetcd_encode_hashkv_request(int64_t rev, uint8_t *out, size_t cap, size_t *n) {
+    if (!out || !n || cap == 0) return CETCD_ERR_INVAL;
+    if (rev < 0) return CETCD_ERR_INVAL;
+    *n = 0;
+    if (rev == 0) return CETCD_OK;
+    size_t pos = 0;
+    if (pos >= cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x08; /* field 1, varint */
+    uint64_t v = (uint64_t)rev;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    *n = pos;
+    return CETCD_OK;
+}
+
 int cetcd_parse_pprof_seconds(const char *qs, size_t qs_len, int *out) {
     if (!out) return CETCD_ERR_INVAL;
     *out = 30;

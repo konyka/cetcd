@@ -1142,7 +1142,7 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `status` | 获取服务器状态 |
 | `alarm` | 查询告警 |
 | `hash` | 获取 KV 存储哈希值 |
-| `hashkv` | 获取 KV 存储 CRC32C 哈希值和压缩修订号 |
+| `hashkv` | 获取 KV 存储 CRC32C 哈希值和压缩修订号（`--rev N` leftover-safe；省略 / `0` = 当前；`10foo` fail-close） |
 | `defrag` | 碎片整理（LMDB 自动管理，no-op） |
 | `move-leader TARGET_ID` | 领导者转移到指定节点 |
 | `member list` | 列出集群成员 |
