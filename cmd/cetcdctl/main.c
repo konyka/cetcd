@@ -6473,8 +6473,9 @@ static int do_authenticate(const char *user_cred) {
 }
 
 static int cmd_completion(int argc, char **argv) {
-    const char *shell = (argc >= 3) ? argv[2] : NULL;
-    if (!shell || (strcmp(shell, "bash") != 0 && strcmp(shell, "zsh") != 0 && strcmp(shell, "fish") != 0)) {
+    const char *shell = NULL;
+    if (cetcd_ctl_parse_completion_argv(argc, argv, 2, &shell) != CETCD_OK) {
+        fprintf(stderr, "unknown leftover flag (completion bash --foo cannot dump a script)\n");
         fprintf(stderr, "usage: cetcdctl completion bash|zsh|fish\n");
         return 1;
     }
@@ -6752,7 +6753,7 @@ static void print_usage(void) {
     printf("  check datascale [-w json|fields] [--load N] [--prefix PREFIX]  Test database scalability (--load > 0; leftover --flags fail-close)\n");
     printf("  lock [--ttl N] [--print-value-only] [-w json|fields] LOCKNAME [CMD...]  Acquire a distributed lock (--ttl > 0; leftover --flags before LOCKNAME fail-close)\n");
     printf("  elect [--ttl N] [--print-value-only] [-w json|fields] ELECTION_NAME [PROPOSAL]  Leader election (--ttl > 0; leftover --flags fail-close)\n");
-    printf("  completion bash|zsh|fish   Generate shell completion script\n");
+    printf("  completion bash|zsh|fish   Generate shell completion script (leftover --flags fail-close)\n");
 }
 
 static int take_ctl_value_(int *i, int argc, char **argv, const char **out) {

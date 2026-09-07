@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 110 — leftover version --flags</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 111 — leftover completion --flags</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 110 leftover-safe-rejects unknown
-     <code>--</code> flags on <code>version</code>
-     so <code>version --foo</code> cannot print the client version.</p>
+  <p><strong>v0.3.0</strong>. Phase 111 leftover-safe-rejects unknown
+     <code>--</code> flags on <code>completion</code>
+     so <code>completion bash --foo</code> cannot dump a script.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -163,6 +163,7 @@
       <tr><td>108</td><td>leftover check --flags</td><td>unknown leftover -- flags fail-close so check perf --foo / check datascale --foo cannot start a write load — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>109</td><td>leftover migrate --data-dir</td><td>cetcd-migrate leftover-safe-parses --data-dir / --output-dir (--flag=VALUE or next argv); --data-dir --output-dir cannot eat a flag as the path; empty --flag= fail-closes — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>110</td><td>leftover version --flags</td><td>unknown leftover -- flags fail-close so version --foo cannot print the client version — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>111</td><td>leftover completion --flags</td><td>unknown leftover -- flags fail-close so completion bash --foo cannot dump a script — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

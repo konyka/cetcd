@@ -1558,6 +1558,30 @@ int cetcd_ctl_parse_three_name_argv(int argc, char *const *argv, int start,
     return CETCD_OK;
 }
 
+int cetcd_ctl_parse_completion_argv(int argc, char *const *argv, int start,
+                                    const char **shell) {
+    int i, saw_ddash = 0;
+    if (!argv || !shell || start < 0 || start > argc) return CETCD_ERR_INVAL;
+    *shell = NULL;
+    for (i = start; i < argc; i++) {
+        if (!argv[i]) return CETCD_ERR_INVAL;
+        if (!saw_ddash) {
+            if (strcmp(argv[i], "--") == 0) {
+                saw_ddash = 1;
+                continue;
+            }
+            if (argv[i][0] == '-') return CETCD_ERR_INVAL;
+        }
+        if (*shell) return CETCD_ERR_INVAL;
+        *shell = argv[i];
+    }
+    if (!*shell) return CETCD_ERR_INVAL;
+    if (strcmp(*shell, "bash") != 0 && strcmp(*shell, "zsh") != 0 &&
+        strcmp(*shell, "fish") != 0)
+        return CETCD_ERR_INVAL;
+    return CETCD_OK;
+}
+
 int cetcd_ctl_parse_check_argv(int argc, char *const *argv, int start) {
     int i;
     if (!argv || start < 0 || start > argc) return CETCD_ERR_INVAL;

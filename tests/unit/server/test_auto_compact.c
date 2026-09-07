@@ -1612,6 +1612,48 @@ CETCD_TEST_CASE(auto_compact_parse_check_argv) {
     CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_check_argv(3, NULL, 3), CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_completion_argv) {
+    const char *shell = NULL;
+
+    char *ok[] = { "cetcdctl", "completion", "bash" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_completion_argv(3, ok, 2, &shell),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(shell, "bash");
+
+    char *zsh[] = { "cetcdctl", "completion", "zsh" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_completion_argv(3, zsh, 2, &shell),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(shell, "zsh");
+
+    char *dd[] = { "cetcdctl", "completion", "--", "fish" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_completion_argv(4, dd, 2, &shell),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(shell, "fish");
+
+    char *foo[] = { "cetcdctl", "completion", "bash", "--foo" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_completion_argv(4, foo, 2, &shell),
+                        CETCD_ERR_INVAL);
+
+    char *flag[] = { "cetcdctl", "completion", "--foo" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_completion_argv(3, flag, 2, &shell),
+                        CETCD_ERR_INVAL);
+
+    char *wo[] = { "cetcdctl", "completion", "-w", "json", "bash" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_completion_argv(5, wo, 2, &shell),
+                        CETCD_ERR_INVAL);
+
+    char *ksh[] = { "cetcdctl", "completion", "ksh" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_completion_argv(3, ksh, 2, &shell),
+                        CETCD_ERR_INVAL);
+
+    char *miss[] = { "cetcdctl", "completion" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_completion_argv(2, miss, 2, &shell),
+                        CETCD_ERR_INVAL);
+
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_completion_argv(3, ok, 2, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_pprof_seconds) {
     int secs = 0;
     CETCD_ASSERT_EQ_INT(cetcd_parse_pprof_seconds(NULL, 0, &secs), CETCD_OK);
@@ -1696,6 +1738,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_one_name_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_check_argv),
+    CETCD_TEST_ENTRY(auto_compact_parse_completion_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_pprof_seconds),
 CETCD_TEST_LIST_END
 

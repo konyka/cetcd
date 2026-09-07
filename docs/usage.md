@@ -627,6 +627,7 @@ Shell completion scripts can be generated for bash, zsh, and fish:
 
 # Fish: save to completions directory
 ./build/bin/cetcdctl completion fish > ~/.config/fish/completions/cetcdctl.fish
+# leftover completion bash --foo fail-close (cannot dump a script)
 ```
 
 ### Interactive transaction (`txn -i`)

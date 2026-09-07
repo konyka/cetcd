@@ -584,6 +584,10 @@ Performance-first, fail-closed design:
 - **`version` leftover `--` flags** — unknown leftover flags fail-close
   so `version --foo` cannot print the client version. Accepting those
   flags as a no-op is rejected.
+- **`completion` leftover `--` flags** — unknown leftover flags
+  fail-close so `completion bash --foo` cannot dump a script. One of
+  `bash`/`zsh`/`fish` is required. Accepting those flags as a no-op is
+  rejected.
 - **`cetcd-migrate` snap filename** — etcd names are `%016x-%016x.snap`
   (hex). Leftover-safe hex so `123foo-456.snap` cannot win latest with
   a truncated decimal term, and `…000a.snap` is index 10 (not `atoll`

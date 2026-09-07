@@ -207,6 +207,12 @@ int cetcd_ctl_parse_three_name_argv(int argc, char *const *argv, int start,
  * leftover flags (`check perf --foo`) are INVAL so they cannot start
  * a write load. Extra positionals or empty `--load=` are INVAL. */
 int cetcd_ctl_parse_check_argv(int argc, char *const *argv, int start);
+/* leftover-safe completion argv from `start`. One of bash|zsh|fish.
+ * `--` starts the positional. Unknown leftover flags (`completion bash
+ * --foo`) or extra positionals are INVAL so they cannot dump a script.
+ * `-w` is not skipped (completion has no write-out). */
+int cetcd_ctl_parse_completion_argv(int argc, char *const *argv, int start,
+                                    const char **shell);
 /* 1 if alloc_bytes > threshold_mb MiB. threshold 0 never. */
 int cetcd_backend_should_defrag(uint64_t alloc_bytes, uint64_t threshold_mb);
 /* Cap `target` to compacted+batch_limit. batch_limit 0 leaves target. */
