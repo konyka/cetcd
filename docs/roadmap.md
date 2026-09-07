@@ -250,7 +250,8 @@ Performance-first, fail-closed design:
 - **`--auto-tls` / `--peer-auto-tls`** — mint self-signed ECDSA P-256 into
   `{data-dir}/fixtures/` when the matching cert flag is empty. Reuse if both
   files exist; one-without-the-other fail-closes. Requires `--data-dir`.
-  Existing `--cert-file` / `--peer-cert-file` skip mint.
+  Existing `--cert-file` / `--peer-cert-file` skip mint. `=` form is accepted
+  (`--auto-tls=false` is off, not an unknown flag).
   `--self-signed-cert-validity N` sets mint lifetime in years (omitted
   default 1, etcd-compatible; `0` / leftover text fail-closes).
 - **`--advertise-client-urls` / `--initial-advertise-peer-urls`** — MemberList
@@ -326,7 +327,7 @@ Performance-first, fail-closed design:
   log is still live the leader sends `App` from `next_idx` instead.
 - **`--force-new-cluster`** — disaster recovery: keep MVCC, drop every peer
   except self, clear joint config, then campaign as a single voter. Empty
-  dir fail-closes (not a data wipe).
+  dir fail-closes (not a data wipe). `=` form is accepted (`=false` is off).
 - **`--auto-tls` / `--peer-auto-tls`** — mint `{data-dir}/fixtures/client.{crt,key}`
   or `peer.{crt,key}` (ECDSA P-256, SAN localhost + 127.0.0.1). Reuse when
   both files exist. Key mode 0600 on POSIX.

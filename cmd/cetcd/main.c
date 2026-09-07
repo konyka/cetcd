@@ -124,15 +124,7 @@ static int take_flag_value_(int *i, int argc, char **argv, const char **out) {
 }
 
 static int take_bool_flag_(int *i, int argc, char **argv, int *out) {
-    const char *eq = strchr(argv[*i], '=');
-    int on = 1;
-    if (eq) {
-        if (cetcd_parse_bool_flag(eq + 1, &on) != CETCD_OK) return -1;
-    } else if (*i + 1 < argc && argv[*i + 1][0] != '-') {
-        if (cetcd_parse_bool_flag(argv[++(*i)], &on) != CETCD_OK) return -1;
-    }
-    *out = on;
-    return 0;
+    return cetcd_take_cli_bool_flag(i, argc, argv, out) == CETCD_OK ? 0 : -1;
 }
 
 static int print_version_(void) {
@@ -832,8 +824,13 @@ int main(int argc, char **argv) {
                 return 1;
             }
             cfg.quota_backend_bytes = (uint64_t)v;
-        } else if (strcmp(argv[i], "--force-new-cluster") == 0) {
-            cfg.force_new_cluster = true;
+        } else if (cetcd_cli_flag_is(argv[i], "--force-new-cluster")) {
+            int on = 1;
+            if (take_bool_flag_(&i, argc, argv, &on) != 0) {
+                fprintf(stderr, "--force-new-cluster must be true or false\n");
+                return 1;
+            }
+            cfg.force_new_cluster = on ? true : false;
         } else if (strcmp(argv[i], "--strict-reconfig-check") == 0) {
             cfg.strict_reconfig_set = true;
             cfg.strict_reconfig = true;
@@ -983,8 +980,13 @@ int main(int argc, char **argv) {
                 return 1;
             }
             cfg.client_cert_auth = on ? true : false;
-        } else if (strcmp(argv[i], "--auto-tls") == 0) {
-            cfg.auto_tls = true;
+        } else if (cetcd_cli_flag_is(argv[i], "--auto-tls")) {
+            int on = 1;
+            if (take_bool_flag_(&i, argc, argv, &on) != 0) {
+                fprintf(stderr, "--auto-tls must be true or false\n");
+                return 1;
+            }
+            cfg.auto_tls = on ? true : false;
         } else if (strcmp(argv[i], "--self-signed-cert-validity") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "--self-signed-cert-validity requires an integer\n");
@@ -1103,8 +1105,13 @@ int main(int argc, char **argv) {
         } else if (strncmp(argv[i], "--client-cert-allowed-hostname=", 31) == 0) {
             strncpy(cfg.client_cert_allowed_hostname, argv[i] + 31,
                     sizeof(cfg.client_cert_allowed_hostname) - 1);
-        } else if (strcmp(argv[i], "--peer-auto-tls") == 0) {
-            cfg.peer_auto_tls = true;
+        } else if (cetcd_cli_flag_is(argv[i], "--peer-auto-tls")) {
+            int on = 1;
+            if (take_bool_flag_(&i, argc, argv, &on) != 0) {
+                fprintf(stderr, "--peer-auto-tls must be true or false\n");
+                return 1;
+            }
+            cfg.peer_auto_tls = on ? true : false;
         } else if (cetcd_cli_flag_is(argv[i], "--cipher-suites")) {
             const char *s = NULL;
             if (take_flag_value_(&i, argc, argv, &s) != 0) {

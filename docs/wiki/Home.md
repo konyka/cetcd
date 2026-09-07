@@ -802,7 +802,7 @@ missing/garbage CRL or a missing value fail-close).
 `cetcdctl --cacert FILE` (optional `--cert`/`--key`) wraps the same custom-frame
 client in a blocking TLS handshake and omits ALPN so the server keeps the
 length-prefixed path. `--insecure` skips verify; missing files, cert-without-key,
-or `--insecure-transport` mixed with cert flags fail closed. `--auto-tls` /
+or `--insecure-transport` mixed with cert flags fail closed. `--auto-tls=false` / `--peer-auto-tls=false` / `--force-new-cluster=false` are accepted (not unknown). `--auto-tls` /
 `--peer-auto-tls` mint `{data-dir}/fixtures/client.{crt,key}` or `peer.{crt,key}`
 (ECDSA P-256) when the matching cert flag is empty. Reuse if both files exist;
 one-without-the-other or missing `--data-dir` fail-closes.

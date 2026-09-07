@@ -1124,6 +1124,38 @@ CETCD_TEST_CASE(auto_compact_cli_equals_form) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_cli_bool_form) {
+    int on = 0;
+    int i;
+    char *bare[] = { "p", "--auto-tls" };
+    char *eqf[] = { "p", "--auto-tls=false" };
+    char *eqt[] = { "p", "--auto-tls=true" };
+    char *sp[] = { "p", "--auto-tls", "false" };
+    char *bad[] = { "p", "--auto-tls=abc" };
+
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_bool_flag(&i, 2, bare, &on), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(on, 1);
+    CETCD_ASSERT_EQ_INT(i, 1);
+
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_bool_flag(&i, 2, eqf, &on), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(on, 0);
+
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_bool_flag(&i, 2, eqt, &on), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(on, 1);
+
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_bool_flag(&i, 3, sp, &on), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(on, 0);
+    CETCD_ASSERT_EQ_INT(i, 2);
+
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_bool_flag(&i, 2, bad, &on),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_mode),
     CETCD_TEST_ENTRY(auto_compact_parse_retention_periodic),
@@ -1172,6 +1204,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_quota_backend_bytes),
     CETCD_TEST_ENTRY(auto_compact_snapshot_count),
     CETCD_TEST_ENTRY(auto_compact_cli_equals_form),
+    CETCD_TEST_ENTRY(auto_compact_cli_bool_form),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

@@ -1269,3 +1269,20 @@ int cetcd_take_cli_flag_value(int *i, int argc, char *const *argv,
     *out = argv[++(*i)];
     return CETCD_OK;
 }
+
+int cetcd_take_cli_bool_flag(int *i, int argc, char *const *argv, int *out) {
+    const char *eq;
+    int on = 1;
+    if (!i || *i < 0 || *i >= argc || !argv || !argv[*i] || !out)
+        return CETCD_ERR_INVAL;
+    eq = strchr(argv[*i], '=');
+    if (eq) {
+        if (cetcd_parse_bool_flag(eq + 1, &on) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    } else if (*i + 1 < argc && argv[*i + 1][0] != '-') {
+        if (cetcd_parse_bool_flag(argv[++(*i)], &on) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    *out = on;
+    return CETCD_OK;
+}
