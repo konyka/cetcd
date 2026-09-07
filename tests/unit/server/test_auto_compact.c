@@ -1480,6 +1480,18 @@ CETCD_TEST_CASE(auto_compact_parse_maint_argv) {
                         CETCD_OK);
     CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_maint_argv(2, bare, 2, 1, NULL),
                         CETCD_ERR_INVAL);
+
+    char *ver_ok[] = { "cetcdctl", "version", "-w", "json" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_maint_argv(4, ver_ok, 2, 0, &cluster),
+                        CETCD_OK);
+
+    char *ver_foo[] = { "cetcdctl", "version", "--foo" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_maint_argv(3, ver_foo, 2, 0, &cluster),
+                        CETCD_ERR_INVAL);
+
+    char *ver_extra[] = { "cetcdctl", "version", "extra" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_maint_argv(3, ver_extra, 2, 0, &cluster),
+                        CETCD_ERR_INVAL);
 }
 
 CETCD_TEST_CASE(auto_compact_parse_one_name_argv) {

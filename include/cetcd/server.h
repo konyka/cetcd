@@ -182,9 +182,10 @@ int cetcd_encode_hashkv_request(int64_t rev, uint8_t *out, size_t cap, size_t *n
  * positionals, leftover REV text, or missing REV are INVAL. */
 int cetcd_ctl_parse_compact_argv(int argc, char *const *argv, int start,
                                  int *physical, int64_t *rev);
-/* leftover-safe hash/status/defrag argv from `start`. Skips -w/--write-out.
- * allow_cluster honors --cluster[=bool] (etcd defrag). Unknown leftover
- * flags (`hash --rev`, `status --cluster`) are INVAL. */
+/* leftover-safe hash/status/defrag/version argv from `start`. Skips
+ * -w/--write-out. allow_cluster honors --cluster[=bool] (etcd defrag).
+ * Unknown leftover flags (`hash --rev`, `status --cluster`,
+ * `version --foo`) are INVAL. */
 int cetcd_ctl_parse_maint_argv(int argc, char *const *argv, int start,
                                int allow_cluster, int *cluster);
 /* leftover-safe one NAME from `start`. Skips -w/--write-out. `--` starts

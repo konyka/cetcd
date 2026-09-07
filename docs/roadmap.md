@@ -581,6 +581,9 @@ Performance-first, fail-closed design:
   leftover flags fail-close so `check perf --foo` / `check datascale
   --foo` cannot start a write load. Accepting those flags as a no-op
   is rejected.
+- **`version` leftover `--` flags** — unknown leftover flags fail-close
+  so `version --foo` cannot print the client version. Accepting those
+  flags as a no-op is rejected.
 - **`cetcd-migrate` snap filename** — etcd names are `%016x-%016x.snap`
   (hex). Leftover-safe hex so `123foo-456.snap` cannot win latest with
   a truncated decimal term, and `…000a.snap` is index 10 (not `atoll`

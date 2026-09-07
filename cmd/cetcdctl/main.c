@@ -4338,6 +4338,10 @@ static int cmd_version(int argc, char **argv) {
             if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
         }
     }
+    if (cetcd_ctl_parse_maint_argv(argc, argv, 2, 0, NULL) != CETCD_OK) {
+        fprintf(stderr, "unknown leftover flag (version --foo cannot print version)\n");
+        return 1;
+    }
     const char *ver = cetcd_version();
     if (want_json) {
         printf("{\"client\":\"cetcdctl\",\"server\":\"cetcd\",\"version\":\"%s\",\"etcd\":\"v3.5 compatible\"}\n", ver);
@@ -6740,7 +6744,7 @@ static void print_usage(void) {
     printf("  downgrade enable [-w json|fields] VER   Enable cluster downgrade (leftover --flags fail-close)\n");
     printf("  downgrade cancel [-w json|fields]       Cancel cluster downgrade (leftover --flags fail-close)\n");
     printf("  downgrade validate [-w json|fields] VER Validate downgrade version (leftover --flags fail-close)\n");
-    printf("  version [-w json|fields]      Print the client version\n");
+    printf("  version [-w json|fields]      Print the client version (leftover --flags fail-close)\n");
     printf("  endpoint health [--cluster] [-w json|fields|table]  Check server health (or all cluster members with --cluster)\n");
     printf("  endpoint status [--cluster] [-w json|table|fields]  Get server status (or all cluster members with --cluster)\n");
     printf("  endpoint hashkv [--cluster] [--rev N] [-w json|table|fields]  Get KV hash per endpoint (N leftover-safe; 0 = current)\n");
