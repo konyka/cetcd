@@ -578,7 +578,9 @@ Performance-first, fail-closed design:
   Accepting https as a no-op or plaintext is rejected.
 - **HTTP/2 stream multiplex** — each stream has its own path, token, and
   body. A second unary or Watch on the same connection cannot steal the
-  first stream's `:path` or `authorization`. SETTINGS
+  first stream's `:path` or `authorization`. Peer `POST /raft` uses the
+  same per-stream table so a second rafthttp request cannot steal the
+  first stream's path or body. SETTINGS
   `--max-concurrent-streams` is clamped to the tracked table
   (`CETCD_H2_MAX_STREAMS`). Extra streams are RST (REFUSED_STREAM).
   A single `cur` request slot is rejected.

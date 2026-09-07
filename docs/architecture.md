@@ -451,7 +451,8 @@ handshakes (so custom-frame TLS keeps working). A non-`h2` offer is fail-closed.
 
 `libcetcd_http2` uses nghttp2 for session management (preface, SETTINGS, HPACK,
 multiplexing). Each stream keeps its own headers, authorization, and
-response body (a second HEADERS no longer overwrites the first).
+response body (a second HEADERS no longer overwrites the first). Peer
+`POST /raft` tracks path/method/body per stream the same way.
 `--max-concurrent-streams N` (`N > 0`) advertises
 `SETTINGS_MAX_CONCURRENT_STREAMS` on each new session (clamped to
 `CETCD_H2_MAX_STREAMS`); omitted leaves nghttp2's default. After TCP accept, the first bytes are classified with

@@ -1894,6 +1894,18 @@ static void on_peer_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *bu
 static void on_peer_alloc_(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf);
 static void on_peer_close_(uv_handle_t *handle);
 
+typedef struct peer_h2_req_ {
+    int32_t  sid;
+    char     path[256];
+    char     method[16];
+    uint8_t *body;
+    size_t   body_len;
+    size_t   body_cap;
+    int      fail;
+    int      replied;
+    int      in_use;
+} peer_h2_req_;
+
 typedef struct peer_ctx_ {
     cetcd_server     *srv;
     uv_stream_t      *stream;
@@ -1904,17 +1916,47 @@ typedef struct peer_ctx_ {
     size_t            buf_cap;
     int               proto; /* 0 unknown, 1 framed TCP, 2 HTTP/2 */
     cetcd_h2_session *h2;
-    int32_t           h2_sid;
-    char              h2_path[256];
-    char              h2_method[16];
-    uint8_t          *h2_body;
-    size_t            h2_body_len;
-    size_t            h2_body_cap;
-    int               h2_fail;
-    int               h2_replied;
+    peer_h2_req_      h2s[CETCD_H2_MAX_STREAMS];
     uint64_t          last_read_ms;
     struct peer_ctx_ *next;
 } peer_ctx_;
+
+static void peer_h2_req_clear_(peer_h2_req_ *r) {
+    if (!r) return;
+    free(r->body);
+    memset(r, 0, sizeof(*r));
+}
+
+static peer_h2_req_ *peer_h2_req_get_(peer_ctx_ *ctx, int32_t sid) {
+    if (!ctx || sid == 0) return NULL;
+    for (int i = 0; i < CETCD_H2_MAX_STREAMS; i++) {
+        if (ctx->h2s[i].in_use && ctx->h2s[i].sid == sid) return &ctx->h2s[i];
+    }
+    return NULL;
+}
+
+static peer_h2_req_ *peer_h2_req_begin_(peer_ctx_ *ctx, int32_t sid) {
+    peer_h2_req_ *exist = peer_h2_req_get_(ctx, sid);
+    if (exist) return exist;
+    if (!ctx || sid == 0) return NULL;
+    for (int i = 0; i < CETCD_H2_MAX_STREAMS; i++) {
+        if (!ctx->h2s[i].in_use) {
+            memset(&ctx->h2s[i], 0, sizeof(ctx->h2s[i]));
+            ctx->h2s[i].in_use = 1;
+            ctx->h2s[i].sid = sid;
+            return &ctx->h2s[i];
+        }
+    }
+    return NULL;
+}
+
+static int peer_h2_any_fail_(const peer_ctx_ *ctx) {
+    if (!ctx) return 0;
+    for (int i = 0; i < CETCD_H2_MAX_STREAMS; i++) {
+        if (ctx->h2s[i].fail) return 1;
+    }
+    return 0;
+}
 
 static void on_peer_close_(uv_handle_t *handle) {
     peer_ctx_ *ctx = (peer_ctx_ *)handle->data;
@@ -1931,7 +1973,8 @@ static void on_peer_close_(uv_handle_t *handle) {
         }
         cetcd_tls_conn_free(ctx->tls);
         cetcd_h2_session_free(ctx->h2);
-        if (ctx->h2_body) free(ctx->h2_body);
+        for (int i = 0; i < CETCD_H2_MAX_STREAMS; i++)
+            peer_h2_req_clear_(&ctx->h2s[i]);
         if (ctx->buf) free(ctx->buf);
         free(ctx);
     }
@@ -2014,31 +2057,31 @@ static int peer_h2_write_uv_(const uint8_t *buf, size_t len, void *arg) {
     return 0;
 }
 
-static int peer_h2_body_append_(peer_ctx_ *ctx, const uint8_t *data, size_t len) {
-    if (!ctx || !data || len == 0) return 0;
-    if (ctx->h2_body_len + len > 16 * 1024 * 1024) return -1;
-    size_t need = ctx->h2_body_len + len;
-    if (need > ctx->h2_body_cap) {
-        size_t cap = ctx->h2_body_cap ? ctx->h2_body_cap : 4096;
+static int peer_h2_body_append_(peer_h2_req_ *r, const uint8_t *data, size_t len) {
+    if (!r || !data || len == 0) return 0;
+    if (r->body_len + len > 16 * 1024 * 1024) return -1;
+    size_t need = r->body_len + len;
+    if (need > r->body_cap) {
+        size_t cap = r->body_cap ? r->body_cap : 4096;
         while (cap < need) {
             if (cap > SIZE_MAX / 2) return -1;
             cap *= 2;
         }
-        uint8_t *nb = (uint8_t *)realloc(ctx->h2_body, cap);
+        uint8_t *nb = (uint8_t *)realloc(r->body, cap);
         if (!nb) return -1;
-        ctx->h2_body = nb;
-        ctx->h2_body_cap = cap;
+        r->body = nb;
+        r->body_cap = cap;
     }
-    memcpy(ctx->h2_body + ctx->h2_body_len, data, len);
-    ctx->h2_body_len += len;
+    memcpy(r->body + r->body_len, data, len);
+    r->body_len += len;
     return 0;
 }
 
-static void peer_h2_reply_(peer_ctx_ *ctx, const char *status) {
-    if (!ctx || !ctx->h2 || ctx->h2_replied) return;
+static void peer_h2_reply_(peer_ctx_ *ctx, peer_h2_req_ *r, const char *status) {
+    if (!ctx || !ctx->h2 || !r || r->replied) return;
     const char *hdrs[] = { ":status", status };
-    cetcd_h2_submit_response(ctx->h2, ctx->h2_sid, hdrs, 2, NULL, 0, true);
-    ctx->h2_replied = 1;
+    cetcd_h2_submit_response(ctx->h2, r->sid, hdrs, 2, NULL, 0, true);
+    r->replied = 1;
 }
 
 static void peer_h2_on_request_(cetcd_h2_session *sess, int32_t stream_id,
@@ -2048,54 +2091,57 @@ static void peer_h2_on_request_(cetcd_h2_session *sess, int32_t stream_id,
     (void)content_type;
     peer_ctx_ *ctx = (peer_ctx_ *)udata;
     if (!ctx) return;
-    ctx->h2_sid = stream_id;
-    ctx->h2_replied = 0;
-    ctx->h2_body_len = 0;
-    ctx->h2_method[0] = '\0';
-    ctx->h2_path[0] = '\0';
+    peer_h2_req_ *r = peer_h2_req_begin_(ctx, stream_id);
+    if (!r) return;
+    r->replied = 0;
+    r->body_len = 0;
+    r->method[0] = '\0';
+    r->path[0] = '\0';
     if (method) {
         size_t n = strlen(method);
-        if (n >= sizeof(ctx->h2_method)) n = sizeof(ctx->h2_method) - 1;
-        memcpy(ctx->h2_method, method, n);
-        ctx->h2_method[n] = '\0';
+        if (n >= sizeof(r->method)) n = sizeof(r->method) - 1;
+        memcpy(r->method, method, n);
+        r->method[n] = '\0';
     }
     if (path) {
         size_t n = strlen(path);
-        if (n >= sizeof(ctx->h2_path)) n = sizeof(ctx->h2_path) - 1;
-        memcpy(ctx->h2_path, path, n);
-        ctx->h2_path[n] = '\0';
+        if (n >= sizeof(r->path)) n = sizeof(r->path) - 1;
+        memcpy(r->path, path, n);
+        r->path[n] = '\0';
     }
 }
 
-static void peer_h2_finish_(peer_ctx_ *ctx) {
-    if (!ctx || ctx->h2_replied) return;
-    if (strcmp(ctx->h2_method, "POST") != 0) {
-        peer_h2_reply_(ctx, "405");
+static void peer_h2_finish_(peer_ctx_ *ctx, peer_h2_req_ *r) {
+    if (!ctx || !r || r->replied) return;
+    if (strcmp(r->method, "POST") != 0) {
+        peer_h2_reply_(ctx, r, "405");
         return;
     }
-    if (!cetcd_peer_is_rafthttp_path(ctx->h2_path)) {
-        peer_h2_reply_(ctx, "404");
+    if (!cetcd_peer_is_rafthttp_path(r->path)) {
+        peer_h2_reply_(ctx, r, "404");
         return;
     }
-    if (peer_apply_encoded_(ctx->srv, ctx->h2_body, ctx->h2_body_len) != 0) {
-        ctx->h2_fail = 1;
+    if (peer_apply_encoded_(ctx->srv, r->body, r->body_len) != 0) {
+        r->fail = 1;
         return;
     }
-    peer_h2_reply_(ctx, "204");
+    peer_h2_reply_(ctx, r, "204");
 }
 
 static void peer_h2_on_data_(cetcd_h2_session *sess, int32_t stream_id,
                              const uint8_t *data, size_t len,
                              bool end_stream, void *udata) {
     (void)sess;
-    (void)stream_id;
     peer_ctx_ *ctx = (peer_ctx_ *)udata;
     if (!ctx) return;
-    if (data && len > 0 && peer_h2_body_append_(ctx, data, len) != 0) {
-        ctx->h2_fail = 1;
+    peer_h2_req_ *r = peer_h2_req_get_(ctx, stream_id);
+    if (!r) r = peer_h2_req_begin_(ctx, stream_id);
+    if (!r) return;
+    if (data && len > 0 && peer_h2_body_append_(r, data, len) != 0) {
+        r->fail = 1;
         return;
     }
-    if (end_stream) peer_h2_finish_(ctx);
+    if (end_stream) peer_h2_finish_(ctx, r);
 }
 
 static int peer_h2_start_(peer_ctx_ *ctx) {
@@ -2193,7 +2239,8 @@ static void on_peer_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *bu
         }
     }
     if (ctx->proto == 2) {
-        if (cetcd_h2_feed(ctx->h2, ctx->buf, ctx->buf_pos) != 0 || ctx->h2_fail) {
+        if (cetcd_h2_feed(ctx->h2, ctx->buf, ctx->buf_pos) != 0 ||
+            peer_h2_any_fail_(ctx)) {
             ctx->buf_pos = 0;
             uv_close((uv_handle_t *)stream, on_peer_close_);
             return;

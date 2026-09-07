@@ -753,7 +753,7 @@ int cetcd_grpc_decode(const uint8_t *frame, size_t frame_len, bool *compressed, 
 - `cetcd_h2_req_authorization`：最近一次请求的 `authorization` 头
 - `cetcd_h2_req_authorization_on`：指定 stream 的 `authorization` 头（多路复用不串流）
 
-服务端在 client accept 上检测 preface：HTTP/2 一元 RPC 经 `dispatch_ex`，`cetcdctl` 仍走自定义帧。响应带 `grpc-status` trailer。Watch 与 LeaseKeepAlive 保持响应流打开：先发 HEADERS，再用 `cetcd_h2_submit_data` 推送每条响应（Watch 另推后续事件）；客户端 END_STREAM 只半关闭发送侧。Snapshot 为服务端流：先 remaining>0 头，再 remaining=0 blob，然后 trailer。
+服务端在 client accept 上检测 preface：HTTP/2 一元 RPC 经 `dispatch_ex`，`cetcdctl` 仍走自定义帧。响应带 `grpc-status` trailer。Watch 与 LeaseKeepAlive 保持响应流打开：先发 HEADERS，再用 `cetcd_h2_submit_data` 推送每条响应（Watch 另推后续事件）；客户端 END_STREAM 只半关闭发送侧。Snapshot 为服务端流：先 remaining>0 头，再 remaining=0 blob，然后 trailer。Peer `POST /raft` 同样按 stream 跟踪 path/body，第二条请求不能覆盖第一条。
 
 测试覆盖 preface 检测、authorization、空 body END_STREAM、`submit_data` 多块 DATA 不关流、以及 live `Maintenance/Status`、`Watch/Watch`、`Lease/LeaseKeepAlive`、`Maintenance/Snapshot`、`KV/RangeStream` 与 peer `POST /raft` HTTP/2 往返。
 
@@ -856,7 +856,7 @@ file, `ETCD_*` maps to `--flag` (`ETCD_LISTEN_CLIENT_URLS`; empty ignored;
 `--quota-backend-bytes` is an integer (`0` = unlimited); a typo fail-closes instead of becoming unlimited.
 `--max-txn-ops` is `1..128`; a typo or `0` fail-closes instead of becoming the default 128.
 `--max-request-bytes` must be `> 0`; a typo or `0` fail-closes instead of becoming the default 1.5 MiB.
-`--max-concurrent-streams` must be `> 0`; it advertises HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS` (clamped to `CETCD_H2_MAX_STREAMS`). Omitted leaves nghttp2's default. `0` or leftover text fail-closes. Each HTTP/2 stream keeps its own path, token, and body.
+`--max-concurrent-streams` must be `> 0`; it advertises HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS` (clamped to `CETCD_H2_MAX_STREAMS`). Omitted leaves nghttp2's default. `0` or leftover text fail-closes. Each HTTP/2 stream keeps its own path, token, and body (client gRPC and peer `POST /raft`).
 `--auth-token-ttl` is an integer seconds `> 0` (omitted default 300) for simple tokens; leftover text fail-closes. JWT `ttl=` in `--auth-token` still wins.
 `--bcrypt-cost` is `0` or `4..31`; a typo fail-closes instead of becoming SHA-256.
 `--log-outputs` is `stderr`, `stdout`, a file path, or `journal`/`syslog` (unix dgram); mixed comma-lists fail-close.
@@ -940,7 +940,7 @@ int    cetcd_msg_decode(const uint8_t *data, size_t len, uint8_t **raft_msg_out,
 int    cetcd_peer_is_rafthttp_path(const char *path); /* `/raft` */
 ```
 
-peer 端口在 4 字节帧之外识别 HTTP/2 preface：`POST /raft` 将请求体当作 `cetcd_msg_encode` 载荷步进 Raft，成功回 204。出站在协商到 ALPN `h2` 时走同一路径。
+peer 端口在 4 字节帧之外识别 HTTP/2 preface：`POST /raft` 将请求体当作 `cetcd_msg_encode` 载荷步进 Raft，成功回 204。每条流独立 path/body，第二条请求不能覆盖第一条。出站在协商到 ALPN `h2` 时走同一路径。
 
 ---
 
