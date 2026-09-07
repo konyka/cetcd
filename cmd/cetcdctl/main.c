@@ -1055,6 +1055,27 @@ static int take_write_out_jf_(int *i, int argc, char **argv,
     return 1;
 }
 
+static int take_write_out_jtf_(int *i, int argc, char **argv,
+                               int *want_json, int *want_table, int *want_fields) {
+    const char *fmt = NULL;
+    if (!cmd_flag_is_(argv[*i], "-w") && !cmd_flag_is_(argv[*i], "--write-out"))
+        return 0;
+    if (take_cmd_value_(i, argc, argv, &fmt) != 0) return -1;
+    if (strcmp(fmt, "json") == 0) { *want_json = 1; *want_table = 0; *want_fields = 0; }
+    else if (strcmp(fmt, "table") == 0) { *want_json = 0; *want_table = 1; *want_fields = 0; }
+    else if (strcmp(fmt, "fields") == 0) { *want_json = 0; *want_table = 0; *want_fields = 1; }
+    else if (strcmp(fmt, "simple") == 0) { *want_json = 0; *want_table = 0; *want_fields = 0; }
+    return 1;
+}
+
+static int skip_write_out_(int *i, int argc, char **argv) {
+    const char *fmt = NULL;
+    if (!cmd_flag_is_(argv[*i], "-w") && !cmd_flag_is_(argv[*i], "--write-out"))
+        return 0;
+    if (take_cmd_value_(i, argc, argv, &fmt) != 0) return -1;
+    return 1;
+}
+
 static int cmd_put(int argc, char **argv) {
     bool prev_kv = false;
     bool ignore_value = false;
@@ -1931,7 +1952,7 @@ static int cmd_lease(int argc, char **argv) {
         uint64_t lease_id = 0;
         bool has_lease_id = false;
         for (int i = 3; i < argc; i++) {
-            int wj = 0, wf = 0, wr;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
             if ((wr = take_write_out_jf_(&i, argc, argv, &wj, &wf)) != 0) {
                 if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
                 want_json = wj != 0;
@@ -2006,7 +2027,7 @@ static int cmd_lease(int argc, char **argv) {
         bool want_fields = false;
         const char *id_str = NULL;
         for (int i = 3; i < argc; i++) {
-            int wj = 0, wf = 0, wr;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
             if ((wr = take_write_out_jf_(&i, argc, argv, &wj, &wf)) != 0) {
                 if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
                 want_json = wj != 0;
@@ -2035,7 +2056,8 @@ static int cmd_lease(int argc, char **argv) {
         bool want_fields = false;
         const char *id_str = NULL;
         for (int i = 3; i < argc; i++) {
-            int on = 1, wj = 0, wf = 0, wr;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+            int on = 1;
             if (cmd_flag_is_(argv[i], "--keys")) {
                 if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
                     fprintf(stderr, "--keys must be true or false\n");
@@ -2144,11 +2166,9 @@ static int cmd_lease(int argc, char **argv) {
     } else if (strcmp(argv[2], "list") == 0) {
         int table_fmt = 0, json_fmt = 0, fields_fmt = 0;
         for (int i = 3; i < argc; i++) {
-            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-                if (strcmp(argv[i + 1], "table") == 0) table_fmt = 1;
-                else if (strcmp(argv[i + 1], "json") == 0) json_fmt = 1;
-                else if (strcmp(argv[i + 1], "fields") == 0) fields_fmt = 1;
-                i++;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+            if ((wr = take_write_out_jtf_(&i, argc, argv, &json_fmt, &table_fmt, &fields_fmt)) != 0) {
+                if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
             }
         }
         uint8_t req[] = {0x00}, resp[4096];
@@ -2307,7 +2327,8 @@ static int cmd_compact(int argc, char **argv) {
     bool want_fields = false;
     int64_t rev = 0;
     for (int i = 2; i < argc; i++) {
-        int on = 1, wj = 0, wf = 0, wr;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+        int on = 1;
         if (cmd_flag_is_(argv[i], "--physical")) {
             if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
                 fprintf(stderr, "--physical must be true or false\n");
@@ -2364,10 +2385,11 @@ static int cmd_txn(int argc, char **argv) {
     /* Parse -w json|fields for all txn subcommands */
     int want_json = 0, want_fields = 0;
     for (int i = 3; i < argc; i++) {
-        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-            if (strcmp(argv[i + 1], "json") == 0) { want_json = 1; g_write_json = 1; }
-            else if (strcmp(argv[i + 1], "fields") == 0) { want_fields = 1; g_write_fields = 1; }
-            i++;
+        int wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields);
+        if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+        if (wr > 0) {
+            if (want_json) g_write_json = 1;
+            if (want_fields) g_write_fields = 1;
         }
     }
     if (strcmp(argv[2], "put") == 0) {
@@ -2487,7 +2509,8 @@ static int cmd_txn(int argc, char **argv) {
         const char *key = NULL;
         const char *range_end = NULL;
         for (int i = 3; i < argc; i++) {
-            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) { i++; continue; }
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+            if ((sk = skip_write_out_(&i, argc, argv)) != 0) { if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; } continue; }
             if (!key) key = argv[i];
             else if (!range_end) range_end = argv[i];
         }
@@ -2566,13 +2589,27 @@ static int cmd_txn(int argc, char **argv) {
         const char *key = NULL;
         const char *range_end = NULL;
         for (int i = 3; i < argc; i++) {
-            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) { i++; continue; }
-            if (strcmp(argv[i], "--prefix") == 0) {
-                prefix = true;
-            } else if (strcmp(argv[i], "--from-key") == 0) {
-                from_key = true;
-            } else if (strcmp(argv[i], "--prev-kv") == 0) {
-                prev_kv = true;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+            int on = 1;
+            if ((sk = skip_write_out_(&i, argc, argv)) != 0) { if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; } continue; }
+            if (cmd_flag_is_(argv[i], "--prefix")) {
+                if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
+                    fprintf(stderr, "--prefix must be true or false\n");
+                    return 1;
+                }
+                prefix = on != 0;
+            } else if (cmd_flag_is_(argv[i], "--from-key")) {
+                if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
+                    fprintf(stderr, "--from-key must be true or false\n");
+                    return 1;
+                }
+                from_key = on != 0;
+            } else if (cmd_flag_is_(argv[i], "--prev-kv")) {
+                if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
+                    fprintf(stderr, "--prev-kv must be true or false\n");
+                    return 1;
+                }
+                prev_kv = on != 0;
             } else if (!key) {
                 key = argv[i];
             } else if (!range_end) {
@@ -2688,7 +2725,12 @@ static int cmd_txn(int argc, char **argv) {
                     cl = encode_bytes_field(cmp, sizeof(cmp), cl, 0x3a, (const uint8_t *)val, strlen(val));
                 } else {
                     uint8_t vtag = (target == 0) ? 0x20 : (target == 1) ? 0x28 : 0x30;
-                    cl = encode_varint_field(cmp, sizeof(cmp), cl, vtag, (uint64_t)atol(val));
+                    int64_t cv = 0;
+                    if (parse_i64_(val, &cv) != 0) {
+                        fprintf(stderr, "compare value must be an integer\n");
+                        continue;
+                    }
+                    cl = encode_varint_field(cmp, sizeof(cmp), cl, vtag, (uint64_t)cv);
                 }
                 cpos = encode_bytes_field(cmp_buf, sizeof(cmp_buf), cpos, 0x0a, cmp, cl);
             } else if (strcmp(tk, "put") == 0) {
@@ -2799,10 +2841,9 @@ static int cmd_txn(int argc, char **argv) {
 static int cmd_status(int argc, char **argv) {
     int want_json = 0, want_fields = 0;
     for (int i = 2; i < argc; i++) {
-        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-            if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
-            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
-            i++;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+        if ((wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields)) != 0) {
+            if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
         }
     }
     uint8_t req[] = {0x00}, resp[1024];
@@ -2955,13 +2996,15 @@ static int cmd_endpoint(int argc, char **argv) {
     int want_fields = 0;
     int cluster = 0;
     for (int i = 3; i < argc; i++) {
-        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-            if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
-            else if (strcmp(argv[i + 1], "table") == 0) want_table = 1;
-            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
-            i++;
-        } else if (strcmp(argv[i], "--cluster") == 0) {
-            cluster = 1;
+        int wr = 0, on = 1;
+        if ((wr = take_write_out_jtf_(&i, argc, argv, &want_json, &want_table, &want_fields)) != 0) {
+            if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+        } else if (cmd_flag_is_(argv[i], "--cluster")) {
+            if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
+                fprintf(stderr, "--cluster must be true or false\n");
+                return 1;
+            }
+            cluster = on;
         }
     }
     if (strcmp(argv[2], "health") == 0) {
@@ -3338,18 +3381,24 @@ static int cmd_check(int argc, char **argv) {
         int load_count = 1;  /* default: 1 key (simple check) */
         const char *prefix = "_perf_check";
         for (int i = 3; i < argc; i++) {
-            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-                if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
-                else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
-                i++;
-            } else if (strcmp(argv[i], "--load") == 0 && i + 1 < argc) {
-                const char *sz = argv[++i];
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+            if ((wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields)) != 0) {
+                if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            } else if (cmd_flag_is_(argv[i], "--load")) {
+                const char *sz = NULL;
+                if (take_cmd_value_(&i, argc, argv, &sz) != 0) {
+                    fprintf(stderr, "--load must be s, m, or l\n");
+                    return 1;
+                }
                 if (strcmp(sz, "s") == 0 || strcmp(sz, "S") == 0) load_count = 10;
                 else if (strcmp(sz, "m") == 0 || strcmp(sz, "M") == 0) load_count = 100;
                 else if (strcmp(sz, "l") == 0 || strcmp(sz, "L") == 0) load_count = 1000;
                 else { fprintf(stderr, "--load must be s, m, or l\n"); return 1; }
-            } else if (strcmp(argv[i], "--prefix") == 0 && i + 1 < argc) {
-                prefix = argv[++i];
+            } else if (cmd_flag_is_(argv[i], "--prefix")) {
+                if (take_cmd_value_(&i, argc, argv, &prefix) != 0) {
+                    fprintf(stderr, "--prefix requires a value\n");
+                    return 1;
+                }
             }
         }
         if (!want_json && !want_fields) printf("Running performance check (load=%d)...\n", load_count);
@@ -3432,23 +3481,24 @@ static int cmd_check(int argc, char **argv) {
         int load_count = 10000;
         const char *prefix = "_datascale_";
         for (int i = 3; i < argc; i++) {
-            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-                if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
-                else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
-                i++;
-            } else if (strcmp(argv[i], "--load") == 0 && i + 1 < argc) {
-                const char *s = argv[++i];
-                char *end = NULL;
-                errno = 0;
-                long v = strtol(s, &end, 10);
-                if (errno == ERANGE || !end || end == s || *end ||
-                    v < 1 || v > 0x7fffffffL) {
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+            if ((wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields)) != 0) {
+                if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            } else if (cmd_flag_is_(argv[i], "--load")) {
+                const char *s = NULL;
+                int64_t v = 0;
+                if (take_cmd_value_(&i, argc, argv, &s) != 0 ||
+                    cetcd_parse_i64(s, &v) != CETCD_OK ||
+                    v < 1 || v > 0x7fffffffLL) {
                     fprintf(stderr, "check datascale --load must be > 0\n");
                     return 1;
                 }
                 load_count = (int)v;
-            } else if (strcmp(argv[i], "--prefix") == 0 && i + 1 < argc) {
-                prefix = argv[++i];
+            } else if (cmd_flag_is_(argv[i], "--prefix")) {
+                if (take_cmd_value_(&i, argc, argv, &prefix) != 0) {
+                    fprintf(stderr, "--prefix requires a value\n");
+                    return 1;
+                }
             }
         }
         if (!want_json && !want_fields) printf("Running datascale check (loading %d keys)...\n", load_count);
@@ -4032,11 +4082,9 @@ static int cmd_alarm(int argc, char **argv) {
     }
 
     for (int i = 3; i < argc; i++) {
-        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-            if (strcmp(argv[i + 1], "table") == 0) table_fmt = 1;
-            else if (strcmp(argv[i + 1], "json") == 0) json_fmt = 1;
-            else if (strcmp(argv[i + 1], "fields") == 0) fields_fmt = 1;
-            i++;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+        if ((wr = take_write_out_jtf_(&i, argc, argv, &json_fmt, &table_fmt, &fields_fmt)) != 0) {
+            if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
         } else if (argv[i][0] != '-') {
             /* Parse alarm type: none, nospace, corrupt */
             if (strcmp(argv[i], "none") == 0 || strcmp(argv[i], "NONE") == 0) {
@@ -4141,10 +4189,9 @@ static int cmd_alarm(int argc, char **argv) {
 static int cmd_version(int argc, char **argv) {
     int want_json = 0, want_fields = 0;
     for (int i = 2; i < argc; i++) {
-        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-            if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
-            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
-            i++;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+        if ((wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields)) != 0) {
+            if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
         }
     }
     const char *ver = cetcd_version();
@@ -4232,13 +4279,16 @@ static int cmd_snapshot(int argc, char **argv) {
         int want_json = 0, want_fields = 0, want_table = 0;
         const char *filename = NULL;
         for (int i = 3; i < argc; i++) {
-            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-                if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
-                else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
-                else if (strcmp(argv[i + 1], "table") == 0) want_table = 1;
-                i++;
-            } else if (strcmp(argv[i], "--compaction-periodical") == 0) {
-                /* no-op: accepted for etcdctl compatibility */
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+            if ((wr = take_write_out_jtf_(&i, argc, argv, &want_json, &want_table, &want_fields)) != 0) {
+                if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            } else if (cmd_flag_is_(argv[i], "--compaction-periodical")) {
+                int on = 1;
+                if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
+                    fprintf(stderr, "--compaction-periodical must be true or false\n");
+                    return 1;
+                }
+                /* no-op: accepted for etcdctl compatibility; does not compact */
             } else if (!filename) {
                 filename = argv[i];
             }
@@ -4342,11 +4392,8 @@ static int cmd_snapshot(int argc, char **argv) {
         }
         int snap_json = 0, snap_fields = 0;
         for (int i = 4; i < argc; i++) {
-            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-                if (strcmp(argv[i + 1], "json") == 0) snap_json = 1;
-                else if (strcmp(argv[i + 1], "fields") == 0) snap_fields = 1;
-                i++;
-            }
+            int wr = take_write_out_jf_(&i, argc, argv, &snap_json, &snap_fields);
+            if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
         }
         FILE *f = fopen(argv[3], "rb");
         if (!f) { perror("fopen"); return 1; }
@@ -4415,26 +4462,52 @@ static int cmd_snapshot(int argc, char **argv) {
         int skip_hash = 0;
         int want_json = 0, want_fields = 0;
         for (int i = 3; i < argc; i++) {
-            if (strcmp(argv[i], "--data-dir") == 0 && i + 1 < argc) {
-                data_dir = argv[++i];
-            } else if (strcmp(argv[i], "--force") == 0) {
-                force = 1;
-            } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-                if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
-                else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
-                i++;
-            } else if (strcmp(argv[i], "--skip-hash-check") == 0) {
-                skip_hash = 1;
-            } else if (strcmp(argv[i], "--initial-cluster") == 0 && i + 1 < argc) {
-                initial_cluster = argv[++i];
-            } else if (strcmp(argv[i], "--initial-advertise-peer-urls") == 0 && i + 1 < argc) {
-                adv_peer = argv[++i];
-            } else if (strcmp(argv[i], "--name") == 0 && i + 1 < argc) {
-                member_name = argv[++i];
-            } else if (strcmp(argv[i], "--initial-cluster-token") == 0 && i + 1 < argc) {
-                cluster_token = argv[++i];
-            } else if (strcmp(argv[i], "--initial-cluster-state") == 0 && i + 1 < argc) {
-                cluster_state = argv[++i];
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+            int on = 1;
+            if (cmd_flag_is_(argv[i], "--data-dir")) {
+                if (take_cmd_value_(&i, argc, argv, &data_dir) != 0) {
+                    fprintf(stderr, "--data-dir requires a path\n");
+                    return 1;
+                }
+            } else if (cmd_flag_is_(argv[i], "--force")) {
+                if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
+                    fprintf(stderr, "--force must be true or false\n");
+                    return 1;
+                }
+                force = on;
+            } else if ((wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields)) != 0) {
+                if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            } else if (cmd_flag_is_(argv[i], "--skip-hash-check")) {
+                if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
+                    fprintf(stderr, "--skip-hash-check must be true or false\n");
+                    return 1;
+                }
+                skip_hash = on;
+            } else if (cmd_flag_is_(argv[i], "--initial-cluster")) {
+                if (take_cmd_value_(&i, argc, argv, &initial_cluster) != 0) {
+                    fprintf(stderr, "--initial-cluster requires a spec\n");
+                    return 1;
+                }
+            } else if (cmd_flag_is_(argv[i], "--initial-advertise-peer-urls")) {
+                if (take_cmd_value_(&i, argc, argv, &adv_peer) != 0) {
+                    fprintf(stderr, "--initial-advertise-peer-urls requires a URL\n");
+                    return 1;
+                }
+            } else if (cmd_flag_is_(argv[i], "--name")) {
+                if (take_cmd_value_(&i, argc, argv, &member_name) != 0) {
+                    fprintf(stderr, "--name requires a member name\n");
+                    return 1;
+                }
+            } else if (cmd_flag_is_(argv[i], "--initial-cluster-token")) {
+                if (take_cmd_value_(&i, argc, argv, &cluster_token) != 0) {
+                    fprintf(stderr, "--initial-cluster-token requires a token\n");
+                    return 1;
+                }
+            } else if (cmd_flag_is_(argv[i], "--initial-cluster-state")) {
+                if (take_cmd_value_(&i, argc, argv, &cluster_state) != 0) {
+                    fprintf(stderr, "--initial-cluster-state requires new or existing\n");
+                    return 1;
+                }
                 if (strcmp(cluster_state, "new") != 0 &&
                     strcmp(cluster_state, "existing") != 0) {
                     fprintf(stderr,
@@ -4704,10 +4777,9 @@ static int cmd_downgrade(int argc, char **argv) {
     }
 
     for (int i = 3; i < argc; i++) {
-        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-            if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
-            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
-            i++;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+        if ((wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields)) != 0) {
+            if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
         }
     }
 
@@ -4760,20 +4832,17 @@ static int cmd_member(int argc, char **argv) {
     /* Parse -w json/fields for all subcommands */
     int want_json = 0, want_fields = 0;
     for (int i = 3; i < argc; i++) {
-        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-            if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
-            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
-            i++;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+        if ((wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields)) != 0) {
+            if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
         }
     }
     if (strcmp(argv[2], "list") == 0) {
         int table_fmt = 0, json_fmt = 0, fields_fmt = 0;
         for (int i = 3; i < argc; i++) {
-            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-                if (strcmp(argv[i + 1], "table") == 0) table_fmt = 1;
-                else if (strcmp(argv[i + 1], "json") == 0) json_fmt = 1;
-                else if (strcmp(argv[i + 1], "fields") == 0) fields_fmt = 1;
-                i++;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+            if ((wr = take_write_out_jtf_(&i, argc, argv, &json_fmt, &table_fmt, &fields_fmt)) != 0) {
+                if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
             }
         }
         uint8_t req[] = {0x00}, resp[4096];
@@ -4785,24 +4854,29 @@ static int cmd_member(int argc, char **argv) {
         const char *member_name = NULL;
         int is_learner = 0;
         for (int i = 3; i < argc; i++) {
-            if (strncmp(argv[i], "--peer-urls=", 12) == 0) {
-                peer_url = argv[i] + 12;
-            } else if (strcmp(argv[i], "--peer-urls") == 0 && i + 1 < argc) {
-                peer_url = argv[++i];
-            } else if (strncmp(argv[i], "--name=", 7) == 0) {
-                member_name = argv[i] + 7;
-            } else if (strcmp(argv[i], "--name") == 0 && i + 1 < argc) {
-                member_name = argv[++i];
-            } else if (strcmp(argv[i], "--learner") == 0) {
-                is_learner = 1;
+            int on = 1, sk;
+            if (cmd_flag_is_(argv[i], "--peer-urls")) {
+                if (take_cmd_value_(&i, argc, argv, &peer_url) != 0) {
+                    fprintf(stderr, "--peer-urls requires a URL\n");
+                    return 1;
+                }
+            } else if (cmd_flag_is_(argv[i], "--name")) {
+                if (take_cmd_value_(&i, argc, argv, &member_name) != 0) {
+                    fprintf(stderr, "--name requires a member name\n");
+                    return 1;
+                }
+            } else if (cmd_flag_is_(argv[i], "--learner")) {
+                if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
+                    fprintf(stderr, "--learner must be true or false\n");
+                    return 1;
+                }
+                is_learner = on;
+            } else if ((sk = skip_write_out_(&i, argc, argv)) != 0) {
+                if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
             } else if (argv[i][0] == '-') {
-                if (i + 1 < argc && (strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0)) i++;
-                continue;
-            } else if (i > 3 && (strcmp(argv[i-1], "-w") == 0 || strcmp(argv[i-1], "--write-out") == 0)) {
                 continue;
             } else if (!peer_url) {
-                /* First non-flag positional arg is the URL (or NAME if --peer-urls used) */
-                if (!peer_url) peer_url = argv[i];
+                peer_url = argv[i];
             }
         }
         if (!peer_url) { fprintf(stderr, "usage: cetcdctl member add [-w json] [--peer-urls URLS] [--name NAME] [--learner] [PEER_URL]\n"); return 1; }
@@ -4827,8 +4901,9 @@ static int cmd_member(int argc, char **argv) {
     } else if (strcmp(argv[2], "remove") == 0) {
         const char *id_str = NULL;
         for (int i = 3; i < argc; i++) {
-            if (argv[i][0] == '-') continue;
-            if (i > 3 && (strcmp(argv[i-1], "-w") == 0 || strcmp(argv[i-1], "--write-out") == 0)) continue;
+            int sk = skip_write_out_(&i, argc, argv);
+            if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            if (sk > 0 || argv[i][0] == '-') continue;
             if (!id_str) id_str = argv[i];
         }
         if (!id_str) { fprintf(stderr, "usage: cetcdctl member remove [-w json|fields] ID\n"); return 1; }
@@ -4849,7 +4924,9 @@ static int cmd_member(int argc, char **argv) {
         const char *id_str = NULL;
         const char *peer_url = NULL;
         for (int i = 3; i < argc; i++) {
-            if (argv[i][0] == '-') { if (i + 1 < argc && (strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0)) i++; continue; }
+            int sk = skip_write_out_(&i, argc, argv);
+            if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            if (sk > 0 || argv[i][0] == '-') continue;
             if (!id_str) id_str = argv[i];
             else if (!peer_url) peer_url = argv[i];
         }
@@ -4872,7 +4949,9 @@ static int cmd_member(int argc, char **argv) {
     } else if (strcmp(argv[2], "promote") == 0) {
         const char *id_str = NULL;
         for (int i = 3; i < argc; i++) {
-            if (argv[i][0] == '-') { if (i + 1 < argc && (strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0)) i++; continue; }
+            int sk = skip_write_out_(&i, argc, argv);
+            if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            if (sk > 0 || argv[i][0] == '-') continue;
             if (!id_str) id_str = argv[i];
         }
         if (!id_str) { fprintf(stderr, "usage: cetcdctl member promote [-w json|fields] ID\n"); return 1; }
@@ -4906,10 +4985,9 @@ static int cmd_auth(int argc, char **argv) {
         int want_json = 0, want_fields = 0;
         const char *name = NULL, *pass = NULL;
         for (int i = 3; i < argc; i++) {
-            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-                if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
-                else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
-                i++;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+            if ((wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields)) != 0) {
+                if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
             } else if (!name) name = argv[i];
             else if (!pass) pass = argv[i];
         }
@@ -4967,10 +5045,9 @@ static int cmd_auth(int argc, char **argv) {
     }
     int want_json = 0, want_fields = 0;
     for (int i = 3; i < argc; i++) {
-        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-            if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
-            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
-            i++;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+        if ((wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields)) != 0) {
+            if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
         }
     }
     int rlen = do_rpc(path, req, 1, resp, sizeof(resp));
@@ -5017,20 +5094,25 @@ static int cmd_user(int argc, char **argv) {
     /* Parse -w json/fields for all subcommands */
     int want_json = 0, want_fields = 0;
     for (int i = 3; i < argc; i++) {
-        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-            if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
-            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
-            i++;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+        if ((wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields)) != 0) {
+            if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
         }
     }
     if (strcmp(argv[2], "add") == 0) {
         const char *user_name = NULL, *password = NULL;
         bool no_password = false;
         for (int i = 3; i < argc; i++) {
-            if (strcmp(argv[i], "--no-password") == 0) {
-                no_password = true;
-            } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-                i++; /* already parsed globally */
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+            int on = 1;
+            if (cmd_flag_is_(argv[i], "--no-password")) {
+                if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
+                    fprintf(stderr, "--no-password must be true or false\n");
+                    return 1;
+                }
+                no_password = on != 0;
+            } else if ((sk = skip_write_out_(&i, argc, argv)) != 0) {
+                if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
             } else if (!user_name) {
                 user_name = argv[i];
             } else if (!password) {
@@ -5079,13 +5161,11 @@ static int cmd_user(int argc, char **argv) {
         if (!want_json && !want_fields) printf("roles:\n");
         parse_string_list_response(resp, rlen, "roles", 0, want_json, want_fields);
     } else if (strcmp(argv[2], "list") == 0) {
-        int table_fmt = 0, fields_fmt = 0;
+        int table_fmt = 0, fields_fmt = 0, list_json = 0;
         for (int i = 3; i < argc; i++) {
-            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-                if (strcmp(argv[i + 1], "table") == 0) table_fmt = 1;
-                else if (strcmp(argv[i + 1], "fields") == 0) fields_fmt = 1;
-                i++;
-            }
+            int wr = take_write_out_jtf_(&i, argc, argv, &list_json, &table_fmt, &fields_fmt);
+            if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            if (list_json) want_json = 1;
         }
         uint8_t req[] = {0x00}, resp[4096];
         int rlen = do_rpc("/etcdserverpb.Auth/UserList", req, 1, resp, sizeof(resp));
@@ -5144,10 +5224,9 @@ static int cmd_role(int argc, char **argv) {
     /* Parse -w json/fields for all subcommands */
     int want_json = 0, want_fields = 0;
     for (int i = 3; i < argc; i++) {
-        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-            if (strcmp(argv[i + 1], "json") == 0) want_json = 1;
-            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = 1;
-            i++;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+        if ((wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields)) != 0) {
+            if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
         }
     }
     if (strcmp(argv[2], "add") == 0) {
@@ -5171,13 +5250,11 @@ static int cmd_role(int argc, char **argv) {
         else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
         else { printf("OK\n"); }
     } else if (strcmp(argv[2], "list") == 0) {
-        int table_fmt = 0, fields_fmt = 0;
+        int table_fmt = 0, fields_fmt = 0, list_json = 0;
         for (int i = 3; i < argc; i++) {
-            if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-                if (strcmp(argv[i + 1], "table") == 0) table_fmt = 1;
-                else if (strcmp(argv[i + 1], "fields") == 0) fields_fmt = 1;
-                i++;
-            }
+            int wr = take_write_out_jtf_(&i, argc, argv, &list_json, &table_fmt, &fields_fmt);
+            if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            if (list_json) want_json = 1;
         }
         uint8_t req[] = {0x00}, resp[4096];
         int rlen = do_rpc("/etcdserverpb.Auth/RoleList", req, 1, resp, sizeof(resp));
@@ -5298,12 +5375,21 @@ static int cmd_role(int argc, char **argv) {
         const char *range_end_arg = NULL;
         bool prefix = false;
         for (int i = 3; i < argc; i++) {
-            if (strcmp(argv[i], "--prefix") == 0) {
-                prefix = true;
-            } else if (strcmp(argv[i], "--range-end") == 0 && i + 1 < argc) {
-                range_end_arg = argv[++i];
-            } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-                i++; /* already parsed globally */
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+            int on = 1;
+            if (cmd_flag_is_(argv[i], "--prefix")) {
+                if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
+                    fprintf(stderr, "--prefix must be true or false\n");
+                    return 1;
+                }
+                prefix = on != 0;
+            } else if (cmd_flag_is_(argv[i], "--range-end")) {
+                if (take_cmd_value_(&i, argc, argv, &range_end_arg) != 0) {
+                    fprintf(stderr, "--range-end requires a key\n");
+                    return 1;
+                }
+            } else if ((sk = skip_write_out_(&i, argc, argv)) != 0) {
+                if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
             } else if (!role_name) {
                 role_name = argv[i];
             } else if (!perm_type_str) {
@@ -5374,12 +5460,21 @@ static int cmd_role(int argc, char **argv) {
         const char *range_end_arg = NULL;
         bool prefix = false;
         for (int i = 3; i < argc; i++) {
-            if (strcmp(argv[i], "--prefix") == 0) {
-                prefix = true;
-            } else if (strcmp(argv[i], "--range-end") == 0 && i + 1 < argc) {
-                range_end_arg = argv[++i];
-            } else if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-                i++; /* already parsed globally */
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+            int on = 1;
+            if (cmd_flag_is_(argv[i], "--prefix")) {
+                if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
+                    fprintf(stderr, "--prefix must be true or false\n");
+                    return 1;
+                }
+                prefix = on != 0;
+            } else if (cmd_flag_is_(argv[i], "--range-end")) {
+                if (take_cmd_value_(&i, argc, argv, &range_end_arg) != 0) {
+                    fprintf(stderr, "--range-end requires a key\n");
+                    return 1;
+                }
+            } else if ((sk = skip_write_out_(&i, argc, argv)) != 0) {
+                if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
             } else if (!role_name) {
                 role_name = argv[i];
             } else if (!perm_type_str) {
@@ -5792,7 +5887,11 @@ static int cmd_watch(int argc, char **argv) {
                 } else if (strcmp(cmd, "cancel") == 0) {
                     char *id_str = strtok(NULL, " \t");
                     if (!id_str) { fprintf(stderr, "usage: cancel WATCH_ID\n"); continue; }
-                    int64_t wid = atol(id_str);
+                    int64_t wid = 0;
+                    if (parse_i64_(id_str, &wid) != 0 || wid < 1) {
+                        fprintf(stderr, "cancel WATCH_ID must be > 0\n");
+                        continue;
+                    }
                     uint8_t cbuf[256];
                     size_t cp = build_watch_cancel(cbuf, sizeof(cbuf), wid);
                     if (cp > 0) { send_request(fd, "/etcdserverpb.Watch/Watch", cbuf, cp); fprintf(stderr, "cancel sent for watch ID %lld\n", (long long)wid); }
@@ -5821,11 +5920,10 @@ static int cmd_watch(int argc, char **argv) {
 static int cmd_hash(int argc, char **argv) {
     bool want_json = false, want_fields = false, want_table = false;
     for (int i = 2; i < argc; i++) {
-        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-            if (strcmp(argv[i + 1], "json") == 0) want_json = true;
-            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
-            else if (strcmp(argv[i + 1], "table") == 0) want_table = true;
-            i++;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+        if ((wr = take_write_out_jtf_(&i, argc, argv, &wj, &wt, &wf)) != 0) {
+            if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            want_json = wj != 0; want_table = wt != 0; want_fields = wf != 0;
         }
     }
     uint8_t req[] = {0x00}, resp[256];
@@ -5868,11 +5966,10 @@ static int cmd_hashkv(int argc, char **argv) {
     bool want_json = false;
     bool want_fields = false, want_table = false;
     for (int i = 2; i < argc; i++) {
-        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-            if (strcmp(argv[i + 1], "json") == 0) want_json = true;
-            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
-            else if (strcmp(argv[i + 1], "table") == 0) want_table = true;
-            i++;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+        if ((wr = take_write_out_jtf_(&i, argc, argv, &wj, &wt, &wf)) != 0) {
+            if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            want_json = wj != 0; want_table = wt != 0; want_fields = wf != 0;
         }
     }
     uint8_t req[] = {0x00}, resp[256];
@@ -5920,10 +6017,10 @@ static int cmd_defrag(int argc, char **argv) {
     bool want_json = false;
     bool want_fields = false;
     for (int i = 2; i < argc; i++) {
-        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-            if (strcmp(argv[i + 1], "json") == 0) want_json = true;
-            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
-            i++;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+        if ((wr = take_write_out_jf_(&i, argc, argv, &wj, &wf)) != 0) {
+            if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            want_json = wj != 0; want_fields = wf != 0;
         }
     }
     uint8_t req[] = {0x00}, resp[256];
@@ -5945,10 +6042,10 @@ static int cmd_move_leader(int argc, char **argv) {
     bool want_fields = false;
     const char *target_str = NULL;
     for (int i = 2; i < argc; i++) {
-        if ((strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--write-out") == 0) && i + 1 < argc) {
-            if (strcmp(argv[i + 1], "json") == 0) want_json = true;
-            else if (strcmp(argv[i + 1], "fields") == 0) want_fields = true;
-            i++;
+        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
+        if ((wr = take_write_out_jf_(&i, argc, argv, &wj, &wf)) != 0) {
+            if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            want_json = wj != 0; want_fields = wf != 0;
         } else if (!target_str) {
             target_str = argv[i];
         }

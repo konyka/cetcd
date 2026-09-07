@@ -319,8 +319,9 @@ cetcd accepts several etcd server flags for migration compatibility:
 `cetcdctl` is a command-line client that speaks cetcd's gRPC protocol.
 It mirrors `etcdctl` command structure for familiarity. Global and
 subcommand flags accept etcdctl `--flag=value` (`--command-timeout=5s`,
-`--lease=1`, `--rev=5`, `--write-out=json`); empty `--flag=` and leftover
-text (`put --lease 10foo`) fail-close. `--prefix=false` does not eat the key.
+`--lease=1`, `--rev=5`, `--write-out=json`, `--data-dir=DIR`); empty
+`--flag=` and leftover text (`put --lease 10foo`, `watch cancel 10foo`)
+fail-close. `--prefix=false` does not eat the key.
 
 ### KV operations
 

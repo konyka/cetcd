@@ -3696,6 +3696,29 @@ CETCD_TEST_CASE(live_cetcdctl_datascale_load) {
              "'%s' check datascale --load 0 >/dev/null 2>&1",
              CETCDCTL_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' check datascale --load=10foo >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
+CETCD_TEST_CASE(live_cetcdctl_write_out_equals) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' status --write-out= >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' member list --write-out= >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' snapshot restore --data-dir= snap.db >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
 CETCD_TEST_CASE(live_cetcdctl_lock_elect_ttl) {
@@ -4029,6 +4052,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcdctl_port),
     CETCD_TEST_ENTRY(live_cetcdctl_endpoints_port),
     CETCD_TEST_ENTRY(live_cetcdctl_datascale_load),
+    CETCD_TEST_ENTRY(live_cetcdctl_write_out_equals),
     CETCD_TEST_ENTRY(live_cetcdctl_lock_elect_ttl),
     CETCD_TEST_ENTRY(live_cetcdctl_lease_keepalive_interval),
     CETCD_TEST_ENTRY(live_cetcdctl_lease_grant_ttl),

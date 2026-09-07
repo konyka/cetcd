@@ -874,7 +874,7 @@ file, `ETCD_*` maps to `--flag` (`ETCD_LISTEN_CLIENT_URLS`; empty ignored;
 `--keepalive-time` / `--keepalive-timeout` set TCP keepalive on the client socket
 (invalid durations and timeout without time fail-close).
 `--command-timeout` is a duration (`0` = none); a typo or leftover (`10foo`) fail-closes instead of hanging with no alarm. Global `--flag=value` (`--command-timeout=5s`, `--debug=false`) is accepted; empty `--flag=` fail-closes. `--debug=false` does not eat the next argv.
-Subcommand `--flag=value` (`put --lease=1`, `get --rev=5`, `--write-out=json`, `watch --start-rev=5`, `lock --ttl=60`) is accepted; leftover `put --lease 10foo` fail-closes instead of attaching truncated lease 10. `--prefix=false` does not eat the key.
+Subcommand `--flag=value` (`put --lease=1`, `get --rev=5`, `--write-out=json`, `watch --start-rev=5`, `lock --ttl=60`, `snapshot restore --data-dir=DIR`, `check datascale --load=N`) is accepted; leftover `put --lease 10foo` / `watch cancel 10foo` / `--load=10foo` fail-closes. `--prefix=false` does not eat the key.
 `--dial-timeout` is `0..86400` seconds (`0` = none); a typo fail-closes instead of connecting with no timeout.
 `cetcdctl --port` is `1..65535`; a typo fail-closes instead of connecting to port `0`.
 `cetcdctl --endpoints` / `--endpoint` port is `1..65535`; a typo fail-closes instead of connecting to port `0`.

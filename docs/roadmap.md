@@ -213,6 +213,12 @@ Performance-first, fail-closed design:
   `--write-out=json`, `--ttl=60`, `--start-rev=5`). `--prefix=false` does
   not eat the key. `put --lease 10foo` fail-closes instead of attaching
   truncated lease 10.
+- **`cetcdctl` remaining `--write-out=` / restore `=`** — status/txn/endpoint/
+  check/member/auth/user/role/snapshot/alarm/hash/defrag/move-leader honor
+  `--write-out=json` instead of treating it as a key. `snapshot restore
+  --data-dir=DIR` and `check datascale --load=N` accept equals-form; empty
+  `--flag=` and leftover `--load=10foo` fail-close. Interactive `watch
+  cancel 10foo` fail-closes instead of cancelling watch 10.
 - **`cetcdctl --dial-timeout`** — `0..86400` seconds (optional `s`). A typo
   used to become “no timeout” via `atoi`; that now fails at parse. `0` stays
   none.
@@ -222,7 +228,7 @@ Performance-first, fail-closed design:
   used to connect to port `0` via `atoi`; that now fails at parse.
 - **`cetcdctl check datascale --load`** — must be `> 0`. A typo or `0` used
   to become the silent default 10000 via `atoi`; that now fails at parse.
-  Omitted still defaults to 10000.
+  Omitted still defaults to 10000. `=` form is accepted.
 - **`cetcdctl lock --ttl` / `elect --ttl`** — must be `> 0`. A leftover such as
   `60foo` used to become `60` via `atoi`; that now fails at parse. Omitted
   still defaults to 60.
