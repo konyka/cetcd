@@ -592,6 +592,11 @@ Performance-first, fail-closed design:
   when the next argv is a leftover `--` (`--load --prefix`,
   `--name --data-dir`) so a flag cannot become the value. `--flag=--foo`
   is still the value `--foo`. Accepting a leftover `--` value is rejected.
+- **leftover-safe server VALUE takes** — remaining cetcd `--flag VALUE`
+  paths use that helper so `--host-whitelist --name` /
+  `--listen-client-urls --name` cannot eat a flag as the list.
+  Empty `--host-whitelist=` stays allow-all. Accepting a leftover `--`
+  as a Host or URL is rejected.
 - **`cetcd-migrate` snap filename** — etcd names are `%016x-%016x.snap`
   (hex). Leftover-safe hex so `123foo-456.snap` cannot win latest with
   a truncated decimal term, and `…000a.snap` is index 10 (not `atoll`

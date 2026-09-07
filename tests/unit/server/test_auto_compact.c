@@ -1275,6 +1275,22 @@ CETCD_TEST_CASE(auto_compact_cli_equals_form) {
     CETCD_ASSERT_EQ_INT(cetcd_take_cli_flag_value(&i, 2, eqdash, &s),
                         CETCD_OK);
     CETCD_ASSERT_EQ_STR(s, "--foo");
+
+    char *hw[] = { "p", "--host-whitelist", "--name" };
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_flag_value(&i, 3, hw, &s),
+                        CETCD_ERR_INVAL);
+
+    char *listen[] = { "p", "--listen-client-urls", "--name" };
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_flag_value(&i, 3, listen, &s),
+                        CETCD_ERR_INVAL);
+
+    char *hwok[] = { "p", "--host-whitelist", "localhost" };
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_flag_value(&i, 3, hwok, &s),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(s, "localhost");
 }
 
 CETCD_TEST_CASE(auto_compact_cli_bool_form) {

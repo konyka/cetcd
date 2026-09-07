@@ -821,7 +821,8 @@ fail-closes).
 # Scrape metrics
 curl http://127.0.0.1:2381/metrics
 # --host-whitelist localhost,127.0.0.1 rejects other Host headers (403)
-# omitted / * / empty allows all (etcd default)
+# leftover --host-whitelist --name fail-close (cannot eat a flag as the Host)
+# omitted / * / empty / --host-whitelist= allows all (etcd default)
 # --metrics extensive records unary grpc_server_handling_seconds histograms
 # --metrics basic (omitted default) keeps counters/gauges only
 # --socket-reuse-port sets SO_REUSEPORT (Windows fail-closes)
