@@ -1211,6 +1211,15 @@ CETCD_TEST_CASE(auto_compact_cli_equals_form) {
                                          "--data-dir"), 1);
     CETCD_ASSERT_EQ_INT(cetcd_cli_flag_is(NULL, "--name"), 0);
 
+    CETCD_ASSERT_EQ_INT(cetcd_cli_is_long_flag("--foo"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_cli_is_long_flag("--foo=bar"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_cli_is_long_flag("--rev"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_cli_is_long_flag("--"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_cli_is_long_flag("-w"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_cli_is_long_flag("-1"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_cli_is_long_flag("key"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_cli_is_long_flag(NULL), 0);
+
     i = 1;
     CETCD_ASSERT_EQ_INT(cetcd_take_cli_flag_value(&i, 2, eq, &s), CETCD_OK);
     CETCD_ASSERT_EQ_STR(s, "n1");

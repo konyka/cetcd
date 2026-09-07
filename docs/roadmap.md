@@ -549,6 +549,12 @@ Performance-first, fail-closed design:
   cannot compact the wrong revision). `defrag --cluster` honors etcd's
   MemberList walk (a swallowed `--cluster` would defrag only the
   connected member). Accepting those flags as a no-op is rejected.
+- **`put` / `get` / `del` / `lease` leftover `--` flags** — unknown
+  leftover long flags fail-close so `put --foo k v` cannot write key
+  `--foo`, `get k --foo` cannot range to `--foo`, and
+  `lease grant 10 --rev` cannot grant with a swallowed flag.
+  `--` still starts positionals (`put -- --foo v`). Accepting those
+  flags as a key or range_end is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

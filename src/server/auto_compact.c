@@ -1317,6 +1317,11 @@ int cetcd_cli_flag_is(const char *arg, const char *name) {
     return arg[n] == '\0' || arg[n] == '=';
 }
 
+int cetcd_cli_is_long_flag(const char *arg) {
+    if (!arg || arg[0] != '-' || arg[1] != '-') return 0;
+    return arg[2] != '\0';
+}
+
 int cetcd_take_cli_flag_value(int *i, int argc, char *const *argv,
                               const char **out) {
     const char *eq;

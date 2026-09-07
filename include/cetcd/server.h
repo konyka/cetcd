@@ -160,6 +160,8 @@ uint64_t cetcd_quota_backend_bytes_effective(uint64_t n);
 uint64_t cetcd_snapshot_count_effective(uint64_t n);
 /* 1 if arg is `--name` or `--name=...` (not `--names`). */
 int cetcd_cli_flag_is(const char *arg, const char *name);
+/* 1 if arg is a leftover long flag (`--foo` / `--foo=bar`). `--` is 0. */
+int cetcd_cli_is_long_flag(const char *arg);
 /* `--flag VALUE` or `--flag=VALUE`. Empty `--flag=` is INVAL. */
 int cetcd_take_cli_flag_value(int *i, int argc, char *const *argv,
                               const char **out);

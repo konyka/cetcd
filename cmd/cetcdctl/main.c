@@ -1157,6 +1157,19 @@ static int cmd_put(int argc, char **argv) {
             if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
             want_json = wj != 0;
             want_fields = wf != 0;
+        } else if (strcmp(argv[i], "--") == 0) {
+            for (i++; i < argc; i++) {
+                if (!key) key = argv[i];
+                else if (!val) val = argv[i];
+                else {
+                    fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                    return 1;
+                }
+            }
+            break;
+        } else if (cetcd_cli_is_long_flag(argv[i])) {
+            fprintf(stderr, "unknown flag: %s\n", argv[i]);
+            return 1;
         } else if (!key) {
             key = argv[i];
         } else if (!val) {
@@ -1561,6 +1574,19 @@ static int cmd_get(int argc, char **argv) {
             if (strcmp(s, "ascend") == 0) sort_order = 1;
             else if (strcmp(s, "descend") == 0) sort_order = 2;
             else { fprintf(stderr, "invalid --sort-order: %s (use ascend|descend)\n", s); return 1; }
+        } else if (strcmp(argv[i], "--") == 0) {
+            for (i++; i < argc; i++) {
+                if (!key) key = argv[i];
+                else if (!range_end) range_end = argv[i];
+                else {
+                    fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                    return 1;
+                }
+            }
+            break;
+        } else if (cetcd_cli_is_long_flag(argv[i])) {
+            fprintf(stderr, "unknown flag: %s\n", argv[i]);
+            return 1;
         } else if (!key) {
             key = argv[i];
         } else if (!range_end) {
@@ -1701,6 +1727,19 @@ static int cmd_del(int argc, char **argv) {
             if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
             want_json = wj != 0;
             want_fields = wf != 0;
+        } else if (strcmp(argv[i], "--") == 0) {
+            for (i++; i < argc; i++) {
+                if (!key) key = argv[i];
+                else if (!range_end) range_end = argv[i];
+                else {
+                    fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                    return 1;
+                }
+            }
+            break;
+        } else if (cetcd_cli_is_long_flag(argv[i])) {
+            fprintf(stderr, "unknown flag: %s\n", argv[i]);
+            return 1;
         } else if (!key) {
             key = argv[i];
         } else if (!range_end) {
@@ -2002,8 +2041,14 @@ static int cmd_lease(int argc, char **argv) {
                 }
                 lease_id = (uint64_t)v;
                 has_lease_id = true;
+            } else if (cetcd_cli_is_long_flag(argv[i])) {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
             } else if (!ttl_str) {
                 ttl_str = argv[i];
+            } else {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
             }
         }
         if (!ttl_str) { fprintf(stderr, "usage: cetcdctl lease grant [--lease-id ID] [-w json|fields] TTL\n"); return 1; }
@@ -2062,8 +2107,14 @@ static int cmd_lease(int argc, char **argv) {
                 if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
                 want_json = wj != 0;
                 want_fields = wf != 0;
+            } else if (cetcd_cli_is_long_flag(argv[i])) {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
             } else if (!id_str) {
                 id_str = argv[i];
+            } else {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
             }
         }
         if (!id_str) { fprintf(stderr, "usage: cetcdctl lease revoke [-w json|fields] ID\n"); return 1; }
@@ -2098,8 +2149,14 @@ static int cmd_lease(int argc, char **argv) {
                 if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
                 want_json = wj != 0;
                 want_fields = wf != 0;
+            } else if (cetcd_cli_is_long_flag(argv[i])) {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
             } else if (!id_str) {
                 id_str = argv[i];
+            } else {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
             }
         }
         if (!id_str) { fprintf(stderr, "usage: cetcdctl lease timetolive [--keys] [-w json|fields] ID\n"); return 1; }
@@ -2199,6 +2256,9 @@ static int cmd_lease(int argc, char **argv) {
         int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
             if ((wr = take_write_out_jtf_(&i, argc, argv, &json_fmt, &table_fmt, &fields_fmt)) != 0) {
                 if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+            } else if (cetcd_cli_is_long_flag(argv[i])) {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
             }
         }
         uint8_t req[] = {0x00}, resp[4096];
@@ -2285,8 +2345,14 @@ static int cmd_lease(int argc, char **argv) {
                 if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
                 want_json = wj != 0;
                 want_fields = wf != 0;
+            } else if (cetcd_cli_is_long_flag(argv[i])) {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
             } else if (!id_str) {
                 id_str = argv[i];
+            } else {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
             }
         }
         if (!id_str) { fprintf(stderr, "usage: cetcdctl lease keepalive [--once] [--interval SEC] [-w json|fields] ID\n"); return 1; }
