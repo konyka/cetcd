@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 113 — leftover-safe server VALUE takes</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 114 — leftover-safe migrate WAL name</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 113 leftover-safe-takes remaining
-     cetcd VALUE flags so <code>--host-whitelist --name</code> cannot
-     eat a flag as the Host list.</p>
+  <p><strong>v0.3.0</strong>. Phase 114 leftover-safe-parses
+     etcd <code>%016x-%016x.wal</code> so <code>123foo-456.wal</code>
+     cannot be scanned and win latest.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -166,6 +166,7 @@
       <tr><td>111</td><td>leftover completion --flags</td><td>unknown leftover -- flags fail-close so completion bash --foo cannot dump a script — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>112</td><td>leftover-safe --flag VALUE</td><td>cetcd_take_cli_flag_value leftover-safe-rejects a next-argv leftover -- so --load --prefix / --name --data-dir cannot eat a flag as the value; --flag=--foo is still --foo — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>113</td><td>leftover-safe server VALUE takes</td><td>remaining cetcd --flag VALUE paths leftover-safe-take so --host-whitelist --name / --listen-client-urls --name cannot eat a flag as the list; empty --host-whitelist= stays allow-all — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>114</td><td>leftover-safe migrate WAL name</td><td>cetcd-migrate leftover-safe-parses etcd %016x-%016x.wal (hex); 123foo-456.wal cannot be scanned and win latest — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

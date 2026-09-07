@@ -434,26 +434,36 @@ static int parse_hex_u64_(const char *s, const char *end, uint64_t *out) {
     return CETCD_OK;
 }
 
-int cetcd_parse_snap_filename(const char *name, uint64_t *term,
-                              uint64_t *index) {
-    size_t n;
+static int parse_etcd_hex_filename_(const char *name, const char *ext,
+                                    uint64_t *a, uint64_t *b, int index_gt0) {
+    size_t n, elen;
     const char *dash;
     const char *dot;
-    if (!name || !term || !index) return CETCD_ERR_INVAL;
+    if (!name || !ext || !a || !b) return CETCD_ERR_INVAL;
     n = strlen(name);
-    if (n < 7) return CETCD_ERR_INVAL; /* 1-1.snap */
-    if (strcmp(name + n - 5, ".snap") != 0) return CETCD_ERR_INVAL;
+    elen = strlen(ext);
+    if (elen < 2 || n < 3 + elen) return CETCD_ERR_INVAL; /* 1-1 + ext */
+    if (strcmp(name + n - elen, ext) != 0) return CETCD_ERR_INVAL;
     dash = strchr(name, '-');
     if (!dash || dash == name) return CETCD_ERR_INVAL;
     if (memchr(dash + 1, '-', (size_t)((name + n) - (dash + 1))))
         return CETCD_ERR_INVAL;
-    dot = name + n - 5;
+    dot = name + n - elen;
     if (dash + 1 >= dot) return CETCD_ERR_INVAL;
-    if (parse_hex_u64_(name, dash, term) != CETCD_OK) return CETCD_ERR_INVAL;
-    if (parse_hex_u64_(dash + 1, dot, index) != CETCD_OK)
-        return CETCD_ERR_INVAL;
-    if (*index == 0) return CETCD_ERR_INVAL;
+    if (parse_hex_u64_(name, dash, a) != CETCD_OK) return CETCD_ERR_INVAL;
+    if (parse_hex_u64_(dash + 1, dot, b) != CETCD_OK) return CETCD_ERR_INVAL;
+    if (index_gt0 && *b == 0) return CETCD_ERR_INVAL;
     return CETCD_OK;
+}
+
+int cetcd_parse_snap_filename(const char *name, uint64_t *term,
+                              uint64_t *index) {
+    return parse_etcd_hex_filename_(name, ".snap", term, index, 1);
+}
+
+int cetcd_parse_wal_filename(const char *name, uint64_t *seq,
+                             uint64_t *index) {
+    return parse_etcd_hex_filename_(name, ".wal", seq, index, 0);
 }
 
 static int migrate_flag_is_(const char *arg, const char *name) {

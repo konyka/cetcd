@@ -268,6 +268,44 @@ CETCD_TEST_CASE(snap_parse_filename_leftover) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(snap_parse_wal_filename_leftover) {
+    uint64_t seq = 0, index = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_wal_filename(
+        "0000000000000000-0000000000000000.wal", &seq, &index), CETCD_OK);
+    CETCD_ASSERT_TRUE(seq == 0);
+    CETCD_ASSERT_TRUE(index == 0);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_wal_filename(
+        "0000000000000001-000000000000000a.wal", &seq, &index), CETCD_OK);
+    CETCD_ASSERT_TRUE(seq == 1);
+    CETCD_ASSERT_TRUE(index == 10);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_wal_filename("1-10.wal", &seq, &index),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(seq == 1);
+    CETCD_ASSERT_TRUE(index == 16);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_wal_filename("123foo-456.wal",
+                                                 &seq, &index),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_wal_filename("123-456foo.wal",
+                                                 &seq, &index),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_wal_filename("0000000000000000.wal",
+                                                 &seq, &index),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_wal_filename("1-1.walx", &seq, &index),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_wal_filename("1-1.snap", &seq, &index),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_wal_filename("1-2-3.wal", &seq, &index),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_wal_filename(NULL, &seq, &index),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_wal_filename("1-1.wal", NULL, &index),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(snap_parse_migrate_argv_leftover) {
     const char *data = NULL, *out = NULL;
     int verbose = 0;
@@ -327,6 +365,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(snap_cts2_verify_fail_closed),
     CETCD_TEST_ENTRY(snap_cts1_and_raw_have_no_hash),
     CETCD_TEST_ENTRY(snap_parse_filename_leftover),
+    CETCD_TEST_ENTRY(snap_parse_wal_filename_leftover),
     CETCD_TEST_ENTRY(snap_parse_migrate_argv_leftover),
 CETCD_TEST_LIST_END
 

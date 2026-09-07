@@ -65,6 +65,11 @@ void cetcd_snap_free_entries(cetcd_snap_entry *entries, size_t count);
  * Index must be > 0. */
 int cetcd_parse_snap_filename(const char *name, uint64_t *term,
                               uint64_t *index);
+/* etcd `%016x-%016x.wal` (seq, first index). Leftover-safe hex so
+ * `123foo-456.wal` cannot be scanned and win latest. Seq/index may be 0
+ * (`0000000000000000-0000000000000000.wal`). */
+int cetcd_parse_wal_filename(const char *name, uint64_t *seq,
+                             uint64_t *index);
 /* leftover-safe migrate argv from `start`. Honors --data-dir / --output-dir
  * (`--flag=VALUE` or next argv). Empty `--flag=` is INVAL. A leftover
  * `--` value (`--data-dir --output-dir`) is INVAL so a flag cannot become

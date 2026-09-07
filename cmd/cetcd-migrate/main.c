@@ -741,8 +741,13 @@ static int find_latest_wal(const char *wal_dir, wal_entry_info *info) {
     memset(info, 0, sizeof(*info));
     int found = 0;
     for (size_t i = 0; i < dl.count; i++) {
-        size_t nlen = strlen(dl.names[i]);
-        if (nlen < 5 || strcmp(dl.names[i] + nlen - 4, ".wal") != 0) continue;
+        uint64_t seq = 0, widx = 0;
+        /* leftover-safe etcd %016x-%016x.wal (hex); 123foo-456.wal cannot
+         * be scanned and win latest. */
+        if (cetcd_parse_wal_filename(dl.names[i], &seq, &widx) != CETCD_OK)
+            continue;
+        (void)seq;
+        (void)widx;
         char fullpath[1024];
         path_join(fullpath, sizeof(fullpath), wal_dir, dl.names[i]);
         wal_entry_info entry = {0, 0};

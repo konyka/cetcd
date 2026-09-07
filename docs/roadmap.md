@@ -601,6 +601,9 @@ Performance-first, fail-closed design:
   (hex). Leftover-safe hex so `123foo-456.snap` cannot win latest with
   a truncated decimal term, and `…000a.snap` is index 10 (not `atoll`
   0). Accepting `atoll` truncation is rejected.
+- **`cetcd-migrate` WAL filename** — etcd names are `%016x-%016x.wal`
+  (hex seq, first index). Leftover-safe hex so `123foo-456.wal` cannot
+  be scanned and win latest. Suffix-only `.wal` listing is rejected.
 - **`cetcd-migrate` leftover `--data-dir`** — leftover-safe so
   `--data-dir --output-dir /c` cannot eat `--output-dir` as the path.
   Honors `--flag=VALUE` (empty `--flag=` is INVAL). `--verbose[=bool]`.

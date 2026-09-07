@@ -787,7 +787,8 @@ refuses to overwrite existing data as a safety measure. After migration, start
 
 Latest-snapshot selection leftover-safe-parses etcd `%016x-%016x.snap`
 (hex). `123foo-456.snap` cannot win with a truncated decimal term, and
-`000000000000000a.snap` is index 10 (not `atoll` 0).
+`000000000000000a.snap` is index 10 (not `atoll` 0). WAL listing leftover-safe-parses
+`%016x-%016x.wal` so `123foo-456.wal` cannot be scanned and win latest.
 
 > **Note:** `cetcd-migrate` performs an offline, one-way conversion. Always back up
 > the original etcd data before running it.
