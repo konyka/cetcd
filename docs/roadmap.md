@@ -620,6 +620,11 @@ Performance-first, fail-closed design:
   revision. `--mark-compacted` without bump fail-closes; with bump it
   compact-marks the old revision so a watch at that rev is ErrCompacted.
   Accepting those flags as a no-op is rejected.
+- **`member list --linearizable`** — leftover-safe so `member list
+  --linearizable --foo` cannot list members. Default is true (etcdctl).
+  Encodes MemberListRequest field 1; a follower fail-closes. Dummy
+  `0x00` / omitted field is serializable. Accepting the flag as a
+  no-op or swallowing leftover `--` is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

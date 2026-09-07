@@ -1592,6 +1592,117 @@ CETCD_TEST_CASE(auto_compact_parse_defrag_argv) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_member_list_argv) {
+    int lin = 99;
+
+    char *bare[] = { "cetcdctl", "member", "list" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_member_list_argv(3, bare, 3, &lin),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(lin, 1);
+
+    char *flag[] = { "cetcdctl", "member", "list", "--linearizable" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_member_list_argv(4, flag, 3, &lin),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(lin, 1);
+
+    char *off[] = { "cetcdctl", "member", "list", "--linearizable=false" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_member_list_argv(4, off, 3, &lin),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(lin, 0);
+
+    char *on[] = { "cetcdctl", "member", "list", "--linearizable=true" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_member_list_argv(4, on, 3, &lin),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(lin, 1);
+
+    char *spc[] = { "cetcdctl", "member", "list", "--linearizable", "false" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_member_list_argv(5, spc, 3, &lin),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(lin, 0);
+
+    char *wo[] = { "cetcdctl", "member", "list", "-w", "json" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_member_list_argv(5, wo, 3, &lin),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(lin, 1);
+
+    char *woeq[] = { "cetcdctl", "member", "list", "--write-out=table",
+                     "--linearizable=false" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_member_list_argv(5, woeq, 3, &lin),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(lin, 0);
+
+    char *foo[] = { "cetcdctl", "member", "list", "--foo" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_member_list_argv(4, foo, 3, &lin),
+                        CETCD_ERR_INVAL);
+
+    char *eat[] = { "cetcdctl", "member", "list", "--linearizable", "--foo" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_member_list_argv(5, eat, 3, &lin),
+                        CETCD_ERR_INVAL);
+
+    char *extra[] = { "cetcdctl", "member", "list", "extra" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_member_list_argv(4, extra, 3, &lin),
+                        CETCD_ERR_INVAL);
+
+    char *bad[] = { "cetcdctl", "member", "list", "--linearizable=maybe" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_member_list_argv(4, bad, 3, &lin),
+                        CETCD_ERR_INVAL);
+
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_member_list_argv(3, bare, 3, NULL),
+                        CETCD_ERR_INVAL);
+}
+
+CETCD_TEST_CASE(auto_compact_encode_member_list_request) {
+    uint8_t buf[8];
+    size_t n = 99;
+    int lin = 99;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_request(1, buf, sizeof(buf),
+                                                         &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 2);
+    CETCD_ASSERT_EQ_INT((int)buf[0], 0x08);
+    CETCD_ASSERT_EQ_INT((int)buf[1], 1);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_linearizable(buf, n, &lin),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(lin, 1);
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_request(0, buf, sizeof(buf),
+                                                         &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 2);
+    CETCD_ASSERT_EQ_INT((int)buf[0], 0x08);
+    CETCD_ASSERT_EQ_INT((int)buf[1], 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_linearizable(buf, n, &lin),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(lin, 0);
+
+    lin = 99;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_linearizable(NULL, 0, &lin),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(lin, 0);
+
+    uint8_t dummy[] = { 0x00 };
+    lin = 99;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_linearizable(dummy, 1, &lin),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(lin, 0);
+
+    uint8_t trunc[] = { 0x08 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_linearizable(trunc, 1, &lin),
+                        CETCD_ERR_INVAL);
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_request(1, NULL, sizeof(buf),
+                                                         &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_request(1, buf, sizeof(buf),
+                                                         NULL),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_request(1, buf, 1, &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_linearizable(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_one_name_argv) {
     const char *name = NULL;
     const char *a = NULL, *b = NULL;
@@ -1838,6 +1949,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_compact_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_defrag_argv),
+    CETCD_TEST_ENTRY(auto_compact_parse_member_list_argv),
+    CETCD_TEST_ENTRY(auto_compact_encode_member_list_request),
     CETCD_TEST_ENTRY(auto_compact_parse_one_name_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_check_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_completion_argv),

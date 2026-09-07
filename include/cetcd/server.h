@@ -179,6 +179,13 @@ int cetcd_parse_i64(const char *s, int64_t *out);
 int cetcd_parse_pprof_seconds(const char *qs, size_t qs_len, int *out);
 /* HashKVRequest field 1 (revision). 0 = current (empty body). Negative INVAL. */
 int cetcd_encode_hashkv_request(int64_t rev, uint8_t *out, size_t cap, size_t *n);
+/* MemberListRequest field 1 (linearizable). proto3 omitted = 0. */
+int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
+                                     size_t *n);
+/* leftover-safe MemberListRequest.linearizable. omitted / empty / dummy
+ * 0x00 = 0. leftover truncated varint is INVAL. */
+int cetcd_parse_member_list_linearizable(const uint8_t *req, size_t len,
+                                         int *out);
 /* leftover-safe compact argv from `start`. Honors --physical[=bool] and one
  * REV > 0. Skips -w/--write-out VALUE. Unknown leftover flags, extra
  * positionals, leftover REV text, or missing REV are INVAL. */
@@ -197,6 +204,12 @@ int cetcd_ctl_parse_maint_argv(int argc, char *const *argv, int start,
  * flags are INVAL. */
 int cetcd_ctl_parse_defrag_argv(int argc, char *const *argv, int start,
                                 int *cluster, const char **data_dir);
+/* leftover-safe member list argv from `start`. Skips -w/--write-out.
+ * Honors --linearizable[=bool] (etcd default true; leftover-safe next
+ * argv `false`/`true`/`0`/`1` is not a leftover `--`). Unknown leftover
+ * flags (`member list --foo`) are INVAL. Extra positionals are INVAL. */
+int cetcd_ctl_parse_member_list_argv(int argc, char *const *argv, int start,
+                                     int *linearizable);
 /* leftover-safe one NAME from `start`. Skips -w/--write-out. `--` starts
  * positionals so `-- --foo` is NAME `--foo`. Unknown leftover flags
  * (`member remove --force`, `user add --foo`) are INVAL so they cannot

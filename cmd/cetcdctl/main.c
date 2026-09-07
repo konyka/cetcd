@@ -5011,7 +5011,7 @@ static size_t encode_repeated_string_field(uint8_t *buf, size_t cap, size_t pos,
 
 static int cmd_member(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: cetcdctl member list [-w json|table|fields]\n");
+        fprintf(stderr, "usage: cetcdctl member list [-w json|table|fields] [--linearizable[=bool]]\n");
         fprintf(stderr, "       cetcdctl member add [-w json|fields] [--peer-urls URLS] [--name NAME] [--learner] [PEER_URL]\n");
         fprintf(stderr, "       cetcdctl member remove [-w json|fields] ID\n");
         fprintf(stderr, "       cetcdctl member update [-w json|fields] ID PEER_URLS\n");
@@ -5028,17 +5028,27 @@ static int cmd_member(int argc, char **argv) {
     }
     if (strcmp(argv[2], "list") == 0) {
         int table_fmt = 0, json_fmt = 0, fields_fmt = 0;
+        int linearizable = 1;
         for (int i = 3; i < argc; i++) {
         int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
             if ((wr = take_write_out_jtf_(&i, argc, argv, &json_fmt, &table_fmt, &fields_fmt)) != 0) {
                 if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
-            } else if (argv[i][0] == '-') {
-                fprintf(stderr, "unknown flag: %s\n", argv[i]);
-                return 1;
             }
         }
-        uint8_t req[] = {0x00}, resp[4096];
-        int rlen = do_rpc("/etcdserverpb.Cluster/MemberList", req, 1, resp, sizeof(resp));
+        if (cetcd_ctl_parse_member_list_argv(argc, argv, 3, &linearizable)
+            != CETCD_OK) {
+            fprintf(stderr,
+                    "unknown leftover flag (member list --linearizable --foo cannot list members)\n");
+            return 1;
+        }
+        uint8_t req[8], resp[4096];
+        size_t rpos = 0;
+        if (cetcd_encode_member_list_request(linearizable, req, sizeof(req),
+                                             &rpos) != CETCD_OK) {
+            fprintf(stderr, "failed to encode MemberList request\n");
+            return 1;
+        }
+        int rlen = do_rpc("/etcdserverpb.Cluster/MemberList", req, rpos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         parse_member_list_response(resp, rlen, table_fmt, json_fmt, fields_fmt);
     } else if (strcmp(argv[2], "add") == 0) {

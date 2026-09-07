@@ -9,7 +9,8 @@
  *   - MemberPromote: promote a learner to voting member
  *
  * Protobuf field encoding:
- *   MemberListRequest: empty
+ *   MemberListRequest:
+ *     field 1 (linearizable) = bool, tag = 0x08 (proto3 omitted = false)
  *   MemberListResponse:
  *     field 2 (members) = repeated Member, tag = 0x12 (length-delimited)
  *       Member:
@@ -190,9 +191,46 @@ static size_t encode_member(uint8_t *buf, size_t cap, uint64_t id,
  * MemberList RPC.
  * Returns all members in the cluster.
  */
+static int member_list_linearizable_(const uint8_t *req, size_t req_len,
+                                     int *out) {
+    size_t p = 0;
+    if (!out) return -1;
+    *out = 0;
+    if (!req || req_len == 0) return 0;
+    while (p < req_len) {
+        uint8_t tag = req[p++];
+        uint64_t v = 0;
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x08) {
+            if (read_varint_c(req, req_len, &p, &v) != 0) return -1;
+            *out = v != 0;
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            if (read_varint_c(req, req_len, &p, &v) != 0) return -1;
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            if (read_varint_c(req, req_len, &p, &v) != 0) return -1;
+            if (p + v > req_len) return -1;
+            p += (size_t)v;
+            continue;
+        }
+        return -1;
+    }
+    return 0;
+}
+
 cetcd_rpc_bytes cluster_handle_member_list(cetcd_v3rpc *rpc,
                                             const uint8_t *req, size_t req_len) {
-    (void)rpc; (void)req; (void)req_len;
+    int linearizable = 0;
+    (void)rpc;
+    if (member_list_linearizable_(req, req_len, &linearizable) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
+    /* linearizable MemberList requires this node to be leader. */
+    if (!cetcd_v3rpc_linearizable_ok(!linearizable))
+        return (cetcd_rpc_bytes){NULL, 0};
 
     uint8_t buf[1024];
     size_t pos = 0;

@@ -1429,6 +1429,81 @@ int cetcd_encode_hashkv_request(int64_t rev, uint8_t *out, size_t cap, size_t *n
     return CETCD_OK;
 }
 
+int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
+                                     size_t *n) {
+    if (!out || !n || cap < 2) return CETCD_ERR_INVAL;
+    out[0] = 0x08; /* field 1, varint */
+    out[1] = linearizable ? 1 : 0;
+    *n = 2;
+    return CETCD_OK;
+}
+
+int cetcd_parse_member_list_linearizable(const uint8_t *req, size_t len,
+                                         int *out) {
+    size_t p = 0;
+    if (!out) return CETCD_ERR_INVAL;
+    *out = 0;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x08) {
+            uint64_t v = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return CETCD_ERR_INVAL;
+            }
+            if (!got) return CETCD_ERR_INVAL;
+            *out = v != 0;
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return CETCD_ERR_INVAL;
+            }
+            if (!got) return CETCD_ERR_INVAL;
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return CETCD_ERR_INVAL;
+            }
+            if (!got || p + skip > len) return CETCD_ERR_INVAL;
+            p += (size_t)skip;
+            continue;
+        }
+        return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 static int is_write_out_flag_(const char *arg) {
     if (!arg) return 0;
     if (cetcd_cli_flag_is(arg, "--write-out")) return 1;
@@ -1527,6 +1602,30 @@ int cetcd_ctl_parse_defrag_argv(int argc, char *const *argv, int start,
         return CETCD_ERR_INVAL;
     }
     if (*cluster && *data_dir) return CETCD_ERR_INVAL;
+    return CETCD_OK;
+}
+
+int cetcd_ctl_parse_member_list_argv(int argc, char *const *argv, int start,
+                                     int *linearizable) {
+    int i;
+    if (!argv || !linearizable || start < 0 || start > argc)
+        return CETCD_ERR_INVAL;
+    *linearizable = 1; /* etcdctl default */
+    for (i = start; i < argc; i++) {
+        int wr;
+        int on = 1;
+        if (!argv[i]) return CETCD_ERR_INVAL;
+        wr = skip_write_out_arg_(&i, argc, argv);
+        if (wr < 0) return CETCD_ERR_INVAL;
+        if (wr > 0) continue;
+        if (cetcd_cli_flag_is(argv[i], "--linearizable")) {
+            if (cetcd_take_cli_bool_flag(&i, argc, argv, &on) != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            *linearizable = on;
+            continue;
+        }
+        return CETCD_ERR_INVAL;
+    }
     return CETCD_OK;
 }
 
