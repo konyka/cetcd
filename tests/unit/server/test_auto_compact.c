@@ -979,11 +979,6 @@ CETCD_TEST_CASE(auto_compact_experimental_unsupported) {
         "--experimental-peer-skip-client-san-verification"),
                         CETCD_EX_UNSUP_BOOL);
     CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
-        "--experimental-enable-lease-checkpoint"), CETCD_EX_UNSUP_BOOL);
-    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
-        "--experimental-enable-lease-checkpoint-persist=true"),
-                        CETCD_EX_UNSUP_BOOL);
-    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
         "--experimental-stop-grpc-service-on-defrag"), CETCD_EX_UNSUP_BOOL);
     CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
         "--experimental-txn-mode-write-with-shared-buffer"),
@@ -995,6 +990,13 @@ CETCD_TEST_CASE(auto_compact_experimental_unsupported) {
         "--experimental-compaction-batch-limit"), CETCD_EX_UNSUP_NONE);
     CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
         "--experimental-wait-cluster-ready"), CETCD_EX_UNSUP_NONE);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-enable-lease-checkpoint"), CETCD_EX_UNSUP_NONE);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-enable-lease-checkpoint=true"), CETCD_EX_UNSUP_NONE);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-enable-lease-checkpoint-persist=true"),
+                        CETCD_EX_UNSUP_NONE);
     CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
         "--experimental-initial-corrupt-check"), CETCD_EX_UNSUP_NONE);
     CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(

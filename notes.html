@@ -142,6 +142,7 @@
       <tr><td>86</td><td>bare bool = form</td><td>--auto-tls= / --peer-auto-tls= / --force-new-cluster= accept etcd true|false (false is off, not unknown) — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>87</td><td>etcd disable-forms</td><td>--enable-grpc-gateway=false / --enable-v2=false / --unsafe-no-fsync=false accepted (already off); true fail-closed; --socket-reuse-address=true accepted (libuv SO_REUSEADDR); false fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>88</td><td>v2-era leftovers</td><td>--v2-deprecation=gone|write-only and --proxy=off / --discovery-fallback=exit accepted; not-yet / proxy=on / discovery URL fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>89</td><td>lease checkpoint</td><td>--experimental-enable-lease-checkpoint / -persist honor remaining TTL already raft-applied and LMDB-persisted; true|false accepted, non-bool fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

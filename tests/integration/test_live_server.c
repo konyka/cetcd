@@ -2890,6 +2890,39 @@ CETCD_TEST_CASE(live_cetcd_snapshot_catchup) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_lease_checkpoint) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-enable-lease-checkpoint --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-enable-lease-checkpoint=true --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-enable-lease-checkpoint=false --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-enable-lease-checkpoint-persist=true --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-enable-lease-checkpoint=abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --experimental-enable-lease-checkpoint yes >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_experimental_unsupported) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -3910,6 +3943,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_log_rotation),
     CETCD_TEST_ENTRY(live_cetcd_log_outputs),
     CETCD_TEST_ENTRY(live_cetcd_grpc_keepalive),
+    CETCD_TEST_ENTRY(live_cetcd_lease_checkpoint),
     CETCD_TEST_ENTRY(live_cetcd_experimental_unsupported),
     CETCD_TEST_ENTRY(live_cetcd_etcd_compat),
     CETCD_TEST_ENTRY(live_cetcd_auto_tls_requires_certs),

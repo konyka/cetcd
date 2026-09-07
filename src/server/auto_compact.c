@@ -1177,8 +1177,6 @@ int cetcd_experimental_unsupported_kind(const char *arg) {
         { "distributed-tracing-service-name", CETCD_EX_UNSUP_VALUE },
         { "distributed-tracing-instance-id", CETCD_EX_UNSUP_VALUE },
         { "distributed-tracing-sampling-rate", CETCD_EX_UNSUP_VALUE },
-        { "enable-lease-checkpoint", CETCD_EX_UNSUP_BOOL },
-        { "enable-lease-checkpoint-persist", CETCD_EX_UNSUP_BOOL },
         { "stop-grpc-service-on-defrag", CETCD_EX_UNSUP_BOOL },
         { "peer-skip-client-san-verification", CETCD_EX_UNSUP_BOOL },
         { "txn-mode-write-with-shared-buffer", CETCD_EX_UNSUP_BOOL },

@@ -266,6 +266,8 @@ cetcd accepts several etcd server flags for migration compatibility:
 # (omitted default 5000; 0 = compact to applied; leftover text fails).
 # --experimental-compact-hash-check-enabled compares follower compact HashKV
 # (omitted default off; time default 1m; mismatch raises CORRUPT).
+# --experimental-enable-lease-checkpoint persists remaining TTL (already on).
+# --experimental-enable-lease-checkpoint-persist writes that TTL to LMDB (already on).
 # Unimplemented or unknown --experimental-* fail at parse (=false is OK).
 ./build/bin/cetcd --experimental-initial-corrupt-check \
   --experimental-corrupt-check-time 10s \
@@ -279,7 +281,9 @@ cetcd accepts several etcd server flags for migration compatibility:
   --experimental-bootstrap-defrag-threshold-megabytes 0 \
   --experimental-snapshot-catchup-entries 5000 \
   --experimental-compact-hash-check-enabled=false \
-  --experimental-compact-hash-check-time 1m
+  --experimental-compact-hash-check-time 1m \
+  --experimental-enable-lease-checkpoint \
+  --experimental-enable-lease-checkpoint-persist
 
 # Dedicated WAL directory (empty path fail-closes; requires --data-dir)
 ./build/bin/cetcd --data-dir ./data --wal-dir /var/lib/cetcd/wal

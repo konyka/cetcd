@@ -599,10 +599,17 @@ Performance-first, fail-closed design:
   (`0` disables; omitted default 300ms). A unary RPC slower than the
   threshold logs a warning. Missing value or a non-duration fail at
   parse (no longer swallowed). Other `--experimental-*` stay no-ops.
+- **`--experimental-enable-lease-checkpoint` /
+  `--experimental-enable-lease-checkpoint-persist`** — bool
+  (`true`/`false`/`1`/`0`; bare is true). Remaining TTL is already
+  raft-applied on Grant/KeepAlive and written to the LMDB `lease`
+  bucket (wall-clock deadline), so restart and followers keep the
+  same remaining TTL. Accepting `true` is that existing path, not a
+  no-op. `false` is also accepted (we still persist; disabling would
+  lose TTL on restart). A non-bool fail-closes.
 - **Unimplemented `--experimental-*` fail-closed** — known etcd 3.5
   experimental flags we cannot honor (`enable-distributed-tracing` and
   its address/service-name/instance-id/sampling-rate,
-  `enable-lease-checkpoint`, `enable-lease-checkpoint-persist`,
   `stop-grpc-service-on-defrag`, `peer-skip-client-san-verification`,
   `txn-mode-write-with-shared-buffer`, `enable-v2v3`,
   `downgrade-check-time`) fail at parse. Bool forms accept `false`/`0`

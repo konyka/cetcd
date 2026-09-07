@@ -115,6 +115,8 @@ static void print_usage(const char *prog) {
     printf("  --experimental-snapshot-catchup-entries N  Raft entries kept after compact (default 5000; 0 = none)\n");
     printf("  --experimental-compact-hash-check-enabled  Leader compares follower compact HashKV (default off)\n");
     printf("  --experimental-compact-hash-check-time DUR  Compact HashKV compare period (default 1m; 0 = every tick)\n");
+    printf("  --experimental-enable-lease-checkpoint  Persist remaining TTL (already on; true|false)\n");
+    printf("  --experimental-enable-lease-checkpoint-persist  Persist remaining TTL to LMDB (already on; true|false)\n");
     printf("  --experimental-*    Unimplemented or unknown experimental flags fail at parse (false is OK)\n");
     printf("  --enable-grpc-gateway / --enable-v2 / --unsafe-no-fsync  false is OK; true fail-closed\n");
     printf("  --socket-reuse-address  true is OK (libuv SO_REUSEADDR); false fail-closed\n");
@@ -1638,6 +1640,18 @@ int main(int argc, char **argv) {
             }
             cfg.compact_hash_check_time_set = true;
             cfg.compact_hash_check_ms = ms;
+        } else if (cetcd_cli_flag_is(argv[i],
+                                    "--experimental-enable-lease-checkpoint") ||
+                   cetcd_cli_flag_is(argv[i],
+                                    "--experimental-enable-lease-checkpoint-persist")) {
+            /* Remaining TTL is already raft-applied and LMDB-persisted. */
+            const char *flag = argv[i];
+            int on = 1;
+            if (take_bool_flag_(&i, argc, argv, &on) != 0) {
+                fprintf(stderr, "%s must be true or false\n", flag);
+                return 1;
+            }
+            (void)on;
         } else if (cetcd_experimental_unsupported_kind(argv[i]) ==
                    CETCD_EX_UNSUP_VALUE) {
             fprintf(stderr, "%s is not supported\n", argv[i]);
