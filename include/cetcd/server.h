@@ -169,6 +169,8 @@ int cetcd_take_cli_bool_flag(int *i, int argc, char *const *argv, int *out);
 int cetcd_take_cli_bool_eq(int *i, int argc, char *const *argv, int *out);
 /* etcdctl --command-timeout: bare seconds or Go duration. Leftover fail-closes. */
 int cetcd_parse_command_timeout_sec(const char *s, uint64_t *out);
+/* Signed integer. Leftover text / empty is INVAL. */
+int cetcd_parse_i64(const char *s, int64_t *out);
 /* 1 if alloc_bytes > threshold_mb MiB. threshold 0 never. */
 int cetcd_backend_should_defrag(uint64_t alloc_bytes, uint64_t threshold_mb);
 /* Cap `target` to compacted+batch_limit. batch_limit 0 leaves target. */

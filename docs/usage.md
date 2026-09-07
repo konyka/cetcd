@@ -317,9 +317,10 @@ cetcd accepts several etcd server flags for migration compatibility:
 ## 3. Using `cetcdctl`
 
 `cetcdctl` is a command-line client that speaks cetcd's gRPC protocol.
-It mirrors `etcdctl` command structure for familiarity. Global flags
-accept etcdctl `--flag=value` (`--command-timeout=5s`, `--debug=false`);
-empty `--flag=` and leftover text fail-close.
+It mirrors `etcdctl` command structure for familiarity. Global and
+subcommand flags accept etcdctl `--flag=value` (`--command-timeout=5s`,
+`--lease=1`, `--rev=5`, `--write-out=json`); empty `--flag=` and leftover
+text (`put --lease 10foo`) fail-close. `--prefix=false` does not eat the key.
 
 ### KV operations
 
@@ -329,6 +330,7 @@ empty `--flag=` and leftover text fail-close.
 ./build/bin/cetcdctl put foo bar --prev-kv         # Store and return previous value
 ./build/bin/cetcdctl put foo bar --prev-kv --print-value-only  # Output only previous value
 ./build/bin/cetcdctl put foo -                     # Read value from stdin
+./build/bin/cetcdctl put --lease=1 foo bar         # Attach lease; leftover --lease 10foo fail-closes
 ./build/bin/cetcdctl get foo
 ./build/bin/cetcdctl get --prefix foo           # Get all keys with prefix
 ./build/bin/cetcdctl get --prefix ""             # Get all keys (empty prefix = all)
@@ -340,6 +342,7 @@ empty `--flag=` and leftover text fail-close.
 ./build/bin/cetcdctl get --consistency s foo     # Serializable local read (ok on a follower)
 ./build/bin/cetcdctl get --consistency l foo     # Linearizable (default; fail-closes on a follower)
 # --rev / --limit / --min-mod-rev and related flags must be integers >= 0; leftover text is not a truncated revision
+# equals-form is accepted: get --rev=5 --write-out=json foo
 ./build/bin/cetcdctl get --range-end zzz foo     # Get keys from foo to zzz
 ./build/bin/cetcdctl del foo
 ./build/bin/cetcdctl del --prefix foo            # Delete all keys with prefix

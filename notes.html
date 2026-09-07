@@ -145,6 +145,7 @@
       <tr><td>89</td><td>lease checkpoint</td><td>--experimental-enable-lease-checkpoint / -persist honor remaining TTL already raft-applied and LMDB-persisted; true|false accepted, non-bool fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>90</td><td>stream writer capture</td><td>Snapshot / RangeStream / Watch capture the stream writer at handler entry so a multiplexed second RPC cannot steal the prelude — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>91</td><td>cetcdctl flag=value</td><td>cetcdctl global flags accept etcdctl --flag=value; leftover 10foo / empty --flag= / --debug=abc fail-closed; --debug=false does not eat the subcommand — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>92</td><td>cetcdctl subcommand =</td><td>put/get/del/watch/compact/lease/lock/elect accept --flag=value; leftover put --lease 10foo fail-closes; --prefix=false does not eat the key — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

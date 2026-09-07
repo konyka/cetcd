@@ -541,7 +541,7 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `del --prefix/--prev-kv`, `put --prev-kv`, `watch --prefix/--prev-kv/--start-rev` (`--start-rev` must be an integer `>= 0`; leftover text fail-closes), `txn cas` (compare-and-swap),
 `auth login` (token-based authentication), `get --count-only/--limit N/--sort-by/--sort-order/--print-value-only`,
 `put --ignore-value/--ignore-lease`, `get/del KEY RANGE_END` (positional range_end argument),
-`get/del --from-key` (unbounded range queries), `put --lease ID` (attach lease to key),
+`get/del --from-key` (unbounded range queries), `put --lease ID` (attach lease to key; leftover `10foo` fail-closes; `--lease=1` accepted),
 `alarm list/activate/disarm` (alarm management), `version` (print client version),
 `txn get KEY [RANGE_END]` (transactional range query), `txn del [--prefix] [--prev-kv] KEY [RANGE_END]`
 (transactional delete), `get --hex` (hex output for binary data), `lease timetolive --keys ID`
@@ -1006,6 +1006,7 @@ mutex. The per-key watcher fan-out and cluster membership queries use
 `_Thread_local` storage where re-entrancy is a concern.
 
 `cetcdctl global flags` (`--cacert`/`--cert`/`--key` enable TLS; `--insecure-skip-tls-verify` skips verify; `--insecure-transport` mixed with cert flags fail-closes; `https://` endpoints require `--cacert` or `--insecure` and reject `--insecure-transport`; `--max-call-send-msg-size` / `--max-call-recv-msg-size` cap the custom-frame payload and fail closed on `0` or overflow; `--discovery-srv` / `--discovery-srv-name` resolve `_etcd-client[-ssl]._tcp` (fail-closed on 0 records; mixed with `--endpoints` fail-closes); `--endpoints` comma-lists failover in order; `--command-timeout` is a duration (`0` = none; leftover `10foo` fail-closes); global `--flag=value` (`--command-timeout=5s`, `--debug=false`) is accepted; empty `--flag=` fail-closes; `--dial-timeout` is `0..86400` seconds (`0` = none; a typo fail-closes); `--port` is `1..65535` (a typo fail-closes); `--password` can be used with `--user USER` to provide the password separately),
+`cetcdctl subcommand --flag=value` (put/get/del/watch/compact/lease/lock/elect accept `--lease=1`, `--rev=5`, `--write-out=json`, `--ttl=60`, `--start-rev=5`; leftover `put --lease 10foo` fail-closes; `--prefix=false` does not eat the key),
 `get --count-only -w fields` (fields output now includes ResponseHeader fields and `"count" : N` line, matching etcdctl fields format),
 `snapshot restore` etcd-compatible flags (`--initial-cluster-token` writes `{data-dir}/cluster_token` and a mismatch without `--force` fail-closes; `--initial-cluster-state` is `new` or `existing` and is persisted; `--initial-cluster` / `--name` / `--initial-advertise-peer-urls` are validated and written to the data dir; unknown state, empty values, a bad spec, or a mismatch without `--force` fail-close; `--skip-hash-check` overrides a CTS2 CRC mismatch; a truncated CTS2 header still fail-closes),
 `get --count-only -w json` format fix (now outputs `{"header":{...},"count":N}` without `kvs` or `more` fields, matching etcdctl output format),

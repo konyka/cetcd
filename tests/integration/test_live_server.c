@@ -3714,6 +3714,16 @@ CETCD_TEST_CASE(live_cetcdctl_lock_elect_ttl) {
              "'%s' elect --ttl abc myelection >/dev/null 2>&1",
              CETCDCTL_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' lock --ttl=60foo mylock >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' elect --ttl=60foo myelection >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
 CETCD_TEST_CASE(live_cetcdctl_lease_keepalive_interval) {
@@ -3725,6 +3735,11 @@ CETCD_TEST_CASE(live_cetcdctl_lease_keepalive_interval) {
 
     snprintf(cmd, sizeof(cmd),
              "'%s' lease keepalive --interval 0 1 >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' lease keepalive --interval=5foo 1 >/dev/null 2>&1",
              CETCDCTL_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
@@ -3830,6 +3845,29 @@ CETCD_TEST_CASE(live_cetcdctl_get_rev) {
              "'%s' get --limit abc k >/dev/null 2>&1",
              CETCDCTL_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' get --rev=10foo k >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' get --write-out=not-a-format k >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
+CETCD_TEST_CASE(live_cetcdctl_put_lease) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' put --lease 10foo k v >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' put --lease=10foo k v >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
 CETCD_TEST_CASE(live_cetcdctl_watch_start_rev) {
@@ -3841,6 +3879,11 @@ CETCD_TEST_CASE(live_cetcdctl_watch_start_rev) {
 
     snprintf(cmd, sizeof(cmd),
              "'%s' watch --start-rev 10foo foo >/dev/null 2>&1",
+             CETCDCTL_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' watch --start-rev=10foo foo >/dev/null 2>&1",
              CETCDCTL_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
@@ -3994,6 +4037,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcdctl_move_leader_id),
     CETCD_TEST_ENTRY(live_cetcdctl_compact_rev),
     CETCD_TEST_ENTRY(live_cetcdctl_get_rev),
+    CETCD_TEST_ENTRY(live_cetcdctl_put_lease),
     CETCD_TEST_ENTRY(live_cetcdctl_watch_start_rev),
     CETCD_TEST_ENTRY(live_cetcdctl_max_call_msg_size),
 #ifdef CETCD_HAS_NGHTTP2

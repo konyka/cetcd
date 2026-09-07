@@ -1359,3 +1359,14 @@ int cetcd_parse_command_timeout_sec(const char *s, uint64_t *out) {
     }
     return cetcd_parse_go_duration_sec(s, out);
 }
+
+int cetcd_parse_i64(const char *s, int64_t *out) {
+    if (!s || !s[0] || !out) return CETCD_ERR_INVAL;
+    errno = 0;
+    char *end = NULL;
+    long long v = strtoll(s, &end, 10);
+    if (errno == ERANGE || !end || end == s || *end)
+        return CETCD_ERR_INVAL;
+    *out = (int64_t)v;
+    return CETCD_OK;
+}

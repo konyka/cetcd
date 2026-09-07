@@ -208,6 +208,11 @@ Performance-first, fail-closed design:
   `--command-timeout=5s` and other global `--flag=value` forms are accepted
   (empty `--flag=` fail-closes). `--debug=false` does not eat the next
   argv (the subcommand). Leftover text (`10foo`) fail-closes.
+- **`cetcdctl` subcommand `--flag=value`** — put/get/del/watch/compact/lease/
+  lock/elect accept etcdctl equals-form (`--lease=1`, `--rev=5`,
+  `--write-out=json`, `--ttl=60`, `--start-rev=5`). `--prefix=false` does
+  not eat the key. `put --lease 10foo` fail-closes instead of attaching
+  truncated lease 10.
 - **`cetcdctl --dial-timeout`** — `0..86400` seconds (optional `s`). A typo
   used to become “no timeout” via `atoi`; that now fails at parse. `0` stays
   none.
@@ -238,10 +243,10 @@ Performance-first, fail-closed design:
   used to compact to revision `10` via `strtoll`; that now fails at parse.
 - **`cetcdctl get --rev` / `--limit` / `--*-mod-rev` / `--*-create-rev`** —
   integer `>= 0`. Leftover text used to query a truncated revision via `atol`;
-  that now fails at parse. `0` stays current / unlimited.
+  that now fails at parse. `0` stays current / unlimited. `=` form is accepted.
 - **`cetcdctl watch --start-rev`** — integer `>= 0`. Leftover text used to
   start a watch at a truncated revision via `atol`; that now fails at parse.
-  `0` stays from-now.
+  `0` stays from-now. `=` form is accepted.
 - **`--grpc-keepalive-time` / `--grpc-keepalive-interval` /
   `--grpc-keepalive-timeout`** — TCP keepalive on accepted client sockets,
   accepted peer sockets, and outbound Raft dials (`uv_tcp_keepalive_ex`).
