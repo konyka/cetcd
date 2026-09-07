@@ -887,6 +887,7 @@ file, `ETCD_*` maps to `--flag` (`ETCD_LISTEN_CLIENT_URLS`; empty ignored;
 `cetcdctl move-leader TARGET_ID` must be hex `> 0`; leftover text fail-closes instead of transferring to a truncated id.
 `cetcdctl compact REV` must be `> 0`; leftover text fail-closes instead of compacting to a truncated revision.
 `cetcdctl get --rev` / `--limit` / `--min-mod-rev` and related flags must be integers `>= 0`; leftover text fail-closes instead of a truncated revision.
+`cetcdctl watch --start-rev` must be an integer `>= 0`; leftover text fail-closes instead of starting at a truncated revision.
 `--grpc-keepalive-time` / `--grpc-keepalive-interval` / `--grpc-keepalive-timeout`
 set TCP keepalive on accepted client sockets, accepted peer sockets, and
 outbound Raft dials. `--grpc-keepalive-interval` is the etcd name for idle

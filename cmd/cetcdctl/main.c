@@ -5482,7 +5482,10 @@ static int cmd_watch(int argc, char **argv) {
             hex_output = true;
         } else if (strcmp(argv[i], "--start-rev") == 0 || strcmp(argv[i], "--rev") == 0) {
             if (i + 1 >= argc) { fprintf(stderr, "%s requires a revision number\n", argv[i]); return 1; }
-            start_rev = atol(argv[++i]);
+            if (parse_i64_(argv[++i], &start_rev) != 0 || start_rev < 0) {
+                fprintf(stderr, "--start-rev must be >= 0\n");
+                return 1;
+            }
         } else if (strcmp(argv[i], "--filter") == 0) {
             if (i + 1 >= argc) { fprintf(stderr, "--filter requires a type (NOPUT or NODELETE)\n"); return 1; }
             const char *ft = argv[++i];
@@ -5556,6 +5559,7 @@ static int cmd_watch(int argc, char **argv) {
                     if (!wkey) { fprintf(stderr, "usage: watch KEY [--prefix] [--prev-kv] [--progress-notify] [--start-rev N]\n"); continue; }
                     bool wprefix = false, wprev_kv = false, wprogress_notify = false;
                     int64_t wstart_rev = 0;
+                    int wrev_ok = 1;
                     char *tok;
                     while ((tok = strtok(NULL, " \t")) != NULL) {
                         if (strcmp(tok, "--prefix") == 0) wprefix = true;
@@ -5563,9 +5567,14 @@ static int cmd_watch(int argc, char **argv) {
                         else if (strcmp(tok, "--progress-notify") == 0) wprogress_notify = true;
                         else if (strcmp(tok, "--start-rev") == 0 || strcmp(tok, "--rev") == 0) {
                             char *sr = strtok(NULL, " \t");
-                            if (sr) wstart_rev = atol(sr);
+                            if (!sr || parse_i64_(sr, &wstart_rev) != 0 || wstart_rev < 0) {
+                                fprintf(stderr, "--start-rev must be >= 0\n");
+                                wrev_ok = 0;
+                                break;
+                            }
                         }
                     }
+                    if (!wrev_ok) continue;
                     size_t wklen = strlen(wkey);
                     uint8_t wbuf[1024];
                     size_t wp = build_watch_create(wbuf, sizeof(wbuf), wkey, wklen, wprefix, NULL, wstart_rev, wprev_kv, -1, wprogress_notify);
@@ -6017,7 +6026,7 @@ static void print_usage(void) {
     printf("  get [--prefix] [--from-key] [--range-end KEY] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields|table] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
     printf("  del [--prefix] [--from-key] [--range-end KEY] [--prev-kv] [--hex] [--print-value-only] [-w json|fields] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --range-end, --prev-kv, --hex, --print-value-only)\n");
-    printf("  watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--progress-notify] [--start-rev N] [--filter NOPUT|NODELETE] [--hex] [--exec CMD] [-w json|fields] KEY  Watch key changes (-i for interactive mode, --progress-notify for periodic progress updates, --exec runs CMD with ETCD_WATCH_* env vars)\n");
+    printf("  watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--progress-notify] [--start-rev N] [--filter NOPUT|NODELETE] [--hex] [--exec CMD] [-w json|fields] KEY  Watch key changes (-i for interactive mode, --progress-notify for periodic progress updates, --exec runs CMD with ETCD_WATCH_* env vars; --start-rev >= 0)\n");
     printf("  lease grant [--lease-id ID] [-w json|fields] TTL  Grant a lease (TTL > 0; --lease-id hex)\n");
     printf("  lease revoke [-w json|fields] ID  Revoke a lease by ID (> 0)\n");
     printf("  lease timetolive [--keys] [-w json|fields] ID  Query remaining TTL (ID > 0)\n");

@@ -358,6 +358,7 @@ so many concurrent watchers can share a single TCP connection.
 
 # Watch from a specific revision
 ./build/bin/cetcdctl watch --start-rev 42 foo
+# --start-rev must be >= 0; leftover text is not a silent truncated revision
 
 # Include the previous key-value in each event
 ./build/bin/cetcdctl watch --prev-kv foo

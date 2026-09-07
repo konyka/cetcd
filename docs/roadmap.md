@@ -236,6 +236,9 @@ Performance-first, fail-closed design:
 - **`cetcdctl get --rev` / `--limit` / `--*-mod-rev` / `--*-create-rev`** —
   integer `>= 0`. Leftover text used to query a truncated revision via `atol`;
   that now fails at parse. `0` stays current / unlimited.
+- **`cetcdctl watch --start-rev`** — integer `>= 0`. Leftover text used to
+  start a watch at a truncated revision via `atol`; that now fails at parse.
+  `0` stays from-now.
 - **`--grpc-keepalive-time` / `--grpc-keepalive-interval` /
   `--grpc-keepalive-timeout`** — TCP keepalive on accepted client sockets,
   accepted peer sockets, and outbound Raft dials (`uv_tcp_keepalive_ex`).
