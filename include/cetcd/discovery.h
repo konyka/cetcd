@@ -80,8 +80,15 @@ int cetcd_endpoint_parse_list(const char *spec, cetcd_endpoint *out,
 int cetcd_url_is_unix(const char *s);
 int cetcd_url_is_unix_n(const char *s, size_t n);
 
+/* Split IPv6 `addr%zone`. No `%` copies host and leftover-safe-checks inet_pton
+ * when the host has `:`. Empty zone, leftover numeric zone (`1foo`), or a
+ * non-IPv6 addr is INVAL. Named zones are [A-Za-z][A-Za-z0-9_.-]*. */
+int cetcd_parse_ipv6_zone(const char *host, char *addr, size_t addr_cap,
+                          char *zone, size_t zone_cap);
+
 /* Resolve host:port into sockaddr_storage (ss_cap >= sizeof that type).
- * Numeric IPv4/IPv6 skip DNS. Hostnames use getaddrinfo and prefer IPv4
+ * Numeric IPv4/IPv6 skip DNS. IPv6 zones (`fe80::1%1`) leftover-safe-parse
+ * then getaddrinfo (scope_id). Hostnames use getaddrinfo and prefer IPv4
  * so etcd's `localhost` default binds 127.0.0.1 when both families exist.
  * Empty host or no usable address is INVAL. Port 0 is allowed. */
 int cetcd_host_port_resolve(const char *host, uint16_t port,

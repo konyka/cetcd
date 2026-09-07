@@ -31,15 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 103 — leftover put/get/del --flags</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 104 — IPv6 zone UniqueURLs</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 103 fail-closes leftover
-     <code>cetcdctl put</code>/<code>get</code>/<code>del</code>/<code>lease</code>
-     <code>--</code> flags so <code>put --foo k v</code> cannot write key
-     <code>--foo</code> and <code>get k --foo</code> cannot range to
-     <code>--foo</code>.</p>
+  <p><strong>v0.3.0</strong>. Phase 104 leftover-safe-parses IPv6 zone
+     UniqueURLs (<code>[fe80::1%1]:2379</code>) and resolves them via
+     <code>getaddrinfo</code> so <code>1foo</code> cannot bind a truncated
+     zone and the scope is not stripped.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -158,6 +157,7 @@
       <tr><td>101</td><td>unix:// fail-closed</td><td>unix:// / unixs:// listen, advertise, initial-cluster, metrics, and --endpoints fail-close as known-unsupported (no unix listener; not host unix://localhost) — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>102</td><td>leftover compact/hash/status/defrag</td><td>unknown leftover flags fail-close (hash --rev cannot hash the live tree; status --cluster cannot report one node); defrag --cluster walks MemberList — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>103</td><td>leftover put/get/del --flags</td><td>unknown leftover -- flags fail-close so put --foo cannot write key --foo and get k --foo cannot range to --foo; -- starts positionals — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>104</td><td>IPv6 zone UniqueURLs</td><td>http://[fe80::1%1]:2379 leftover-safe-splits addr%zone and resolves via getaddrinfo; empty / 1foo fail-close; scope is not stripped — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

@@ -298,6 +298,24 @@ CETCD_TEST_CASE(auto_compact_parse_listen_url) {
     CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://[]:2381", host,
                                                sizeof(host), &port, &https),
                         CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://[fe80::1%1]:2379", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(strcmp(host, "fe80::1%1"), 0);
+    CETCD_ASSERT_EQ_INT((int)port, 2379);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://[fe80::1%eth0]:2379", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(strcmp(host, "fe80::1%eth0"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://[fe80::1%]:2379", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://[fe80::1%1foo]:2379", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://[::1foo]:2379", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_ERR_INVAL);
     CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("unix:///tmp/m", host,
                                                sizeof(host), &port, &https),
                         CETCD_ERR_UNSUPPORT);

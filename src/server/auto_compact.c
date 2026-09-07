@@ -1,4 +1,5 @@
 #include "cetcd/server.h"
+#include "cetcd/discovery.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -622,6 +623,12 @@ int cetcd_parse_listen_url(const char *s, char *host, size_t host_cap,
     memcpy(host, p, hlen);
     host[hlen] = '\0';
     *port = (uint16_t)v;
+    if (strchr(host, ':')) {
+        char addr[256], zone[64];
+        if (cetcd_parse_ipv6_zone(host, addr, sizeof(addr), zone,
+                                  sizeof(zone)) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
     return CETCD_OK;
 }
 

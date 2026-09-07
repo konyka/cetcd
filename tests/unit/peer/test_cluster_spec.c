@@ -122,6 +122,16 @@ CETCD_TEST_CASE(parse_peer_url_leftover) {
     CETCD_ASSERT_EQ_INT(cetcd_parse_peer_url(v6left, strlen(v6left),
                                             addr, sizeof(addr), &port),
                         CETCD_ERR_RANGE);
+    const char *v6zone = "http://[fe80::1%1]:2380";
+    CETCD_ASSERT_EQ_INT(cetcd_parse_peer_url(v6zone, strlen(v6zone),
+                                            addr, sizeof(addr), &port),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(strcmp(addr, "fe80::1%1") == 0);
+    CETCD_ASSERT_EQ_INT((int)port, 2380);
+    const char *v6zleft = "http://[fe80::1%1foo]:2380";
+    CETCD_ASSERT_EQ_INT(cetcd_parse_peer_url(v6zleft, strlen(v6zleft),
+                                            addr, sizeof(addr), &port),
+                        CETCD_ERR_INVAL);
     const char *ux = "unix://localhost:2380";
     CETCD_ASSERT_EQ_INT(cetcd_parse_peer_url(ux, strlen(ux),
                                             addr, sizeof(addr), &port),

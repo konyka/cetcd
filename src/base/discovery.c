@@ -493,6 +493,61 @@ static void fill_v6_(struct sockaddr_storage *ss, uint16_t port,
     in6->sin6_addr = *a;
 }
 
+int cetcd_parse_ipv6_zone(const char *host, char *addr, size_t addr_cap,
+                          char *zone, size_t zone_cap) {
+    const char *pct;
+    size_t alen;
+    struct in6_addr v6;
+    if (!host || !host[0] || !addr || addr_cap < 2 || !zone || zone_cap < 1)
+        return CETCD_ERR_INVAL;
+    winsock_ensure_();
+    pct = strchr(host, '%');
+    if (!pct) {
+        size_t n = strlen(host);
+        if (n + 1 > addr_cap) return CETCD_ERR_OVERFLOW;
+        memcpy(addr, host, n + 1);
+        zone[0] = '\0';
+        if (strchr(addr, ':') && inet_pton(AF_INET6, addr, &v6) != 1)
+            return CETCD_ERR_INVAL;
+        return CETCD_OK;
+    }
+    alen = (size_t)(pct - host);
+    if (alen == 0 || alen + 1 > addr_cap) return CETCD_ERR_INVAL;
+    memcpy(addr, host, alen);
+    addr[alen] = '\0';
+    {
+        const char *z = pct + 1;
+        size_t zlen;
+        if (!z[0]) return CETCD_ERR_INVAL;
+        zlen = strlen(z);
+        if (zlen + 1 > zone_cap) return CETCD_ERR_OVERFLOW;
+        if (z[0] >= '0' && z[0] <= '9') {
+            char *end = NULL;
+            errno = 0;
+            (void)strtoul(z, &end, 10);
+            if (errno == ERANGE || !end || end == z || *end)
+                return CETCD_ERR_INVAL;
+        } else if ((z[0] >= 'A' && z[0] <= 'Z') ||
+                   (z[0] >= 'a' && z[0] <= 'z')) {
+            size_t i;
+            for (i = 0; i < zlen; i++) {
+                unsigned char c = (unsigned char)z[i];
+                int ok = (c >= '0' && c <= '9') ||
+                         (c >= 'A' && c <= 'Z') ||
+                         (c >= 'a' && c <= 'z') ||
+                         c == '_' || c == '-' || c == '.';
+                if (!ok) return CETCD_ERR_INVAL;
+            }
+        } else {
+            return CETCD_ERR_INVAL;
+        }
+        memcpy(zone, z, zlen + 1);
+    }
+    memset(&v6, 0, sizeof(v6));
+    if (inet_pton(AF_INET6, addr, &v6) != 1) return CETCD_ERR_INVAL;
+    return CETCD_OK;
+}
+
 int cetcd_host_port_resolve_n(const char *host, uint16_t port,
                               void *ss_arr, size_t cap, size_t *n) {
     if (!host || !host[0] || !ss_arr || cap == 0 || !n)
@@ -510,12 +565,41 @@ int cetcd_host_port_resolve_n(const char *host, uint16_t port,
         return CETCD_OK;
     }
     if (strchr(host, ':')) {
+        char addr[128], zone[64];
         struct in6_addr v6;
-        memset(&v6, 0, sizeof(v6));
-        if (inet_pton(AF_INET6, host, &v6) != 1) return CETCD_ERR_INVAL;
-        fill_v6_(&out[0], port, &v6);
-        *n = 1;
-        return CETCD_OK;
+        if (cetcd_parse_ipv6_zone(host, addr, sizeof(addr), zone,
+                                  sizeof(zone)) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+        if (!zone[0]) {
+            memset(&v6, 0, sizeof(v6));
+            if (inet_pton(AF_INET6, addr, &v6) != 1) return CETCD_ERR_INVAL;
+            fill_v6_(&out[0], port, &v6);
+            *n = 1;
+            return CETCD_OK;
+        }
+        {
+            char portbuf[8];
+            int pn = snprintf(portbuf, sizeof(portbuf), "%u", (unsigned)port);
+            struct addrinfo hints, *res = NULL;
+            if (pn < 0 || (size_t)pn >= sizeof(portbuf))
+                return CETCD_ERR_OVERFLOW;
+            memset(&hints, 0, sizeof(hints));
+            hints.ai_family = AF_INET6;
+            hints.ai_socktype = SOCK_STREAM;
+            hints.ai_protocol = IPPROTO_TCP;
+            hints.ai_flags = AI_NUMERICHOST;
+            if (getaddrinfo(host, portbuf, &hints, &res) != 0 || !res)
+                return CETCD_ERR_INVAL;
+            if (!res->ai_addr || res->ai_addrlen > sizeof(out[0])) {
+                freeaddrinfo(res);
+                return CETCD_ERR_INVAL;
+            }
+            memset(&out[0], 0, sizeof(out[0]));
+            memcpy(&out[0], res->ai_addr, res->ai_addrlen);
+            freeaddrinfo(res);
+            *n = 1;
+            return CETCD_OK;
+        }
     }
     if (cetcd_discovery_valid_domain(host) != 0) return CETCD_ERR_INVAL;
     char portbuf[8];

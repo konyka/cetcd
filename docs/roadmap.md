@@ -539,6 +539,12 @@ Performance-first, fail-closed design:
   `cetcdctl endpoint {health,status,hashkv}` use `cetcd_format_host_port`
   (`[::1]:2379`, etcd `JoinHostPort`). Unbracketed `::1:2379` is not
   leftover-safe (looks like port 1) and cannot be parsed back.
+- **IPv6 zone IDs** — UniqueURLs may be `[fe80::1%1]:2379` /
+  `[fe80::1%eth0]:2379`. The host leftover-safe-splits `addr%zone`
+  (empty zone and numeric leftover `1foo` fail-close; named zones are
+  `[A-Za-z][A-Za-z0-9_.-]*`). Resolve uses `getaddrinfo` so the
+  `scope_id` is honored (not stripped and bound on every interface).
+  `::1foo` is still leftover-invalid. An unresolvable zone fail-closes.
 - **`hashkv --rev` / `endpoint hashkv --rev`** — leftover-safe HashKV
   revision (`>= 0`; omitted / `0` = current). `10foo` fail-closes.
   A swallowed `--rev` would hash the live tree instead of the requested

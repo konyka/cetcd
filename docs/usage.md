@@ -162,6 +162,7 @@ cetcd accepts several etcd server flags for migration compatibility:
   --listen-peer-urls http://127.0.0.1:2380 --data-dir ./data
 # --listen-client-urls / --listen-peer-urls are UniqueURLs lists (same scheme; port 1..65535)
 # IPv6 needs brackets: http://[::1]:2379 ; leftover 2379foo fail-closes
+# IPv6 zones: http://[fe80::1%1]:2379 leftover-safe (1foo / empty zone fail-close)
 # hostnames (etcd default http://localhost:2379) resolve; an unresolvable name fail-closes
 # IPv6 endpoint print is [::1]:2379 (not ::1:2379) so it can be parsed back
 # unix:// / unixs:// fail-close (no unix-socket listener)

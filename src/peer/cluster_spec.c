@@ -1,4 +1,5 @@
 #include "cetcd/peer.h"
+#include "cetcd/discovery.h"
 
 #include <errno.h>
 #include <stdlib.h>
@@ -66,6 +67,12 @@ int cetcd_parse_host_port(const char *url, size_t url_len,
     size_t alen = strlen(p);
     if (alen == 0 || alen >= addr_cap) return CETCD_ERR_INVAL;
     memcpy(addr, p, alen + 1);
+    if (strchr(addr, ':')) {
+        char a[256], zone[64];
+        if (cetcd_parse_ipv6_zone(addr, a, sizeof(a), zone, sizeof(zone)) !=
+            CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
     return CETCD_OK;
 }
 

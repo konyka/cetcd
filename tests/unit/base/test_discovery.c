@@ -299,6 +299,13 @@ CETCD_TEST_CASE(format_host_port_brackets_ipv6) {
     CETCD_ASSERT_EQ_INT(cetcd_endpoint_parse_list(out, eps, 1, &n), 0);
     CETCD_ASSERT_EQ_STR(eps[0].host, "2001:db8::1");
     CETCD_ASSERT_EQ_INT((int)eps[0].port, 2380);
+    CETCD_ASSERT_EQ_INT(cetcd_format_host_port("fe80::1%1", 2379, out,
+                                               sizeof(out)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(out, "[fe80::1%1]:2379");
+    CETCD_ASSERT_EQ_INT(cetcd_endpoint_parse_list(out, eps, 1, &n), 0);
+    CETCD_ASSERT_EQ_STR(eps[0].host, "fe80::1%1");
+    CETCD_ASSERT_EQ_INT((int)eps[0].port, 2379);
     CETCD_ASSERT_EQ_INT(cetcd_format_host_port("", 2379, out, sizeof(out)),
                         CETCD_ERR_INVAL);
     CETCD_ASSERT_EQ_INT(cetcd_format_host_port(NULL, 2379, out, sizeof(out)),
@@ -307,6 +314,40 @@ CETCD_TEST_CASE(format_host_port_brackets_ipv6) {
                         CETCD_ERR_INVAL);
     CETCD_ASSERT_EQ_INT(cetcd_format_host_port("::1", 2379, out, 4),
                         CETCD_ERR_OVERFLOW);
+}
+
+CETCD_TEST_CASE(parse_ipv6_zone_leftover) {
+    char addr[64], zone[32];
+    CETCD_ASSERT_EQ_INT(cetcd_parse_ipv6_zone("::1", addr, sizeof(addr),
+                                              zone, sizeof(zone)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(addr, "::1");
+    CETCD_ASSERT_EQ_STR(zone, "");
+    CETCD_ASSERT_EQ_INT(cetcd_parse_ipv6_zone("fe80::1%1", addr, sizeof(addr),
+                                              zone, sizeof(zone)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(addr, "fe80::1");
+    CETCD_ASSERT_EQ_STR(zone, "1");
+    CETCD_ASSERT_EQ_INT(cetcd_parse_ipv6_zone("fe80::1%eth0", addr, sizeof(addr),
+                                              zone, sizeof(zone)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(addr, "fe80::1");
+    CETCD_ASSERT_EQ_STR(zone, "eth0");
+    CETCD_ASSERT_EQ_INT(cetcd_parse_ipv6_zone("fe80::1%", addr, sizeof(addr),
+                                              zone, sizeof(zone)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_ipv6_zone("fe80::1%1foo", addr, sizeof(addr),
+                                              zone, sizeof(zone)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_ipv6_zone("::1foo", addr, sizeof(addr),
+                                              zone, sizeof(zone)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_ipv6_zone("fe80::1%eth0!", addr, sizeof(addr),
+                                              zone, sizeof(zone)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_ipv6_zone(NULL, addr, sizeof(addr),
+                                              zone, sizeof(zone)),
+                        CETCD_ERR_INVAL);
 }
 
 CETCD_TEST_CASE(host_port_resolve_fail_closed) {
@@ -324,6 +365,12 @@ CETCD_TEST_CASE(host_port_resolve_fail_closed) {
                                                 sizeof(ss)),
                         CETCD_ERR_INVAL);
     CETCD_ASSERT_EQ_INT(cetcd_host_port_resolve("::1foo", 2379, &ss,
+                                                sizeof(ss)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_host_port_resolve("fe80::1%", 2379, &ss,
+                                                sizeof(ss)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_host_port_resolve("fe80::1%1foo", 2379, &ss,
                                                 sizeof(ss)),
                         CETCD_ERR_INVAL);
     CETCD_ASSERT_EQ_INT(cetcd_host_port_resolve("local host", 2379, &ss,
@@ -349,6 +396,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(endpoint_parse_fail_closed),
     CETCD_TEST_ENTRY(host_port_resolve_numeric_and_localhost),
     CETCD_TEST_ENTRY(format_host_port_brackets_ipv6),
+    CETCD_TEST_ENTRY(parse_ipv6_zone_leftover),
     CETCD_TEST_ENTRY(host_port_resolve_fail_closed),
 CETCD_TEST_LIST_END
 CETCD_TEST_MAIN()
