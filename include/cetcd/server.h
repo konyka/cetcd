@@ -193,9 +193,14 @@ int cetcd_ctl_parse_maint_argv(int argc, char *const *argv, int start,
  * become NAME/ID. Extra positionals or a missing NAME are INVAL. */
 int cetcd_ctl_parse_one_name_argv(int argc, char *const *argv, int start,
                                   const char **name);
-/* leftover-safe two NAMEs from `start` (member update ID + PEER_URLS). */
+/* leftover-safe two NAMEs from `start` (member update ID + PEER_URLS,
+ * txn put KEY VALUE, auth login NAME PASS). */
 int cetcd_ctl_parse_two_name_argv(int argc, char *const *argv, int start,
                                   const char **a, const char **b);
+/* leftover-safe three NAMEs from `start` (txn cas KEY EXPECTED NEW). */
+int cetcd_ctl_parse_three_name_argv(int argc, char *const *argv, int start,
+                                    const char **a, const char **b,
+                                    const char **c);
 /* 1 if alloc_bytes > threshold_mb MiB. threshold 0 never. */
 int cetcd_backend_should_defrag(uint64_t alloc_bytes, uint64_t threshold_mb);
 /* Cap `target` to compacted+batch_limit. batch_limit 0 leaves target. */

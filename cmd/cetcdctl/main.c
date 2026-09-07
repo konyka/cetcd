@@ -2486,14 +2486,18 @@ static int cmd_txn(int argc, char **argv) {
         }
     }
     if (strcmp(argv[2], "put") == 0) {
-        if (argc < 5) { fprintf(stderr, "usage: cetcdctl txn put KEY VALUE\n"); return 1; }
+        const char *key = NULL, *val = NULL;
+        if (cetcd_ctl_parse_two_name_argv(argc, argv, 3, &key, &val) != CETCD_OK) {
+            fprintf(stderr, "usage: cetcdctl txn put KEY VALUE\n");
+            return 1;
+        }
         /* Build a TxnRequest with one success op (Put) */
         uint8_t put_inner[1024];
         size_t ppos = 0;
         ppos = encode_bytes_field(put_inner, sizeof(put_inner), ppos, 0x0a,
-                                   (const uint8_t *)argv[3], strlen(argv[3]));
+                                   (const uint8_t *)key, strlen(key));
         ppos = encode_bytes_field(put_inner, sizeof(put_inner), ppos, 0x12,
-                                   (const uint8_t *)argv[4], strlen(argv[4]));
+                                   (const uint8_t *)val, strlen(val));
 
         uint8_t op_buf[1024];
         size_t opos = 0;
@@ -2517,12 +2521,14 @@ static int cmd_txn(int argc, char **argv) {
         return 0;
     } else if (strcmp(argv[2], "cas") == 0) {
         /* Compare-and-swap: if KEY's value equals EXPECTED, set it to NEW */
-        if (argc < 6) { fprintf(stderr, "usage: cetcdctl txn cas KEY EXPECTED NEW\n"); return 1; }
-        const char *key = argv[3];
+        const char *key = NULL, *expected = NULL, *new_val = NULL;
+        if (cetcd_ctl_parse_three_name_argv(argc, argv, 3, &key, &expected,
+                                           &new_val) != CETCD_OK) {
+            fprintf(stderr, "usage: cetcdctl txn cas KEY EXPECTED NEW\n");
+            return 1;
+        }
         size_t key_len = strlen(key);
-        const char *expected = argv[4];
         size_t exp_len = strlen(expected);
-        const char *new_val = argv[5];
         size_t new_len = strlen(new_val);
 
         /* Build Compare message:
@@ -2604,8 +2610,23 @@ static int cmd_txn(int argc, char **argv) {
         for (int i = 3; i < argc; i++) {
         int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
             if ((sk = skip_write_out_(&i, argc, argv)) != 0) { if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; } continue; }
-            if (!key) key = argv[i];
-            else if (!range_end) range_end = argv[i];
+            if (strcmp(argv[i], "--") == 0) {
+                if (i + 1 < argc && !key) key = argv[++i];
+                else {
+                    fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                    return 1;
+                }
+            } else if (argv[i][0] == '-') {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
+            } else if (!key) {
+                key = argv[i];
+            } else if (!range_end) {
+                range_end = argv[i];
+            } else {
+                fprintf(stderr, "unknown flag: %s\n", argv[i]);
+                return 1;
+            }
         }
         if (!key) { fprintf(stderr, "usage: cetcdctl txn get KEY [RANGE_END]\n"); return 1; }
         size_t key_len = strlen(key);
@@ -4197,7 +4218,10 @@ static int cmd_alarm(int argc, char **argv) {
         int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
         if ((wr = take_write_out_jtf_(&i, argc, argv, &json_fmt, &table_fmt, &fields_fmt)) != 0) {
             if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
-        } else if (argv[i][0] != '-') {
+        } else if (argv[i][0] == '-') {
+            fprintf(stderr, "unknown flag: %s\n", argv[i]);
+            return 1;
+        } else {
             /* Parse alarm type: none, nospace, corrupt */
             if (strcmp(argv[i], "none") == 0 || strcmp(argv[i], "NONE") == 0) {
                 alarm_type = 0; alarm_type_str = "NONE";
@@ -4899,13 +4923,23 @@ static int cmd_downgrade(int argc, char **argv) {
     uint64_t action = 1; /* ENABLE */
 
     if (strcmp(argv[2], "enable") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl downgrade enable VERSION [-w json|fields]\n"); return 1; }
-        action = 1; version = argv[3];
+        action = 1;
+        if (cetcd_ctl_parse_one_name_argv(argc, argv, 3, &version) != CETCD_OK) {
+            fprintf(stderr, "usage: cetcdctl downgrade enable VERSION [-w json|fields]\n");
+            return 1;
+        }
     } else if (strcmp(argv[2], "cancel") == 0) {
         action = 2;
+        if (cetcd_ctl_parse_maint_argv(argc, argv, 3, 0, NULL) != CETCD_OK) {
+            fprintf(stderr, "unknown flag\n");
+            return 1;
+        }
     } else if (strcmp(argv[2], "validate") == 0) {
-        if (argc < 4) { fprintf(stderr, "usage: cetcdctl downgrade validate VERSION [-w json|fields]\n"); return 1; }
-        action = 0; version = argv[3];
+        action = 0;
+        if (cetcd_ctl_parse_one_name_argv(argc, argv, 3, &version) != CETCD_OK) {
+            fprintf(stderr, "usage: cetcdctl downgrade validate VERSION [-w json|fields]\n");
+            return 1;
+        }
     } else {
         fprintf(stderr, "unknown downgrade subcommand: %s\n", argv[2]);
         return 1;
@@ -5165,14 +5199,16 @@ static int cmd_auth(int argc, char **argv) {
     if (strcmp(argv[2], "login") == 0) {
         int want_json = 0, want_fields = 0;
         const char *name = NULL, *pass = NULL;
+        if (cetcd_ctl_parse_two_name_argv(argc, argv, 3, &name, &pass) != CETCD_OK) {
+            fprintf(stderr, "usage: cetcdctl auth login [-w json|fields] NAME PASS\n");
+            return 1;
+        }
         for (int i = 3; i < argc; i++) {
         int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
             if ((wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields)) != 0) {
                 if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
-            } else if (!name) name = argv[i];
-            else if (!pass) pass = argv[i];
+            }
         }
-        if (!name || !pass) { fprintf(stderr, "usage: cetcdctl auth login [-w json|fields] NAME PASS\n"); return 1; }
         uint8_t req[512], resp[1024];
         size_t pos = 0;
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, name);
@@ -5229,6 +5265,9 @@ static int cmd_auth(int argc, char **argv) {
         int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
         if ((wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields)) != 0) {
             if (wr < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
+        } else if (argv[i][0] == '-') {
+            fprintf(stderr, "unknown flag: %s\n", argv[i]);
+            return 1;
         }
     }
     int rlen = do_rpc(path, req, 1, resp, sizeof(resp));
@@ -6650,15 +6689,15 @@ static void print_usage(void) {
     printf("  lease list [-w table|json|fields]  List all active leases\n");
     printf("  lease keepalive [--once] [--interval SEC] [-w json|fields] ID  Keep a lease alive (loop by default, --once for single, --interval > 0)\n");
     printf("  txn -i [-w json|fields]  Interactive transaction (read from stdin: cmp/put/get/del/then/else)\n");
-    printf("  txn put [-w json|fields] KEY VALUE  Execute a transaction (Put)\n");
-    printf("  txn cas [-w json|fields] KEY EXP NEW  Compare-and-swap (if KEY==EXP then KEY=NEW)\n");
-    printf("  txn get [-w json|fields] KEY [RANGE_END]  Execute a transaction (Range)\n");
+    printf("  txn put [-w json|fields] KEY VALUE  Execute a transaction (Put; leftover --flags fail-close)\n");
+    printf("  txn cas [-w json|fields] KEY EXP NEW  Compare-and-swap (if KEY==EXP then KEY=NEW; leftover --flags fail-close)\n");
+    printf("  txn get [-w json|fields] KEY [RANGE_END]  Execute a transaction (Range; leftover --flags fail-close)\n");
     printf("  txn del [-w json|fields] [--prefix] [--prev-kv] KEY [RANGE_END]  Execute a transaction (Delete)\n");
     printf("  compact [--physical] [-w json|fields] REV  Compact MVCC history to revision (REV > 0; leftover flags fail-close)\n");
     printf("  status [-w json|fields]  Get server status (unknown leftover flags fail-close)\n");
-    printf("  alarm list [-w table|json|fields]  List all alarms\n");
-    printf("  alarm activate [-w json|fields] [TYPE]  Activate an alarm (NOSPACE|CORRUPT|NONE)\n");
-    printf("  alarm disarm [-w json|fields] [TYPE]     Disarm an alarm (NOSPACE|CORRUPT|NONE)\n");
+    printf("  alarm list [-w table|json|fields]  List all alarms (leftover --flags fail-close)\n");
+    printf("  alarm activate [-w json|fields] [TYPE]  Activate an alarm (NOSPACE|CORRUPT|NONE; leftover --flags fail-close)\n");
+    printf("  alarm disarm [-w json|fields] [TYPE]     Disarm an alarm (NOSPACE|CORRUPT|NONE; leftover --flags fail-close)\n");
     printf("  hash [-w json|fields|table]         Get KV store hash (unknown leftover flags fail-close)\n");
     printf("  hashkv [--rev N] [-w json|fields|table]  Get KV store hash + compact revision (N leftover-safe; 0 = current)\n");
     printf("  defrag [--cluster] [-w json|fields]  Defragment database (compact-copy; --cluster uses MemberList)\n");
@@ -6668,10 +6707,10 @@ static void print_usage(void) {
     printf("  member remove [-w json|fields] ID    Remove a cluster member (ID hex > 0; leftover --flags fail-close)\n");
     printf("  member update [-w json|fields] ID PEER_URLS  Update a member's peer URLs (ID hex > 0; comma-separated supported; leftover --flags fail-close)\n");
     printf("  member promote [-w json|fields] ID    Promote a member to voting member (ID hex > 0; leftover --flags fail-close)\n");
-    printf("  auth enable [-w json|fields]     Enable authentication\n");
-    printf("  auth disable [-w json|fields]     Disable authentication\n");
-    printf("  auth status [-w json|fields]     Query auth status\n");
-    printf("  auth login NAME PASS [-w json|fields]   Authenticate and get token\n");
+    printf("  auth enable [-w json|fields]     Enable authentication (leftover --flags fail-close)\n");
+    printf("  auth disable [-w json|fields]     Disable authentication (leftover --flags fail-close)\n");
+    printf("  auth status [-w json|fields]     Query auth status (leftover --flags fail-close)\n");
+    printf("  auth login NAME PASS [-w json|fields]   Authenticate and get token (leftover --flags fail-close)\n");
     printf("  user add NAME [PASS] [--no-password] [-w json|fields]    Add a user\n");
     printf("  user delete NAME [-w json|fields]      Delete a user\n");
     printf("  user get NAME [-w json|fields]          Get user details (roles)\n");
@@ -6690,9 +6729,9 @@ static void print_usage(void) {
     printf("  snapshot save [FILE] [--compaction-periodical] [-w json|fields|table]   Save a snapshot to file (leftover --flags fail-close)\n");
     printf("  snapshot status FILE [-w json|fields|table]  Show snapshot file info\n");
     printf("  snapshot restore FILE --data-dir DIR [--force] [--skip-hash-check] [--initial-cluster-token TOKEN] [--initial-cluster-state new|existing] [--initial-cluster SPEC] [--name NAME] [--initial-advertise-peer-urls URL] [-w json|fields]  Restore snapshot to data dir\n");
-    printf("  downgrade enable [-w json|fields] VER   Enable cluster downgrade\n");
-    printf("  downgrade cancel [-w json|fields]       Cancel cluster downgrade\n");
-    printf("  downgrade validate [-w json|fields] VER Validate downgrade version\n");
+    printf("  downgrade enable [-w json|fields] VER   Enable cluster downgrade (leftover --flags fail-close)\n");
+    printf("  downgrade cancel [-w json|fields]       Cancel cluster downgrade (leftover --flags fail-close)\n");
+    printf("  downgrade validate [-w json|fields] VER Validate downgrade version (leftover --flags fail-close)\n");
     printf("  version [-w json|fields]      Print the client version\n");
     printf("  endpoint health [--cluster] [-w json|fields|table]  Check server health (or all cluster members with --cluster)\n");
     printf("  endpoint status [--cluster] [-w json|table|fields]  Get server status (or all cluster members with --cluster)\n");

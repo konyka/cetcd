@@ -31,14 +31,15 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 106 — leftover-safe migrate snap name</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 107 — leftover txn/auth --flags</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 106 leftover-safe-parses etcd
-     <code>%016x-%016x.snap</code> so <code>123foo-456.snap</code> cannot
-     win latest with a truncated decimal term and
-     <code>…000a.snap</code> is index 10 (not <code>atoll</code> 0).</p>
+  <p><strong>v0.3.0</strong>. Phase 107 leftover-safe-rejects unknown
+     <code>--</code> flags on <code>txn</code>/<code>auth</code>/<code>downgrade</code>/<code>alarm</code>
+     so <code>txn put --foo k v</code> cannot write key <code>--foo</code>
+     and <code>auth login --foo</code> cannot authenticate as
+     <code>--foo</code>.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -160,6 +161,7 @@
       <tr><td>104</td><td>IPv6 zone UniqueURLs</td><td>http://[fe80::1%1]:2379 leftover-safe-splits addr%zone and resolves via getaddrinfo; empty / 1foo fail-close; scope is not stripped — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>105</td><td>leftover member/watch --flags</td><td>unknown leftover -- flags fail-close so member remove --force cannot swallow --force and still remove; watch --foo cannot watch key --foo; lock/elect/snapshot/user/role same — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>106</td><td>leftover-safe migrate snap name</td><td>cetcd-migrate leftover-safe-parses etcd %016x-%016x.snap (hex); 123foo-456.snap cannot win latest; …000a.snap is index 10 not atoll 0 — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>107</td><td>leftover txn/auth --flags</td><td>unknown leftover -- flags fail-close so txn put --foo cannot write key --foo, txn put -w json cannot treat -w as the key, and auth login --foo cannot authenticate as --foo — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

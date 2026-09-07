@@ -875,7 +875,7 @@ file, `ETCD_*` maps to `--flag` (`ETCD_LISTEN_CLIENT_URLS`; empty ignored;
 `--keepalive-time` / `--keepalive-timeout` set TCP keepalive on the client socket
 (invalid durations and timeout without time fail-close).
 `--command-timeout` is a duration (`0` = none); a typo or leftover (`10foo`) fail-closes instead of hanging with no alarm. Global `--flag=value` (`--command-timeout=5s`, `--debug=false`) is accepted; empty `--flag=` fail-closes. `--debug=false` does not eat the next argv.
-Subcommand `--flag=value` (`put --lease=1`, `get --rev=5`, `--write-out=json`, `watch --start-rev=5`, `lock --ttl=60`, `snapshot restore --data-dir=DIR`, `check datascale --load=N`) is accepted; leftover `put --lease 10foo` / `watch cancel 10foo` / `--load=10foo` fail-closes. `--prefix=false` does not eat the key. Unknown leftover `--` flags on `put`/`get`/`del`/`lease` fail-close (`put --foo k v` cannot write key `--foo`; `get k --foo` cannot range to `--foo`). Unknown leftover `--` flags on `member`/`watch`/`lock`/`elect`/`snapshot`/`user`/`role` fail-close (`member remove --force` cannot swallow `--force` and still remove; `watch --foo key` cannot watch `--foo`). `--` starts positionals.
+Subcommand `--flag=value` (`put --lease=1`, `get --rev=5`, `--write-out=json`, `watch --start-rev=5`, `lock --ttl=60`, `snapshot restore --data-dir=DIR`, `check datascale --load=N`) is accepted; leftover `put --lease 10foo` / `watch cancel 10foo` / `--load=10foo` fail-closes. `--prefix=false` does not eat the key. Unknown leftover `--` flags on `put`/`get`/`del`/`lease` fail-close (`put --foo k v` cannot write key `--foo`; `get k --foo` cannot range to `--foo`). Unknown leftover `--` flags on `member`/`watch`/`lock`/`elect`/`snapshot`/`user`/`role` fail-close (`member remove --force` cannot swallow `--force` and still remove; `watch --foo key` cannot watch `--foo`). Unknown leftover `--` flags on `txn`/`auth`/`downgrade`/`alarm` fail-close (`txn put --foo k v` cannot write key `--foo`; `auth login --foo` cannot authenticate as `--foo`). `--` starts positionals.
 `--dial-timeout` is `0..86400` seconds (`0` = none); a typo fail-closes instead of connecting with no timeout.
 `cetcdctl --port` is `1..65535`; a typo fail-closes instead of connecting to port `0`.
 `cetcdctl --endpoints` / `--endpoint` port is `1..65535`; a typo fail-closes instead of connecting to port `0`.
@@ -1138,7 +1138,7 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `lease timetolive ID` | 查询租约剩余时间和授予 TTL |
 | `lease list` | 列出所有活跃租约 |
 | `lease keepalive ID` | 续约指定租约 |
-| `txn put KEY VALUE` | 事务写入 |
+| `txn put KEY VALUE` | 事务写入（未知 leftover `--` 旗标 fail-close） |
 | `txn cas KEY EXPECTED NEW` | 条件事务（CAS）：当 KEY 的值等于 EXPECTED 时设为 NEW |
 | `compact REV` | 压缩 MVCC 历史到指定修订号（未知 leftover 旗标 fail-close） |
 | `status` | 获取服务器状态（未知 leftover 旗标 fail-close） |
@@ -1153,7 +1153,7 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `member update ID URL` | 更新成员地址 |
 | `member promote ID` | 提升成员为投票节点 |
 | `auth enable/disable/status` | 认证管理 |
-| `auth login NAME PASS` | 认证并获取 token |
+| `auth login NAME PASS` | 认证并获取 token（未知 leftover `--` 旗标 fail-close） |
 | `user add/get/list` | 用户管理（add 添加、get 查看详情、list 列表） |
 | `user delete NAME` | 删除用户 |
 | `user change-password NAME PASS` | 经 Raft 修改用户密码 |

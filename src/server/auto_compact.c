@@ -1544,6 +1544,20 @@ int cetcd_ctl_parse_two_name_argv(int argc, char *const *argv, int start,
     return CETCD_OK;
 }
 
+int cetcd_ctl_parse_three_name_argv(int argc, char *const *argv, int start,
+                                    const char **a, const char **b,
+                                    const char **c) {
+    const char *got[3];
+    int rc;
+    if (!a || !b || !c) return CETCD_ERR_INVAL;
+    rc = parse_n_names_argv_(argc, argv, start, got, 3);
+    if (rc != CETCD_OK) return rc;
+    *a = got[0];
+    *b = got[1];
+    *c = got[2];
+    return CETCD_OK;
+}
+
 int cetcd_parse_pprof_seconds(const char *qs, size_t qs_len, int *out) {
     if (!out) return CETCD_ERR_INVAL;
     *out = 30;

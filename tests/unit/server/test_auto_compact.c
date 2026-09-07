@@ -1531,6 +1531,38 @@ CETCD_TEST_CASE(auto_compact_parse_one_name_argv) {
                          "http://127.0.0.1:2380" };
     CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_two_name_argv(6, upd_flag, 3, &a, &b),
                         CETCD_ERR_INVAL);
+
+    char *txn_ok[] = { "cetcdctl", "txn", "put", "k", "v" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_two_name_argv(5, txn_ok, 3, &a, &b),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(a, "k");
+    CETCD_ASSERT_EQ_STR(b, "v");
+
+    char *txn_wo[] = { "cetcdctl", "txn", "put", "-w", "json", "k", "v" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_two_name_argv(7, txn_wo, 3, &a, &b),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(a, "k");
+    CETCD_ASSERT_EQ_STR(b, "v");
+
+    char *txn_foo[] = { "cetcdctl", "txn", "put", "--foo", "k", "v" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_two_name_argv(6, txn_foo, 3, &a, &b),
+                        CETCD_ERR_INVAL);
+
+    const char *c = NULL;
+    char *cas_ok[] = { "cetcdctl", "txn", "cas", "k", "old", "new" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_three_name_argv(6, cas_ok, 3, &a, &b, &c),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(a, "k");
+    CETCD_ASSERT_EQ_STR(b, "old");
+    CETCD_ASSERT_EQ_STR(c, "new");
+
+    char *cas_foo[] = { "cetcdctl", "txn", "cas", "--foo", "k", "old", "new" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_three_name_argv(7, cas_foo, 3, &a, &b, &c),
+                        CETCD_ERR_INVAL);
+
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_three_name_argv(6, cas_ok, 3, &a, &b,
+                                                       NULL),
+                        CETCD_ERR_INVAL);
 }
 
 CETCD_TEST_CASE(auto_compact_parse_pprof_seconds) {

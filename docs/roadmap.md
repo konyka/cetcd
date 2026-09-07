@@ -570,6 +570,13 @@ Performance-first, fail-closed design:
   write a file named `--foo`. `user add --foo` / `role add --foo`
   cannot create that name. `--` still starts positionals. Accepting
   those flags as a no-op or as NAME/ID/KEY is rejected.
+- **`txn` / `auth` / `downgrade` leftover `--` flags** — unknown leftover
+  flags fail-close so `txn put --foo k v` cannot write key `--foo`,
+  `txn put -w json k v` cannot treat `-w` as the key, and
+  `auth login --foo user pass` cannot authenticate as `--foo`.
+  `downgrade enable --foo VER` cannot swallow `--foo`. `--` still
+  starts positionals. Accepting those flags as KEY/NAME/VERSION is
+  rejected.
 - **`cetcd-migrate` snap filename** — etcd names are `%016x-%016x.snap`
   (hex). Leftover-safe hex so `123foo-456.snap` cannot win latest with
   a truncated decimal term, and `…000a.snap` is index 10 (not `atoll`
