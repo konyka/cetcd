@@ -340,6 +340,50 @@ CETCD_TEST_CASE(auto_compact_parse_listen_urls) {
     CETCD_ASSERT_EQ_INT((int)n_extra, 0);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_advertise_urls) {
+    char out[256];
+    CETCD_ASSERT_EQ_INT(cetcd_parse_advertise_urls(
+        "http://127.0.0.1:2379,https://10.0.0.1:2379", out, sizeof(out)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(strcmp(out,
+                               "http://127.0.0.1:2379,https://10.0.0.1:2379"),
+                        0);
+    CETCD_ASSERT_EQ_INT(cetcd_advertise_urls_has_https(out), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_advertise_urls_has_https(
+        "http://127.0.0.1:2379,http://10.0.0.1:12379"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_advertise_urls(
+        "http://127.0.0.1:2379,http://127.0.0.1:2379", out, sizeof(out)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_advertise_urls(
+        "http://127.0.0.1:2379,", out, sizeof(out)), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_advertise_urls("", out, sizeof(out)),
+                        CETCD_ERR_INVAL);
+
+    cetcd_listen_url extra[1];
+    memset(extra, 0, sizeof(extra));
+    strncpy(extra[0].host, "10.0.0.1", sizeof(extra[0].host) - 1);
+    extra[0].port = 12379;
+    extra[0].https = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_format_listen_advertise(
+        "127.0.0.1", 2379, 0, extra, 1, out, sizeof(out)), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(strcmp(out,
+                               "http://127.0.0.1:2379,http://10.0.0.1:12379"),
+                        0);
+
+    uint8_t pb[64];
+    size_t pos = 0;
+    CETCD_ASSERT_EQ_INT(cetcd_pb_append_csv_strings(
+        pb, sizeof(pb), &pos, 0x22,
+        "http://a:1,http://b:2"), CETCD_OK);
+    CETCD_ASSERT_TRUE(pos > 0);
+    CETCD_ASSERT_EQ_INT((int)pb[0], 0x22);
+    int tags = 0;
+    for (size_t i = 0; i < pos; i++)
+        if (pb[i] == 0x22) tags++;
+    CETCD_ASSERT_EQ_INT(tags, 2);
+    CETCD_ASSERT_TRUE(memcmp(pb + 2, "http://a:1", 10) == 0);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_metrics_listen_url) {
     char host[64];
     uint16_t port = 0;
@@ -878,6 +922,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_raft_timing_from_ms),
     CETCD_TEST_ENTRY(auto_compact_parse_listen_url),
     CETCD_TEST_ENTRY(auto_compact_parse_listen_urls),
+    CETCD_TEST_ENTRY(auto_compact_parse_advertise_urls),
     CETCD_TEST_ENTRY(auto_compact_parse_metrics_listen_url),
     CETCD_TEST_ENTRY(auto_compact_metrics_addr),
     CETCD_TEST_ENTRY(auto_compact_raft_io_timeout),

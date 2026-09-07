@@ -890,8 +890,10 @@ client sockets, accepted peer sockets, and outbound Raft dials
 Other `--grpc-keepalive-*` stay no-op and do not swallow a following flag such as `--help`.
 `--max-call-send-msg-size` / `--max-call-recv-msg-size` cap the payload (`0` rejected;
 oversized recv is not truncated).
-`--advertise-client-urls` / `--initial-advertise-peer-urls` fill MemberList self
-URLs (empty defaults from listen; `https://` requires the matching cert file).
+`--advertise-client-urls` / `--initial-advertise-peer-urls` are UniqueURLs comma
+lists on MemberList (repeated protobuf strings). Empty defaults from every
+listen URL. Mixed http/https is allowed. A duplicate, leftover text, or any
+`https://` without the matching cert file fail-closes.
 `--name` fills MemberList self name (empty → `default`).
 `--initial-cluster-token` is persisted in `data-dir`; a mismatch fail-closes.
 `cetcdctl snapshot restore --initial-cluster-token` writes the same file (mismatch without `--force` fail-closes).
@@ -1010,7 +1012,7 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 | Auth | `/etcdserverpb.Auth/RoleGet` | `auth_handler.c` | 查询单个角色详情（权限信息） |
 | Auth | `/etcdserverpb.Auth/RoleGrantPermission` | `auth_handler.c` | 经 Raft 授予角色权限 |
 | Auth | `/etcdserverpb.Auth/RoleRevokePermission` | `auth_handler.c` | 经 Raft 撤销角色权限 |
-| Cluster | `/etcdserverpb.Cluster/MemberList` | `cluster_handler.c` | 列出集群成员（self 使用 --name 与 advertise/listen URL，peer 省略 clientURLs） |
+| Cluster | `/etcdserverpb.Cluster/MemberList` | `cluster_handler.c` | 列出集群成员（self 使用 --name 与 advertise/listen UniqueURLs 列表，peer 省略 clientURLs） |
 | Cluster | `/etcdserverpb.Cluster/MemberAdd` | `cluster_handler.c` | 添加集群成员 |
 | Cluster | `/etcdserverpb.Cluster/MemberRemove` | `cluster_handler.c` | 移除成员；删 voter 若剩余不足原 quorum 则 fail-closed（`--strict-reconfig-check=false` 可关；learner / 未知 id 见实现） |
 | Cluster | `/etcdserverpb.Cluster/MemberUpdate` | `cluster_handler.c` | 更新成员地址（实际更新 cluster 中的 peer 信息） |

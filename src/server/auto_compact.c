@@ -613,8 +613,38 @@ int cetcd_parse_listen_url(const char *s, char *host, size_t host_cap,
     return CETCD_OK;
 }
 
+static int parse_url_list_(const char *s, cetcd_listen_url *out, size_t cap,
+                           size_t *n, int allow_mixed);
+
 int cetcd_parse_listen_urls(const char *s, cetcd_listen_url *out, size_t cap,
                             size_t *n) {
+    return parse_url_list_(s, out, cap, n, 0);
+}
+
+int cetcd_apply_listen_urls(const char *s, char *host, size_t host_cap,
+                            uint16_t *port, int *https,
+                            cetcd_listen_url *extra, size_t extra_cap,
+                            uint32_t *n_extra) {
+    if (!host || host_cap < 2 || !port || !https || !n_extra)
+        return CETCD_ERR_INVAL;
+    cetcd_listen_url urls[CETCD_MAX_LISTEN_URLS];
+    size_t n = 0;
+    int rc = cetcd_parse_listen_urls(s, urls, CETCD_MAX_LISTEN_URLS, &n);
+    if (rc != CETCD_OK) return rc;
+    if (n > 1 && (!extra || extra_cap < n - 1)) return CETCD_ERR_OVERFLOW;
+    size_t hlen = strlen(urls[0].host);
+    if (hlen + 1 > host_cap) return CETCD_ERR_OVERFLOW;
+    memcpy(host, urls[0].host, hlen + 1);
+    *port = urls[0].port;
+    *https = urls[0].https;
+    *n_extra = 0;
+    for (size_t i = 1; i < n; i++)
+        extra[(*n_extra)++] = urls[i];
+    return CETCD_OK;
+}
+
+static int parse_url_list_(const char *s, cetcd_listen_url *out, size_t cap,
+                           size_t *n, int allow_mixed) {
     if (!s || !s[0] || !out || !n || cap == 0) return CETCD_ERR_INVAL;
     *n = 0;
     const char *p = s;
@@ -639,7 +669,7 @@ int cetcd_parse_listen_urls(const char *s, cetcd_listen_url *out, size_t cap,
                 strcmp(out[i].host, out[*n].host) == 0)
                 return CETCD_ERR_INVAL;
         }
-        if (*n > 0 && out[0].https != out[*n].https)
+        if (!allow_mixed && *n > 0 && out[0].https != out[*n].https)
             return CETCD_ERR_INVAL;
         (*n)++;
         if (*p == ',') {
@@ -650,25 +680,96 @@ int cetcd_parse_listen_urls(const char *s, cetcd_listen_url *out, size_t cap,
     return *n ? CETCD_OK : CETCD_ERR_INVAL;
 }
 
-int cetcd_apply_listen_urls(const char *s, char *host, size_t host_cap,
-                            uint16_t *port, int *https,
-                            cetcd_listen_url *extra, size_t extra_cap,
-                            uint32_t *n_extra) {
-    if (!host || host_cap < 2 || !port || !https || !n_extra)
-        return CETCD_ERR_INVAL;
+static int join_listen_urls_(const cetcd_listen_url *urls, size_t n,
+                             char *out, size_t cap) {
+    if (!urls || !n || !out || cap < 8) return CETCD_ERR_INVAL;
+    size_t off = 0;
+    for (size_t i = 0; i < n; i++) {
+        char one[320];
+        int wr = snprintf(one, sizeof(one), "%s://%s:%u",
+                          urls[i].https ? "https" : "http",
+                          urls[i].host, urls[i].port);
+        if (wr < 0 || (size_t)wr >= sizeof(one)) return CETCD_ERR_OVERFLOW;
+        size_t need = (size_t)wr + (i ? 1 : 0) + 1;
+        if (off + need > cap) return CETCD_ERR_OVERFLOW;
+        if (i) out[off++] = ',';
+        memcpy(out + off, one, (size_t)wr);
+        off += (size_t)wr;
+    }
+    out[off] = '\0';
+    return CETCD_OK;
+}
+
+int cetcd_parse_advertise_urls(const char *s, char *out, size_t cap) {
     cetcd_listen_url urls[CETCD_MAX_LISTEN_URLS];
     size_t n = 0;
-    int rc = cetcd_parse_listen_urls(s, urls, CETCD_MAX_LISTEN_URLS, &n);
+    int rc = parse_url_list_(s, urls, CETCD_MAX_LISTEN_URLS, &n, 1);
     if (rc != CETCD_OK) return rc;
-    if (n > 1 && (!extra || extra_cap < n - 1)) return CETCD_ERR_OVERFLOW;
-    size_t hlen = strlen(urls[0].host);
-    if (hlen + 1 > host_cap) return CETCD_ERR_OVERFLOW;
-    memcpy(host, urls[0].host, hlen + 1);
-    *port = urls[0].port;
-    *https = urls[0].https;
-    *n_extra = 0;
-    for (size_t i = 1; i < n; i++)
-        extra[(*n_extra)++] = urls[i];
+    return join_listen_urls_(urls, n, out, cap);
+}
+
+int cetcd_advertise_urls_has_https(const char *s) {
+    if (!s) return 0;
+    const char *p = s;
+    while (*p) {
+        while (*p == ' ' || *p == '\t' || *p == ',') p++;
+        if (strncmp(p, "https://", 8) == 0) return 1;
+        while (*p && *p != ',') p++;
+    }
+    return 0;
+}
+
+int cetcd_format_listen_advertise(const char *host, uint16_t port, int https,
+                                  const cetcd_listen_url *extra, uint32_t n_extra,
+                                  char *out, size_t cap) {
+    if (!host || !host[0] || port == 0 || !out) return CETCD_ERR_INVAL;
+    cetcd_listen_url urls[CETCD_MAX_LISTEN_URLS];
+    size_t n = 0;
+    size_t hlen = strlen(host);
+    if (hlen >= sizeof(urls[0].host)) return CETCD_ERR_OVERFLOW;
+    memcpy(urls[0].host, host, hlen + 1);
+    urls[0].port = port;
+    urls[0].https = https ? 1 : 0;
+    n = 1;
+    if (n_extra && !extra) return CETCD_ERR_INVAL;
+    for (uint32_t i = 0; i < n_extra; i++) {
+        if (n >= CETCD_MAX_LISTEN_URLS) return CETCD_ERR_OVERFLOW;
+        urls[n++] = extra[i];
+    }
+    return join_listen_urls_(urls, n, out, cap);
+}
+
+int cetcd_pb_append_csv_strings(uint8_t *buf, size_t cap, size_t *pos,
+                                uint8_t tag, const char *csv) {
+    if (!buf || !pos || cap == 0) return CETCD_ERR_INVAL;
+    if (!csv || !csv[0]) return CETCD_OK;
+    const char *p = csv;
+    while (*p) {
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == ',' || *p == '\0') return CETCD_ERR_INVAL;
+        const char *start = p;
+        while (*p && *p != ',') p++;
+        size_t len = (size_t)(p - start);
+        while (len && (start[len - 1] == ' ' || start[len - 1] == '\t'))
+            len--;
+        if (len == 0) return CETCD_ERR_INVAL;
+        if (*pos + 1 + 2 + len > cap) return CETCD_ERR_OVERFLOW;
+        buf[(*pos)++] = tag;
+        /* protobuf varint length (URL tokens are << 128) */
+        if (len >= 128) {
+            if (*pos + 2 + len > cap) return CETCD_ERR_OVERFLOW;
+            buf[(*pos)++] = (uint8_t)((len & 0x7f) | 0x80);
+            buf[(*pos)++] = (uint8_t)(len >> 7);
+        } else {
+            buf[(*pos)++] = (uint8_t)len;
+        }
+        memcpy(buf + *pos, start, len);
+        *pos += len;
+        if (*p == ',') {
+            p++;
+            if (*p == '\0') return CETCD_ERR_INVAL;
+        }
+    }
     return CETCD_OK;
 }
 

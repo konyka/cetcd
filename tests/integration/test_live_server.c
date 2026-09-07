@@ -2963,6 +2963,26 @@ CETCD_TEST_CASE(live_cetcd_advertise_https_requires_certs) {
              "'%s' --advertise-client-urls http://127.0.0.1:2379 --help >/dev/null 2>&1",
              CETCD_BIN);
     CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --advertise-client-urls=http://127.0.0.1:2379,http://10.0.0.1:2379 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --advertise-client-urls http://127.0.0.1:2379,http://127.0.0.1:2379 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --initial-advertise-peer-urls http://127.0.0.1:2380,https://10.0.0.1:2380 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --advertise-client-urls >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
 CETCD_TEST_CASE(live_cetcd_listen_client_urls_port) {

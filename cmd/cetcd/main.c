@@ -53,8 +53,8 @@ static void print_usage(const char *prog) {
     printf("\n  etcd-compatible flags (accepted for compatibility):\n");
     printf("  --listen-client-urls URLS   Client listen URLs (comma list; same scheme; https requires --cert-file; port 1..65535)\n");
     printf("  --listen-peer-urls URLS     Peer listen URLs (comma list; same scheme; https requires --peer-cert-file; port 1..65535)\n");
-    printf("  --advertise-client-urls URL  MemberList clientURLs (https requires --cert-file)\n");
-    printf("  --initial-advertise-peer-urls URL  MemberList peerURLs (https requires --peer-cert-file)\n");
+    printf("  --advertise-client-urls URLS  MemberList clientURLs (comma list; https requires --cert-file)\n");
+    printf("  --initial-advertise-peer-urls URLS  MemberList peerURLs (comma list; https requires --peer-cert-file)\n");
     printf("  --initial-cluster-state STATE  new (default) or existing (requires persisted cluster)\n");
     printf("  --initial-cluster-token TOKEN  Persist in data-dir; mismatch fail-closes\n");
     printf("  --discovery-srv DOMAIN  Bootstrap peers from DNS SRV (_etcd-server._tcp)\n");
@@ -227,6 +227,26 @@ static int apply_peer_listen_urls_(const char *s, cetcd_server_config *cfg) {
         return 1;
     }
     cfg->peer_listen_https = https != 0;
+    return 0;
+}
+
+static int apply_advertise_client_urls_(const char *s, cetcd_server_config *cfg) {
+    if (cetcd_parse_advertise_urls(s, cfg->advertise_client_urls,
+                                   sizeof(cfg->advertise_client_urls)) != CETCD_OK) {
+        fprintf(stderr,
+                "--advertise-client-urls must be a unique http(s)://host:port list\n");
+        return 1;
+    }
+    return 0;
+}
+
+static int apply_advertise_peer_urls_(const char *s, cetcd_server_config *cfg) {
+    if (cetcd_parse_advertise_urls(s, cfg->advertise_peer_urls,
+                                   sizeof(cfg->advertise_peer_urls)) != CETCD_OK) {
+        fprintf(stderr,
+                "--initial-advertise-peer-urls must be a unique http(s)://host:port list\n");
+        return 1;
+    }
     return 0;
 }
 
@@ -670,22 +690,30 @@ int main(int argc, char **argv) {
             }
             cfg.heartbeat_tick = (uint64_t)v;
             cfg.heartbeat_tick_set = true;
-        } else if (strcmp(argv[i], "--advertise-client-urls") == 0 && i + 1 < argc) {
-            const char *url = argv[++i];
-            size_t n = 0;
-            while (url[n] && url[n] != ',' &&
-                   n + 1 < sizeof(cfg.advertise_client_urls))
-                n++;
-            memcpy(cfg.advertise_client_urls, url, n);
-            cfg.advertise_client_urls[n] = '\0';
-        } else if (strcmp(argv[i], "--initial-advertise-peer-urls") == 0 && i + 1 < argc) {
-            const char *url = argv[++i];
-            size_t n = 0;
-            while (url[n] && url[n] != ',' &&
-                   n + 1 < sizeof(cfg.advertise_peer_urls))
-                n++;
-            memcpy(cfg.advertise_peer_urls, url, n);
-            cfg.advertise_peer_urls[n] = '\0';
+        } else if (strcmp(argv[i], "--advertise-client-urls") == 0) {
+            if (i + 1 >= argc || argv[i + 1][0] == '-' || !argv[i + 1][0]) {
+                fprintf(stderr, "--advertise-client-urls requires a URL list\n");
+                return 1;
+            }
+            if (apply_advertise_client_urls_(argv[++i], &cfg) != 0) return 1;
+        } else if (strncmp(argv[i], "--advertise-client-urls=", 24) == 0) {
+            if (!argv[i][24]) {
+                fprintf(stderr, "--advertise-client-urls requires a URL list\n");
+                return 1;
+            }
+            if (apply_advertise_client_urls_(argv[i] + 24, &cfg) != 0) return 1;
+        } else if (strcmp(argv[i], "--initial-advertise-peer-urls") == 0) {
+            if (i + 1 >= argc || argv[i + 1][0] == '-' || !argv[i + 1][0]) {
+                fprintf(stderr, "--initial-advertise-peer-urls requires a URL list\n");
+                return 1;
+            }
+            if (apply_advertise_peer_urls_(argv[++i], &cfg) != 0) return 1;
+        } else if (strncmp(argv[i], "--initial-advertise-peer-urls=", 30) == 0) {
+            if (!argv[i][30]) {
+                fprintf(stderr, "--initial-advertise-peer-urls requires a URL list\n");
+                return 1;
+            }
+            if (apply_advertise_peer_urls_(argv[i] + 30, &cfg) != 0) return 1;
         } else if (strcmp(argv[i], "--initial-cluster-state") == 0 && i + 1 < argc) {
             strncpy(cfg.initial_cluster_state, argv[++i],
                     sizeof(cfg.initial_cluster_state) - 1);

@@ -246,9 +246,12 @@ Performance-first, fail-closed design:
   `--self-signed-cert-validity N` sets mint lifetime in years (omitted
   default 1, etcd-compatible; `0` / leftover text fail-closes).
 - **`--advertise-client-urls` / `--initial-advertise-peer-urls`** — MemberList
-  self `clientURLs` / `peerURLs`. Omitted flags default from the listen address
-  (scheme follows TLS). `https://` without the matching cert file fail-closes.
-  Peers omit `clientURLs` rather than advertising a hardcoded 2379.
+  self `clientURLs` / `peerURLs` as UniqueURLs comma lists (repeated protobuf
+  strings). Omitted flags default from every listen URL (scheme follows TLS).
+  A comma list is no longer truncated to the first URL. Mixed http/https is
+  allowed (advertise does not bind). Duplicate host:port, leftover text, or
+  a missing value fail-close. Any `https://` without the matching cert file
+  fail-closes. Peers omit `clientURLs` rather than advertising a hardcoded 2379.
 - **`--name`** — MemberList self `name`. Omitted or empty stays `default`.
   The flag used to be logged only while every member was named `default`.
 - **`--logger`** — `zap` or `capnslog` are accepted (built-in logger). Any

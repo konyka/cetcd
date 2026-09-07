@@ -329,6 +329,18 @@ int cetcd_apply_listen_urls(const char *s, char *host, size_t host_cap,
                             uint16_t *port, int *https,
                             cetcd_listen_url *extra, size_t extra_cap,
                             uint32_t *n_extra);
+/* UniqueURLs comma list for MemberList. Mixed http/https is OK.
+ * Joins as scheme://host:port. Duplicate / leftover is INVAL. */
+int cetcd_parse_advertise_urls(const char *s, char *out, size_t cap);
+/* 1 if any token is https://. */
+int cetcd_advertise_urls_has_https(const char *s);
+/* Primary + extras → comma advertise list (same scheme as listen). */
+int cetcd_format_listen_advertise(const char *host, uint16_t port, int https,
+                                  const cetcd_listen_url *extra, uint32_t n_extra,
+                                  char *out, size_t cap);
+/* Append each comma token as a protobuf repeated string (tag). */
+int cetcd_pb_append_csv_strings(uint8_t *buf, size_t cap, size_t *pos,
+                                uint8_t tag, const char *csv);
 /* Single http:// URL. https / comma / leftover is INVAL (no metrics TLS). */
 int cetcd_parse_metrics_listen_url(const char *s, char *host, size_t host_cap,
                                    uint16_t *port);

@@ -856,9 +856,9 @@ static void parse_member_list_response(const uint8_t *data, size_t len, int tabl
             uint64_t mlen = 0; read_varint(data, len, &pos, &mlen);
             size_t mend = pos + (size_t)mlen;
             uint64_t mid = 0;
-            const uint8_t *peer_url = NULL; size_t peer_len = 0;
+            const uint8_t *peer_urls[8]; size_t peer_lens[8]; int n_peer = 0;
             const uint8_t *m_name = NULL; size_t name_len = 0;
-            const uint8_t *client_url = NULL; size_t client_len = 0;
+            const uint8_t *client_urls[8]; size_t client_lens[8]; int n_client = 0;
             int is_learner = 0;
             while (pos < mend) {
                 uint8_t mtag = data[pos++];
@@ -866,7 +866,11 @@ static void parse_member_list_response(const uint8_t *data, size_t len, int tabl
                     read_varint(data, mend, &pos, &mid);
                 } else if (mtag == 0x12) {
                     uint64_t l = 0; read_varint(data, mend, &pos, &l);
-                    peer_url = data + pos; peer_len = (size_t)l;
+                    if (n_peer < 8) {
+                        peer_urls[n_peer] = data + pos;
+                        peer_lens[n_peer] = (size_t)l;
+                        n_peer++;
+                    }
                     pos += l;
                 } else if (mtag == 0x1a) {
                     /* field 3 = name (string) */
@@ -876,7 +880,11 @@ static void parse_member_list_response(const uint8_t *data, size_t len, int tabl
                 } else if (mtag == 0x22) {
                     /* field 4 = clientURLs (repeated string) */
                     uint64_t l = 0; read_varint(data, mend, &pos, &l);
-                    client_url = data + pos; client_len = (size_t)l;
+                    if (n_client < 8) {
+                        client_urls[n_client] = data + pos;
+                        client_lens[n_client] = (size_t)l;
+                        n_client++;
+                    }
                     pos += l;
                 } else if (mtag == 0x28) {
                     /* field 5 = isLearner (bool) */
@@ -888,16 +896,23 @@ static void parse_member_list_response(const uint8_t *data, size_t len, int tabl
             }
             pos = mend;
             if (json_format) {
+                int ui;
                 if (!first) printf(",");
                 first = 0;
                 printf("{\"ID\":%llu,\"name\":", (unsigned long long)mid);
                 if (m_name) print_json_string(m_name, name_len); else fputs("\"\"", stdout);
                 fputs(",\"peerURLs\":[", stdout);
-                if (peer_url) print_json_string(peer_url, peer_len); else fputs("\"\"", stdout);
+                for (ui = 0; ui < n_peer; ui++) {
+                    if (ui) fputc(',', stdout);
+                    print_json_string(peer_urls[ui], peer_lens[ui]);
+                }
                 fputs("]", stdout);
-                if (client_url) {
+                if (n_client) {
                     fputs(",\"clientURLs\":[", stdout);
-                    print_json_string(client_url, client_len);
+                    for (ui = 0; ui < n_client; ui++) {
+                        if (ui) fputc(',', stdout);
+                        print_json_string(client_urls[ui], client_lens[ui]);
+                    }
                     fputs("]", stdout);
                 }
                 if (is_learner) fputs(",\"isLearner\":true", stdout);
@@ -905,18 +920,24 @@ static void parse_member_list_response(const uint8_t *data, size_t len, int tabl
             } else if (table_format) {
                 printf("| %16llu | %6s | %19.*s |\n",
                        (unsigned long long)mid, "alive",
-                       (int)peer_len, peer_url ? peer_url : (const uint8_t *)"");
+                       n_peer ? (int)peer_lens[0] : 0,
+                       n_peer ? peer_urls[0] : (const uint8_t *)"");
             } else if (fields_format) {
+                int ui;
                 printf("ID: %llu\n", (unsigned long long)mid);
                 if (m_name) printf("name: %.*s\n", (int)name_len, m_name);
-                if (peer_url) printf("peerURLs: %.*s\n", (int)peer_len, peer_url);
-                if (client_url) printf("clientURLs: %.*s\n", (int)client_len, client_url);
+                for (ui = 0; ui < n_peer; ui++)
+                    printf("peerURLs: %.*s\n", (int)peer_lens[ui], peer_urls[ui]);
+                for (ui = 0; ui < n_client; ui++)
+                    printf("clientURLs: %.*s\n", (int)client_lens[ui],
+                           client_urls[ui]);
                 if (is_learner) printf("isLearner: true\n");
                 printf("\n");
             } else {
                 printf("member ID: %llu peerURL: %.*s\n",
                        (unsigned long long)mid,
-                       (int)peer_len, peer_url ? peer_url : (const uint8_t *)"");
+                       n_peer ? (int)peer_lens[0] : 0,
+                       n_peer ? peer_urls[0] : (const uint8_t *)"");
             }
         } else if (tag == 0x0a) {
             /* Skip header (length-delimited) */

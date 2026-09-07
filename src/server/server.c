@@ -2788,27 +2788,31 @@ int cetcd_server_start(cetcd_server *srv) {
         return CETCD_ERR_INVAL;
     if (srv->cfg.keepalive_timeout > 0 && !srv->cfg.keepalive_set)
         return CETCD_ERR_INVAL;
-    if (strncmp(srv->cfg.advertise_client_urls, "https://", 8) == 0 &&
+    if (cetcd_advertise_urls_has_https(srv->cfg.advertise_client_urls) &&
         !srv->cfg.cert_file[0])
         return CETCD_ERR_INVAL;
-    if (strncmp(srv->cfg.advertise_peer_urls, "https://", 8) == 0 &&
+    if (cetcd_advertise_urls_has_https(srv->cfg.advertise_peer_urls) &&
         !srv->cfg.peer_cert_file[0])
         return CETCD_ERR_INVAL;
     if (!srv->cfg.advertise_client_urls[0]) {
-        snprintf(srv->cfg.advertise_client_urls,
-                 sizeof(srv->cfg.advertise_client_urls),
-                 "%s://%s:%u",
-                 (srv->cfg.listen_https || srv->cfg.cert_file[0]) ? "https" : "http",
-                 srv->cfg.listen_addr[0] ? srv->cfg.listen_addr : "127.0.0.1",
-                 srv->cfg.listen_port ? srv->cfg.listen_port : 2379);
+        if (cetcd_format_listen_advertise(
+                srv->cfg.listen_addr[0] ? srv->cfg.listen_addr : "127.0.0.1",
+                srv->cfg.listen_port ? srv->cfg.listen_port : 2379,
+                (srv->cfg.listen_https || srv->cfg.cert_file[0]) ? 1 : 0,
+                srv->cfg.extra_client_urls, srv->cfg.n_extra_client_urls,
+                srv->cfg.advertise_client_urls,
+                sizeof(srv->cfg.advertise_client_urls)) != CETCD_OK)
+            return CETCD_ERR_INVAL;
     }
     if (!srv->cfg.advertise_peer_urls[0]) {
-        snprintf(srv->cfg.advertise_peer_urls,
-                 sizeof(srv->cfg.advertise_peer_urls),
-                 "%s://%s:%u",
-                 (srv->cfg.peer_listen_https || srv->cfg.peer_cert_file[0]) ? "https" : "http",
-                 srv->cfg.peer_addr[0] ? srv->cfg.peer_addr : "127.0.0.1",
-                 srv->cfg.peer_port ? srv->cfg.peer_port : 2380);
+        if (cetcd_format_listen_advertise(
+                srv->cfg.peer_addr[0] ? srv->cfg.peer_addr : "127.0.0.1",
+                srv->cfg.peer_port ? srv->cfg.peer_port : 2380,
+                (srv->cfg.peer_listen_https || srv->cfg.peer_cert_file[0]) ? 1 : 0,
+                srv->cfg.extra_peer_urls, srv->cfg.n_extra_peer_urls,
+                srv->cfg.advertise_peer_urls,
+                sizeof(srv->cfg.advertise_peer_urls)) != CETCD_OK)
+            return CETCD_ERR_INVAL;
     }
     {
         extern char g_rpc_advertise_client[512];

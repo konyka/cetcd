@@ -87,6 +87,32 @@ static int write_varint_c(uint8_t *buf, size_t cap, size_t *pos, uint64_t val) {
     return -1;
 }
 
+static int append_csv_strings_(uint8_t *buf, size_t cap, size_t *pos,
+                               uint8_t tag, const char *csv) {
+    const char *p = csv;
+    while (*p) {
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == ',' || *p == '\0') return -1;
+        const char *start = p;
+        while (*p && *p != ',') p++;
+        size_t len = (size_t)(p - start);
+        while (len && (start[len - 1] == ' ' || start[len - 1] == '\t'))
+            len--;
+        if (len == 0) return -1;
+        if (*pos + 1 >= cap) return -1;
+        buf[(*pos)++] = tag;
+        if (write_varint_c(buf, cap, pos, (uint64_t)len) != 0) return -1;
+        if (*pos + len > cap) return -1;
+        memcpy(buf + *pos, start, len);
+        *pos += len;
+        if (*p == ',') {
+            p++;
+            if (*p == '\0') return -1;
+        }
+    }
+    return 0;
+}
+
 static int read_bytes_c(const uint8_t *buf, size_t len, size_t *pos,
                          uint8_t **out, size_t *out_len) {
     uint64_t l = 0;
@@ -133,13 +159,8 @@ static size_t encode_member(uint8_t *buf, size_t cap, uint64_t id,
     buf[pos++] = 0x08; /* field 1 = ID */
     write_varint_c(buf, cap, &pos, id);
     if (peer_addr && *peer_addr) {
-        size_t alen = strlen(peer_addr);
-        buf[pos++] = 0x12; /* field 2 = peerURLs (string) */
-        write_varint_c(buf, cap, &pos, (uint64_t)alen);
-        if (pos + alen < cap) {
-            memcpy(buf + pos, peer_addr, alen);
-            pos += alen;
-        }
+        if (append_csv_strings_(buf, cap, &pos, 0x12, peer_addr) != 0)
+            return 0;
     }
     /* field 3 = name (string) */
     {
@@ -152,15 +173,10 @@ static size_t encode_member(uint8_t *buf, size_t cap, uint64_t id,
             pos += nlen;
         }
     }
-    /* field 4 = clientURLs (string); omit when unknown so we do not advertise 2379 */
+    /* field 4 = clientURLs (repeated string); omit when unknown */
     if (client_url && *client_url) {
-        size_t clen = strlen(client_url);
-        buf[pos++] = 0x22;
-        write_varint_c(buf, cap, &pos, (uint64_t)clen);
-        if (pos + clen < cap) {
-            memcpy(buf + pos, client_url, clen);
-            pos += clen;
-        }
+        if (append_csv_strings_(buf, cap, &pos, 0x22, client_url) != 0)
+            return 0;
     }
     if (is_learner) {
         buf[pos++] = 0x28; /* field 5 = isLearner */
