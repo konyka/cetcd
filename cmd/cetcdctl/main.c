@@ -3507,6 +3507,10 @@ static int cmd_check(int argc, char **argv) {
         int want_json = 0, want_fields = 0;
         int load_count = 1;  /* default: 1 key (simple check) */
         const char *prefix = "_perf_check";
+        if (cetcd_ctl_parse_check_argv(argc, argv, 3) != CETCD_OK) {
+            fprintf(stderr, "unknown leftover flag (check perf --foo cannot start a write load)\n");
+            return 1;
+        }
         for (int i = 3; i < argc; i++) {
         int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
             if ((wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields)) != 0) {
@@ -3607,6 +3611,10 @@ static int cmd_check(int argc, char **argv) {
         int want_json = 0, want_fields = 0;
         int load_count = 10000;
         const char *prefix = "_datascale_";
+        if (cetcd_ctl_parse_check_argv(argc, argv, 3) != CETCD_OK) {
+            fprintf(stderr, "unknown leftover flag (check datascale --foo cannot start a write load)\n");
+            return 1;
+        }
         for (int i = 3; i < argc; i++) {
         int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
             if ((wr = take_write_out_jf_(&i, argc, argv, &want_json, &want_fields)) != 0) {
@@ -6736,8 +6744,8 @@ static void print_usage(void) {
     printf("  endpoint health [--cluster] [-w json|fields|table]  Check server health (or all cluster members with --cluster)\n");
     printf("  endpoint status [--cluster] [-w json|table|fields]  Get server status (or all cluster members with --cluster)\n");
     printf("  endpoint hashkv [--cluster] [--rev N] [-w json|table|fields]  Get KV hash per endpoint (N leftover-safe; 0 = current)\n");
-    printf("  check perf [--load S|M|L] [--prefix PREFIX] [-w json|fields]    Run a simple performance check\n");
-    printf("  check datascale [-w json|fields] [--load N] [--prefix PREFIX]  Test database scalability (--load > 0)\n");
+    printf("  check perf [--load S|M|L] [--prefix PREFIX] [-w json|fields]    Run a simple performance check (leftover --flags fail-close)\n");
+    printf("  check datascale [-w json|fields] [--load N] [--prefix PREFIX]  Test database scalability (--load > 0; leftover --flags fail-close)\n");
     printf("  lock [--ttl N] [--print-value-only] [-w json|fields] LOCKNAME [CMD...]  Acquire a distributed lock (--ttl > 0; leftover --flags before LOCKNAME fail-close)\n");
     printf("  elect [--ttl N] [--print-value-only] [-w json|fields] ELECTION_NAME [PROPOSAL]  Leader election (--ttl > 0; leftover --flags fail-close)\n");
     printf("  completion bash|zsh|fish   Generate shell completion script\n");

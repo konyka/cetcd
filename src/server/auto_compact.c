@@ -1558,6 +1558,27 @@ int cetcd_ctl_parse_three_name_argv(int argc, char *const *argv, int start,
     return CETCD_OK;
 }
 
+int cetcd_ctl_parse_check_argv(int argc, char *const *argv, int start) {
+    int i;
+    if (!argv || start < 0 || start > argc) return CETCD_ERR_INVAL;
+    for (i = start; i < argc; i++) {
+        int wr;
+        const char *val = NULL;
+        if (!argv[i]) return CETCD_ERR_INVAL;
+        wr = skip_write_out_arg_(&i, argc, argv);
+        if (wr < 0) return CETCD_ERR_INVAL;
+        if (wr > 0) continue;
+        if (cetcd_cli_flag_is(argv[i], "--load") ||
+            cetcd_cli_flag_is(argv[i], "--prefix")) {
+            if (cetcd_take_cli_flag_value(&i, argc, argv, &val) != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            continue;
+        }
+        return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_parse_pprof_seconds(const char *qs, size_t qs_len, int *out) {
     if (!out) return CETCD_ERR_INVAL;
     *out = 30;

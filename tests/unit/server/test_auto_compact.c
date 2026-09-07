@@ -1565,6 +1565,41 @@ CETCD_TEST_CASE(auto_compact_parse_one_name_argv) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_check_argv) {
+    char *ok[] = { "cetcdctl", "check", "perf", "--load", "s" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_check_argv(5, ok, 3), CETCD_OK);
+
+    char *wo[] = { "cetcdctl", "check", "perf", "-w", "json" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_check_argv(5, wo, 3), CETCD_OK);
+
+    char *pref[] = { "cetcdctl", "check", "datascale", "--prefix", "p",
+                     "--load", "10" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_check_argv(7, pref, 3), CETCD_OK);
+
+    char *eq[] = { "cetcdctl", "check", "datascale", "--load=10" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_check_argv(4, eq, 3), CETCD_OK);
+
+    char *bare[] = { "cetcdctl", "check", "perf" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_check_argv(3, bare, 3), CETCD_OK);
+
+    char *foo[] = { "cetcdctl", "check", "perf", "--foo" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_check_argv(4, foo, 3), CETCD_ERR_INVAL);
+
+    char *ds[] = { "cetcdctl", "check", "datascale", "--foo", "--load", "10" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_check_argv(6, ds, 3), CETCD_ERR_INVAL);
+
+    char *empty[] = { "cetcdctl", "check", "perf", "--load=" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_check_argv(4, empty, 3),
+                        CETCD_ERR_INVAL);
+
+    char *extra[] = { "cetcdctl", "check", "perf", "extra" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_check_argv(4, extra, 3),
+                        CETCD_ERR_INVAL);
+
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_check_argv(3, bare, 3), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_check_argv(3, NULL, 3), CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_pprof_seconds) {
     int secs = 0;
     CETCD_ASSERT_EQ_INT(cetcd_parse_pprof_seconds(NULL, 0, &secs), CETCD_OK);
@@ -1648,6 +1683,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_compact_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_one_name_argv),
+    CETCD_TEST_ENTRY(auto_compact_parse_check_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_pprof_seconds),
 CETCD_TEST_LIST_END
 
