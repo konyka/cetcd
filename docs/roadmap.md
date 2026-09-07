@@ -262,6 +262,11 @@ Performance-first, fail-closed design:
   fail-closes. Peers omit `clientURLs` rather than advertising a hardcoded 2379.
 - **`--name`** — MemberList self `name`. Omitted or empty stays `default`.
   The flag used to be logged only while every member was named `default`.
+  `=` form is accepted (`--name=n1`).
+- **etcd `--flag=value`** — remaining space-only value flags (`--data-dir`,
+  `--wal-dir`, `--snapshot-count`, `--initial-cluster`, `--cert-file`,
+  `--auto-compaction-*`, `--max-txn-ops`, …) accept `=`. `--name=` empty
+  fail-closes. `--initial-cluster=n1=http://host:2380` keeps the member `=`.
 - **`--logger`** — `zap` or `capnslog` are accepted (built-in logger). `=`
   form is accepted. Any other type used to be ignored while still starting;
   that now fails at parse.

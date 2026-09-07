@@ -900,7 +900,7 @@ oversized recv is not truncated).
 lists on MemberList (repeated protobuf strings). Empty defaults from every
 listen URL. Mixed http/https is allowed. A duplicate, leftover text, or any
 `https://` without the matching cert file fail-closes.
-`--name` fills MemberList self name (empty → `default`).
+`--name` fills MemberList self name (empty → `default`). `=` form is accepted on remaining space-only value flags (`--name=n1`, `--data-dir=`, `--snapshot-count=`, `--initial-cluster=n1=http://host:2380`).
 `--initial-cluster-token` is persisted in `data-dir`; a mismatch fail-closes.
 `cetcdctl snapshot restore --initial-cluster-token` writes the same file (mismatch without `--force` fail-closes).
 `cetcdctl snapshot restore --initial-cluster-state` is `new` or `existing` (writes `snapshot.kv` and persists the state). `--initial-cluster` / `--name` / `--initial-advertise-peer-urls` are validated and written to the data dir; a bad spec or mismatch without `--force` fail-closes. Server start loads those files when the CLI omits the flag. A blank `--initial-cluster-state existing` start needs `snapshot.kv`, a persisted `initial-cluster`, or `--initial-cluster` peers.

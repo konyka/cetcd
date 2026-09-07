@@ -120,15 +120,7 @@ static void print_usage(const char *prog) {
 }
 
 static int take_flag_value_(int *i, int argc, char **argv, const char **out) {
-    const char *eq = strchr(argv[*i], '=');
-    if (eq) {
-        if (!eq[1]) return -1;
-        *out = eq + 1;
-        return 0;
-    }
-    if (*i + 1 >= argc) return -1;
-    *out = argv[++(*i)];
-    return 0;
+    return cetcd_take_cli_flag_value(i, argc, argv, out) == CETCD_OK ? 0 : -1;
 }
 
 static int take_bool_flag_(int *i, int argc, char **argv, int *out) {
@@ -352,43 +344,79 @@ int main(int argc, char **argv) {
     }
 
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--name") == 0 && i + 1 < argc) {
-            name = argv[++i];
-        } else if (strcmp(argv[i], "--data-dir") == 0 && i + 1 < argc) {
-            data_dir = argv[++i];
-        } else if (strcmp(argv[i], "--wal-dir") == 0 && i + 1 < argc) {
-            const char *wd = argv[++i];
-            if (!wd[0] || strlen(wd) >= sizeof(cfg.wal_dir)) {
+        if (cetcd_cli_flag_is(argv[i], "--name")) {
+            const char *s = NULL;
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--name requires a value\n");
+                return 1;
+            }
+            name = s;
+        } else if (cetcd_cli_flag_is(argv[i], "--data-dir")) {
+            const char *s = NULL;
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--data-dir requires a path\n");
+                return 1;
+            }
+            data_dir = s;
+        } else if (cetcd_cli_flag_is(argv[i], "--wal-dir")) {
+            const char *wd = NULL;
+            if (take_flag_value_(&i, argc, argv, &wd) != 0 ||
+                !wd[0] || strlen(wd) >= sizeof(cfg.wal_dir)) {
                 fprintf(stderr, "--wal-dir must be a non-empty path\n");
                 return 1;
             }
             strncpy(cfg.wal_dir, wd, sizeof(cfg.wal_dir) - 1);
-        } else if (strcmp(argv[i], "--listen") == 0 && i + 1 < argc) {
-            strncpy(cfg.listen_addr, argv[++i], sizeof(cfg.listen_addr) - 1);
-        } else if (strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
+        } else if (cetcd_cli_flag_is(argv[i], "--listen")) {
+            const char *s = NULL;
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--listen requires an address\n");
+                return 1;
+            }
+            strncpy(cfg.listen_addr, s, sizeof(cfg.listen_addr) - 1);
+        } else if (cetcd_cli_flag_is(argv[i], "--port")) {
+            const char *s = NULL;
             char *end = NULL;
             errno = 0;
-            long v = strtol(argv[++i], &end, 10);
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--port must be 1..65535\n");
+                return 1;
+            }
+            long v = strtol(s, &end, 10);
             if (errno == ERANGE || !end || *end || v < 1 || v > 65535) {
                 fprintf(stderr, "--port must be 1..65535\n");
                 return 1;
             }
             cfg.listen_port = (uint16_t)v;
-        } else if (strcmp(argv[i], "--peer") == 0 && i + 1 < argc) {
-            strncpy(cfg.peer_addr, argv[++i], sizeof(cfg.peer_addr) - 1);
-        } else if (strcmp(argv[i], "--peer-port") == 0 && i + 1 < argc) {
+        } else if (cetcd_cli_flag_is(argv[i], "--peer")) {
+            const char *s = NULL;
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--peer requires an address\n");
+                return 1;
+            }
+            strncpy(cfg.peer_addr, s, sizeof(cfg.peer_addr) - 1);
+        } else if (cetcd_cli_flag_is(argv[i], "--peer-port")) {
+            const char *s = NULL;
             char *end = NULL;
             errno = 0;
-            long v = strtol(argv[++i], &end, 10);
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--peer-port must be 1..65535\n");
+                return 1;
+            }
+            long v = strtol(s, &end, 10);
             if (errno == ERANGE || !end || *end || v < 1 || v > 65535) {
                 fprintf(stderr, "--peer-port must be 1..65535\n");
                 return 1;
             }
             cfg.peer_port = (uint16_t)v;
-        } else if (strcmp(argv[i], "--metrics-port") == 0 && i + 1 < argc) {
+        } else if (cetcd_cli_flag_is(argv[i], "--metrics-port")) {
+            const char *s = NULL;
             char *end = NULL;
             errno = 0;
-            long v = strtol(argv[++i], &end, 10);
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--metrics-port must be 0..65535\n");
+                return 1;
+            }
+            long v = strtol(s, &end, 10);
             if (errno == ERANGE || !end || *end || v < 0 || v > 65535) {
                 fprintf(stderr, "--metrics-port must be 0..65535\n");
                 return 1;
@@ -501,17 +529,26 @@ int main(int argc, char **argv) {
                 cfg.metrics_listen_https = https != 0;
             }
             cfg.metrics_urls_set = true;
-        } else if (strcmp(argv[i], "--node-id") == 0 && i + 1 < argc) {
+        } else if (cetcd_cli_flag_is(argv[i], "--node-id")) {
+            const char *s = NULL;
             char *end = NULL;
             errno = 0;
-            unsigned long long v = strtoull(argv[++i], &end, 10);
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--node-id must be > 0\n");
+                return 1;
+            }
+            unsigned long long v = strtoull(s, &end, 10);
             if (errno == ERANGE || !end || *end || v == 0) {
                 fprintf(stderr, "--node-id must be > 0\n");
                 return 1;
             }
             cfg.node_id = (uint64_t)v;
-        } else if (strcmp(argv[i], "--initial-cluster") == 0 && i + 1 < argc) {
-            const char *cluster_str = argv[++i];
+        } else if (cetcd_cli_flag_is(argv[i], "--initial-cluster")) {
+            const char *cluster_str = NULL;
+            if (take_flag_value_(&i, argc, argv, &cluster_str) != 0) {
+                fprintf(stderr, "--initial-cluster requires a member list\n");
+                return 1;
+            }
             int https = 0;
             uint32_t n = 0;
             int prc = cetcd_parse_initial_cluster(cluster_str, cfg.initial_peers,
@@ -586,10 +623,15 @@ int main(int argc, char **argv) {
                 return 1;
             }
             if (apply_peer_listen_urls_(argv[i] + 19, &cfg) != 0) return 1;
-        } else if (strcmp(argv[i], "--election-tick") == 0 && i + 1 < argc) {
+        } else if (cetcd_cli_flag_is(argv[i], "--election-tick")) {
+            const char *s = NULL;
             char *end = NULL;
             errno = 0;
-            long v = strtol(argv[++i], &end, 10);
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--election-tick must be > 0\n");
+                return 1;
+            }
+            long v = strtol(s, &end, 10);
             if (errno == ERANGE || !end || *end || v < 1 || v > 0x7fffffffL) {
                 fprintf(stderr, "--election-tick must be > 0\n");
                 return 1;
@@ -706,10 +748,15 @@ int main(int argc, char **argv) {
             }
             cfg.pre_vote_set = true;
             cfg.pre_vote = b != 0;
-        } else if (strcmp(argv[i], "--heartbeat-tick") == 0 && i + 1 < argc) {
+        } else if (cetcd_cli_flag_is(argv[i], "--heartbeat-tick")) {
+            const char *s = NULL;
             char *end = NULL;
             errno = 0;
-            long v = strtol(argv[++i], &end, 10);
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--heartbeat-tick must be > 0\n");
+                return 1;
+            }
+            long v = strtol(s, &end, 10);
             if (errno == ERANGE || !end || *end || v < 1 || v > 0x7fffffffL) {
                 fprintf(stderr, "--heartbeat-tick must be > 0\n");
                 return 1;
@@ -740,16 +787,31 @@ int main(int argc, char **argv) {
                 return 1;
             }
             if (apply_advertise_peer_urls_(argv[i] + 30, &cfg) != 0) return 1;
-        } else if (strcmp(argv[i], "--initial-cluster-state") == 0 && i + 1 < argc) {
-            strncpy(cfg.initial_cluster_state, argv[++i],
+        } else if (cetcd_cli_flag_is(argv[i], "--initial-cluster-state")) {
+            const char *s = NULL;
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--initial-cluster-state requires a value\n");
+                return 1;
+            }
+            strncpy(cfg.initial_cluster_state, s,
                     sizeof(cfg.initial_cluster_state) - 1);
-        } else if (strcmp(argv[i], "--initial-cluster-token") == 0 && i + 1 < argc) {
-            strncpy(cfg.initial_cluster_token, argv[++i],
+        } else if (cetcd_cli_flag_is(argv[i], "--initial-cluster-token")) {
+            const char *s = NULL;
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--initial-cluster-token requires a value\n");
+                return 1;
+            }
+            strncpy(cfg.initial_cluster_token, s,
                     sizeof(cfg.initial_cluster_token) - 1);
-        } else if (strcmp(argv[i], "--snapshot-count") == 0 && i + 1 < argc) {
+        } else if (cetcd_cli_flag_is(argv[i], "--snapshot-count")) {
+            const char *s = NULL;
             char *end = NULL;
             errno = 0;
-            unsigned long long v = strtoull(argv[++i], &end, 10);
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--snapshot-count must be > 0\n");
+                return 1;
+            }
+            unsigned long long v = strtoull(s, &end, 10);
             if (errno == ERANGE || !end || *end || v == 0) {
                 fprintf(stderr, "--snapshot-count must be > 0\n");
                 return 1;
@@ -791,20 +853,28 @@ int main(int argc, char **argv) {
             }
             cfg.strict_reconfig_set = true;
             cfg.strict_reconfig = b != 0;
-        } else if (strcmp(argv[i], "--max-txn-ops") == 0 && i + 1 < argc) {
-            const char *s = argv[++i];
+        } else if (cetcd_cli_flag_is(argv[i], "--max-txn-ops")) {
+            const char *s = NULL;
             char *end = NULL;
             errno = 0;
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--max-txn-ops must be 1..128\n");
+                return 1;
+            }
             unsigned long long v = strtoull(s, &end, 10);
             if (errno == ERANGE || !end || end == s || *end || v < 1 || v > 128) {
                 fprintf(stderr, "--max-txn-ops must be 1..128\n");
                 return 1;
             }
             cfg.max_txn_ops = (uint64_t)v;
-        } else if (strcmp(argv[i], "--max-request-bytes") == 0 && i + 1 < argc) {
-            const char *s = argv[++i];
+        } else if (cetcd_cli_flag_is(argv[i], "--max-request-bytes")) {
+            const char *s = NULL;
             char *end = NULL;
             errno = 0;
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--max-request-bytes must be > 0\n");
+                return 1;
+            }
             unsigned long long v = strtoull(s, &end, 10);
             if (errno == ERANGE || !end || end == s || *end || v == 0) {
                 fprintf(stderr, "--max-request-bytes must be > 0\n");
@@ -831,8 +901,13 @@ int main(int argc, char **argv) {
             }
             cfg.max_concurrent_streams_set = true;
             cfg.max_concurrent_streams = n;
-        } else if (strcmp(argv[i], "--auth-token") == 0 && i + 1 < argc) {
-            strncpy(cfg.auth_token, argv[++i], sizeof(cfg.auth_token) - 1);
+        } else if (cetcd_cli_flag_is(argv[i], "--auth-token")) {
+            const char *s = NULL;
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--auth-token requires a value\n");
+                return 1;
+            }
+            strncpy(cfg.auth_token, s, sizeof(cfg.auth_token) - 1);
         } else if (strcmp(argv[i], "--auth-token-ttl") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "--auth-token-ttl requires an integer\n");
@@ -851,10 +926,14 @@ int main(int argc, char **argv) {
                 return 1;
             }
             cfg.auth_token_ttl_sec = sec;
-        } else if (strcmp(argv[i], "--bcrypt-cost") == 0 && i + 1 < argc) {
-            const char *s = argv[++i];
+        } else if (cetcd_cli_flag_is(argv[i], "--bcrypt-cost")) {
+            const char *s = NULL;
             char *end = NULL;
             errno = 0;
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--bcrypt-cost must be 0 or 4..31\n");
+                return 1;
+            }
             long v = strtol(s, &end, 10);
             if (errno == ERANGE || !end || end == s || *end ||
                 (v != 0 && (v < 4 || v > 31))) {
@@ -862,10 +941,20 @@ int main(int argc, char **argv) {
                 return 1;
             }
             cfg.bcrypt_cost = (int)v;
-        } else if (strcmp(argv[i], "--cert-file") == 0 && i + 1 < argc) {
-            strncpy(cfg.cert_file, argv[++i], sizeof(cfg.cert_file) - 1);
-        } else if (strcmp(argv[i], "--key-file") == 0 && i + 1 < argc) {
-            strncpy(cfg.key_file, argv[++i], sizeof(cfg.key_file) - 1);
+        } else if (cetcd_cli_flag_is(argv[i], "--cert-file")) {
+            const char *s = NULL;
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--cert-file requires a file\n");
+                return 1;
+            }
+            strncpy(cfg.cert_file, s, sizeof(cfg.cert_file) - 1);
+        } else if (cetcd_cli_flag_is(argv[i], "--key-file")) {
+            const char *s = NULL;
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--key-file requires a file\n");
+                return 1;
+            }
+            strncpy(cfg.key_file, s, sizeof(cfg.key_file) - 1);
         } else if (strcmp(argv[i], "--trusted-ca-file") == 0 ||
                    strncmp(argv[i], "--trusted-ca-file=", 18) == 0) {
             const char *v = NULL;
@@ -914,10 +1003,20 @@ int main(int argc, char **argv) {
                 return 1;
             }
             cfg.self_signed_cert_validity = years;
-        } else if (strcmp(argv[i], "--peer-cert-file") == 0 && i + 1 < argc) {
-            strncpy(cfg.peer_cert_file, argv[++i], sizeof(cfg.peer_cert_file) - 1);
-        } else if (strcmp(argv[i], "--peer-key-file") == 0 && i + 1 < argc) {
-            strncpy(cfg.peer_key_file, argv[++i], sizeof(cfg.peer_key_file) - 1);
+        } else if (cetcd_cli_flag_is(argv[i], "--peer-cert-file")) {
+            const char *s = NULL;
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--peer-cert-file requires a file\n");
+                return 1;
+            }
+            strncpy(cfg.peer_cert_file, s, sizeof(cfg.peer_cert_file) - 1);
+        } else if (cetcd_cli_flag_is(argv[i], "--peer-key-file")) {
+            const char *s = NULL;
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--peer-key-file requires a file\n");
+                return 1;
+            }
+            strncpy(cfg.peer_key_file, s, sizeof(cfg.peer_key_file) - 1);
         } else if (strcmp(argv[i], "--peer-client-cert-file") == 0) {
             if (i + 1 >= argc || argv[i + 1][0] == '-' || !argv[i + 1][0]) {
                 fprintf(stderr, "--peer-client-cert-file requires a file\n");
@@ -1006,8 +1105,13 @@ int main(int argc, char **argv) {
                     sizeof(cfg.client_cert_allowed_hostname) - 1);
         } else if (strcmp(argv[i], "--peer-auto-tls") == 0) {
             cfg.peer_auto_tls = true;
-        } else if (strcmp(argv[i], "--cipher-suites") == 0 && i + 1 < argc) {
-            strncpy(cfg.cipher_suites, argv[++i], sizeof(cfg.cipher_suites) - 1);
+        } else if (cetcd_cli_flag_is(argv[i], "--cipher-suites")) {
+            const char *s = NULL;
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--cipher-suites requires a list\n");
+                return 1;
+            }
+            strncpy(cfg.cipher_suites, s, sizeof(cfg.cipher_suites) - 1);
         } else if (strcmp(argv[i], "--tls-min-version") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "--tls-min-version requires TLS1.2 or TLS1.3\n");
@@ -1107,16 +1211,18 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "--log-rotation-config-json is invalid or compress is unsupported\n");
                 return 1;
             }
-        } else if (strcmp(argv[i], "--discovery-srv") == 0 && i + 1 < argc) {
-            const char *dom = argv[++i];
-            if (cetcd_discovery_valid_domain(dom) != 0) {
+        } else if (cetcd_cli_flag_is(argv[i], "--discovery-srv")) {
+            const char *dom = NULL;
+            if (take_flag_value_(&i, argc, argv, &dom) != 0 ||
+                cetcd_discovery_valid_domain(dom) != 0) {
                 fprintf(stderr, "--discovery-srv domain is invalid\n");
                 return 1;
             }
             strncpy(cfg.discovery_srv, dom, sizeof(cfg.discovery_srv) - 1);
-        } else if (strcmp(argv[i], "--discovery-srv-name") == 0 && i + 1 < argc) {
-            const char *nm = argv[++i];
-            if (cetcd_discovery_valid_name(nm) != 0 || !nm[0]) {
+        } else if (cetcd_cli_flag_is(argv[i], "--discovery-srv-name")) {
+            const char *nm = NULL;
+            if (take_flag_value_(&i, argc, argv, &nm) != 0 ||
+                cetcd_discovery_valid_name(nm) != 0 || !nm[0]) {
                 fprintf(stderr, "--discovery-srv-name is invalid\n");
                 return 1;
             }
@@ -1170,10 +1276,16 @@ int main(int argc, char **argv) {
         } else if (cetcd_grpc_keepalive_kind(argv[i]) == CETCD_KA_UNKNOWN) {
             fprintf(stderr, "unknown flag: %s\n", argv[i]);
             return 1;
-        } else if (strcmp(argv[i], "--auto-compaction-mode") == 0 && i + 1 < argc) {
-            ac_mode_s = argv[++i];
-        } else if (strcmp(argv[i], "--auto-compaction-retention") == 0 && i + 1 < argc) {
-            ac_ret_s = argv[++i];
+        } else if (cetcd_cli_flag_is(argv[i], "--auto-compaction-mode")) {
+            if (take_flag_value_(&i, argc, argv, &ac_mode_s) != 0) {
+                fprintf(stderr, "--auto-compaction-mode requires periodic or revision\n");
+                return 1;
+            }
+        } else if (cetcd_cli_flag_is(argv[i], "--auto-compaction-retention")) {
+            if (take_flag_value_(&i, argc, argv, &ac_ret_s) != 0) {
+                fprintf(stderr, "--auto-compaction-retention requires a value\n");
+                return 1;
+            }
         } else if (strcmp(argv[i], "--experimental-initial-corrupt-check") == 0) {
             cfg.initial_corrupt_check = true;
             if (i + 1 < argc && argv[i + 1][0] != '-') {

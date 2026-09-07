@@ -2462,6 +2462,39 @@ CETCD_TEST_CASE(live_cetcd_max_txn_ops) {
              "'%s' --max-txn-ops 0 >/dev/null 2>&1",
              CETCD_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --max-txn-ops=128 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+}
+
+CETCD_TEST_CASE(live_cetcd_equals_form) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --name=n1 --data-dir=./data --snapshot-count=10000 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --initial-cluster=n1=http://127.0.0.1:2380 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --auto-compaction-mode=periodic --auto-compaction-retention=1h --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --cert-file=/tmp/c.pem --key-file=/tmp/k.pem --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --name= >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
 CETCD_TEST_CASE(live_cetcd_max_request_bytes) {
@@ -3775,6 +3808,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_wait_cluster_ready),
     CETCD_TEST_ENTRY(live_cetcd_quota_backend_bytes),
     CETCD_TEST_ENTRY(live_cetcd_max_txn_ops),
+    CETCD_TEST_ENTRY(live_cetcd_equals_form),
     CETCD_TEST_ENTRY(live_cetcd_max_request_bytes),
     CETCD_TEST_ENTRY(live_cetcd_max_concurrent_streams),
     CETCD_TEST_ENTRY(live_cetcd_tls_version),

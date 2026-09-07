@@ -1241,3 +1241,27 @@ int cetcd_parse_grpc_keepalive_sec(const char *s, int min_v, int *out) {
 uint64_t cetcd_quota_backend_bytes_effective(uint64_t n) {
     return n ? n : CETCD_DEFAULT_QUOTA_BACKEND_BYTES;
 }
+
+int cetcd_cli_flag_is(const char *arg, const char *name) {
+    size_t n;
+    if (!arg || !name || name[0] != '-' || name[1] != '-') return 0;
+    n = strlen(name);
+    if (strncmp(arg, name, n) != 0) return 0;
+    return arg[n] == '\0' || arg[n] == '=';
+}
+
+int cetcd_take_cli_flag_value(int *i, int argc, char *const *argv,
+                              const char **out) {
+    const char *eq;
+    if (!i || *i < 0 || *i >= argc || !argv || !argv[*i] || !out)
+        return CETCD_ERR_INVAL;
+    eq = strchr(argv[*i], '=');
+    if (eq) {
+        if (!eq[1]) return CETCD_ERR_INVAL;
+        *out = eq + 1;
+        return CETCD_OK;
+    }
+    if (*i + 1 >= argc) return CETCD_ERR_INVAL;
+    *out = argv[++(*i)];
+    return CETCD_OK;
+}

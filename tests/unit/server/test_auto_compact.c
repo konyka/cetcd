@@ -1076,6 +1076,46 @@ CETCD_TEST_CASE(auto_compact_quota_backend_bytes) {
                       2147483648ULL);
 }
 
+CETCD_TEST_CASE(auto_compact_cli_equals_form) {
+    const char *s = NULL;
+    int i;
+    char *eq[] = { "p", "--name=n1" };
+    char *sp[] = { "p", "--name", "n1" };
+    char *cluster[] = { "p", "--initial-cluster=n1=http://127.0.0.1:2380" };
+    char *bare[] = { "p", "--name" };
+    char *empty[] = { "p", "--name=" };
+
+    CETCD_ASSERT_EQ_INT(cetcd_cli_flag_is("--name", "--name"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_cli_flag_is("--name=n1", "--name"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_cli_flag_is("--names", "--name"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_cli_flag_is("--name-extra", "--name"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_cli_flag_is("--data-dir=/var/lib/etcd",
+                                         "--data-dir"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_cli_flag_is(NULL, "--name"), 0);
+
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_flag_value(&i, 2, eq, &s), CETCD_OK);
+    CETCD_ASSERT_EQ_STR(s, "n1");
+    CETCD_ASSERT_EQ_INT(i, 1);
+
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_flag_value(&i, 3, sp, &s), CETCD_OK);
+    CETCD_ASSERT_EQ_STR(s, "n1");
+    CETCD_ASSERT_EQ_INT(i, 2);
+
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_flag_value(&i, 2, cluster, &s),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(s, "n1=http://127.0.0.1:2380");
+
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_flag_value(&i, 2, bare, &s),
+                        CETCD_ERR_INVAL);
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_flag_value(&i, 2, empty, &s),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_mode),
     CETCD_TEST_ENTRY(auto_compact_parse_retention_periodic),
@@ -1122,6 +1162,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_experimental_unsupported),
     CETCD_TEST_ENTRY(auto_compact_grpc_keepalive),
     CETCD_TEST_ENTRY(auto_compact_quota_backend_bytes),
+    CETCD_TEST_ENTRY(auto_compact_cli_equals_form),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

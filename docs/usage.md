@@ -131,7 +131,8 @@ of `applied_index`. Put the WAL on a dedicated disk when fsync latency matters:
 
 ```sh
 # Node 1
-./build/bin/cetcd --name node1 --node-id 1 --data-dir ./data1 \
+# etcd --flag=value is accepted (--name=n1 --data-dir=./data --snapshot-count=10000)
+./build/bin/cetcd --name=node1 --node-id=1 --data-dir=./data1 \
   --listen 127.0.0.1 --port 2379 --peer-port 2380 \
   --initial-cluster 1=127.0.0.1:2380,2=127.0.0.1:2382,3=127.0.0.1:2384
 
