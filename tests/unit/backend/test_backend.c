@@ -93,9 +93,17 @@ CETCD_TEST_CASE(backend_defrag_keeps_keys) {
     rmdir(path);
 }
 
+CETCD_TEST_CASE(backend_defrag_dir_fail_closed) {
+    CETCD_ASSERT_EQ_INT(cetcd_backend_defrag_dir(NULL), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_backend_defrag_dir(""), CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_backend_defrag_dir("/tmp/cetcd-no-such-data-dir"),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(backend_put_get_del_txn),
     CETCD_TEST_ENTRY(backend_defrag_keeps_keys),
+    CETCD_TEST_ENTRY(backend_defrag_dir_fail_closed),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

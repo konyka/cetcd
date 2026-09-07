@@ -1499,6 +1499,37 @@ int cetcd_ctl_parse_maint_argv(int argc, char *const *argv, int start,
     return CETCD_OK;
 }
 
+int cetcd_ctl_parse_defrag_argv(int argc, char *const *argv, int start,
+                                int *cluster, const char **data_dir) {
+    int i;
+    if (!argv || !cluster || !data_dir || start < 0 || start > argc)
+        return CETCD_ERR_INVAL;
+    *cluster = 0;
+    *data_dir = NULL;
+    for (i = start; i < argc; i++) {
+        int wr;
+        int on = 1;
+        if (!argv[i]) return CETCD_ERR_INVAL;
+        wr = skip_write_out_arg_(&i, argc, argv);
+        if (wr < 0) return CETCD_ERR_INVAL;
+        if (wr > 0) continue;
+        if (cetcd_cli_flag_is(argv[i], "--cluster")) {
+            if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            *cluster = on;
+            continue;
+        }
+        if (cetcd_cli_flag_is(argv[i], "--data-dir")) {
+            if (cetcd_take_cli_flag_value(&i, argc, argv, data_dir) != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            continue;
+        }
+        return CETCD_ERR_INVAL;
+    }
+    if (*cluster && *data_dir) return CETCD_ERR_INVAL;
+    return CETCD_OK;
+}
+
 static int parse_n_names_argv_(int argc, char *const *argv, int start,
                                const char **names, int n) {
     int i, got = 0, saw_ddash = 0;

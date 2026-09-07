@@ -393,3 +393,28 @@ int cetcd_backend_defrag(cetcd_backend *be) {
     clean_defrag_dir_(dest);
     return reopen_env_(be);
 }
+
+int cetcd_backend_defrag_dir(const char *data_dir) {
+    char mdb[768];
+    cetcd_backend_config cfg;
+    cetcd_backend *be;
+    int n;
+    int rc;
+    if (!data_dir || !data_dir[0]) return CETCD_ERR_INVAL;
+    n = snprintf(mdb, sizeof(mdb), "%s/data.mdb", data_dir);
+    if (n <= 0 || (size_t)n >= sizeof(mdb)) return CETCD_ERR_INVAL;
+#ifdef _WIN32
+    if (_access(mdb, 0) != 0) return CETCD_ERR_INVAL;
+#else
+    if (access(mdb, F_OK) != 0) return CETCD_ERR_INVAL;
+#endif
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.path = data_dir;
+    cfg.map_size = 64 * 1024 * 1024;
+    cfg.max_dbs = 16;
+    be = cetcd_backend_open(&cfg);
+    if (!be) return CETCD_ERR_IO;
+    rc = cetcd_backend_defrag(be);
+    cetcd_backend_close(be);
+    return rc;
+}

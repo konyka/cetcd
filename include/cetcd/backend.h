@@ -87,6 +87,10 @@ int cetcd_backend_foreach(cetcd_backend *be, const char *bucket,
 
 /* Compact-copy data.mdb and reopen in place. Fail-closed on copy/swap error. */
 int cetcd_backend_defrag(cetcd_backend *be);
+/* Offline compact-copy of `{data_dir}/data.mdb`. Missing / empty path,
+ * missing data.mdb (does not create an empty env), or copy/swap error
+ * is fail-closed. */
+int cetcd_backend_defrag_dir(const char *data_dir);
 
 #ifdef __cplusplus
 }

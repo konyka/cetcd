@@ -1526,6 +1526,72 @@ CETCD_TEST_CASE(auto_compact_parse_maint_argv) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_defrag_argv) {
+    int cluster = 99;
+    const char *dir = "SENTINEL";
+
+    char *bare[] = { "cetcdctl", "defrag" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_defrag_argv(2, bare, 2, &cluster, &dir),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cluster, 0);
+    CETCD_ASSERT_TRUE(dir == NULL);
+
+    char *cl[] = { "cetcdctl", "defrag", "--cluster" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_defrag_argv(3, cl, 2, &cluster, &dir),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cluster, 1);
+    CETCD_ASSERT_TRUE(dir == NULL);
+
+    char *dd[] = { "cetcdctl", "defrag", "--data-dir", "./data" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_defrag_argv(4, dd, 2, &cluster, &dir),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cluster, 0);
+    CETCD_ASSERT_EQ_STR(dir, "./data");
+
+    char *eq[] = { "cetcdctl", "defrag", "--data-dir=./data" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_defrag_argv(3, eq, 2, &cluster, &dir),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(dir, "./data");
+
+    char *wo[] = { "cetcdctl", "defrag", "-w", "json", "--data-dir", "./data" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_defrag_argv(6, wo, 2, &cluster, &dir),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(dir, "./data");
+
+    char *off[] = { "cetcdctl", "defrag", "--cluster=false", "--data-dir",
+                    "./data" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_defrag_argv(5, off, 2, &cluster, &dir),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cluster, 0);
+    CETCD_ASSERT_EQ_STR(dir, "./data");
+
+    char *eat[] = { "cetcdctl", "defrag", "--data-dir", "--cluster" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_defrag_argv(4, eat, 2, &cluster, &dir),
+                        CETCD_ERR_INVAL);
+
+    char *mix[] = { "cetcdctl", "defrag", "--cluster", "--data-dir", "./data" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_defrag_argv(5, mix, 2, &cluster, &dir),
+                        CETCD_ERR_INVAL);
+
+    char *empty[] = { "cetcdctl", "defrag", "--data-dir=" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_defrag_argv(3, empty, 2, &cluster, &dir),
+                        CETCD_ERR_INVAL);
+
+    char *foo[] = { "cetcdctl", "defrag", "--foo" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_defrag_argv(3, foo, 2, &cluster, &dir),
+                        CETCD_ERR_INVAL);
+
+    char *eqdash[] = { "cetcdctl", "defrag", "--data-dir=--foo" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_defrag_argv(3, eqdash, 2, &cluster, &dir),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(dir, "--foo");
+
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_defrag_argv(2, bare, 2, NULL, &dir),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_defrag_argv(2, bare, 2, &cluster, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_one_name_argv) {
     const char *name = NULL;
     const char *a = NULL, *b = NULL;
@@ -1771,6 +1837,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_encode_hashkv_request),
     CETCD_TEST_ENTRY(auto_compact_parse_compact_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),
+    CETCD_TEST_ENTRY(auto_compact_parse_defrag_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_one_name_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_check_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_completion_argv),

@@ -8,6 +8,7 @@ target_link_libraries(cetcdctl
     PRIVATE
         cetcd::base
         cetcd::tls
+        cetcd::backend
 )
 target_include_directories(cetcdctl PRIVATE ${CMAKE_SOURCE_DIR}/include)
 install(TARGETS cetcdctl RUNTIME DESTINATION bin)

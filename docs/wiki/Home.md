@@ -891,7 +891,7 @@ MemberAdd/Update peer URL ports are leftover-safe (`1..65535`; missing → 2380)
 `cetcdctl move-leader TARGET_ID` must be hex `> 0`; leftover text fail-closes instead of transferring to a truncated id.
 `cetcdctl compact REV` must be `> 0`; leftover text fail-closes instead of compacting to a truncated revision. Unknown leftover flags (`compact 10 --rev 5`) fail-close.
 `cetcdctl hash` / `status` unknown leftover flags fail-close (`hash --rev` cannot hash the live tree; `status --cluster` cannot report one node).
-`cetcdctl defrag --cluster` defragments every MemberList client URL; a swallowed `--cluster` would defrag only the connected member. Other leftover flags fail-close.
+`cetcdctl defrag --cluster` defragments every MemberList client URL; a swallowed `--cluster` would defrag only the connected member. `defrag --data-dir` leftover-safe-opens the local LMDB and compact-copies (`--data-dir --cluster` cannot eat a flag as the path; `--cluster` + `--data-dir` fail-close). Other leftover flags fail-close.
 `cetcdctl get --rev` / `--limit` / `--min-mod-rev` and related flags must be integers `>= 0`; leftover text fail-closes instead of a truncated revision.
 `cetcdctl watch --start-rev` must be an integer `>= 0`; leftover text fail-closes instead of starting at a truncated revision.
 `--help` does not pre-empt an earlier invalid flag. `--config-file` is skipped when `--help` is present.
@@ -1145,7 +1145,7 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `alarm` | 查询告警 |
 | `hash` | 获取 KV 存储哈希值（`--rev` 等未知旗标 fail-close） |
 | `hashkv` | 获取 KV 存储 CRC32C 哈希值和压缩修订号（`--rev N` leftover-safe；省略 / `0` = 当前；`10foo` fail-close） |
-| `defrag` | 碎片整理（LMDB compact-copy；`--cluster` 走 MemberList；未知 leftover 旗标 fail-close） |
+| `defrag` | 碎片整理（LMDB compact-copy；`--cluster` 走 MemberList；`--data-dir` leftover-safe 离线整理；未知 leftover 旗标 fail-close） |
 | `move-leader TARGET_ID` | 领导者转移到指定节点 |
 | `member list` | 列出集群成员 |
 | `member add PEER_URL` | 添加集群成员（未知 leftover `--` 旗标 fail-close） |

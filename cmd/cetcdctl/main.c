@@ -24,7 +24,7 @@
  *   alarm                  — query alarms
  *   hash                   — get KV store hash
  *   hashkv                 — get KV store hash + compact revision
- *   defrag                 — defragment the database (LMDB compact-copy)
+ *   defrag                 — defragment the database (LMDB compact-copy; --data-dir offline)
  *   move-leader TARGET_ID  — transfer leadership to target node
  *   member list            — list cluster members
  *   member add PEER_URL    — add a cluster member
@@ -85,6 +85,7 @@
 #include "cetcd/peer.h"
 #include "cetcd/snap.h"
 #include "cetcd/server.h"
+#include "cetcd/backend.h"
 
 static const char *g_host = "127.0.0.1";
 static uint16_t    g_port = 2379;
@@ -6347,6 +6348,7 @@ static int cmd_defrag(int argc, char **argv) {
     bool want_json = false;
     bool want_fields = false;
     int cluster = 0;
+    const char *data_dir = NULL;
     for (int i = 2; i < argc; i++) {
         int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
         if ((wr = take_write_out_jf_(&i, argc, argv, &wj, &wf)) != 0) {
@@ -6354,9 +6356,24 @@ static int cmd_defrag(int argc, char **argv) {
             want_json = wj != 0; want_fields = wf != 0;
         }
     }
-    if (cetcd_ctl_parse_maint_argv(argc, argv, 2, 1, &cluster) != CETCD_OK) {
-        print_unknown_maint_flag_(argc, argv, 2, 1);
+    if (cetcd_ctl_parse_defrag_argv(argc, argv, 2, &cluster, &data_dir) != CETCD_OK) {
+        fprintf(stderr,
+                "unknown leftover flag (defrag --data-dir --cluster cannot eat a flag as the path)\n");
         return 1;
+    }
+    if (data_dir) {
+        if (cetcd_backend_defrag_dir(data_dir) != CETCD_OK) {
+            fprintf(stderr, "failed to defragment %s\n", data_dir);
+            return 1;
+        }
+        if (want_json) {
+            printf("{\"data_dir\":\"%s\"}\n", data_dir);
+        } else if (want_fields) {
+            printf("data_dir: %s\n\n", data_dir);
+        } else {
+            printf("Finished defragmenting etcd data[%s]\n", data_dir);
+        }
+        return 0;
     }
     if (cluster) {
         struct cluster_endpoint eps[32];

@@ -190,6 +190,13 @@ int cetcd_ctl_parse_compact_argv(int argc, char *const *argv, int start,
  * `version --foo`) are INVAL. */
 int cetcd_ctl_parse_maint_argv(int argc, char *const *argv, int start,
                                int allow_cluster, int *cluster);
+/* leftover-safe defrag argv from `start`. Skips -w/--write-out. Honors
+ * --cluster[=bool] and leftover-safe --data-dir VALUE (etcd offline
+ * compact-copy). `--data-dir --cluster` cannot eat a flag as the path.
+ * `--cluster` + `--data-dir`, empty `--data-dir=`, or unknown leftover
+ * flags are INVAL. */
+int cetcd_ctl_parse_defrag_argv(int argc, char *const *argv, int start,
+                                int *cluster, const char **data_dir);
 /* leftover-safe one NAME from `start`. Skips -w/--write-out. `--` starts
  * positionals so `-- --foo` is NAME `--foo`. Unknown leftover flags
  * (`member remove --force`, `user add --foo`) are INVAL so they cannot

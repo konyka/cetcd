@@ -554,7 +554,11 @@ Performance-first, fail-closed design:
   `status --cluster` cannot report one node; `compact 10 --rev 5`
   cannot compact the wrong revision). `defrag --cluster` honors etcd's
   MemberList walk (a swallowed `--cluster` would defrag only the
-  connected member). Accepting those flags as a no-op is rejected.
+  connected member). `defrag --data-dir` leftover-safe-opens the local
+  LMDB and compact-copies (`--data-dir --cluster` cannot eat a flag as
+  the path; `--cluster` + `--data-dir` fail-close; missing `data.mdb`
+  does not create an empty env). Accepting those flags as a no-op is
+  rejected.
 - **`put` / `get` / `del` / `lease` leftover `--` flags** — unknown
   leftover long flags fail-close so `put --foo k v` cannot write key
   `--foo`, `get k --foo` cannot range to `--foo`, and
