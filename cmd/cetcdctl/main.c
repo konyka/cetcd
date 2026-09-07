@@ -2957,23 +2957,10 @@ static int collect_cluster_endpoints(struct cluster_endpoint *eps, int max_eps) 
             }
             mpos = mend;
             if (curl && curlen > 0) {
-                char url[256];
-                size_t ul = curlen < sizeof(url) - 1 ? curlen : sizeof(url) - 1;
-                memcpy(url, curl, ul); url[ul] = '\0';
-                char *hs = url;
-                if (strncmp(url, "http://", 7) == 0) hs = url + 7;
-                else if (strncmp(url, "https://", 8) == 0) hs = url + 8;
-                char *colon = strchr(hs, ':');
-                if (colon) {
-                    *colon = '\0';
-                    strncpy(eps[count].host, hs, sizeof(eps[count].host) - 1);
-                    eps[count].host[sizeof(eps[count].host) - 1] = '\0';
-                    eps[count].port = (uint16_t)atoi(colon + 1);
-                } else {
-                    strncpy(eps[count].host, hs, sizeof(eps[count].host) - 1);
-                    eps[count].host[sizeof(eps[count].host) - 1] = '\0';
-                    eps[count].port = 2379;
-                }
+                if (cetcd_parse_host_port((const char *)curl, curlen,
+                                          eps[count].host, sizeof(eps[count].host),
+                                          &eps[count].port, 2379) != CETCD_OK)
+                    return -1;
                 count++;
             }
         } else if (tag == 0x0a) {
@@ -4802,6 +4789,28 @@ static int cmd_downgrade(int argc, char **argv) {
     return 0;
 }
 
+static int peer_urls_leftover_ok_(const char *urls) {
+    if (!urls || !urls[0]) return -1;
+    char copy[512];
+    strncpy(copy, urls, sizeof(copy) - 1);
+    copy[sizeof(copy) - 1] = '\0';
+    char *saveptr = NULL;
+    char *tok = strtok_r(copy, ",", &saveptr);
+    int n = 0;
+    while (tok) {
+        while (*tok == ' ') tok++;
+        if (*tok) {
+            char addr[256];
+            uint16_t port = 0;
+            if (cetcd_parse_peer_url(tok, strlen(tok), addr, sizeof(addr), &port) != CETCD_OK)
+                return -1;
+            n++;
+        }
+        tok = strtok_r(NULL, ",", &saveptr);
+    }
+    return n > 0 ? 0 : -1;
+}
+
 /* Encode comma-separated URLs as repeated string fields (proto repeated string) */
 static size_t encode_repeated_string_field(uint8_t *buf, size_t cap, size_t pos,
                                            uint8_t tag, const char *urls) {
@@ -4880,6 +4889,10 @@ static int cmd_member(int argc, char **argv) {
             }
         }
         if (!peer_url) { fprintf(stderr, "usage: cetcdctl member add [-w json] [--peer-urls URLS] [--name NAME] [--learner] [PEER_URL]\n"); return 1; }
+        if (peer_urls_leftover_ok_(peer_url) != 0) {
+            fprintf(stderr, "member add peer URL port must be 1..65535\n");
+            return 1;
+        }
         (void)member_name; /* member name is display-only, not sent in MemberAddRequest */
         uint8_t req[1024], resp[4096];
         size_t pos = 0;
@@ -4934,6 +4947,10 @@ static int cmd_member(int argc, char **argv) {
         uint64_t mid = 0;
         if (parse_positive_hex_u64_(id_str, &mid) != 0) {
             fprintf(stderr, "member update ID must be a hex integer > 0\n");
+            return 1;
+        }
+        if (peer_urls_leftover_ok_(peer_url) != 0) {
+            fprintf(stderr, "member update peer URL port must be 1..65535\n");
             return 1;
         }
         uint8_t req[1024], resp[256];

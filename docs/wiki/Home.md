@@ -822,6 +822,7 @@ missing value or a mismatch fail-closes.
 `https://` on `--listen-client-urls` / `--listen-peer-urls` requires the matching
 cert files; `https://` in `--initial-cluster` requires `--peer-cert-file`;
 `--listen-client-urls` / `--listen-peer-urls` are UniqueURLs comma lists (same scheme; unique host:port; port `1..65535`). A comma list binds every URL. Mixed http/https, a duplicate, leftover text, or a missing value fail-close. `--initial-cluster` peer URL port must be `1..65535` (a typo fail-closes instead of binding `0`).
+MemberAdd/Update peer URL ports are leftover-safe (`1..65535`; missing → 2380); `2380foo` is not port 2380.
 `--initial-cluster` member ids must be `> 0`; an etcd-style name is not Raft id `0`.
 `cetcdctl --endpoints https://...` requires `--cacert` or `--insecure`
 (and rejects `--insecure-transport`). Plaintext is not a silent fallback.
@@ -885,6 +886,8 @@ Subcommand `--flag=value` (`put --lease=1`, `get --rev=5`, `--write-out=json`, `
 `cetcdctl lease grant --lease-id` must be hex; leftover text fail-closes instead of becoming id `0`.
 `cetcdctl lease revoke` / `timetolive` / `keepalive` ID must be `> 0`; a typo fail-closes instead of lease id `0`.
 `cetcdctl member remove` / `update` / `promote` ID must be hex `> 0`; leftover text fail-closes instead of a truncated decimal id.
+MemberAdd/Update peer URL ports are leftover-safe (`1..65535`; missing → 2380); `2380foo` fail-closes instead of joining on truncated port 2380.
+`cetcdctl endpoint --cluster` leftover-safe-parses member client URLs (missing port → 2379).
 `cetcdctl move-leader TARGET_ID` must be hex `> 0`; leftover text fail-closes instead of transferring to a truncated id.
 `cetcdctl compact REV` must be `> 0`; leftover text fail-closes instead of compacting to a truncated revision.
 `cetcdctl get --rev` / `--limit` / `--min-mod-rev` and related flags must be integers `>= 0`; leftover text fail-closes instead of a truncated revision.

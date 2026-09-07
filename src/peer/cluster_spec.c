@@ -14,6 +14,47 @@ static void trim_(char *s) {
         s[--n] = '\0';
 }
 
+int cetcd_parse_host_port(const char *url, size_t url_len,
+                          char *addr, size_t addr_cap, uint16_t *port,
+                          uint16_t default_port) {
+    if (!url || !addr || addr_cap < 2 || !port || default_port < 1)
+        return CETCD_ERR_INVAL;
+    if (url_len == 0 || url_len >= 256) return CETCD_ERR_INVAL;
+    char buf[256];
+    memcpy(buf, url, url_len);
+    buf[url_len] = '\0';
+    trim_(buf);
+    if (!buf[0]) return CETCD_ERR_INVAL;
+
+    char *p = buf;
+    if (strncmp(p, "https://", 8) == 0) p += 8;
+    else if (strncmp(p, "http://", 7) == 0) p += 7;
+    if (!p[0]) return CETCD_ERR_INVAL;
+
+    *port = default_port;
+    char *colon = strrchr(p, ':');
+    if (colon) {
+        *colon = '\0';
+        if (!p[0]) return CETCD_ERR_INVAL;
+        char *end = NULL;
+        errno = 0;
+        long v = strtol(colon + 1, &end, 10);
+        if (errno == ERANGE || !end || end == colon + 1 || *end ||
+            v < 1 || v > 65535)
+            return CETCD_ERR_RANGE;
+        *port = (uint16_t)v;
+    }
+    size_t alen = strlen(p);
+    if (alen == 0 || alen >= addr_cap) return CETCD_ERR_INVAL;
+    memcpy(addr, p, alen + 1);
+    return CETCD_OK;
+}
+
+int cetcd_parse_peer_url(const char *url, size_t url_len,
+                         char *addr, size_t addr_cap, uint16_t *port) {
+    return cetcd_parse_host_port(url, url_len, addr, addr_cap, port, 2380);
+}
+
 static int parse_one_(char *tok, cetcd_peer_info *pi, int *https) {
     char *eq = strchr(tok, '=');
     if (!eq || eq == tok || !eq[1]) return CETCD_ERR_INVAL;
@@ -35,28 +76,9 @@ static int parse_one_(char *tok, cetcd_peer_info *pi, int *https) {
 
     if (strncmp(addr_part, "https://", 8) == 0) {
         if (https) *https = 1;
-        addr_part += 8;
-    } else if (strncmp(addr_part, "http://", 7) == 0) {
-        addr_part += 7;
     }
-    if (!addr_part[0]) return CETCD_ERR_INVAL;
-
-    char *colon = strrchr(addr_part, ':');
-    if (colon) {
-        *colon = '\0';
-        if (!addr_part[0]) return CETCD_ERR_INVAL;
-        char *end = NULL;
-        errno = 0;
-        long v = strtol(colon + 1, &end, 10);
-        if (errno == ERANGE || !end || end == colon + 1 || *end ||
-            v < 1 || v > 65535)
-            return CETCD_ERR_RANGE;
-        pi->port = (uint16_t)v;
-    }
-    strncpy(pi->addr, addr_part, sizeof(pi->addr) - 1);
-    pi->addr[sizeof(pi->addr) - 1] = '\0';
-    if (!pi->addr[0]) return CETCD_ERR_INVAL;
-    return CETCD_OK;
+    return cetcd_parse_peer_url(addr_part, strlen(addr_part),
+                                pi->addr, sizeof(pi->addr), &pi->port);
 }
 
 int cetcd_parse_initial_cluster(const char *spec,

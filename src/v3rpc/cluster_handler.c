@@ -251,23 +251,8 @@ cetcd_rpc_bytes cluster_handle_member_list(cetcd_v3rpc *rpc,
 
 static int parse_peer_url_(const char *url, size_t url_len,
                            char *addr, size_t addr_cap, uint16_t *port) {
-    if (!url || !addr || !port || addr_cap < 2) return -1;
-    char buf[256];
-    size_t n = url_len < sizeof(buf) - 1 ? url_len : sizeof(buf) - 1;
-    memcpy(buf, url, n);
-    buf[n] = '\0';
-    const char *p = buf;
-    if (strncmp(p, "http://", 7) == 0) p += 7;
-    else if (strncmp(p, "https://", 8) == 0) p += 8;
-    char *colon = strrchr(p, ':');
-    if (colon) {
-        *colon = '\0';
-        *port = (uint16_t)atoi(colon + 1);
-    } else {
-        *port = 2380;
-    }
-    snprintf(addr, addr_cap, "%s", p);
-    return 0;
+    return cetcd_parse_peer_url(url, url_len, addr, addr_cap, port) == CETCD_OK
+        ? 0 : -1;
 }
 
 /*
@@ -461,7 +446,7 @@ cetcd_rpc_bytes cluster_handle_member_update(cetcd_v3rpc *rpc,
             char addr[256];
             uint16_t port = 2380;
             if (parse_peer_url_(new_url, strlen(new_url), addr, sizeof(addr), &port) != 0)
-                return make_simple_cluster_response();
+                return (cetcd_rpc_bytes){NULL, 0};
             uint8_t *entry = NULL;
             size_t elen = 0;
             if (cetcd_apply_encode_member_update(&entry, &elen, member_id, addr, port) != 0)

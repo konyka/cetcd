@@ -85,6 +85,16 @@ int cetcd_cluster_persist_clear_joint(cetcd_cluster *c);
 uint32_t cetcd_cluster_loaded_joint(const cetcd_cluster *c, uint64_t *ids,
                                     uint32_t cap, uint64_t *joint_index);
 
+/* Optional `http(s)://`. Port 1..65535 leftover-safe. Missing port → default_port.
+ * RANGE = bad port; INVAL = empty / overflow. */
+int cetcd_parse_host_port(const char *url, size_t url_len,
+                          char *addr, size_t addr_cap, uint16_t *port,
+                          uint16_t default_port);
+
+/* Same as cetcd_parse_host_port with default_port 2380. */
+int cetcd_parse_peer_url(const char *url, size_t url_len,
+                         char *addr, size_t addr_cap, uint16_t *port);
+
 /* Parse `id=host:port,id=http(s)://host:port`. id must be > 0; port 1..65535
  * (missing port → 2380). Duplicate ids, empty tokens, and overflow fail-closed.
  * RANGE = bad port; INVAL = everything else. https_out is optional. */

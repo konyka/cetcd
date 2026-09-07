@@ -452,6 +452,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl alarm disarm                    # Disarm via Raft (followers drop the flag)
 ./build/bin/cetcdctl member list                     # List cluster members
 ./build/bin/cetcdctl member add --peer-urls http://localhost:2380 --name node2  # Add member with name
+# peer URL port must be 1..65535; leftover 2380foo is not truncated port 2380
 ./build/bin/cetcdctl member remove 1234567890         # Remove member (refused if it would lose quorum)
 # member ID is hex > 0; leftover text is not a truncated decimal id
 ./build/bin/cetcdctl member update 1234567890 http://localhost:2380  # Update member peer URL
@@ -667,6 +668,7 @@ Supported operations (in `then`/`else` sections):
 
 ```sh
 # Check health of all cluster members
+# leftover member client URL ports fail-close (missing port → 2379)
 ./build/bin/cetcdctl endpoint health --cluster
 ./build/bin/cetcdctl endpoint health --cluster -w json
 

@@ -219,6 +219,10 @@ Performance-first, fail-closed design:
   --data-dir=DIR` and `check datascale --load=N` accept equals-form; empty
   `--flag=` and leftover `--load=10foo` fail-close. Interactive `watch
   cancel 10foo` fail-closes instead of cancelling watch 10.
+- **MemberAdd/Update peer URL port** — leftover `http://host:2380foo` fail-closes
+  instead of joining or updating on truncated port `2380` via `atoi`.
+  `cetcdctl endpoint --cluster` leftover-safe-parses member client URLs
+  (missing port → 2379) so a typo cannot connect to a truncated port.
 - **`cetcdctl --dial-timeout`** — `0..86400` seconds (optional `s`). A typo
   used to become “no timeout” via `atoi`; that now fails at parse. `0` stays
   none.

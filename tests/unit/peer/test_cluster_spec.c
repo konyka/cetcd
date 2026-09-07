@@ -61,6 +61,57 @@ CETCD_TEST_CASE(parse_rejects_bad_port) {
         "1=127.0.0.1:abc", peers, 2, &n, NULL), CETCD_ERR_RANGE);
     CETCD_ASSERT_EQ_INT(cetcd_parse_initial_cluster(
         "1=127.0.0.1:65536", peers, 2, &n, NULL), CETCD_ERR_RANGE);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_initial_cluster(
+        "1=127.0.0.1:2380foo", peers, 2, &n, NULL), CETCD_ERR_RANGE);
+}
+
+CETCD_TEST_CASE(parse_peer_url_leftover) {
+    char addr[64];
+    uint16_t port = 0;
+    const char *ok = "127.0.0.1:2380";
+    CETCD_ASSERT_EQ_INT(cetcd_parse_peer_url(ok, strlen(ok),
+                                            addr, sizeof(addr), &port),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(strcmp(addr, "127.0.0.1") == 0);
+    CETCD_ASSERT_EQ_INT((int)port, 2380);
+    const char *http = "http://10.0.0.1:2381";
+    CETCD_ASSERT_EQ_INT(cetcd_parse_peer_url(http, strlen(http),
+                                            addr, sizeof(addr), &port),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(strcmp(addr, "10.0.0.1") == 0);
+    CETCD_ASSERT_EQ_INT((int)port, 2381);
+    const char *noport = "127.0.0.1";
+    CETCD_ASSERT_EQ_INT(cetcd_parse_peer_url(noport, strlen(noport),
+                                            addr, sizeof(addr), &port),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)port, 2380);
+    const char *leftover = "127.0.0.1:2380foo";
+    CETCD_ASSERT_EQ_INT(cetcd_parse_peer_url(leftover, strlen(leftover),
+                                            addr, sizeof(addr), &port),
+                        CETCD_ERR_RANGE);
+    const char *http_left = "http://127.0.0.1:2380foo";
+    CETCD_ASSERT_EQ_INT(cetcd_parse_peer_url(http_left, strlen(http_left),
+                                            addr, sizeof(addr), &port),
+                        CETCD_ERR_RANGE);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_peer_url("", 0, addr, sizeof(addr), &port),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_peer_url(NULL, 0, addr, sizeof(addr), &port),
+                        CETCD_ERR_INVAL);
+    const char *client = "http://127.0.0.1:2379foo";
+    CETCD_ASSERT_EQ_INT(cetcd_parse_host_port(client, strlen(client),
+                                             addr, sizeof(addr), &port, 2379),
+                        CETCD_ERR_RANGE);
+    const char *client_ok = "http://10.0.0.2:2379";
+    CETCD_ASSERT_EQ_INT(cetcd_parse_host_port(client_ok, strlen(client_ok),
+                                             addr, sizeof(addr), &port, 2379),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(strcmp(addr, "10.0.0.2") == 0);
+    CETCD_ASSERT_EQ_INT((int)port, 2379);
+    const char *client_bare = "10.0.0.2";
+    CETCD_ASSERT_EQ_INT(cetcd_parse_host_port(client_bare, strlen(client_bare),
+                                             addr, sizeof(addr), &port, 2379),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)port, 2379);
 }
 
 CETCD_TEST_CASE(parse_rejects_empty_duplicate_overflow) {
@@ -87,6 +138,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(parse_default_port_is_2380),
     CETCD_TEST_ENTRY(parse_rejects_id_zero_and_name),
     CETCD_TEST_ENTRY(parse_rejects_bad_port),
+    CETCD_TEST_ENTRY(parse_peer_url_leftover),
     CETCD_TEST_ENTRY(parse_rejects_empty_duplicate_overflow),
 CETCD_TEST_LIST_END
 
