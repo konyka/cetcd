@@ -1340,7 +1340,11 @@ int cetcd_take_cli_flag_value(int *i, int argc, char *const *argv,
         *out = eq + 1;
         return CETCD_OK;
     }
-    if (*i + 1 >= argc) return CETCD_ERR_INVAL;
+    if (*i + 1 >= argc || !argv[*i + 1] || !argv[*i + 1][0])
+        return CETCD_ERR_INVAL;
+    /* leftover `--flag` cannot become the value */
+    if (argv[*i + 1][0] == '-' && argv[*i + 1][1] == '-')
+        return CETCD_ERR_INVAL;
     *out = argv[++(*i)];
     return CETCD_OK;
 }

@@ -588,6 +588,10 @@ Performance-first, fail-closed design:
   fail-close so `completion bash --foo` cannot dump a script. One of
   `bash`/`zsh`/`fish` is required. Accepting those flags as a no-op is
   rejected.
+- **leftover-safe `--flag VALUE`** — `cetcd_take_cli_flag_value` fail-closes
+  when the next argv is a leftover `--` (`--load --prefix`,
+  `--name --data-dir`) so a flag cannot become the value. `--flag=--foo`
+  is still the value `--foo`. Accepting a leftover `--` value is rejected.
 - **`cetcd-migrate` snap filename** — etcd names are `%016x-%016x.snap`
   (hex). Leftover-safe hex so `123foo-456.snap` cannot win latest with
   a truncated decimal term, and `…000a.snap` is index 10 (not `atoll`

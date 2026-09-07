@@ -162,7 +162,9 @@ uint64_t cetcd_snapshot_count_effective(uint64_t n);
 int cetcd_cli_flag_is(const char *arg, const char *name);
 /* 1 if arg is a leftover long flag (`--foo` / `--foo=bar`). `--` is 0. */
 int cetcd_cli_is_long_flag(const char *arg);
-/* `--flag VALUE` or `--flag=VALUE`. Empty `--flag=` is INVAL. */
+/* `--flag VALUE` or `--flag=VALUE`. Empty `--flag=` is INVAL. A leftover
+ * `--` value (`--load --prefix`, `--name --data-dir`) is INVAL so a flag
+ * cannot become the value. `--flag=--foo` is still the value `--foo`. */
 int cetcd_take_cli_flag_value(int *i, int argc, char *const *argv,
                               const char **out);
 /* Bare `--flag` is true. `--flag=false` / next-arg bool. Non-bool is INVAL. */

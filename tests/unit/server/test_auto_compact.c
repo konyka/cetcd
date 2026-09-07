@@ -1259,6 +1259,22 @@ CETCD_TEST_CASE(auto_compact_cli_equals_form) {
     i = 1;
     CETCD_ASSERT_EQ_INT(cetcd_take_cli_flag_value(&i, 2, empty, &s),
                         CETCD_ERR_INVAL);
+
+    char *eat[] = { "p", "--name", "--data-dir" };
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_flag_value(&i, 3, eat, &s),
+                        CETCD_ERR_INVAL);
+
+    char *ddash[] = { "p", "--name", "--" };
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_flag_value(&i, 3, ddash, &s),
+                        CETCD_ERR_INVAL);
+
+    char *eqdash[] = { "p", "--name=--foo" };
+    i = 1;
+    CETCD_ASSERT_EQ_INT(cetcd_take_cli_flag_value(&i, 2, eqdash, &s),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(s, "--foo");
 }
 
 CETCD_TEST_CASE(auto_compact_cli_bool_form) {
@@ -1596,6 +1612,9 @@ CETCD_TEST_CASE(auto_compact_parse_check_argv) {
 
     char *foo[] = { "cetcdctl", "check", "perf", "--foo" };
     CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_check_argv(4, foo, 3), CETCD_ERR_INVAL);
+
+    char *eat[] = { "cetcdctl", "check", "perf", "--load", "--prefix" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_check_argv(5, eat, 3), CETCD_ERR_INVAL);
 
     char *ds[] = { "cetcdctl", "check", "datascale", "--foo", "--load", "10" };
     CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_check_argv(6, ds, 3), CETCD_ERR_INVAL);

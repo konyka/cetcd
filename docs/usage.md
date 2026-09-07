@@ -582,6 +582,7 @@ to cancel the watch and close the stream.
 # enable / cancel / other versions fail-closed (on-disk format cannot change)
 ./build/bin/cetcdctl check perf                   # Run performance check (put/get latency)
 # leftover check perf --foo / check datascale --foo fail-close (cannot start a write load)
+# leftover --load --prefix fail-close (cannot eat --prefix as the load)
 ./build/bin/cetcdctl version                 # Print client version
 # leftover version --foo fail-close (cannot print version)
 ./build/bin/cetcdctl check perf --load s            # Small load (10 keys)
