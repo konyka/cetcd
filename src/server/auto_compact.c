@@ -1151,3 +1151,38 @@ int cetcd_etcd_env_to_pairs(char *const *envv, int argc, char *const *argv,
     }
     return CETCD_OK;
 }
+
+int cetcd_experimental_unsupported_kind(const char *arg) {
+    if (!arg) return CETCD_EX_UNSUP_NONE;
+    const char *p = arg;
+    if (strncmp(p, "--", 2) == 0) p += 2;
+    if (strncmp(p, "experimental-", 13) != 0) return CETCD_EX_UNSUP_NONE;
+    p += 13;
+    char name[96];
+    size_t n = 0;
+    while (p[n] && p[n] != '=' && n < sizeof(name) - 1) n++;
+    if (n == 0 || n >= sizeof(name) - 1) return CETCD_EX_UNSUP_NONE;
+    memcpy(name, p, n);
+    name[n] = '\0';
+    static const struct {
+        const char *name;
+        int kind;
+    } tab[] = {
+        { "enable-distributed-tracing", CETCD_EX_UNSUP_BOOL },
+        { "distributed-tracing-address", CETCD_EX_UNSUP_VALUE },
+        { "distributed-tracing-service-name", CETCD_EX_UNSUP_VALUE },
+        { "distributed-tracing-instance-id", CETCD_EX_UNSUP_VALUE },
+        { "distributed-tracing-sampling-rate", CETCD_EX_UNSUP_VALUE },
+        { "enable-lease-checkpoint", CETCD_EX_UNSUP_BOOL },
+        { "enable-lease-checkpoint-persist", CETCD_EX_UNSUP_BOOL },
+        { "stop-grpc-service-on-defrag", CETCD_EX_UNSUP_BOOL },
+        { "peer-skip-client-san-verification", CETCD_EX_UNSUP_BOOL },
+        { "txn-mode-write-with-shared-buffer", CETCD_EX_UNSUP_BOOL },
+        { "enable-v2v3", CETCD_EX_UNSUP_VALUE },
+        { "downgrade-check-time", CETCD_EX_UNSUP_VALUE },
+    };
+    for (size_t i = 0; i < sizeof(tab) / sizeof(tab[0]); i++) {
+        if (strcmp(name, tab[i].name) == 0) return tab[i].kind;
+    }
+    return CETCD_EX_UNSUP_NONE;
+}

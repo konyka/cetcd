@@ -129,6 +129,7 @@
       <tr><td>73</td><td>listen URL lists</td><td>--listen-client-urls / --listen-peer-urls bind every UniqueURLs comma entry; mixed scheme / duplicate / leftover fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>74</td><td>advertise URL lists</td><td>--advertise-client-urls / --initial-advertise-peer-urls emit every UniqueURLs comma entry as repeated MemberList strings; leftover / duplicate / https without cert fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>75</td><td>metrics URL lists</td><td>--listen-metrics-urls binds every UniqueURLs http:// comma entry; https / duplicate / leftover / mix with --metrics-port fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>76</td><td>experimental fail-closed</td><td>Unimplemented etcd 3.5 --experimental-* fail at parse (bool false/0 is OK); a typo is unknown flag; the catch-all no longer swallows the next argv — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

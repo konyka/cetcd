@@ -558,6 +558,16 @@ Performance-first, fail-closed design:
   (`0` disables; omitted default 300ms). A unary RPC slower than the
   threshold logs a warning. Missing value or a non-duration fail at
   parse (no longer swallowed). Other `--experimental-*` stay no-ops.
+- **Unimplemented `--experimental-*` fail-closed** — known etcd 3.5
+  experimental flags we cannot honor (`enable-distributed-tracing` and
+  its address/service-name/instance-id/sampling-rate,
+  `enable-lease-checkpoint`, `enable-lease-checkpoint-persist`,
+  `stop-grpc-service-on-defrag`, `peer-skip-client-san-verification`,
+  `txn-mode-write-with-shared-buffer`, `enable-v2v3`,
+  `downgrade-check-time`) fail at parse. Bool forms accept `false`/`0`
+  (explicitly off). A typo is `unknown flag`. The old catch-all no
+  longer swallows the next argv (it could eat `--data-dir`). Accepting
+  them as a no-op is rejected.
 
 ## Previously done (auth data plane)
 

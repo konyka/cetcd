@@ -115,7 +115,7 @@ static void print_usage(const char *prog) {
     printf("  --experimental-snapshot-catchup-entries N  Raft entries kept after compact (default 5000; 0 = none)\n");
     printf("  --experimental-compact-hash-check-enabled  Leader compares follower compact HashKV (default off)\n");
     printf("  --experimental-compact-hash-check-time DUR  Compact HashKV compare period (default 1m; 0 = every tick)\n");
-    printf("  --experimental-*    Other experimental flags accepted as no-op\n");
+    printf("  --experimental-*    Unimplemented or unknown experimental flags fail at parse (false is OK)\n");
     printf("  --help           Show this help\n");
 }
 
@@ -1397,9 +1397,33 @@ int main(int argc, char **argv) {
             }
             cfg.compact_hash_check_time_set = true;
             cfg.compact_hash_check_ms = ms;
+        } else if (cetcd_experimental_unsupported_kind(argv[i]) ==
+                   CETCD_EX_UNSUP_VALUE) {
+            fprintf(stderr, "%s is not supported\n", argv[i]);
+            return 1;
+        } else if (cetcd_experimental_unsupported_kind(argv[i]) ==
+                   CETCD_EX_UNSUP_BOOL) {
+            const char *flag = argv[i];
+            const char *eq = strchr(argv[i], '=');
+            int on = 1;
+            if (eq) {
+                if (cetcd_parse_bool_flag(eq + 1, &on) != CETCD_OK) {
+                    fprintf(stderr, "%s must be true or false\n", flag);
+                    return 1;
+                }
+            } else if (i + 1 < argc && argv[i + 1][0] != '-') {
+                if (cetcd_parse_bool_flag(argv[++i], &on) != CETCD_OK) {
+                    fprintf(stderr, "%s must be true or false\n", flag);
+                    return 1;
+                }
+            }
+            if (on) {
+                fprintf(stderr, "%s is not supported\n", flag);
+                return 1;
+            }
         } else if (strncmp(argv[i], "--experimental-", 15) == 0) {
-            /* no-op, accepted for etcd compatibility */
-            if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* skip value if present */
+            fprintf(stderr, "unknown flag: %s\n", argv[i]);
+            return 1;
         } else {
             fprintf(stderr, "unknown flag: %s\n", argv[i]);
             return 1;

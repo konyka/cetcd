@@ -256,7 +256,7 @@ cetcd accepts several etcd server flags for migration compatibility:
 # (omitted default 5000; 0 = compact to applied; leftover text fails).
 # --experimental-compact-hash-check-enabled compares follower compact HashKV
 # (omitted default off; time default 1m; mismatch raises CORRUPT).
-# Other --experimental-* stay no-op.
+# Unimplemented or unknown --experimental-* fail at parse (=false is OK).
 ./build/bin/cetcd --experimental-initial-corrupt-check \
   --experimental-corrupt-check-time 10s \
   --experimental-compaction-batch-limit 1000 \

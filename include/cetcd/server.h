@@ -108,6 +108,13 @@ int cetcd_config_pairs_to_flags(const cetcd_config_pair *pairs, size_t n,
 int cetcd_read_config_file(const char *path, char *buf, size_t cap);
 /* "etcd Version: X\\nGit SHA: unknown\\nC Standard: C11\\nOS/Arch: os/arch\\n" */
 int cetcd_format_etcd_version(char *out, size_t cap);
+/* Known etcd 3.5 experimental flags we cannot honor (not implemented). */
+#define CETCD_EX_UNSUP_NONE  0
+#define CETCD_EX_UNSUP_BOOL  1 /* true/bare is UNSUPPORT; false is OK */
+#define CETCD_EX_UNSUP_VALUE 2 /* any presence is UNSUPPORT */
+/* arg is --experimental-name or --experimental-name=.... Implemented
+ * experimental flags are NONE. */
+int cetcd_experimental_unsupported_kind(const char *arg);
 /* "listen-client-urls" → "ETCD_LISTEN_CLIENT_URLS". */
 int cetcd_flag_to_etcd_env(const char *flag, char *out, size_t cap);
 /* "ETCD_LISTEN_CLIENT_URLS" → "listen-client-urls". Other prefixes are INVAL. */

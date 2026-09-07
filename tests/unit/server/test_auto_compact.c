@@ -941,6 +941,54 @@ CETCD_TEST_CASE(auto_compact_etcd_env) {
     CETCD_ASSERT_TRUE(n == 0);
 }
 
+CETCD_TEST_CASE(auto_compact_experimental_unsupported) {
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-enable-distributed-tracing"), CETCD_EX_UNSUP_BOOL);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-enable-distributed-tracing=false"),
+                        CETCD_EX_UNSUP_BOOL);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-distributed-tracing-address"), CETCD_EX_UNSUP_VALUE);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-enable-v2v3=foo"), CETCD_EX_UNSUP_VALUE);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-downgrade-check-time=5s"), CETCD_EX_UNSUP_VALUE);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-peer-skip-client-san-verification"),
+                        CETCD_EX_UNSUP_BOOL);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-enable-lease-checkpoint"), CETCD_EX_UNSUP_BOOL);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-enable-lease-checkpoint-persist=true"),
+                        CETCD_EX_UNSUP_BOOL);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-stop-grpc-service-on-defrag"), CETCD_EX_UNSUP_BOOL);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-txn-mode-write-with-shared-buffer"),
+                        CETCD_EX_UNSUP_BOOL);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-distributed-tracing-sampling-rate=1.0"),
+                        CETCD_EX_UNSUP_VALUE);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-compaction-batch-limit"), CETCD_EX_UNSUP_NONE);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-wait-cluster-ready"), CETCD_EX_UNSUP_NONE);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-initial-corrupt-check"), CETCD_EX_UNSUP_NONE);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-compact-hash-check-enabled"), CETCD_EX_UNSUP_NONE);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-snapshot-catchup-entries=5000"), CETCD_EX_UNSUP_NONE);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-memory-mlock"), CETCD_EX_UNSUP_NONE);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--experimental-typo"), CETCD_EX_UNSUP_NONE);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(
+        "--listen-client-urls"), CETCD_EX_UNSUP_NONE);
+    CETCD_ASSERT_EQ_INT(cetcd_experimental_unsupported_kind(NULL),
+                        CETCD_EX_UNSUP_NONE);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_mode),
     CETCD_TEST_ENTRY(auto_compact_parse_retention_periodic),
@@ -984,6 +1032,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_config_pairs_to_flags),
     CETCD_TEST_ENTRY(auto_compact_format_etcd_version),
     CETCD_TEST_ENTRY(auto_compact_etcd_env),
+    CETCD_TEST_ENTRY(auto_compact_experimental_unsupported),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()
