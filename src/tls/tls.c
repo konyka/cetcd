@@ -34,6 +34,11 @@ int cetcd_tls_name_list_open(const char *list) {
     return !list || !list[0];
 }
 
+int cetcd_tls_want_client_auth(int auth_flag, const char *trusted_ca) {
+    if (auth_flag) return 1;
+    return trusted_ca && trusted_ca[0] ? 1 : 0;
+}
+
 int cetcd_tls_name_list_has(const char *list, const char *name) {
     if (cetcd_tls_name_list_open(list)) return 1;
     if (!name || !name[0]) return 0;

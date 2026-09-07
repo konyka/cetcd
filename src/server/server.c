@@ -3068,9 +3068,11 @@ int cetcd_server_start(cetcd_server *srv) {
                                                 : CETCD_TLS_VER_1_2;
         int vmax = srv->cfg.tls_max_version_set ? srv->cfg.tls_max_version
                                                 : CETCD_TLS_VER_UNSPEC;
-        int client_auth = srv->cfg.client_cert_auth ||
+        int client_auth = cetcd_tls_want_client_auth(srv->cfg.client_cert_auth,
+                                                     srv->cfg.trusted_ca_file) ||
                           !cetcd_tls_name_list_open(srv->cfg.client_cert_allowed_hostname);
-        int peer_auth = srv->cfg.peer_client_cert_auth ||
+        int peer_auth = cetcd_tls_want_client_auth(srv->cfg.peer_client_cert_auth,
+                                                   srv->cfg.peer_trusted_ca_file) ||
                         !cetcd_tls_name_list_open(srv->cfg.peer_cert_allowed_cn) ||
                         !cetcd_tls_name_list_open(srv->cfg.peer_cert_allowed_hostname);
         int want_client_tls = srv->cfg.listen_https;

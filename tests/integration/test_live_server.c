@@ -2574,6 +2574,34 @@ CETCD_TEST_CASE(live_cetcd_peer_client_cert) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
+CETCD_TEST_CASE(live_cetcd_trusted_ca_auth) {
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --trusted-ca-file ca.crt --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --trusted-ca-file=ca.crt --client-cert-auth=false --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --peer-trusted-ca-file=peer-ca.crt --peer-client-cert-auth=false --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --client-cert-auth maybe >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --trusted-ca-file >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+}
+
 CETCD_TEST_CASE(live_cetcd_crl_files) {
     char cmd[1024];
     snprintf(cmd, sizeof(cmd),
@@ -3737,6 +3765,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(live_cetcd_tls_version),
     CETCD_TEST_ENTRY(live_cetcd_cert_allowed),
     CETCD_TEST_ENTRY(live_cetcd_peer_client_cert),
+    CETCD_TEST_ENTRY(live_cetcd_trusted_ca_auth),
     CETCD_TEST_ENTRY(live_cetcd_crl_files),
     CETCD_TEST_ENTRY(live_cetcd_version_and_config_file),
     CETCD_TEST_ENTRY(live_cetcd_bcrypt_cost),

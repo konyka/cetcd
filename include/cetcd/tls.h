@@ -49,6 +49,8 @@ int cetcd_tls_auto_cert_years(const char *cert_path, const char *key_path,
 int cetcd_tls_self_signed_days(uint32_t years, int *out_days);
 /* Empty/NULL = no extra identity restriction. */
 int cetcd_tls_name_list_open(const char *list);
+/* etcd: ClientCertAuth or a non-empty TrustedCAFile requires a client cert. */
+int cetcd_tls_want_client_auth(int auth_flag, const char *trusted_ca);
 /* Exact CN match. Open list is 1. Missing name is 0 if restricted. */
 int cetcd_tls_name_list_has(const char *list, const char *name);
 /* Case-insensitive. `*.example.com` matches one label. Empty is 0. */

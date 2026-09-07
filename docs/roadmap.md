@@ -51,7 +51,10 @@ Performance-first, fail-closed design:
 - **TLS on client/peer accept** — `--cert-file`/`--key-file` (and peer
   equivalents) load OpenSSL server contexts at start. Traffic stays plaintext
   when omitted. Cert without key, missing files, or `--client-cert-auth`
-  without a CA fail closed (no silent plaintext). Handshake uses memory BIOs
+  without a CA fail closed (no silent plaintext). `--trusted-ca-file` also
+  requires a client certificate (etcd `TrustedCAFile`; `--client-cert-auth=false`
+  does not opt out). `--peer-trusted-ca-file` does the same on peer accept.
+  Handshake uses memory BIOs
   so libuv keeps the fd; `cetcdctl --cacert` (or `--cert`/`--key`) speaks TLS.
   `--insecure` skips verify; `--insecure-transport` mixed with cert flags fail-closes.
 - **Peer TLS on outbound `peer_tx_`** — when `--peer-cert-file` is set, Raft

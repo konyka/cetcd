@@ -787,7 +787,10 @@ int  cetcd_tls_write(cetcd_tls_conn *conn, const void *buf, size_t len);
 
 Server `--cert-file`/`--key-file` (and `--peer-cert-file`/`--peer-key-file`) load these
 contexts at start. Plaintext remains the default. Cert without key, missing files, or
-`--client-cert-auth` without `--trusted-ca-file` fail closed. Handshake runs on memory
+`--client-cert-auth` without `--trusted-ca-file` fail closed.
+`--trusted-ca-file` also requires a client certificate (etcd); `--client-cert-auth=false`
+does not opt out. `--peer-trusted-ca-file` does the same on peer accept.
+Handshake runs on memory
 BIOs so libuv keeps the socket; blocking `SSL_accept` is not used on the reactor.
 `--peer-cert-file` also wraps outbound `peer_tx_` (client handshake after TCP connect).
 `--peer-client-cert-file` / `--peer-client-key-file` present a distinct outbound

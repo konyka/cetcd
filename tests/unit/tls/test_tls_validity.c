@@ -143,6 +143,16 @@ CETCD_TEST_CASE(tls_crl_helpers) {
     CETCD_ASSERT_EQ_INT(cetcd_tls_check_crl(NULL, NULL), CETCD_OK);
 }
 
+CETCD_TEST_CASE(tls_want_client_auth) {
+    CETCD_ASSERT_EQ_INT(cetcd_tls_want_client_auth(0, NULL), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_want_client_auth(0, ""), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_want_client_auth(1, NULL), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_want_client_auth(1, ""), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_tls_want_client_auth(0, "ca.crt"), 1);
+    /* etcd: TrustedCAFile wins over client-cert-auth=false */
+    CETCD_ASSERT_EQ_INT(cetcd_tls_want_client_auth(0, "/etc/etcd/ca.pem"), 1);
+}
+
 CETCD_TEST_CASE(tls_self_signed_days_overflow_and_null) {
     int days = 0;
     CETCD_ASSERT_EQ_INT(cetcd_tls_self_signed_days((uint32_t)(INT_MAX / 365) + 1,
@@ -158,6 +168,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(tls_peer_identity_lists),
     CETCD_TEST_ENTRY(tls_outbound_paths),
     CETCD_TEST_ENTRY(tls_crl_helpers),
+    CETCD_TEST_ENTRY(tls_want_client_auth),
     CETCD_TEST_ENTRY(tls_self_signed_days_overflow_and_null),
 CETCD_TEST_LIST_END
 
