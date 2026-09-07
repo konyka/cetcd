@@ -1011,6 +1011,61 @@ CETCD_TEST_CASE(auto_compact_experimental_unsupported) {
                         CETCD_EX_UNSUP_NONE);
 }
 
+CETCD_TEST_CASE(auto_compact_grpc_keepalive) {
+    CETCD_ASSERT_EQ_INT(cetcd_grpc_keepalive_kind("--grpc-keepalive-time"),
+                        CETCD_KA_IDLE);
+    CETCD_ASSERT_EQ_INT(cetcd_grpc_keepalive_kind(
+        "--grpc-keepalive-interval=2h"), CETCD_KA_IDLE);
+    CETCD_ASSERT_EQ_INT(cetcd_grpc_keepalive_kind(
+        "--grpc-keepalive-timeout"), CETCD_KA_TIMEOUT);
+    CETCD_ASSERT_EQ_INT(cetcd_grpc_keepalive_kind(
+        "--grpc-keepalive-min-time=5s"), CETCD_KA_MIN_TIME);
+    CETCD_ASSERT_EQ_INT(cetcd_grpc_keepalive_kind(
+        "--grpc-keepalive-permit-without-stream"), CETCD_KA_PERMIT);
+    CETCD_ASSERT_EQ_INT(cetcd_grpc_keepalive_kind(
+        "--grpc-keepalive-max-connection-idle"), CETCD_KA_UNKNOWN);
+    CETCD_ASSERT_EQ_INT(cetcd_grpc_keepalive_kind(
+        "--grpc-keepalive-typo=5s"), CETCD_KA_UNKNOWN);
+    CETCD_ASSERT_EQ_INT(cetcd_grpc_keepalive_kind("--listen-client-urls"),
+                        CETCD_KA_NONE);
+    CETCD_ASSERT_EQ_INT(cetcd_grpc_keepalive_kind(NULL), CETCD_KA_NONE);
+
+    int sec = -1;
+    CETCD_ASSERT_EQ_INT(cetcd_parse_grpc_keepalive_sec("10s", 0, &sec),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(sec, 10);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_grpc_keepalive_sec("10", 0, &sec),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(sec, 10);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_grpc_keepalive_sec("2h", 0, &sec),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(sec, 7200);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_grpc_keepalive_sec("10m", 0, &sec),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(sec, 600);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_grpc_keepalive_sec("0", 0, &sec),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(sec, 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_grpc_keepalive_sec("0s", 0, &sec),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(sec, 0);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_grpc_keepalive_sec("500ms", 0, &sec),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(sec, 1);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_grpc_keepalive_sec("0", 1, &sec),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_grpc_keepalive_sec("25h", 0, &sec),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_grpc_keepalive_sec("abc", 0, &sec),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_grpc_keepalive_sec("10sfoo", 0, &sec),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_grpc_keepalive_sec(NULL, 0, &sec),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_grpc_keepalive_sec("10s", 0, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_mode),
     CETCD_TEST_ENTRY(auto_compact_parse_retention_periodic),
@@ -1055,6 +1110,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_format_etcd_version),
     CETCD_TEST_ENTRY(auto_compact_etcd_env),
     CETCD_TEST_ENTRY(auto_compact_experimental_unsupported),
+    CETCD_TEST_ENTRY(auto_compact_grpc_keepalive),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

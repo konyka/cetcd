@@ -69,10 +69,10 @@ static void print_usage(const char *prog) {
     printf("  --max-request-bytes N  Max client frame (default 1572864; must be > 0)\n");
     printf("  --max-concurrent-streams N  HTTP/2 SETTINGS_MAX_CONCURRENT_STREAMS (must be > 0)\n");
     printf("  --grpc-keepalive-time SEC   TCP keepalive idle on client and peer sockets (0 disables)\n");
-    printf("  --grpc-keepalive-timeout SEC  TCP keepalive interval (requires --grpc-keepalive-time)\n");
+    printf("  --grpc-keepalive-interval SEC  Same as --grpc-keepalive-time (etcd name; 0 disables)\n");
+    printf("  --grpc-keepalive-timeout SEC  TCP keepalive interval (requires time or interval)\n");
     printf("  --grpc-keepalive-min-time SEC  Accepted duration (not applied; 0..86400)\n");
     printf("  --grpc-keepalive-permit-without-stream  Accepted bool (not applied; true|false)\n");
-    printf("  --grpc-keepalive-*  Other grpc-keepalive flags accepted as no-op\n");
     printf("  --auth-token TYPE   simple (default) or jwt,sign-method=HS256|RS256|ES256,priv-key=PATH[,ttl=5m]\n");
     printf("  --auth-token-ttl SEC  Simple-token lifetime in seconds (default 300; must be > 0)\n");
     printf("  --bcrypt-cost N     Hash new passwords with bcrypt (4..31; 0 = SHA-256; invalid fails)\n");
@@ -119,14 +119,15 @@ static void print_usage(const char *prog) {
     printf("  --help           Show this help\n");
 }
 
-static int parse_keepalive_sec_(const char *s, int min_v, int *out) {
-    char *end = NULL;
-    errno = 0;
-    long v = strtol(s, &end, 10);
-    if (errno == ERANGE || !end || end == s || v < min_v || v > 86400) return -1;
-    if (*end == 's' || *end == 'S') end++;
-    if (*end) return -1;
-    *out = (int)v;
+static int take_flag_value_(int *i, int argc, char **argv, const char **out) {
+    const char *eq = strchr(argv[*i], '=');
+    if (eq) {
+        if (!eq[1]) return -1;
+        *out = eq + 1;
+        return 0;
+    }
+    if (*i + 1 >= argc) return -1;
+    *out = argv[++(*i)];
     return 0;
 }
 
@@ -1077,35 +1078,55 @@ int main(int argc, char **argv) {
                 return 1;
             }
             strncpy(cfg.discovery_srv_name, nm, sizeof(cfg.discovery_srv_name) - 1);
-        } else if (strcmp(argv[i], "--grpc-keepalive-time") == 0 && i + 1 < argc) {
-            if (parse_keepalive_sec_(argv[++i], 0, &cfg.keepalive_time) != 0) {
-                fprintf(stderr, "--grpc-keepalive-time must be 0..86400 seconds\n");
+        } else if (cetcd_grpc_keepalive_kind(argv[i]) == CETCD_KA_IDLE) {
+            const char *flag = argv[i];
+            const char *v = NULL;
+            int sec = 0;
+            if (take_flag_value_(&i, argc, argv, &v) != 0 ||
+                cetcd_parse_grpc_keepalive_sec(v, 0, &sec) != CETCD_OK) {
+                fprintf(stderr, "%s must be 0..86400 seconds\n", flag);
                 return 1;
             }
+            cfg.keepalive_time = sec;
             cfg.keepalive_set = true;
-        } else if (strcmp(argv[i], "--grpc-keepalive-timeout") == 0 && i + 1 < argc) {
-            if (parse_keepalive_sec_(argv[++i], 1, &cfg.keepalive_timeout) != 0) {
-                fprintf(stderr, "--grpc-keepalive-timeout must be 1..86400 seconds\n");
+        } else if (cetcd_grpc_keepalive_kind(argv[i]) == CETCD_KA_TIMEOUT) {
+            const char *flag = argv[i];
+            const char *v = NULL;
+            int sec = 0;
+            if (take_flag_value_(&i, argc, argv, &v) != 0 ||
+                cetcd_parse_grpc_keepalive_sec(v, 0, &sec) != CETCD_OK) {
+                fprintf(stderr, "%s must be 0..86400 seconds\n", flag);
                 return 1;
             }
-        } else if (strcmp(argv[i], "--grpc-keepalive-min-time") == 0 && i + 1 < argc) {
-            int dummy;
-            if (parse_keepalive_sec_(argv[++i], 0, &dummy) != 0) {
-                fprintf(stderr, "--grpc-keepalive-min-time must be 0..86400 seconds\n");
+            cfg.keepalive_timeout = sec;
+        } else if (cetcd_grpc_keepalive_kind(argv[i]) == CETCD_KA_MIN_TIME) {
+            const char *flag = argv[i];
+            const char *v = NULL;
+            int dummy = 0;
+            if (take_flag_value_(&i, argc, argv, &v) != 0 ||
+                cetcd_parse_grpc_keepalive_sec(v, 0, &dummy) != CETCD_OK) {
+                fprintf(stderr, "%s must be 0..86400 seconds\n", flag);
                 return 1;
             }
-        } else if (strcmp(argv[i], "--grpc-keepalive-permit-without-stream") == 0) {
-            if (i + 1 < argc && argv[i + 1][0] != '-') {
-                const char *v = argv[++i];
-                if (strcmp(v, "true") != 0 && strcmp(v, "false") != 0 &&
-                    strcmp(v, "1") != 0 && strcmp(v, "0") != 0) {
-                    fprintf(stderr,
-                            "--grpc-keepalive-permit-without-stream must be true or false\n");
+        } else if (cetcd_grpc_keepalive_kind(argv[i]) == CETCD_KA_PERMIT) {
+            const char *flag = argv[i];
+            const char *eq = strchr(argv[i], '=');
+            int on = 1;
+            if (eq) {
+                if (cetcd_parse_bool_flag(eq + 1, &on) != CETCD_OK) {
+                    fprintf(stderr, "%s must be true or false\n", flag);
+                    return 1;
+                }
+            } else if (i + 1 < argc && argv[i + 1][0] != '-') {
+                if (cetcd_parse_bool_flag(argv[++i], &on) != CETCD_OK) {
+                    fprintf(stderr, "%s must be true or false\n", flag);
                     return 1;
                 }
             }
-        } else if (strncmp(argv[i], "--grpc-keepalive-", 17) == 0) {
-            if (i + 1 < argc && argv[i + 1][0] != '-') i++; /* no-op other grpc-keepalive flags */
+            (void)on;
+        } else if (cetcd_grpc_keepalive_kind(argv[i]) == CETCD_KA_UNKNOWN) {
+            fprintf(stderr, "unknown flag: %s\n", argv[i]);
+            return 1;
         } else if (strcmp(argv[i], "--auto-compaction-mode") == 0 && i + 1 < argc) {
             ac_mode_s = argv[++i];
         } else if (strcmp(argv[i], "--auto-compaction-retention") == 0 && i + 1 < argc) {
@@ -1440,7 +1461,7 @@ int main(int argc, char **argv) {
         }
     }
     if (cfg.keepalive_timeout > 0 && !cfg.keepalive_set) {
-        fprintf(stderr, "--grpc-keepalive-timeout requires --grpc-keepalive-time\n");
+        fprintf(stderr, "--grpc-keepalive-timeout requires --grpc-keepalive-time or --grpc-keepalive-interval\n");
         return 1;
     }
     {

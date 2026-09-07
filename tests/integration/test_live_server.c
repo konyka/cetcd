@@ -2954,14 +2954,34 @@ CETCD_TEST_CASE(live_cetcd_grpc_keepalive) {
     CETCD_ASSERT_TRUE(system(cmd) != 0);
 
     snprintf(cmd, sizeof(cmd),
+             "'%s' --grpc-keepalive-interval 2h --grpc-keepalive-timeout 5s --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --grpc-keepalive-interval=2h --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --grpc-keepalive-interval abc >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
              "'%s' --grpc-keepalive-max-connection-idle --help >/dev/null 2>&1",
              CETCD_BIN);
     CETCD_ASSERT_EQ_INT(system(cmd), 0);
 
     snprintf(cmd, sizeof(cmd),
-             "'%s' --grpc-keepalive-max-connection-idle 5s --help >/dev/null 2>&1",
+             "'%s' --grpc-keepalive-max-connection-idle 5s >/dev/null 2>&1",
              CETCD_BIN);
-    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --grpc-keepalive-typo /tmp/cetcd-ka-swallow >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
 CETCD_TEST_CASE(live_cetcd_auto_tls_requires_certs) {

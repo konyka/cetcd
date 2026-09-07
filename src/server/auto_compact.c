@@ -1190,3 +1190,50 @@ int cetcd_experimental_unsupported_kind(const char *arg) {
     }
     return CETCD_EX_UNSUP_NONE;
 }
+
+int cetcd_grpc_keepalive_kind(const char *arg) {
+    if (!arg) return CETCD_KA_NONE;
+    const char *p = arg;
+    if (strncmp(p, "--", 2) == 0) p += 2;
+    if (strncmp(p, "grpc-keepalive-", 15) != 0) return CETCD_KA_NONE;
+    p += 15;
+    char name[96];
+    size_t n = 0;
+    while (p[n] && p[n] != '=' && n < sizeof(name) - 1) n++;
+    if (n == 0 || n >= sizeof(name) - 1) return CETCD_KA_NONE;
+    memcpy(name, p, n);
+    name[n] = '\0';
+    if (strcmp(name, "time") == 0 || strcmp(name, "interval") == 0)
+        return CETCD_KA_IDLE;
+    if (strcmp(name, "timeout") == 0) return CETCD_KA_TIMEOUT;
+    if (strcmp(name, "min-time") == 0) return CETCD_KA_MIN_TIME;
+    if (strcmp(name, "permit-without-stream") == 0) return CETCD_KA_PERMIT;
+    return CETCD_KA_UNKNOWN;
+}
+
+int cetcd_parse_grpc_keepalive_sec(const char *s, int min_v, int *out) {
+    if (!s || !s[0] || !out || min_v < 0) return CETCD_ERR_INVAL;
+    int all_digits = 1;
+    for (const char *p = s; *p; p++) {
+        if (*p < '0' || *p > '9') {
+            all_digits = 0;
+            break;
+        }
+    }
+    uint64_t sec = 0;
+    if (all_digits) {
+        char *end = NULL;
+        errno = 0;
+        long v = strtol(s, &end, 10);
+        if (errno == ERANGE || !end || end == s || *end)
+            return CETCD_ERR_INVAL;
+        if (v < min_v || v > 86400) return CETCD_ERR_INVAL;
+        *out = (int)v;
+        return CETCD_OK;
+    }
+    if (cetcd_parse_go_duration_sec(s, &sec) != CETCD_OK)
+        return CETCD_ERR_INVAL;
+    if ((int)sec < min_v || sec > 86400) return CETCD_ERR_INVAL;
+    *out = (int)sec;
+    return CETCD_OK;
+}

@@ -115,6 +115,16 @@ int cetcd_format_etcd_version(char *out, size_t cap);
 /* arg is --experimental-name or --experimental-name=.... Implemented
  * experimental flags are NONE. */
 int cetcd_experimental_unsupported_kind(const char *arg);
+/* Known --grpc-keepalive-* names. Unknown names must not swallow argv. */
+#define CETCD_KA_NONE     0
+#define CETCD_KA_IDLE     1 /* time / interval → TCP_KEEPIDLE */
+#define CETCD_KA_TIMEOUT  2 /* TCP_KEEPINTVL */
+#define CETCD_KA_MIN_TIME 3 /* accepted duration; not TCP-mappable */
+#define CETCD_KA_PERMIT   4 /* accepted bool; not TCP-mappable */
+#define CETCD_KA_UNKNOWN  5 /* other --grpc-keepalive-* */
+int cetcd_grpc_keepalive_kind(const char *arg);
+/* Go duration or bare seconds. Range min_v..86400. Sub-second rounds up. */
+int cetcd_parse_grpc_keepalive_sec(const char *s, int min_v, int *out);
 /* "listen-client-urls" → "ETCD_LISTEN_CLIENT_URLS". */
 int cetcd_flag_to_etcd_env(const char *flag, char *out, size_t cap);
 /* "ETCD_LISTEN_CLIENT_URLS" → "listen-client-urls". Other prefixes are INVAL. */

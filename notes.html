@@ -132,6 +132,7 @@
       <tr><td>76</td><td>experimental fail-closed</td><td>Unimplemented etcd 3.5 --experimental-* fail at parse (bool false/0 is OK); a typo is unknown flag; the catch-all no longer swallows the next argv — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>77</td><td>metrics https</td><td>--listen-metrics-urls https:// terminates TLS with --cert-file/--auto-tls (no ALPN); mixed http/https allowed; missing cert fail-closed — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>78</td><td>HTTP/2 multiplex</td><td>Per-stream path/token/body so a second gRPC request cannot steal the first; SETTINGS clamped to CETCD_H2_MAX_STREAMS — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>79</td><td>grpc-keepalive interval</td><td>--grpc-keepalive-interval applies TCP idle (etcd name); unknown --grpc-keepalive-* fail-closed and no longer swallow the next argv — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

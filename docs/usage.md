@@ -231,13 +231,15 @@ cetcd accepts several etcd server flags for migration compatibility:
 # --auth-token-ttl is simple-token lifetime in seconds (default 300; must be > 0)
 # --bcrypt-cost is 0 or 4..31; a typo is not silent SHA-256
 
-# gRPC keepalive applies TCP keepalive on client and peer sockets; min-time is validated but not applied
+# gRPC keepalive applies TCP keepalive on client and peer sockets
+# --grpc-keepalive-interval is the etcd name (same TCP idle as --grpc-keepalive-time)
+# --grpc-keepalive-min-time is validated but not applied
 # --grpc-keepalive-permit-without-stream is a bool (not applied); a typo fails at parse
-# other --grpc-keepalive-* stay no-op and do not swallow --help
+# other --grpc-keepalive-* are unknown flags and do not swallow the next argv
 # --logger zap|capnslog is accepted; other types fail at parse
 # --log-level is trace|debug|info|warn|error (etcd aliases); a typo fails at parse
 # --log-format is json|text (etcd console = text); a typo fails at parse
-./build/bin/cetcd --grpc-keepalive-time 10s --grpc-keepalive-timeout 5s \
+./build/bin/cetcd --grpc-keepalive-interval 2h --grpc-keepalive-timeout 20s \
   --grpc-keepalive-min-time 5s --grpc-keepalive-permit-without-stream true \
   --logger zap --log-level info --log-format text --log-outputs stderr
 # --enable-log-rotation requires a single file --log-outputs; compress=true fails

@@ -230,15 +230,17 @@ Performance-first, fail-closed design:
 - **`cetcdctl get --rev` / `--limit` / `--*-mod-rev` / `--*-create-rev`** —
   integer `>= 0`. Leftover text used to query a truncated revision via `atol`;
   that now fails at parse. `0` stays current / unlimited.
-- **`--grpc-keepalive-time` / `--grpc-keepalive-timeout`** — TCP keepalive on
-  accepted client sockets, accepted peer sockets, and outbound Raft dials
-  (`uv_tcp_keepalive_ex`). Timeout without time, or a non-duration value, fail
-  at parse. `--grpc-keepalive-min-time` stays a no-op (not TCP-mappable) but a
+- **`--grpc-keepalive-time` / `--grpc-keepalive-interval` /
+  `--grpc-keepalive-timeout`** — TCP keepalive on accepted client sockets,
+  accepted peer sockets, and outbound Raft dials (`uv_tcp_keepalive_ex`).
+  `--grpc-keepalive-interval` is the etcd name for idle (same as `--grpc-keepalive-time`).
+  Go durations (`2h`, `10s`) and bare seconds are accepted (`0..86400`).
+  Timeout without time/interval, or a non-duration value, fail at parse.
+  `--grpc-keepalive-min-time` stays a no-op (not TCP-mappable) but a
   non-duration value now fails at parse.
   `--grpc-keepalive-permit-without-stream` stays a no-op (not TCP-mappable) but
   a non-boolean value now fails at parse. A bare flag is accepted.
-  Other `--grpc-keepalive-*` stay a no-op and do not swallow a following flag
-  such as `--help`.
+  Other `--grpc-keepalive-*` are unknown flags and do not swallow the next argv.
 - **`--auto-tls` / `--peer-auto-tls`** — mint self-signed ECDSA P-256 into
   `{data-dir}/fixtures/` when the matching cert flag is empty. Reuse if both
   files exist; one-without-the-other fail-closes. Requires `--data-dir`.

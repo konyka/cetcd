@@ -884,11 +884,13 @@ file, `ETCD_*` maps to `--flag` (`ETCD_LISTEN_CLIENT_URLS`; empty ignored;
 `cetcdctl move-leader TARGET_ID` must be hex `> 0`; leftover text fail-closes instead of transferring to a truncated id.
 `cetcdctl compact REV` must be `> 0`; leftover text fail-closes instead of compacting to a truncated revision.
 `cetcdctl get --rev` / `--limit` / `--min-mod-rev` and related flags must be integers `>= 0`; leftover text fail-closes instead of a truncated revision.
-`--grpc-keepalive-time` / `--grpc-keepalive-timeout` set TCP keepalive on accepted
-client sockets, accepted peer sockets, and outbound Raft dials
-(`--grpc-keepalive-min-time` is not applied; a non-duration value fail-closes).
+`--grpc-keepalive-time` / `--grpc-keepalive-interval` / `--grpc-keepalive-timeout`
+set TCP keepalive on accepted client sockets, accepted peer sockets, and
+outbound Raft dials. `--grpc-keepalive-interval` is the etcd name for idle
+(same as `--grpc-keepalive-time`). Go durations (`2h`) are accepted.
+`--grpc-keepalive-min-time` is not applied; a non-duration value fail-closes.
 `--grpc-keepalive-permit-without-stream` is not applied; a non-boolean value fail-closes.
-Other `--grpc-keepalive-*` stay no-op and do not swallow a following flag such as `--help`.
+Other `--grpc-keepalive-*` are unknown flags and do not swallow the next argv.
 `--max-call-send-msg-size` / `--max-call-recv-msg-size` cap the payload (`0` rejected;
 oversized recv is not truncated).
 `--advertise-client-urls` / `--initial-advertise-peer-urls` are UniqueURLs comma
