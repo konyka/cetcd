@@ -1237,3 +1237,7 @@ int cetcd_parse_grpc_keepalive_sec(const char *s, int min_v, int *out) {
     *out = (int)sec;
     return CETCD_OK;
 }
+
+uint64_t cetcd_quota_backend_bytes_effective(uint64_t n) {
+    return n ? n : CETCD_DEFAULT_QUOTA_BACKEND_BYTES;
+}

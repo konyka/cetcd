@@ -1066,6 +1066,16 @@ CETCD_TEST_CASE(auto_compact_grpc_keepalive) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_quota_backend_bytes) {
+    CETCD_ASSERT_TRUE(cetcd_quota_backend_bytes_effective(0) ==
+                      CETCD_DEFAULT_QUOTA_BACKEND_BYTES);
+    CETCD_ASSERT_TRUE(cetcd_quota_backend_bytes_effective(0) ==
+                      2ULL * 1024 * 1024 * 1024);
+    CETCD_ASSERT_TRUE(cetcd_quota_backend_bytes_effective(1) == 1);
+    CETCD_ASSERT_TRUE(cetcd_quota_backend_bytes_effective(2147483648ULL) ==
+                      2147483648ULL);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_mode),
     CETCD_TEST_ENTRY(auto_compact_parse_retention_periodic),
@@ -1111,6 +1121,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_etcd_env),
     CETCD_TEST_ENTRY(auto_compact_experimental_unsupported),
     CETCD_TEST_ENTRY(auto_compact_grpc_keepalive),
+    CETCD_TEST_ENTRY(auto_compact_quota_backend_bytes),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

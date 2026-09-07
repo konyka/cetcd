@@ -73,7 +73,8 @@ Performance-first, fail-closed design:
 - **`--max-request-bytes` / `--quota-backend-bytes`** — client read buffer
   grows up to `max-request-bytes` (default 1.5 MiB); a claimed frame larger
   than the cap closes the connection. Puts fail closed with NOSPACE when
-  LMDB size is at or above `quota-backend-bytes` (0 = unlimited). Deletes
+  LMDB size is at or above `quota-backend-bytes` (`0` / omitted = etcd 2GiB).
+  Deletes
   and compact Delete batches still apply so operators can recover space.
 - **`--max-concurrent-streams`** — integer `> 0` advertised as HTTP/2
   `SETTINGS_MAX_CONCURRENT_STREAMS`. Omitted omits the SETTINGS entry
@@ -284,8 +285,10 @@ Performance-first, fail-closed design:
   that now fails at parse.
 - **`--snapshot-count`** — must be `> 0`. A typo or `0` used to become the
   default 10000; that now fails at parse. Omitted still defaults to 10000.
-- **`--quota-backend-bytes`** — integer bytes (`0` = unlimited). A typo used
-  to become unlimited via `strtoull`; that now fails at parse.
+- **`--quota-backend-bytes`** — integer bytes. `0` or omitted is etcd's
+  2GiB default (`CETCD_DEFAULT_QUOTA_BACKEND_BYTES`), not unlimited. `=`
+  form is accepted. A typo used to become unlimited via `strtoull`; that
+  now fails at parse.
 - **`--max-txn-ops`** — `1..128`. A typo or `0` used to become the default
   128; that now fails at parse. Omitted still defaults to 128.
 - **`--max-request-bytes`** — must be `> 0`. A typo or `0` used to become the

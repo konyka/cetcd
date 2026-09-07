@@ -19,6 +19,8 @@ typedef struct cetcd_server cetcd_server;
 /* When snapshot_count is 0, rewrite the WAL after this many applies. */
 #define CETCD_DEFAULT_SNAPSHOT_COUNT 10000ULL
 #define CETCD_DEFAULT_MAX_REQUEST_BYTES (1572864ULL) /* etcd 1.5 MiB */
+/* etcd DefaultQuotaBytes: --quota-backend-bytes 0 / omitted. */
+#define CETCD_DEFAULT_QUOTA_BACKEND_BYTES (2ULL * 1024 * 1024 * 1024)
 #define CETCD_DEFAULT_MAX_TXN_OPS 128ULL
 #define CETCD_MAX_TXN_OPS 128ULL
 #define CETCD_DEFAULT_MAX_LEARNERS 1U
@@ -138,6 +140,8 @@ int cetcd_etcd_env_to_pairs(char *const *envv, int argc, char *const *argv,
                             cetcd_config_pair *out, size_t cap, size_t *n);
 /* Integer MB >= 0. 0 = off. Overflow (MB*1MiB) is INVAL. */
 int cetcd_parse_bootstrap_defrag_mb(const char *s, uint64_t *out);
+/* etcd: 0 / omitted → 2GiB. Other values are unchanged. */
+uint64_t cetcd_quota_backend_bytes_effective(uint64_t n);
 /* 1 if alloc_bytes > threshold_mb MiB. threshold 0 never. */
 int cetcd_backend_should_defrag(uint64_t alloc_bytes, uint64_t threshold_mb);
 /* Cap `target` to compacted+batch_limit. batch_limit 0 leaves target. */
@@ -210,7 +214,7 @@ typedef struct cetcd_server_config {
     uint64_t        max_request_bytes;    /* 0 → CETCD_DEFAULT_MAX_REQUEST_BYTES */
     bool            max_concurrent_streams_set; /* --max-concurrent-streams given */
     uint32_t        max_concurrent_streams;     /* HTTP/2 SETTINGS; 0 = unset */
-    uint64_t        quota_backend_bytes; /* 0 = unlimited */
+    uint64_t        quota_backend_bytes; /* 0 → CETCD_DEFAULT_QUOTA_BACKEND_BYTES */
     uint64_t        max_txn_ops;          /* 0 → CETCD_DEFAULT_MAX_TXN_OPS; cap CETCD_MAX_TXN_OPS */
     char            cipher_suites[512];   /* empty = OpenSSL default; requires TLS */
     bool            tls_min_version_set;  /* --tls-min-version given */

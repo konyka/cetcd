@@ -2436,6 +2436,11 @@ CETCD_TEST_CASE(live_cetcd_quota_backend_bytes) {
     CETCD_ASSERT_EQ_INT(system(cmd), 0);
 
     snprintf(cmd, sizeof(cmd),
+             "'%s' --quota-backend-bytes=0 --help >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_EQ_INT(system(cmd), 0);
+
+    snprintf(cmd, sizeof(cmd),
              "'%s' --quota-backend-bytes abc >/dev/null 2>&1",
              CETCD_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);

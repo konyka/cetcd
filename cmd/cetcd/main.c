@@ -62,7 +62,7 @@ static void print_usage(const char *prog) {
     printf("  --snapshot-count N   Rewrite WAL after N applies (default: 10000; must be > 0)\n");
     printf("  --auto-compaction-mode MODE  periodic (default) or revision\n");
     printf("  --auto-compaction-retention N  0 disables; periodic: duration or hours; revision: revs to keep\n");
-    printf("  --quota-backend-bytes N  NOSPACE when LMDB size >= N (0 = unlimited; invalid fails)\n");
+    printf("  --quota-backend-bytes N  NOSPACE when LMDB size >= N (0 / omitted = 2GiB; invalid fails)\n");
     printf("  --force-new-cluster  Keep MVCC; drop peers except self (requires persisted cluster)\n");
     printf("  --strict-reconfig-check  Reject MemberRemove that loses old quorum (default on; true|false)\n");
     printf("  --max-txn-ops N     Max compare/success/failure ops per Txn (default 128; 1..128)\n");
@@ -755,13 +755,18 @@ int main(int argc, char **argv) {
                 return 1;
             }
             cfg.snapshot_count = (uint64_t)v;
-        } else if (strcmp(argv[i], "--quota-backend-bytes") == 0 && i + 1 < argc) {
-            const char *s = argv[++i];
+        } else if (strcmp(argv[i], "--quota-backend-bytes") == 0 ||
+                   strncmp(argv[i], "--quota-backend-bytes=", 22) == 0) {
+            const char *s = NULL;
+            if (take_flag_value_(&i, argc, argv, &s) != 0) {
+                fprintf(stderr, "--quota-backend-bytes must be an integer (0 = 2GiB)\n");
+                return 1;
+            }
             char *end = NULL;
             errno = 0;
             unsigned long long v = strtoull(s, &end, 10);
             if (errno == ERANGE || !end || end == s || *end) {
-                fprintf(stderr, "--quota-backend-bytes must be an integer (0 = unlimited)\n");
+                fprintf(stderr, "--quota-backend-bytes must be an integer (0 = 2GiB)\n");
                 return 1;
             }
             cfg.quota_backend_bytes = (uint64_t)v;

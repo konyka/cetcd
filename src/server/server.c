@@ -2923,7 +2923,8 @@ int cetcd_server_start(cetcd_server *srv) {
         srv->cfg.max_txn_ops = CETCD_DEFAULT_MAX_TXN_OPS;
     if (srv->cfg.max_txn_ops > CETCD_MAX_TXN_OPS)
         return CETCD_ERR_INVAL;
-    cetcd_v3rpc_set_quota(srv->cfg.quota_backend_bytes);
+    cetcd_v3rpc_set_quota(
+        cetcd_quota_backend_bytes_effective(srv->cfg.quota_backend_bytes));
     cetcd_v3rpc_set_max_txn_ops(srv->cfg.max_txn_ops);
     cetcd_v3rpc_set_watch_progress_interval(
         srv->cfg.watch_progress_interval_ms,
