@@ -350,6 +350,17 @@ int cetcd_discovery_peer_id(const char *target, uint16_t port, uint64_t *id) {
     return 0;
 }
 
+int cetcd_url_is_unix_n(const char *s, size_t n) {
+    if (!s) return 0;
+    if (n >= 7 && memcmp(s, "unix://", 7) == 0) return 1;
+    if (n >= 8 && memcmp(s, "unixs://", 8) == 0) return 1;
+    return 0;
+}
+
+int cetcd_url_is_unix(const char *s) {
+    return s ? cetcd_url_is_unix_n(s, strlen(s)) : 0;
+}
+
 static const char *skip_ws_(const char *s, const char *end) {
     while (s < end && (*s == ' ' || *s == '\t')) s++;
     return s;
@@ -366,6 +377,7 @@ static int parse_one_endpoint_(const char *s, size_t n, cetcd_endpoint *out) {
     const char *end = rtrim_(s, s + n);
     s = skip_ws_(s, end);
     if (s >= end) return CETCD_ERR_INVAL;
+    if (cetcd_url_is_unix_n(s, (size_t)(end - s))) return CETCD_ERR_UNSUPPORT;
     int https = 0;
     if ((size_t)(end - s) >= 8 && strncmp(s, "https://", 8) == 0) {
         https = 1;
@@ -567,7 +579,8 @@ int cetcd_endpoint_parse_list(const char *spec, cetcd_endpoint *out,
         const char *comma = strchr(p, ',');
         size_t chunk = comma ? (size_t)(comma - p) : strlen(p);
         if (got >= cap) return CETCD_ERR_OVERFLOW;
-        if (parse_one_endpoint_(p, chunk, &out[got]) != 0) return CETCD_ERR_INVAL;
+        int prc = parse_one_endpoint_(p, chunk, &out[got]);
+        if (prc != 0) return prc;
         got++;
         if (!comma) break;
         p = comma + 1;

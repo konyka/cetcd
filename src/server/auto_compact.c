@@ -585,6 +585,7 @@ int cetcd_parse_listen_url(const char *s, char *host, size_t host_cap,
                            uint16_t *port, int *https) {
     if (!s || !s[0] || !host || host_cap < 2 || !port || !https)
         return CETCD_ERR_INVAL;
+    if (cetcd_url_is_unix(s)) return CETCD_ERR_UNSUPPORT;
     const char *p = s;
     if (strncmp(p, "https://", 8) == 0) {
         *https = 1;

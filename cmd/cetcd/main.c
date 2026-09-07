@@ -206,10 +206,15 @@ static int apply_etcd_env_(int *argc, char ***argv,
 
 static int apply_client_listen_urls_(const char *s, cetcd_server_config *cfg) {
     int https = 0;
-    if (cetcd_apply_listen_urls(s, cfg->listen_addr, sizeof(cfg->listen_addr),
-                                &cfg->listen_port, &https,
-                                cfg->extra_client_urls, CETCD_MAX_LISTEN_URLS,
-                                &cfg->n_extra_client_urls) != CETCD_OK) {
+    int rc = cetcd_apply_listen_urls(s, cfg->listen_addr, sizeof(cfg->listen_addr),
+                                     &cfg->listen_port, &https,
+                                     cfg->extra_client_urls, CETCD_MAX_LISTEN_URLS,
+                                     &cfg->n_extra_client_urls);
+    if (rc == CETCD_ERR_UNSUPPORT) {
+        fprintf(stderr, "--listen-client-urls unix:// is not supported\n");
+        return 1;
+    }
+    if (rc != CETCD_OK) {
         fprintf(stderr,
                 "--listen-client-urls must be a unique http(s)://host:port list "
                 "(same scheme; port 1..65535)\n");
@@ -221,10 +226,15 @@ static int apply_client_listen_urls_(const char *s, cetcd_server_config *cfg) {
 
 static int apply_peer_listen_urls_(const char *s, cetcd_server_config *cfg) {
     int https = 0;
-    if (cetcd_apply_listen_urls(s, cfg->peer_addr, sizeof(cfg->peer_addr),
-                                &cfg->peer_port, &https,
-                                cfg->extra_peer_urls, CETCD_MAX_LISTEN_URLS,
-                                &cfg->n_extra_peer_urls) != CETCD_OK) {
+    int rc = cetcd_apply_listen_urls(s, cfg->peer_addr, sizeof(cfg->peer_addr),
+                                     &cfg->peer_port, &https,
+                                     cfg->extra_peer_urls, CETCD_MAX_LISTEN_URLS,
+                                     &cfg->n_extra_peer_urls);
+    if (rc == CETCD_ERR_UNSUPPORT) {
+        fprintf(stderr, "--listen-peer-urls unix:// is not supported\n");
+        return 1;
+    }
+    if (rc != CETCD_OK) {
         fprintf(stderr,
                 "--listen-peer-urls must be a unique http(s)://host:port list "
                 "(same scheme; port 1..65535)\n");
@@ -235,8 +245,13 @@ static int apply_peer_listen_urls_(const char *s, cetcd_server_config *cfg) {
 }
 
 static int apply_advertise_client_urls_(const char *s, cetcd_server_config *cfg) {
-    if (cetcd_parse_advertise_urls(s, cfg->advertise_client_urls,
-                                   sizeof(cfg->advertise_client_urls)) != CETCD_OK) {
+    int rc = cetcd_parse_advertise_urls(s, cfg->advertise_client_urls,
+                                        sizeof(cfg->advertise_client_urls));
+    if (rc == CETCD_ERR_UNSUPPORT) {
+        fprintf(stderr, "--advertise-client-urls unix:// is not supported\n");
+        return 1;
+    }
+    if (rc != CETCD_OK) {
         fprintf(stderr,
                 "--advertise-client-urls must be a unique http(s)://host:port list\n");
         return 1;
@@ -245,8 +260,14 @@ static int apply_advertise_client_urls_(const char *s, cetcd_server_config *cfg)
 }
 
 static int apply_advertise_peer_urls_(const char *s, cetcd_server_config *cfg) {
-    if (cetcd_parse_advertise_urls(s, cfg->advertise_peer_urls,
-                                   sizeof(cfg->advertise_peer_urls)) != CETCD_OK) {
+    int rc = cetcd_parse_advertise_urls(s, cfg->advertise_peer_urls,
+                                        sizeof(cfg->advertise_peer_urls));
+    if (rc == CETCD_ERR_UNSUPPORT) {
+        fprintf(stderr,
+                "--initial-advertise-peer-urls unix:// is not supported\n");
+        return 1;
+    }
+    if (rc != CETCD_OK) {
         fprintf(stderr,
                 "--initial-advertise-peer-urls must be a unique http(s)://host:port list\n");
         return 1;
@@ -503,11 +524,17 @@ int main(int argc, char **argv) {
             }
             {
                 int https = 0;
-                if (cetcd_apply_metrics_listen_urls(
+                int mrc = cetcd_apply_metrics_listen_urls(
                         argv[++i], cfg.metrics_addr, sizeof(cfg.metrics_addr),
                         &cfg.metrics_port, cfg.extra_metrics_urls,
                         CETCD_MAX_LISTEN_URLS, &cfg.n_extra_metrics_urls,
-                        &https) != CETCD_OK) {
+                        &https);
+                if (mrc == CETCD_ERR_UNSUPPORT) {
+                    fprintf(stderr,
+                            "--listen-metrics-urls unix:// is not supported\n");
+                    return 1;
+                }
+                if (mrc != CETCD_OK) {
                     fprintf(stderr,
                             "--listen-metrics-urls must be a unique http(s)://host:port list "
                             "(port 1..65535)\n");
@@ -523,11 +550,17 @@ int main(int argc, char **argv) {
             }
             {
                 int https = 0;
-                if (cetcd_apply_metrics_listen_urls(
+                int mrc = cetcd_apply_metrics_listen_urls(
                         argv[i] + 22, cfg.metrics_addr, sizeof(cfg.metrics_addr),
                         &cfg.metrics_port, cfg.extra_metrics_urls,
                         CETCD_MAX_LISTEN_URLS, &cfg.n_extra_metrics_urls,
-                        &https) != CETCD_OK) {
+                        &https);
+                if (mrc == CETCD_ERR_UNSUPPORT) {
+                    fprintf(stderr,
+                            "--listen-metrics-urls unix:// is not supported\n");
+                    return 1;
+                }
+                if (mrc != CETCD_OK) {
                     fprintf(stderr,
                             "--listen-metrics-urls must be a unique http(s)://host:port list "
                             "(port 1..65535)\n");
@@ -563,6 +596,10 @@ int main(int argc, char **argv) {
                                                   &https);
             if (prc == CETCD_ERR_RANGE) {
                 fprintf(stderr, "--initial-cluster port must be 1..65535\n");
+                return 1;
+            }
+            if (prc == CETCD_ERR_UNSUPPORT) {
+                fprintf(stderr, "--initial-cluster unix:// is not supported\n");
                 return 1;
             }
             if (prc != CETCD_OK) {

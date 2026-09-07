@@ -72,9 +72,13 @@ int cetcd_discovery_peer_id(const char *target, uint16_t port, uint64_t *id);
 
 /* Parse `host:port`, `http(s)://host:port`, `[v6]:port`, comma lists.
  * Default port is 2379. Leftover text, port 0, empty host, or more
- * endpoints than cap fail-closed. */
+ * endpoints than cap fail-closed. unix:// / unixs:// is UNSUPPORT. */
 int cetcd_endpoint_parse_list(const char *spec, cetcd_endpoint *out,
                               size_t cap, size_t *n);
+
+/* 1 if s is etcd unix:// or unixs:// (no unix-socket listener). */
+int cetcd_url_is_unix(const char *s);
+int cetcd_url_is_unix_n(const char *s, size_t n);
 
 /* Resolve host:port into sockaddr_storage (ss_cap >= sizeof that type).
  * Numeric IPv4/IPv6 skip DNS. Hostnames use getaddrinfo and prefer IPv4

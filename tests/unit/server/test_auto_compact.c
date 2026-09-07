@@ -300,7 +300,12 @@ CETCD_TEST_CASE(auto_compact_parse_listen_url) {
                         CETCD_ERR_INVAL);
     CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("unix:///tmp/m", host,
                                                sizeof(host), &port, &https),
-                        CETCD_ERR_INVAL);
+                        CETCD_ERR_UNSUPPORT);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("unixs://tmp/etcd.sock", host,
+                                               sizeof(host), &port, &https),
+                        CETCD_ERR_UNSUPPORT);
+    CETCD_ASSERT_EQ_INT(cetcd_url_is_unix("unix://localhost:2379"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_url_is_unix("http://127.0.0.1:2379"), 0);
     CETCD_ASSERT_EQ_INT(cetcd_parse_listen_url("http://127.0.0.1:2381/x", host,
                                                sizeof(host), &port, &https),
                         CETCD_ERR_INVAL);
@@ -346,6 +351,8 @@ CETCD_TEST_CASE(auto_compact_parse_listen_urls) {
     CETCD_ASSERT_EQ_INT(cetcd_parse_listen_urls(
         "http://127.0.0.1:2379,http://10.0.0.1:2379", urls, 1, &n),
                         CETCD_ERR_OVERFLOW);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_listen_urls(
+        "unix://localhost:2379", urls, 4, &n), CETCD_ERR_UNSUPPORT);
 
     char host[64];
     uint16_t port = 0;

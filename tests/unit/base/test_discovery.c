@@ -225,6 +225,16 @@ CETCD_TEST_CASE(endpoint_parse_fail_closed) {
     CETCD_ASSERT_TRUE(cetcd_endpoint_parse_list("host:abc", eps, 2, &n) != 0);
     CETCD_ASSERT_TRUE(cetcd_endpoint_parse_list(":2379", eps, 2, &n) != 0);
     CETCD_ASSERT_TRUE(cetcd_endpoint_parse_list("a:1,b:2", eps, 1, &n) != 0);
+    CETCD_ASSERT_EQ_INT(cetcd_endpoint_parse_list("unix://localhost:2379", eps,
+                                                  2, &n),
+                        CETCD_ERR_UNSUPPORT);
+    CETCD_ASSERT_EQ_INT(cetcd_endpoint_parse_list(
+                            "127.0.0.1:2379,unixs://tmp/etcd.sock", eps, 2, &n),
+                        CETCD_ERR_UNSUPPORT);
+    CETCD_ASSERT_EQ_INT(cetcd_url_is_unix("unix://localhost:2379"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_url_is_unix("unixs://tmp/etcd.sock"), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_url_is_unix("http://127.0.0.1:2379"), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_url_is_unix_n("unix://x", 7), 1);
 }
 
 CETCD_TEST_CASE(host_port_resolve_numeric_and_localhost) {

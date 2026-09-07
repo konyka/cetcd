@@ -122,6 +122,17 @@ CETCD_TEST_CASE(parse_peer_url_leftover) {
     CETCD_ASSERT_EQ_INT(cetcd_parse_peer_url(v6left, strlen(v6left),
                                             addr, sizeof(addr), &port),
                         CETCD_ERR_RANGE);
+    const char *ux = "unix://localhost:2380";
+    CETCD_ASSERT_EQ_INT(cetcd_parse_peer_url(ux, strlen(ux),
+                                            addr, sizeof(addr), &port),
+                        CETCD_ERR_UNSUPPORT);
+    {
+        cetcd_peer_info peers[2];
+        uint32_t n = 0;
+        CETCD_ASSERT_EQ_INT(cetcd_parse_initial_cluster(
+            "1=unix://localhost:2380", peers, 2, &n, NULL),
+                            CETCD_ERR_UNSUPPORT);
+    }
 }
 
 CETCD_TEST_CASE(parse_rejects_empty_duplicate_overflow) {

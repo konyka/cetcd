@@ -25,6 +25,7 @@ int cetcd_parse_host_port(const char *url, size_t url_len,
     buf[url_len] = '\0';
     trim_(buf);
     if (!buf[0]) return CETCD_ERR_INVAL;
+    if (cetcd_url_is_unix(buf)) return CETCD_ERR_UNSUPPORT;
 
     char *p = buf;
     if (strncmp(p, "https://", 8) == 0) p += 8;

@@ -31,13 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 100 — hashkv --rev</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 101 — unix:// fail-closed</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 100 leftover-safe-parses
-     <code>hashkv --rev</code> so <code>10foo</code> cannot hash the live
-     tree and a swallowed <code>--rev</code> cannot be ignored.</p>
+  <p><strong>v0.3.0</strong>. Phase 101 fail-closes etcd
+     <code>unix://</code> listen/peer/endpoints as known-unsupported
+     so <code>unix://localhost:2380</code> cannot bind as host
+     <code>unix://localhost</code>.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -153,6 +154,7 @@
       <tr><td>98</td><td>hostname listen URLs</td><td>http://localhost:2379 (etcd default) resolves via getaddrinfo (IPv4 preferred) for bind/peer/metrics; leftover 127.0.0.1foo / unresolvable names fail-close — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>99</td><td>IPv6 host:port emit</td><td>cetcd_format_host_port leftover-safe-emits [::1]:2379 for advertise / MemberList / cetcdctl endpoint so ::1:2379 cannot look like port 1 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>100</td><td>hashkv --rev</td><td>cetcdctl hashkv / endpoint hashkv leftover-safe-send HashKVRequest.revision; 10foo fail-closes; omitted / 0 = current; unknown leftover flags fail-close — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>101</td><td>unix:// fail-closed</td><td>unix:// / unixs:// listen, advertise, initial-cluster, metrics, and --endpoints fail-close as known-unsupported (no unix listener; not host unix://localhost) — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

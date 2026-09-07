@@ -543,6 +543,11 @@ Performance-first, fail-closed design:
   revision (`>= 0`; omitted / `0` = current). `10foo` fail-closes.
   A swallowed `--rev` would hash the live tree instead of the requested
   revision. Unknown leftover flags on those commands also fail-close.
+- **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
+  sockets. cetcd has no unix listener, so `--listen-*-urls`,
+  advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`
+  fail-close as known-unsupported (not an unknown invalid URL, and not
+  host `unix://localhost`). Implementing a fake bind is rejected.
 - **`--host-whitelist`** — comma-separated Host names on the metrics
   HTTP port. Empty / `*` (omitted default) allows all. A restricted list
   waits for headers and returns 403 if Host is missing or not listed

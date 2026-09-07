@@ -6515,8 +6515,13 @@ int main(int argc, char **argv) {
                 return 1;
             }
             size_t n = 0;
-            if (cetcd_endpoint_parse_list(s, g_eps,
-                                          CETCD_DISCOVERY_MAX_ENDPOINTS, &n) != 0) {
+            int erc = cetcd_endpoint_parse_list(s, g_eps,
+                                                CETCD_DISCOVERY_MAX_ENDPOINTS, &n);
+            if (erc == CETCD_ERR_UNSUPPORT) {
+                fprintf(stderr, "--endpoints unix:// is not supported\n");
+                return 1;
+            }
+            if (erc != 0) {
                 fprintf(stderr, "--endpoints is invalid (host:port 1..65535, comma list)\n");
                 return 1;
             }
