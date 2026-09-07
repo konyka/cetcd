@@ -268,6 +268,52 @@ CETCD_TEST_CASE(snap_parse_filename_leftover) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(snap_parse_migrate_argv_leftover) {
+    const char *data = NULL, *out = NULL;
+    int verbose = 0;
+
+    char *ok[] = { "cetcd-migrate", "--data-dir", "/e", "--output-dir", "/c" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_migrate_argv(5, ok, 1, &data, &out,
+                                                &verbose), CETCD_OK);
+    CETCD_ASSERT_EQ_STR(data, "/e");
+    CETCD_ASSERT_EQ_STR(out, "/c");
+    CETCD_ASSERT_EQ_INT(verbose, 0);
+
+    char *eq[] = { "cetcd-migrate", "--data-dir=/e", "--output-dir=/c",
+                   "--verbose" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_migrate_argv(4, eq, 1, &data, &out,
+                                                &verbose), CETCD_OK);
+    CETCD_ASSERT_EQ_STR(data, "/e");
+    CETCD_ASSERT_EQ_STR(out, "/c");
+    CETCD_ASSERT_EQ_INT(verbose, 1);
+
+    char *off[] = { "cetcd-migrate", "--data-dir=/e", "--output-dir=/c",
+                    "--verbose=false" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_migrate_argv(4, off, 1, &data, &out,
+                                                &verbose), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(verbose, 0);
+
+    char *eat[] = { "cetcd-migrate", "--data-dir", "--output-dir", "/c" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_migrate_argv(4, eat, 1, &data, &out,
+                                                &verbose), CETCD_ERR_INVAL);
+
+    char *empty[] = { "cetcd-migrate", "--data-dir=", "--output-dir=/c" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_migrate_argv(3, empty, 1, &data, &out,
+                                                &verbose), CETCD_ERR_INVAL);
+
+    char *foo[] = { "cetcd-migrate", "--data-dir", "/e", "--output-dir", "/c",
+                    "--foo" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_migrate_argv(6, foo, 1, &data, &out,
+                                                &verbose), CETCD_ERR_INVAL);
+
+    char *missing[] = { "cetcd-migrate", "--data-dir", "/e" };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_migrate_argv(3, missing, 1, &data, &out,
+                                                &verbose), CETCD_ERR_INVAL);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_migrate_argv(5, ok, 1, NULL, &out,
+                                                &verbose), CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(snap_create_destroy),
     CETCD_TEST_ENTRY(snap_add_entries),
@@ -281,6 +327,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(snap_cts2_verify_fail_closed),
     CETCD_TEST_ENTRY(snap_cts1_and_raw_have_no_hash),
     CETCD_TEST_ENTRY(snap_parse_filename_leftover),
+    CETCD_TEST_ENTRY(snap_parse_migrate_argv_leftover),
 CETCD_TEST_LIST_END
 
 CETCD_TEST_MAIN()

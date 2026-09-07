@@ -585,6 +585,11 @@ Performance-first, fail-closed design:
   (hex). Leftover-safe hex so `123foo-456.snap` cannot win latest with
   a truncated decimal term, and `…000a.snap` is index 10 (not `atoll`
   0). Accepting `atoll` truncation is rejected.
+- **`cetcd-migrate` leftover `--data-dir`** — leftover-safe so
+  `--data-dir --output-dir /c` cannot eat `--output-dir` as the path.
+  Honors `--flag=VALUE` (empty `--flag=` is INVAL). `--verbose[=bool]`.
+  Unknown leftover flags fail-close. Missing data-dir or output-dir is
+  INVAL. Accepting a leftover `--` value as the path is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

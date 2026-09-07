@@ -887,9 +887,9 @@ static void print_usage(const char *prog) {
     printf("cetcd-migrate — migrate etcd data to cetcd (LMDB)\n");
     printf("Usage: %s [options]\n", prog);
     printf("Options:\n");
-    printf("  --data-dir DIR     etcd data directory (required)\n");
-    printf("  --output-dir DIR   cetcd output directory (required)\n");
-    printf("  --verbose          Enable verbose output\n");
+    printf("  --data-dir DIR     etcd data directory (required; --data-dir=DIR)\n");
+    printf("  --output-dir DIR   cetcd output directory (required; --output-dir=DIR)\n");
+    printf("  --verbose          Enable verbose output (--verbose=false off)\n");
     printf("  --help             Show this help\n");
 }
 
@@ -901,25 +901,15 @@ int main(int argc, char **argv) {
     int verbose = 0;
 
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--data-dir") == 0 && i + 1 < argc) {
-            data_dir = argv[++i];
-        } else if (strcmp(argv[i], "--output-dir") == 0 && i + 1 < argc) {
-            output_dir = argv[++i];
-        } else if (strcmp(argv[i], "--verbose") == 0) {
-            verbose = 1;
-            cetcd_log_set_level(CETCD_LOG_DEBUG);
-        } else if (strcmp(argv[i], "--help") == 0) {
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
             print_usage(argv[0]);
             return 0;
-        } else {
-            fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            print_usage(argv[0]);
-            return 1;
         }
     }
-
-    if (!data_dir || !output_dir) {
-        fprintf(stderr, "Error: --data-dir and --output-dir are required\n\n");
+    if (cetcd_parse_migrate_argv(argc, argv, 1, &data_dir, &output_dir,
+                                &verbose) != CETCD_OK) {
+        fprintf(stderr, "Error: leftover-safe --data-dir/--output-dir required "
+                "(--data-dir --output-dir cannot eat a flag as the path)\n\n");
         print_usage(argv[0]);
         return 1;
     }

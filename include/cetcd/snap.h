@@ -65,6 +65,14 @@ void cetcd_snap_free_entries(cetcd_snap_entry *entries, size_t count);
  * Index must be > 0. */
 int cetcd_parse_snap_filename(const char *name, uint64_t *term,
                               uint64_t *index);
+/* leftover-safe migrate argv from `start`. Honors --data-dir / --output-dir
+ * (`--flag=VALUE` or next argv). Empty `--flag=` is INVAL. A leftover
+ * `--` value (`--data-dir --output-dir`) is INVAL so a flag cannot become
+ * the path. --verbose[=bool]. Unknown leftover flags are INVAL. Missing
+ * data-dir or output-dir is INVAL. */
+int cetcd_parse_migrate_argv(int argc, char *const *argv, int start,
+                             const char **data_dir, const char **output_dir,
+                             int *verbose);
 
 #ifdef __cplusplus
 }

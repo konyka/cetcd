@@ -455,3 +455,90 @@ int cetcd_parse_snap_filename(const char *name, uint64_t *term,
     if (*index == 0) return CETCD_ERR_INVAL;
     return CETCD_OK;
 }
+
+static int migrate_flag_is_(const char *arg, const char *name) {
+    size_t n;
+    if (!arg || !name) return 0;
+    n = strlen(name);
+    if (strncmp(arg, name, n) != 0) return 0;
+    return arg[n] == '\0' || arg[n] == '=';
+}
+
+static int migrate_take_path_(int *i, int argc, char *const *argv,
+                              const char *name, const char **out) {
+    const char *arg;
+    size_t n;
+    if (!i || !argv || !name || !out || *i < 0 || *i >= argc)
+        return CETCD_ERR_INVAL;
+    arg = argv[*i];
+    n = strlen(name);
+    if (arg[n] == '=') {
+        if (!arg[n + 1]) return CETCD_ERR_INVAL;
+        *out = arg + n + 1;
+        return CETCD_OK;
+    }
+    if (*i + 1 >= argc || !argv[*i + 1] || !argv[*i + 1][0])
+        return CETCD_ERR_INVAL;
+    /* leftover `--flag` cannot become the path */
+    if (argv[*i + 1][0] == '-' && argv[*i + 1][1] == '-')
+        return CETCD_ERR_INVAL;
+    *out = argv[++*i];
+    return CETCD_OK;
+}
+
+static int migrate_take_bool_(const char *arg, const char *name, int *out) {
+    size_t n;
+    if (!arg || !name || !out) return CETCD_ERR_INVAL;
+    n = strlen(name);
+    if (arg[n] == '\0') {
+        *out = 1;
+        return CETCD_OK;
+    }
+    if (arg[n] != '=') return CETCD_ERR_INVAL;
+    if (strcmp(arg + n + 1, "true") == 0 || strcmp(arg + n + 1, "1") == 0) {
+        *out = 1;
+        return CETCD_OK;
+    }
+    if (strcmp(arg + n + 1, "false") == 0 || strcmp(arg + n + 1, "0") == 0) {
+        *out = 0;
+        return CETCD_OK;
+    }
+    return CETCD_ERR_INVAL;
+}
+
+int cetcd_parse_migrate_argv(int argc, char *const *argv, int start,
+                             const char **data_dir, const char **output_dir,
+                             int *verbose) {
+    int i;
+    if (!argv || !data_dir || !output_dir || !verbose ||
+        start < 0 || start > argc)
+        return CETCD_ERR_INVAL;
+    *data_dir = NULL;
+    *output_dir = NULL;
+    *verbose = 0;
+    for (i = start; i < argc; i++) {
+        if (!argv[i]) return CETCD_ERR_INVAL;
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0)
+            continue;
+        if (migrate_flag_is_(argv[i], "--data-dir")) {
+            if (migrate_take_path_(&i, argc, argv, "--data-dir", data_dir)
+                != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            continue;
+        }
+        if (migrate_flag_is_(argv[i], "--output-dir")) {
+            if (migrate_take_path_(&i, argc, argv, "--output-dir", output_dir)
+                != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            continue;
+        }
+        if (migrate_flag_is_(argv[i], "--verbose")) {
+            if (migrate_take_bool_(argv[i], "--verbose", verbose) != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            continue;
+        }
+        return CETCD_ERR_INVAL;
+    }
+    if (!*data_dir || !*output_dir) return CETCD_ERR_INVAL;
+    return CETCD_OK;
+}

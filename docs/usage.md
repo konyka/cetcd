@@ -773,9 +773,9 @@ environment plus a cetcd-compatible WAL.
 
 | Flag | Description |
 |------|-------------|
-| `--data-dir PATH` | Source etcd data directory (contains `member/snap/db`, WAL segments, etc.) |
-| `--output-dir PATH` | Destination directory for the converted LMDB env and WAL |
-| `--verbose` | Print per-key progress and summary statistics |
+| `--data-dir PATH` | Source etcd data directory (contains `member/snap/db`, WAL segments, etc.). Leftover-safe (`--data-dir=PATH` or next argv; `--data-dir --output-dir` cannot eat a flag as the path; empty `--data-dir=` fail-closes) |
+| `--output-dir PATH` | Destination directory for the converted LMDB env and WAL (same leftover-safe `=` / next-argv rules) |
+| `--verbose` | Print per-key progress and summary statistics (`--verbose` / `--verbose=true` on; `--verbose=false` off) |
 
 The destination directory must not already contain a cetcd database; the tool
 refuses to overwrite existing data as a safety measure. After migration, start

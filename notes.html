@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 108 — leftover check --flags</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 109 — leftover migrate --data-dir</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 108 leftover-safe-rejects unknown
-     <code>--</code> flags on <code>check perf</code>/<code>check datascale</code>
-     so <code>check perf --foo</code> cannot start a write load.</p>
+  <p><strong>v0.3.0</strong>. Phase 109 leftover-safe-parses
+     <code>cetcd-migrate --data-dir</code>/<code>--output-dir</code>
+     so <code>--data-dir --output-dir</code> cannot eat a flag as the path.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -161,6 +161,7 @@
       <tr><td>106</td><td>leftover-safe migrate snap name</td><td>cetcd-migrate leftover-safe-parses etcd %016x-%016x.snap (hex); 123foo-456.snap cannot win latest; …000a.snap is index 10 not atoll 0 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>107</td><td>leftover txn/auth --flags</td><td>unknown leftover -- flags fail-close so txn put --foo cannot write key --foo, txn put -w json cannot treat -w as the key, and auth login --foo cannot authenticate as --foo — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>108</td><td>leftover check --flags</td><td>unknown leftover -- flags fail-close so check perf --foo / check datascale --foo cannot start a write load — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>109</td><td>leftover migrate --data-dir</td><td>cetcd-migrate leftover-safe-parses --data-dir / --output-dir (--flag=VALUE or next argv); --data-dir --output-dir cannot eat a flag as the path; empty --flag= fail-closes — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>
