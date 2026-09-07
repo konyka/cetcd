@@ -99,7 +99,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 ### v0.3.0 新特性
 
 - **协程驱动的 Watch 双向流**：每个 watcher 运行在独立的 libco 协程中，事件到达时通过 `uv_async_send` 唤醒协程并推送 `WatchResponse`，支持单连接多 watcher 多路复用。详见 [ADR 0004](../adr/0004-watch-streaming-coroutines.md) 与 [架构设计 §Watch streaming](../architecture.md#watch-streaming-architecture)。
-- **Prometheus metrics HTTP 端点**：默认监听 2381 端口，`GET /metrics` 返回 Prometheus 文本格式；`--metrics extensive` 才对一元 RPC 记录 `grpc_server_handling_seconds`（省略/`basic` 不加 per-RPC 时钟）；`GET /health` 返回 etcd JSON（无 leader / NOSPACE / CORRUPT 为 503；`serializable=true` 跳过 leader；`exclude=` 跳过对应告警）。详见 [usage.md §Observability](../usage.md#observability)。
+- **Prometheus metrics HTTP 端点**：默认监听 2381 端口，`GET /metrics` 返回 Prometheus 文本格式；`--listen-metrics-urls` 的 `https://` 用 `--cert-file` / `--auto-tls` 做 TLS（无 ALPN）；`--metrics extensive` 才对一元 RPC 记录 `grpc_server_handling_seconds`（省略/`basic` 不加 per-RPC 时钟）；`GET /health` 返回 etcd JSON（无 leader / NOSPACE / CORRUPT 为 503；`serializable=true` 跳过 leader；`exclude=` 跳过对应告警）。详见 [usage.md §Observability](../usage.md#observability)。
 - **etcd 迁移工具 `cetcd-migrate`**：离线读取 etcd 数据目录（bbolt + WAL + snap），转换为 cetcd 原生的 LMDB 环境与 WAL。详见 [usage.md §Migrating from etcd](../usage.md#migrating-from-etcd)。
 - **pprof 性能分析端点**：`--enable-pprof`（省略默认关）才在 metrics 端口提供 `/debug/pprof/profile`、`/debug/pprof/heap`、`/debug/pprof/coroutines`；未开启则 404。CPU profile 在 libuv 工作线程采集（`SIGPROF` 采样 on-CPU 线程），不阻塞 Raft reactor；并发采集返回 409。输出为 folded-stack 文本。详见 [usage.md §Profiling](../usage.md#profiling)。
 
@@ -836,7 +836,7 @@ file, `ETCD_*` maps to `--flag` (`ETCD_LISTEN_CLIENT_URLS`; empty ignored;
 `--port` is `1..65535`; a typo fail-closes instead of binding port `0`.
 `--peer-port` is `1..65535`; a typo fail-closes instead of binding the Raft port on `0`.
 `--metrics-port` is `0..65535` (`0` disables); a typo fail-closes instead of silently disabling metrics.
-`--listen-metrics-urls` is a UniqueURLs comma list of `http://host:port` (port `1..65535`). It binds `/metrics` and `/health` on every URL. `https` (no metrics TLS) / duplicate / leftover text / mix with `--metrics-port` fail-closes.
+`--listen-metrics-urls` is a UniqueURLs comma list of `http(s)://host:port` (port `1..65535`). It binds `/metrics` and `/health` on every URL. Mixed http/https is allowed. `https://` terminates TLS with `--cert-file` / `--auto-tls` (no ALPN). Missing cert / duplicate / leftover text / mix with `--metrics-port` fail-closes.
 `--host-whitelist` is a comma-separated Host list on that port (omitted / `*` / empty = allow all). A restricted list 403s a missing or unknown Host (port stripped).
 `--metrics` is `basic` or `extensive` (omitted default `basic`). `extensive` times unary RPC and observes `grpc_server_handling_seconds` (Prometheus DefBuckets). Other values or a missing value fail-close. `basic` does not take a per-RPC clock.
 `--socket-reuse-port` is `true`/`false`/`1`/`0` (bare flag is on; omitted default off). It sets `SO_REUSEPORT` on client, peer, and metrics listeners. Windows fail-closes. A non-bool fail-closes. `--socket-reuse-address` stays unknown (libuv already sets `SO_REUSEADDR`).

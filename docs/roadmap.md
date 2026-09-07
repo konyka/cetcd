@@ -401,9 +401,9 @@ Performance-first, fail-closed design:
 - **`--listen-metrics-urls`** — UniqueURLs comma list of `http://host:port`
   (port `1..65535`). Binds `/metrics` and `/health` on every URL instead
   of `{listen-addr}:{metrics-port}`. A comma list is no longer rejected.
-  `https://` fail-closes (no metrics TLS). Duplicate host:port, IPv6, a
-  missing value, leftover text, or mixing with `--metrics-port`
-  fail-closes.
+  `https://` terminates TLS with `--cert-file` / `--auto-tls`. Duplicate
+  host:port, IPv6, a missing value, leftover text, or mixing with
+  `--metrics-port` fail-closes.
 - **`--experimental-wait-cluster-ready`** — bool (omitted default off;
   bare / `true` waits). Client listen is delayed until Raft has a
   leader (peer listen and ticks still run). A single-node that already
@@ -568,6 +568,12 @@ Performance-first, fail-closed design:
   (explicitly off). A typo is `unknown flag`. The old catch-all no
   longer swallows the next argv (it could eat `--data-dir`). Accepting
   them as a no-op is rejected.
+- **`--listen-metrics-urls` https** — `https://` terminates TLS on that
+  listener with the client cert (`--cert-file` / `--auto-tls`; same CA,
+  CRL, cipher, version, and client-cert-auth). Mixed http/https is
+  allowed. No ALPN (HTTP/1 scrape). Missing cert fail-closes. An `http://`
+  client listen is not wrapped just because metrics needs certs.
+  Accepting https as a no-op or plaintext is rejected.
 
 ## Previously done (auth data plane)
 

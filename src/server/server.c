@@ -73,6 +73,7 @@ struct cetcd_server {
     uint64_t             peer_drops;
     uint64_t             last_snap_index;
     cetcd_tls_ctx       *tls_client;
+    cetcd_tls_ctx       *tls_metrics; /* client certs, no ALPN (HTTP/1 scrape) */
     cetcd_tls_ctx       *tls_peer;
     cetcd_tls_ctx       *tls_peer_out;
     cetcd_auto_compact_state ac;
@@ -849,6 +850,8 @@ static void client_close_cb_(uv_handle_t *handle) {
 typedef struct metrics_conn_ctx_ {
     cetcd_server *srv;
     uv_tcp_t      client;
+    cetcd_tls_conn *tls;
+    int           tls_ready;
     char          req[4096];
     size_t        req_len;
     cetcd_buf_t   resp;
@@ -865,6 +868,7 @@ typedef struct metrics_conn_ctx_ {
 static void on_metrics_close_(uv_handle_t *handle) {
     metrics_conn_ctx_ *ctx = (metrics_conn_ctx_ *)handle->data;
     if (!ctx) return;
+    cetcd_tls_conn_free(ctx->tls);
     cetcd_buf_free(&ctx->resp);
     cetcd_buf_free(&ctx->pprof_body);
     free(ctx);
@@ -892,6 +896,33 @@ static void metrics_send_response_(metrics_conn_ctx_ *ctx, int code,
         code, status_text, content_type, body_len);
     if (body && body_len > 0) {
         cetcd_buf_append(&ctx->resp, body, body_len);
+    }
+    if (ctx->tls) {
+        int w = cetcd_tls_write(ctx->tls, ctx->resp.data, ctx->resp.len);
+        if (w < 0) {
+            uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
+            return;
+        }
+        cetcd_tls_shutdown(ctx->tls);
+        cetcd_buf_free(&ctx->resp);
+        cetcd_buf_init(&ctx->resp);
+        for (;;) {
+            uint8_t tmp[16384];
+            int n = cetcd_tls_pending_out(ctx->tls, tmp, sizeof(tmp));
+            if (n < 0) {
+                uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
+                return;
+            }
+            if (n == 0) break;
+            if (cetcd_buf_append(&ctx->resp, tmp, (size_t)n) != 0) {
+                uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
+                return;
+            }
+        }
+        if (ctx->resp.len == 0) {
+            uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
+            return;
+        }
     }
     ctx->write_req.data = ctx;
     uv_buf_t wbuf = uv_buf_init((char *)ctx->resp.data, (unsigned int)ctx->resp.len);
@@ -1052,35 +1083,15 @@ static int metrics_parse_request_(metrics_conn_ctx_ *ctx) {
     return route;
 }
 
-static void on_metrics_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
-    metrics_conn_ctx_ *ctx = (metrics_conn_ctx_ *)stream->data;
-    if (!ctx) {
-        if (buf->base) free(buf->base);
-        return;
-    }
+static int metrics_req_append_(metrics_conn_ctx_ *ctx, const void *p, size_t n) {
+    if (!ctx || !p) return -1;
+    if (ctx->req_len + n > sizeof(ctx->req)) return -1;
+    memcpy(ctx->req + ctx->req_len, p, n);
+    ctx->req_len += n;
+    return 0;
+}
 
-    if (nread <= 0) {
-        if (buf->base) free(buf->base);
-        if (nread < 0) {
-            if (ctx->pprof_pending) {
-                ctx->pprof_abandoned = 1;
-                (void)uv_cancel((uv_req_t *)&ctx->pprof_work);
-                return;
-            }
-            uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
-        }
-        return;
-    }
-
-    if (ctx->req_len + (size_t)nread > sizeof(ctx->req)) {
-        if (buf->base) free(buf->base);
-        uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
-        return;
-    }
-    memcpy(ctx->req + ctx->req_len, buf->base, (size_t)nread);
-    ctx->req_len += (size_t)nread;
-    if (buf->base) free(buf->base);
-
+static void metrics_dispatch_(metrics_conn_ctx_ *ctx, uv_stream_t *stream) {
     int parsed = metrics_parse_request_(ctx);
     if (parsed == 0) {
         /* Need more data; keep reading. */
@@ -1158,6 +1169,73 @@ static void on_metrics_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t 
     }
 }
 
+static void on_metrics_read_(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
+    metrics_conn_ctx_ *ctx = (metrics_conn_ctx_ *)stream->data;
+    if (!ctx) {
+        if (buf->base) free(buf->base);
+        return;
+    }
+
+    if (nread <= 0) {
+        if (buf->base) free(buf->base);
+        if (nread < 0) {
+            if (ctx->pprof_pending) {
+                ctx->pprof_abandoned = 1;
+                (void)uv_cancel((uv_req_t *)&ctx->pprof_work);
+                return;
+            }
+            uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
+        }
+        return;
+    }
+
+    if (ctx->tls) {
+        int rc = cetcd_tls_feed(ctx->tls, buf->base, (size_t)nread);
+        if (buf->base) free(buf->base);
+        if (rc != CETCD_OK) {
+            uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
+            return;
+        }
+        if (!ctx->tls_ready) {
+            int hs = cetcd_tls_handshake(ctx->tls);
+            if (tls_flush_uv_((uv_stream_t *)&ctx->client, ctx->tls) < 0 || hs < 0) {
+                uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
+                return;
+            }
+            if (hs == 0) return;
+            if (!tls_client_identity_ok_(ctx->srv, ctx->tls)) {
+                uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
+                return;
+            }
+            ctx->tls_ready = 1;
+        }
+        for (;;) {
+            uint8_t tmp[4096];
+            int n = cetcd_tls_read(ctx->tls, tmp, sizeof(tmp));
+            if (n < 0) {
+                uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
+                return;
+            }
+            if (n == 0) break;
+            if (metrics_req_append_(ctx, tmp, (size_t)n) != 0) {
+                uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
+                return;
+            }
+        }
+        if (ctx->req_len == 0) return;
+        metrics_dispatch_(ctx, stream);
+        return;
+    }
+
+    if (metrics_req_append_(ctx, buf->base, (size_t)nread) != 0) {
+        if (buf->base) free(buf->base);
+        uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
+        return;
+    }
+    if (buf->base) free(buf->base);
+    metrics_dispatch_(ctx, stream);
+}
+
 static void on_metrics_alloc_(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
     (void)handle;
     size_t cap = suggested_size > 0 ? suggested_size : 4096;
@@ -1168,6 +1246,17 @@ static void on_metrics_alloc_(uv_handle_t *handle, size_t suggested_size, uv_buf
         return;
     }
     *buf = uv_buf_init(slab, (unsigned int)cap);
+}
+
+static int metrics_listener_is_https_(cetcd_server *srv, uv_stream_t *server) {
+    if (!srv || !server) return 0;
+    if (server == (uv_stream_t *)&srv->metrics_listener)
+        return srv->cfg.metrics_listen_https ? 1 : 0;
+    for (uint32_t i = 0; i < srv->n_extra_metrics_listeners; i++) {
+        if (server == (uv_stream_t *)&srv->extra_metrics_listeners[i])
+            return srv->cfg.extra_metrics_urls[i].https ? 1 : 0;
+    }
+    return 0;
 }
 
 static void on_metrics_connection_(uv_stream_t *server, int status) {
@@ -1185,6 +1274,17 @@ static void on_metrics_connection_(uv_stream_t *server, int status) {
     if (uv_accept(server, (uv_stream_t *)&ctx->client) != 0) {
         uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
         return;
+    }
+    if (metrics_listener_is_https_(srv, server)) {
+        if (!srv->tls_metrics) {
+            uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
+            return;
+        }
+        ctx->tls = cetcd_tls_conn_accept(srv->tls_metrics);
+        if (!ctx->tls) {
+            uv_close((uv_handle_t *)&ctx->client, on_metrics_close_);
+            return;
+        }
     }
     ctx->client.data = ctx;
     uv_read_start((uv_stream_t *)&ctx->client, on_metrics_alloc_, on_metrics_read_);
@@ -1677,7 +1777,7 @@ static void on_client_conn_(cetcd_tcp *server, cetcd_tcp *client, void *arg) {
 
     uv_stream_t *stream = cetcd_tcp_stream(client);
     if (stream) {
-        if (srv->tls_client) {
+        if (srv->tls_client && srv->cfg.listen_https) {
             ctx->tls = cetcd_tls_conn_accept(srv->tls_client);
             if (!ctx->tls) {
                 free(ctx->buf);
@@ -2607,6 +2707,7 @@ void cetcd_server_free(cetcd_server *srv) {
         cetcd_v3rpc_set_metrics(NULL);
     if (srv->metrics) cetcd_metrics_free(srv->metrics);
     cetcd_tls_ctx_free(srv->tls_client);
+    cetcd_tls_ctx_free(srv->tls_metrics);
     cetcd_tls_ctx_free(srv->tls_peer);
     cetcd_tls_ctx_free(srv->tls_peer_out);
     free(srv);
@@ -2799,6 +2900,11 @@ int cetcd_server_start(cetcd_server *srv) {
     if (cetcd_advertise_urls_has_https(srv->cfg.advertise_peer_urls) &&
         !srv->cfg.peer_cert_file[0])
         return CETCD_ERR_INVAL;
+    if (cetcd_metrics_listen_has_https(srv->cfg.metrics_listen_https,
+                                       srv->cfg.extra_metrics_urls,
+                                       srv->cfg.n_extra_metrics_urls) &&
+        !srv->cfg.cert_file[0])
+        return CETCD_ERR_INVAL;
     if (!srv->cfg.advertise_client_urls[0]) {
         if (cetcd_format_listen_advertise(
                 srv->cfg.listen_addr[0] ? srv->cfg.listen_addr : "127.0.0.1",
@@ -2853,18 +2959,43 @@ int cetcd_server_start(cetcd_server *srv) {
         int peer_auth = srv->cfg.peer_client_cert_auth ||
                         !cetcd_tls_name_list_open(srv->cfg.peer_cert_allowed_cn) ||
                         !cetcd_tls_name_list_open(srv->cfg.peer_cert_allowed_hostname);
-        int trc = load_tls_ctx_(&srv->tls_client,
+        int want_client_tls = srv->cfg.listen_https;
+        int want_metrics_tls = cetcd_metrics_listen_has_https(
+            srv->cfg.metrics_listen_https,
+            srv->cfg.extra_metrics_urls,
+            srv->cfg.n_extra_metrics_urls);
+        int trc = CETCD_OK;
+        if (want_client_tls) {
+            trc = load_tls_ctx_(&srv->tls_client,
                                 srv->cfg.cert_file, srv->cfg.key_file,
                                 srv->cfg.trusted_ca_file, client_auth, 0,
                                 srv->cfg.cipher_suites, vmin, vmax,
                                 srv->cfg.client_crl_file);
-        if (trc != CETCD_OK) return trc;
-        if (srv->tls_client) {
-            const char *alpn[] = { "h2" };
-            if (cetcd_tls_set_alpn(srv->tls_client, alpn, 1) != CETCD_OK) {
+            if (trc != CETCD_OK) return trc;
+            if (srv->tls_client) {
+                const char *alpn[] = { "h2" };
+                if (cetcd_tls_set_alpn(srv->tls_client, alpn, 1) != CETCD_OK) {
+                    cetcd_tls_ctx_free(srv->tls_client);
+                    srv->tls_client = NULL;
+                    return CETCD_ERR_INTERNAL;
+                }
+            }
+        }
+        if (want_metrics_tls) {
+            trc = load_tls_ctx_(&srv->tls_metrics,
+                                srv->cfg.cert_file, srv->cfg.key_file,
+                                srv->cfg.trusted_ca_file, client_auth, 0,
+                                srv->cfg.cipher_suites, vmin, vmax,
+                                srv->cfg.client_crl_file);
+            if (trc != CETCD_OK) {
                 cetcd_tls_ctx_free(srv->tls_client);
                 srv->tls_client = NULL;
-                return CETCD_ERR_INTERNAL;
+                return trc;
+            }
+            if (!srv->tls_metrics) {
+                cetcd_tls_ctx_free(srv->tls_client);
+                srv->tls_client = NULL;
+                return CETCD_ERR_INVAL;
             }
         }
         trc = load_tls_ctx_(&srv->tls_peer,
@@ -2874,15 +3005,19 @@ int cetcd_server_start(cetcd_server *srv) {
                             srv->cfg.peer_crl_file);
         if (trc != CETCD_OK) {
             cetcd_tls_ctx_free(srv->tls_client);
+            cetcd_tls_ctx_free(srv->tls_metrics);
             srv->tls_client = NULL;
+            srv->tls_metrics = NULL;
             return trc;
         }
         if (srv->tls_peer) {
             const char *peer_alpn[] = { "h2" };
             if (cetcd_tls_set_alpn(srv->tls_peer, peer_alpn, 1) != CETCD_OK) {
                 cetcd_tls_ctx_free(srv->tls_client);
+                cetcd_tls_ctx_free(srv->tls_metrics);
                 cetcd_tls_ctx_free(srv->tls_peer);
                 srv->tls_client = NULL;
+                srv->tls_metrics = NULL;
                 srv->tls_peer = NULL;
                 return CETCD_ERR_INTERNAL;
             }
@@ -2902,8 +3037,10 @@ int cetcd_server_start(cetcd_server *srv) {
             }
             if (trc != CETCD_OK) {
                 cetcd_tls_ctx_free(srv->tls_client);
+                cetcd_tls_ctx_free(srv->tls_metrics);
                 cetcd_tls_ctx_free(srv->tls_peer);
                 srv->tls_client = NULL;
+                srv->tls_metrics = NULL;
                 srv->tls_peer = NULL;
                 return trc;
             }
@@ -2911,9 +3048,11 @@ int cetcd_server_start(cetcd_server *srv) {
                 const char *out_alpn[] = { "h2" };
                 if (cetcd_tls_set_alpn(srv->tls_peer_out, out_alpn, 1) != CETCD_OK) {
                     cetcd_tls_ctx_free(srv->tls_client);
+                    cetcd_tls_ctx_free(srv->tls_metrics);
                     cetcd_tls_ctx_free(srv->tls_peer);
                     cetcd_tls_ctx_free(srv->tls_peer_out);
                     srv->tls_client = NULL;
+                    srv->tls_metrics = NULL;
                     srv->tls_peer = NULL;
                     srv->tls_peer_out = NULL;
                     return CETCD_ERR_INTERNAL;

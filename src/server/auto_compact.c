@@ -777,26 +777,18 @@ int cetcd_parse_metrics_listen_url(const char *s, char *host, size_t host_cap,
                                    uint16_t *port) {
     if (!s || strchr(s, ',')) return CETCD_ERR_INVAL;
     int https = 0;
-    int rc = cetcd_parse_listen_url(s, host, host_cap, port, &https);
-    if (rc != CETCD_OK) return rc;
-    if (https) return CETCD_ERR_INVAL;
-    return CETCD_OK;
+    return cetcd_parse_listen_url(s, host, host_cap, port, &https);
 }
 
 int cetcd_parse_metrics_listen_urls(const char *s, cetcd_listen_url *out,
                                     size_t cap, size_t *n) {
-    int rc = parse_url_list_(s, out, cap, n, 0);
-    if (rc != CETCD_OK) return rc;
-    for (size_t i = 0; i < *n; i++) {
-        if (out[i].https) return CETCD_ERR_INVAL;
-    }
-    return CETCD_OK;
+    return parse_url_list_(s, out, cap, n, 1);
 }
 
 int cetcd_apply_metrics_listen_urls(const char *s, char *host, size_t host_cap,
                                     uint16_t *port,
                                     cetcd_listen_url *extra, size_t extra_cap,
-                                    uint32_t *n_extra) {
+                                    uint32_t *n_extra, int *https) {
     if (!host || host_cap < 2 || !port || !n_extra) return CETCD_ERR_INVAL;
     cetcd_listen_url urls[CETCD_MAX_LISTEN_URLS];
     size_t n = 0;
@@ -807,10 +799,22 @@ int cetcd_apply_metrics_listen_urls(const char *s, char *host, size_t host_cap,
     if (hlen + 1 > host_cap) return CETCD_ERR_OVERFLOW;
     memcpy(host, urls[0].host, hlen + 1);
     *port = urls[0].port;
+    if (https) *https = urls[0].https;
     *n_extra = 0;
     for (size_t i = 1; i < n; i++)
         extra[(*n_extra)++] = urls[i];
     return CETCD_OK;
+}
+
+int cetcd_metrics_listen_has_https(int first_https,
+                                   const cetcd_listen_url *extra,
+                                   uint32_t n_extra) {
+    if (first_https) return 1;
+    if (!extra) return 0;
+    for (uint32_t i = 0; i < n_extra; i++) {
+        if (extra[i].https) return 1;
+    }
+    return 0;
 }
 
 const char *cetcd_server_metrics_addr(const cetcd_server_config *cfg) {

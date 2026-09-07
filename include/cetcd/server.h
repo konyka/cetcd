@@ -159,6 +159,7 @@ typedef struct cetcd_server_config {
     uint32_t        n_extra_metrics_urls;
     bool            metrics_port_set;             /* --metrics-port given */
     bool            metrics_urls_set;             /* --listen-metrics-urls given */
+    bool            metrics_listen_https;         /* first --listen-metrics-urls is https:// */
     bool            metrics_level_set;            /* --metrics given */
     bool            metrics_extensive;            /* unset → basic (no unary histograms) */
     bool            enable_pprof_set;             /* --enable-pprof given */
@@ -350,17 +351,21 @@ int cetcd_format_listen_advertise(const char *host, uint16_t port, int https,
 /* Append each comma token as a protobuf repeated string (tag). */
 int cetcd_pb_append_csv_strings(uint8_t *buf, size_t cap, size_t *pos,
                                 uint8_t tag, const char *csv);
-/* Single http:// URL. https / comma / leftover is INVAL (no metrics TLS). */
+/* Single http(s):// URL. comma / leftover is INVAL. */
 int cetcd_parse_metrics_listen_url(const char *s, char *host, size_t host_cap,
                                    uint16_t *port);
-/* Comma-separated http:// UniqueURLs. https / duplicate / leftover is INVAL. */
+/* Comma-separated http(s):// UniqueURLs. Mixed scheme OK; duplicate / leftover INVAL. */
 int cetcd_parse_metrics_listen_urls(const char *s, cetcd_listen_url *out,
                                     size_t cap, size_t *n);
-/* First URL → host/port; the rest → extra. */
+/* First URL → host/port/https; the rest → extra. https may be NULL. */
 int cetcd_apply_metrics_listen_urls(const char *s, char *host, size_t host_cap,
                                     uint16_t *port,
                                     cetcd_listen_url *extra, size_t extra_cap,
-                                    uint32_t *n_extra);
+                                    uint32_t *n_extra, int *https);
+/* 1 if the first URL or any extra is https://. */
+int cetcd_metrics_listen_has_https(int first_https,
+                                   const cetcd_listen_url *extra,
+                                   uint32_t n_extra);
 /* metrics_addr if set, else listen_addr. NULL cfg → NULL. */
 const char *cetcd_server_metrics_addr(const cetcd_server_config *cfg);
 /* enabled 0 is OK. Unix mlockall; Windows UNSUPPORT. mlockall failure is IO. */
