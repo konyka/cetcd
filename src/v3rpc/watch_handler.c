@@ -26,8 +26,6 @@
 
 extern cetcd_mvcc_store *g_rpc_store;
 extern cetcd_loop       *g_rpc_loop;
-extern cetcd_stream_write_fn g_rpc_stream_write_fn;
-extern void             *g_rpc_stream_write_ctx;
 
 /* Forward declaration */
 cetcd_rpc_bytes watch_handle_watch(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
@@ -572,7 +570,9 @@ static cetcd_rpc_bytes handle_legacy_watch(const watch_request_parsed *p) {
 
 /* ── Streaming handler ─────────────────────────────────────────────────── */
 
-static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p) {
+static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p,
+                                              cetcd_stream_write_fn write_fn,
+                                              void *write_ctx) {
     cetcd_rpc_bytes out = {NULL, 0};
     int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
 
@@ -581,7 +581,7 @@ static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p) {
         cetcd_stream_watcher_ctx *cur = g_stream_watchers;
         while (cur) {
             if (!cur->canceled && cur->write_fn &&
-                cur->write_ctx == g_rpc_stream_write_ctx) {
+                cur->write_ctx == write_ctx) {
                 cetcd_rpc_bytes prog = encode_watch_response(
                     cur->watch_id, 0, 0, NULL, 0, current_rev, 0, 0);
                 if (prog.data && prog.len > 0) {
@@ -641,8 +641,8 @@ static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p) {
         wctx->replay_pending = 0;
         wctx->canceled = 0;
         /* Bind to the connection that issued this WatchCreate. */
-        wctx->write_fn = g_rpc_stream_write_fn;
-        wctx->write_ctx = g_rpc_stream_write_ctx;
+        wctx->write_fn = write_fn;
+        wctx->write_ctx = write_ctx;
 
         /* Set up the notification channel with direct callback. */
         cetcd_mvcc_watch_notify_init(&wctx->notify,
@@ -701,9 +701,13 @@ cetcd_rpc_bytes watch_handle_watch(cetcd_v3rpc *rpc,
         return (cetcd_rpc_bytes){NULL, 0};
     }
 
+    cetcd_stream_write_fn write_fn = NULL;
+    void *write_ctx = NULL;
+    cetcd_v3rpc_capture_stream_writer(&write_fn, &write_ctx);
+
     cetcd_rpc_bytes out;
-    if (g_rpc_stream_write_fn) {
-        out = handle_streaming_watch(&p);
+    if (write_fn) {
+        out = handle_streaming_watch(&p, write_fn, write_ctx);
     } else {
         out = handle_legacy_watch(&p);
     }

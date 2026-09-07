@@ -10,8 +10,6 @@
 extern cetcd_mvcc_store *g_rpc_store;
 extern cetcd_lease_mgr  *g_rpc_lease_mgr;
 extern uint64_t          g_rpc_max_txn_ops;
-extern cetcd_stream_write_fn g_rpc_stream_write_fn;
-extern void             *g_rpc_stream_write_ctx;
 
 cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
@@ -617,12 +615,15 @@ static cetcd_rpc_bytes encode_range_more_prelude_(int64_t rev) {
 }
 
 cetcd_rpc_bytes kv_handle_range_stream(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
+    cetcd_stream_write_fn write_fn = NULL;
+    void *write_ctx = NULL;
+    cetcd_v3rpc_capture_stream_writer(&write_fn, &write_ctx);
     cetcd_rpc_bytes out = kv_handle_range(rpc, req, req_len);
-    if (g_rpc_stream_write_fn && out.data && out.len > 0) {
+    if (write_fn && out.data && out.len > 0) {
         int64_t rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
         cetcd_rpc_bytes pre = encode_range_more_prelude_(rev);
         if (pre.data)
-            g_rpc_stream_write_fn(pre.data, pre.len, g_rpc_stream_write_ctx);
+            write_fn(pre.data, pre.len, write_ctx);
         free(pre.data);
     }
     return out;

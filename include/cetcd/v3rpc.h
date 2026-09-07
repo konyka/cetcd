@@ -64,6 +64,10 @@ CETCD_API void cetcd_v3rpc_set_loop(cetcd_v3rpc *rpc, cetcd_loop *loop);
 CETCD_API void cetcd_v3rpc_set_stream_writer(cetcd_v3rpc *rpc,
                                               cetcd_stream_write_fn fn,
                                               void *ctx);
+/* Snapshot the current writer so a later set_stream_writer cannot steal
+ * Snapshot/RangeStream prelude or a Watch create/progress on this RPC. */
+CETCD_API void cetcd_v3rpc_capture_stream_writer(cetcd_stream_write_fn *fn,
+                                                 void **ctx);
 
 /* Cancel streaming watchers bound to a connection's write_ctx (e.g. on close).
  * Prevents use-after-free of the socket and stops event fan-out to dead peers. */

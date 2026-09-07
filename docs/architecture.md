@@ -464,8 +464,10 @@ LeaseKeepAlive keep the response stream open: headers once, then
 `cetcd_h2_submit_data` per message (Watch also pushes later MVCC events).
 Snapshot writes a remaining>0 header via the stream writer, then the
 remaining=0 blob, then trailers. RangeStream writes a `more=true` prelude,
-then the Range payload, then trailers. When nghttp2 is absent, stubs compile so
-the rest of the tree builds.
+then the Range payload, then trailers. Snapshot, RangeStream, and Watch
+capture `cetcd_v3rpc_set_stream_writer` at handler entry so a multiplexed
+second RPC cannot steal the prelude or Watch create/progress. When nghttp2
+is absent, stubs compile so the rest of the tree builds.
 
 - 6 services: `KV`, `Watch`, `Lease`, `Cluster`, `Maintenance`, `Auth`.
 - 42 RPCs (catalogue in [`docs/wiki/Home.md`](./wiki/Home.md)), including `RangeStream`.
@@ -838,9 +840,11 @@ Client connection
 ```
 
 1. The gRPC layer receives a `WatchCreateRequest` on a client connection.
-2. The handler snapshots the current stream writer (`cetcd_v3rpc_set_stream_writer`)
+2. The handler snapshots the current stream writer (`cetcd_v3rpc_capture_stream_writer`)
    **into that watcher** and subscribes to MVCC events via a notification channel.
    Later WatchCreates on other connections do not overwrite earlier writers.
+   Snapshot and RangeStream capture the same pair at entry so a second
+   multiplexed RPC cannot steal their prelude.
 3. The `created` confirmation is returned immediately to the client.
 4. When a matching `Put` or `Delete` is committed, MVCC invokes `notify_push()`,
    which calls the direct callback `streaming_watch_notify_cb()`.

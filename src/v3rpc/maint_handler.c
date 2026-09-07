@@ -27,8 +27,6 @@ extern cetcd_raft       *g_rpc_raft;
 extern cetcd_cluster    *g_rpc_cluster;
 extern uint64_t          g_rpc_node_id;
 extern cetcd_backend    *g_rpc_auth_backend;
-extern cetcd_stream_write_fn g_rpc_stream_write_fn;
-extern void             *g_rpc_stream_write_ctx;
 
 #define MAX_ALARMS 8
 #define ALARM_BUCKET "alarm"
@@ -562,6 +560,9 @@ static cetcd_rpc_bytes encode_snapshot_response_(int64_t rev, uint64_t remaining
 
 cetcd_rpc_bytes maint_handle_snapshot(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc; (void)req; (void)req_len;
+    cetcd_stream_write_fn write_fn = NULL;
+    void *write_ctx = NULL;
+    cetcd_v3rpc_capture_stream_writer(&write_fn, &write_ctx);
 
     /* If we have a store, dump all keys into the blob */
     uint8_t *blob = NULL;
@@ -603,11 +604,11 @@ cetcd_rpc_bytes maint_handle_snapshot(cetcd_v3rpc *rpc, const uint8_t *req, size
     }
 
     int64_t current_rev = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
-    if (g_rpc_stream_write_fn && blob_len > 0) {
+    if (write_fn && blob_len > 0) {
         cetcd_rpc_bytes first = encode_snapshot_response_(
             current_rev, (uint64_t)blob_len, NULL, 0);
         if (first.data)
-            g_rpc_stream_write_fn(first.data, first.len, g_rpc_stream_write_ctx);
+            write_fn(first.data, first.len, write_ctx);
         free(first.data);
     }
     cetcd_rpc_bytes out = encode_snapshot_response_(current_rev, 0, blob, blob_len);

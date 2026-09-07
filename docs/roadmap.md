@@ -629,7 +629,9 @@ Performance-first, fail-closed design:
   first stream's path or body. SETTINGS
   `--max-concurrent-streams` is clamped to the tracked table
   (`CETCD_H2_MAX_STREAMS`). Extra streams are RST (REFUSED_STREAM).
-  A single `cur` request slot is rejected.
+  A single `cur` request slot is rejected. Snapshot, RangeStream, and
+  Watch capture the stream writer at handler entry so a second RPC
+  cannot steal the prelude or Watch create/progress.
 
 ## Previously done (auth data plane)
 

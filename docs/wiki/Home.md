@@ -54,7 +54,7 @@ cetcd 从零开始重新实现了 [etcd](https://github.com/etcd-io/etcd)，使�
 
 - **持久化**：配置 `--data-dir` 时，Put/DeleteRange 经 Raft propose，WAL fsync 后再应用到 MVCC（LMDB）。重启加载 live keys，并重放 `applied_index` 之后的 WAL 条目。
 - **Delete**：对不存在键为 no-op（不递增 revision）；成功删除从 treap 硬移除。
-- **Watch 多连接**：每个 watcher 绑定创建时的 stream writer；连接关闭时 `detach` 清理；`progress_notify` / `WatchProgressRequest` 已接线。
+- **Watch 多连接**：每个 watcher 绑定创建时的 stream writer；连接关闭时 `detach` 清理；`progress_notify` / `WatchProgressRequest` 已接线。Snapshot / RangeStream / Watch 在进入 handler 时 `capture` 当前 writer，第二条复用流不能偷走 prelude。
 - **Auth 数据面**：启用后除 `Authenticate` 外均需有效 token；`root` 为超级用户；RBAC 前缀权限；token 经自定义 TCP `flags&0x02` 传递；用户/角色/`enabled` 持久化到 LMDB。
 - **Txn 写入**：Txn 内的 Put/DeleteRange 同样经 Raft propose（每条 mutation 一条日志，保证交错 Range 语义）；重启可从 WAL 恢复。
 - **嵌套 Txn**：`RequestTxn` 递归执行（每层仍 `MaxTxnOps=128`），深度上限 16 以防栈溢出；未知 RequestOp 仍 fail-closed。
@@ -859,7 +859,7 @@ file, `ETCD_*` maps to `--flag` (`ETCD_LISTEN_CLIENT_URLS`; empty ignored;
 `--quota-backend-bytes` is an integer (`0` / omitted = etcd 2GiB default). `=` form is accepted. A typo fail-closes instead of becoming unlimited.
 `--max-txn-ops` is `1..128`; a typo or `0` fail-closes instead of becoming the default 128.
 `--max-request-bytes` must be `> 0`; a typo or `0` fail-closes instead of becoming the default 1.5 MiB.
-`--max-concurrent-streams` must be `> 0`; it advertises HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS` (clamped to `CETCD_H2_MAX_STREAMS`). Omitted leaves nghttp2's default. `0` or leftover text fail-closes. Each HTTP/2 stream keeps its own path, token, and body (client gRPC and peer `POST /raft`).
+`--max-concurrent-streams` must be `> 0`; it advertises HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS` (clamped to `CETCD_H2_MAX_STREAMS`). Omitted leaves nghttp2's default. `0` or leftover text fail-closes. Each HTTP/2 stream keeps its own path, token, and body (client gRPC and peer `POST /raft`). Snapshot, RangeStream, and Watch capture the stream writer at handler entry so a second RPC cannot steal the prelude.
 `--auth-token-ttl` is an integer seconds `> 0` (omitted default 300) for simple tokens; leftover text fail-closes. JWT `ttl=` in `--auth-token` still wins.
 `--bcrypt-cost` is `0` or `4..31`; a typo fail-closes instead of becoming SHA-256.
 `--log-outputs` is `stderr`, `stdout`, a file path, or `journal`/`syslog`/`systemd/journal` (unix dgram). etcd `default` fail-closes. `=` form is accepted. Mixed comma-lists fail-close.

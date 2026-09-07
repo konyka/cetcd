@@ -1,6 +1,7 @@
 cetcd_add_module(v3rpc
     SOURCES
         v3rpc.c
+        stream_writer.c
         kv_handler.c
         apply.c
         watch_handler.c

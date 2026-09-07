@@ -1862,6 +1862,97 @@ CETCD_TEST_CASE(v3rpc_range_stream_streams) {
     cetcd_v3rpc_free(rpc);
 }
 
+static cetcd_v3rpc *g_steal_rpc;
+static int g_snap_keep;
+static int g_snap_thief;
+
+static void snap_thief_write_(const uint8_t *data, size_t len, void *ctx) {
+    (void)data;
+    (void)len;
+    (void)ctx;
+    g_snap_thief++;
+}
+
+static void snap_keep_write_(const uint8_t *data, size_t len, void *ctx) {
+    (void)data;
+    (void)len;
+    (void)ctx;
+    g_snap_keep++;
+    cetcd_v3rpc_set_stream_writer(g_steal_rpc, snap_thief_write_, NULL);
+}
+
+CETCD_TEST_CASE(v3rpc_snapshot_keeps_captured_writer) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    g_steal_rpc = rpc;
+    uint8_t put_buf[32];
+    size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x02;
+    memcpy(put_buf + pos, "s1", 2); pos += 2;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x02;
+    memcpy(put_buf + pos, "v1", 2); pos += 2;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&resp);
+
+    g_snap_keep = g_snap_thief = 0;
+    cetcd_v3rpc_set_stream_writer(rpc, snap_keep_write_, NULL);
+    uint8_t dummy[] = {0x00};
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Maintenance/Snapshot", dummy, 1);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_EQ_INT(g_snap_keep, 1);
+    CETCD_ASSERT_EQ_INT(g_snap_thief, 0);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_set_stream_writer(rpc, NULL, NULL);
+    g_steal_rpc = NULL;
+    cetcd_v3rpc_free(rpc);
+}
+
+static int g_range_keep;
+static int g_range_thief;
+
+static void range_thief_write_(const uint8_t *data, size_t len, void *ctx) {
+    (void)data;
+    (void)len;
+    (void)ctx;
+    g_range_thief++;
+}
+
+static void range_keep_write_(const uint8_t *data, size_t len, void *ctx) {
+    (void)data;
+    (void)len;
+    (void)ctx;
+    g_range_keep++;
+    cetcd_v3rpc_set_stream_writer(g_steal_rpc, range_thief_write_, NULL);
+}
+
+CETCD_TEST_CASE(v3rpc_range_stream_keeps_captured_writer) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    g_steal_rpc = rpc;
+    uint8_t put_buf[32];
+    size_t pos = 0;
+    put_buf[pos++] = 0x0a; put_buf[pos++] = 0x03;
+    memcpy(put_buf + pos, "foo", 3); pos += 3;
+    put_buf[pos++] = 0x12; put_buf[pos++] = 0x03;
+    memcpy(put_buf + pos, "bar", 3); pos += 3;
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_buf, pos);
+    cetcd_rpc_bytes_free(&resp);
+
+    g_range_keep = g_range_thief = 0;
+    cetcd_v3rpc_set_stream_writer(rpc, range_keep_write_, NULL);
+    uint8_t range_buf[16];
+    pos = 0;
+    range_buf[pos++] = 0x0a;
+    range_buf[pos++] = 0x03;
+    memcpy(range_buf + pos, "foo", 3); pos += 3;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/RangeStream", range_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_EQ_INT(g_range_keep, 1);
+    CETCD_ASSERT_EQ_INT(g_range_thief, 0);
+    cetcd_rpc_bytes_free(&resp);
+    cetcd_v3rpc_set_stream_writer(rpc, NULL, NULL);
+    g_steal_rpc = NULL;
+    cetcd_v3rpc_free(rpc);
+}
+
 static size_t encode_downgrade_(uint8_t *buf, int action, const char *ver) {
     size_t pos = 0;
     buf[pos++] = 0x08;
@@ -6347,6 +6438,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_maintenance_snapshot_streams),
     CETCD_TEST_ENTRY(v3rpc_range_stream_matches_range),
     CETCD_TEST_ENTRY(v3rpc_range_stream_streams),
+    CETCD_TEST_ENTRY(v3rpc_snapshot_keeps_captured_writer),
+    CETCD_TEST_ENTRY(v3rpc_range_stream_keeps_captured_writer),
     CETCD_TEST_ENTRY(v3rpc_maintenance_downgrade),
     CETCD_TEST_ENTRY(v3rpc_downgrade_validate_current),
     CETCD_TEST_ENTRY(v3rpc_downgrade_cancel_fail_closed),

@@ -88,10 +88,8 @@ int               g_rpc_max_learners_set = 0;
 int               g_rpc_strict_reconfig = 1;
 int               g_rpc_strict_reconfig_set = 0;
 
-/* Streaming support: event loop and write callback for streaming RPCs */
+/* Streaming support: event loop. Writer globals live in stream_writer.c. */
 cetcd_loop           *g_rpc_loop = NULL;
-cetcd_stream_write_fn g_rpc_stream_write_fn = NULL;
-void                 *g_rpc_stream_write_ctx = NULL;
 
 cetcd_v3rpc *cetcd_v3rpc_new(void) {
     cetcd_v3rpc *rpc = (cetcd_v3rpc *)calloc(1, sizeof(*rpc));
@@ -410,15 +408,6 @@ void cetcd_rpc_bytes_free(cetcd_rpc_bytes *b) {
 void cetcd_v3rpc_set_loop(cetcd_v3rpc *rpc, cetcd_loop *loop) {
     if (!rpc) return;
     g_rpc_loop = loop;
-    (void)rpc;
-}
-
-void cetcd_v3rpc_set_stream_writer(cetcd_v3rpc *rpc,
-                                    cetcd_stream_write_fn fn,
-                                    void *ctx) {
-    if (!rpc) return;
-    g_rpc_stream_write_fn = fn;
-    g_rpc_stream_write_ctx = ctx;
     (void)rpc;
 }
 
