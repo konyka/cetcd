@@ -1035,6 +1035,22 @@ CETCD_TEST_CASE(auto_compact_etcd_compat) {
                         CETCD_COMPAT_VALUE);
     CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--discovery=http://example"),
                         CETCD_COMPAT_VALUE);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--max-snapshots=5"),
+                        CETCD_COMPAT_VALUE);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--max-wals"),
+                        CETCD_COMPAT_VALUE);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--client-cert-file=cli.crt"),
+                        CETCD_COMPAT_VALUE);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--client-key-file"),
+                        CETCD_COMPAT_VALUE);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--backend-batch-limit=10000"),
+                        CETCD_COMPAT_VALUE);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--backend-batch-interval"),
+                        CETCD_COMPAT_VALUE);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind(
+        "--backend-bbolt-freelist-type=map"), CETCD_COMPAT_VALUE);
+    CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--peer-client-cert-file"),
+                        CETCD_COMPAT_NONE);
     CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--enable-v2v3"),
                         CETCD_COMPAT_NONE);
     CETCD_ASSERT_EQ_INT(cetcd_etcd_compat_kind("--discovery-srv"),

@@ -3007,6 +3007,26 @@ CETCD_TEST_CASE(live_cetcd_etcd_compat) {
              "'%s' --discovery=http://example >/dev/null 2>&1",
              CETCD_BIN);
     CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --max-snapshots=5 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --max-wals=5 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --client-cert-file=cli.crt >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
+
+    snprintf(cmd, sizeof(cmd),
+             "'%s' --backend-batch-limit=10000 >/dev/null 2>&1",
+             CETCD_BIN);
+    CETCD_ASSERT_TRUE(system(cmd) != 0);
 }
 
 CETCD_TEST_CASE(live_cetcd_raft_io_timeout) {

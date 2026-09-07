@@ -225,6 +225,12 @@ Performance-first, fail-closed design:
   (missing port → 2379) so a typo cannot connect to a truncated port.
 - **pprof `?seconds=` leftover** — `/debug/pprof/profile?seconds=30foo` is
   HTTP 400 instead of profiling for truncated 30 seconds via `atoi`.
+- **etcd snapshot/WAL/bolt/client-cert leftovers** — `--max-snapshots` /
+  `--max-wals` (single rewritten WAL), `--client-cert-file` /
+  `--client-key-file` (no outbound client TLS), and `--backend-batch-*` /
+  `--backend-bbolt-freelist-type` (LMDB) fail-close as known-unsupported
+  instead of looking like a typo. Accepting etcd default `5` would be a
+  no-op lie.
 - **`cetcdctl --dial-timeout`** — `0..86400` seconds (optional `s`). A typo
   used to become “no timeout” via `atoi`; that now fails at parse. `0` stays
   none.
@@ -542,8 +548,11 @@ Performance-first, fail-closed design:
   `write-only-drop-data` / `write-only-skip-check`) is accepted (v2 is
   already gone). `not-yet` fail-closes (would need a v2 store).
   `--proxy=off` and `--discovery-fallback=exit` are accepted; `on` /
-  `readonly` / `proxy` fail-close. `--discovery` (v2 URL), `--cors`,
-  and `--proxy-*` timeouts fail-close. `--discovery-srv` is unchanged.
+  `readonly` / `proxy` fail-close.   `--discovery` (v2 URL), `--cors`,
+  and `--proxy-*` timeouts fail-close. `--max-snapshots` / `--max-wals`
+  (single WAL), `--client-cert-file` / `--client-key-file` (no outbound
+  client TLS), and `--backend-batch-*` / `--backend-bbolt-freelist-type`
+  (LMDB) fail-close as known-unsupported. `--discovery-srv` is unchanged.
 - **`--enable-log-rotation` / `--log-rotation-config-json`** — omitted
   default off. Requires a single `--log-outputs` file path (stdio /
   journal / comma-list fail-close). JSON is lumberjack

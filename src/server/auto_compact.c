@@ -1205,7 +1205,14 @@ int cetcd_etcd_compat_kind(const char *arg) {
         cetcd_cli_flag_is(arg, "--proxy-refresh-interval") ||
         cetcd_cli_flag_is(arg, "--proxy-dial-timeout") ||
         cetcd_cli_flag_is(arg, "--proxy-write-timeout") ||
-        cetcd_cli_flag_is(arg, "--proxy-read-timeout"))
+        cetcd_cli_flag_is(arg, "--proxy-read-timeout") ||
+        cetcd_cli_flag_is(arg, "--max-snapshots") ||
+        cetcd_cli_flag_is(arg, "--max-wals") ||
+        cetcd_cli_flag_is(arg, "--client-cert-file") ||
+        cetcd_cli_flag_is(arg, "--client-key-file") ||
+        cetcd_cli_flag_is(arg, "--backend-batch-limit") ||
+        cetcd_cli_flag_is(arg, "--backend-batch-interval") ||
+        cetcd_cli_flag_is(arg, "--backend-bbolt-freelist-type"))
         return CETCD_COMPAT_VALUE;
     return CETCD_COMPAT_NONE;
 }

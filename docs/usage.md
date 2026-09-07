@@ -200,6 +200,7 @@ cetcd accepts several etcd server flags for migration compatibility:
 # --self-signed-cert-validity is years (default 1; must be > 0)
 # --auto-tls=false / --peer-auto-tls=false / --force-new-cluster=false are off, not unknown
 # --enable-grpc-gateway=false / --enable-v2=false / --unsafe-no-fsync=false are already-off (true fail-closes)
+# --max-snapshots / --max-wals / --client-cert-file / --backend-batch-* fail-close (not unknown, not a no-op)
 # --v2-deprecation=write-only / --proxy=off / --discovery-fallback=exit are accepted (not-yet / proxy=on fail-close)
 ./build/bin/cetcd --auto-tls --peer-auto-tls --self-signed-cert-validity 1 \
   --data-dir ./data
