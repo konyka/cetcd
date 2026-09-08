@@ -1284,15 +1284,23 @@ static int cmd_put(int argc, char **argv) {
                             read_varint(resp, kv_end, &rpos, &pver);
                         } else if (ktag == 0x30) {
                             read_varint(resp, kv_end, &rpos, &please);
-                        } else {
-                            uint64_t v = 0; read_varint(resp, kv_end, &rpos, &v);
+                        } else if (ktag == 0x00) {
+                            continue;
+                        } else if (cetcd_leftover_safe_skip_field(resp, kv_end,
+                                                                  &rpos, ktag)
+                                   != CETCD_OK) {
+                            break;
                         }
                     }
                     rpos = kv_end;
                 } else if (tag == 0x0a) {
                     uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
-                } else {
-                    uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+                } else if (tag == 0x00) {
+                    continue;
+                } else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                          &rpos, tag)
+                           != CETCD_OK) {
+                    break;
                 }
             }
             if (pk) {
@@ -1334,15 +1342,23 @@ static int cmd_put(int argc, char **argv) {
                         } else if (ktag == 0x2a) {
                             uint64_t vl = 0; read_varint(resp, kv_end, &rpos, &vl);
                             pv = resp + rpos; pv_len = (size_t)vl; rpos += vl;
-                        } else {
-                            uint64_t v = 0; read_varint(resp, kv_end, &rpos, &v);
+                        } else if (ktag == 0x00) {
+                            continue;
+                        } else if (cetcd_leftover_safe_skip_field(resp, kv_end,
+                                                                  &rpos, ktag)
+                                   != CETCD_OK) {
+                            break;
                         }
                     }
                     rpos = kv_end;
                 } else if (tag == 0x0a) {
                     uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
-                } else {
-                    uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+                } else if (tag == 0x00) {
+                    continue;
+                } else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                          &rpos, tag)
+                           != CETCD_OK) {
+                    break;
                 }
             }
             fputs("\"prev_kv\":{", stdout);
@@ -1373,8 +1389,12 @@ static int cmd_put(int argc, char **argv) {
                     if (ktag == 0x2a) {
                         uint64_t vl = 0; read_varint(resp, kv_end, &rpos, &vl);
                         pv = resp + rpos; pv_len = (size_t)vl; rpos += vl;
-                    } else {
-                        uint64_t v = 0; read_varint(resp, kv_end, &rpos, &v);
+                    } else if (ktag == 0x00) {
+                        continue;
+                    } else if (cetcd_leftover_safe_skip_field(resp, kv_end,
+                                                              &rpos, ktag)
+                               != CETCD_OK) {
+                        break;
                     }
                 }
                 if (pv && pv_len > 0) {
@@ -1384,8 +1404,12 @@ static int cmd_put(int argc, char **argv) {
                 break;
             } else if (tag == 0x0a) {
                 uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
-            } else {
-                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            } else if (tag == 0x00) {
+                continue;
+            } else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                      &rpos, tag)
+                       != CETCD_OK) {
+                break;
             }
         }
         if (stdin_val) free(stdin_val);
@@ -1408,8 +1432,12 @@ static int cmd_put(int argc, char **argv) {
                     } else if (ktag == 0x2a) {
                         uint64_t vl = 0; read_varint(resp, kv_end, &rpos, &vl);
                         pv = resp + rpos; pv_len = (size_t)vl; rpos += vl;
-                    } else {
-                        uint64_t v = 0; read_varint(resp, kv_end, &rpos, &v);
+                    } else if (ktag == 0x00) {
+                        continue;
+                    } else if (cetcd_leftover_safe_skip_field(resp, kv_end,
+                                                              &rpos, ktag)
+                               != CETCD_OK) {
+                        break;
                     }
                 }
                 rpos = kv_end;
@@ -1421,8 +1449,12 @@ static int cmd_put(int argc, char **argv) {
             } else if (tag == 0x0a) {
                 /* header */
                 uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
-            } else {
-                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            } else if (tag == 0x00) {
+                continue;
+            } else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                      &rpos, tag)
+                       != CETCD_OK) {
+                break;
             }
         }
     }
@@ -1824,8 +1856,12 @@ static int cmd_del(int argc, char **argv) {
                         read_varint(resp, kv_end, &rpos, &pver);
                     } else if (ktag == 0x30) {
                         read_varint(resp, kv_end, &rpos, &please);
-                    } else {
-                        uint64_t v = 0; read_varint(resp, kv_end, &rpos, &v);
+                    } else if (ktag == 0x00) {
+                        continue;
+                    } else if (cetcd_leftover_safe_skip_field(resp, kv_end,
+                                                              &rpos, ktag)
+                               != CETCD_OK) {
+                        break;
                     }
                 }
                 rpos = kv_end;
@@ -1846,8 +1882,12 @@ static int cmd_del(int argc, char **argv) {
                 }
             } else if (tag == 0x0a) {
                 uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
-            } else {
-                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            } else if (tag == 0x00) {
+                continue;
+            } else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                      &rpos, tag)
+                       != CETCD_OK) {
+                break;
             }
         }
         printf("%llu key(s) deleted\n", (unsigned long long)deleted);
@@ -1895,8 +1935,12 @@ static int cmd_del(int argc, char **argv) {
                         read_varint(resp, kv_end, &rpos, &pver);
                     } else if (ktag == 0x30) {
                         read_varint(resp, kv_end, &rpos, &please);
-                    } else {
-                        uint64_t v = 0; read_varint(resp, kv_end, &rpos, &v);
+                    } else if (ktag == 0x00) {
+                        continue;
+                    } else if (cetcd_leftover_safe_skip_field(resp, kv_end,
+                                                              &rpos, ktag)
+                               != CETCD_OK) {
+                        break;
                     }
                 }
                 rpos = kv_end;
@@ -1913,8 +1957,12 @@ static int cmd_del(int argc, char **argv) {
                 fputs("}", stdout);
             } else if (tag == 0x0a) {
                 uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
-            } else {
-                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            } else if (tag == 0x00) {
+                continue;
+            } else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                      &rpos, tag)
+                       != CETCD_OK) {
+                break;
             }
         }
         if (has_prev_kvs) fputs("\"],", stdout);
@@ -1936,8 +1984,12 @@ static int cmd_del(int argc, char **argv) {
                     if (ktag == 0x2a) {
                         uint64_t vl = 0; read_varint(resp, kv_end, &rpos, &vl);
                         pv = resp + rpos; pv_len = (size_t)vl; rpos += vl;
-                    } else {
-                        uint64_t v = 0; read_varint(resp, kv_end, &rpos, &v);
+                    } else if (ktag == 0x00) {
+                        continue;
+                    } else if (cetcd_leftover_safe_skip_field(resp, kv_end,
+                                                              &rpos, ktag)
+                               != CETCD_OK) {
+                        break;
                     }
                 }
                 rpos = kv_end;
@@ -1947,8 +1999,12 @@ static int cmd_del(int argc, char **argv) {
                 }
             } else if (tag == 0x0a || tag == 0x12) {
                 uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
-            } else {
-                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            } else if (tag == 0x00) {
+                continue;
+            } else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                      &rpos, tag)
+                       != CETCD_OK) {
+                break;
             }
         }
         return 0;
@@ -1974,8 +2030,12 @@ static int cmd_del(int argc, char **argv) {
                 } else if (ktag == 0x2a) {
                     uint64_t vl = 0; read_varint(resp, kv_end, &rpos, &vl);
                     pv = resp + rpos; pv_len = (size_t)vl; rpos += vl;
-                } else {
-                    uint64_t v = 0; read_varint(resp, kv_end, &rpos, &v);
+                } else if (ktag == 0x00) {
+                    continue;
+                } else if (cetcd_leftover_safe_skip_field(resp, kv_end,
+                                                          &rpos, ktag)
+                           != CETCD_OK) {
+                    break;
                 }
             }
             rpos = kv_end;
@@ -1995,8 +2055,12 @@ static int cmd_del(int argc, char **argv) {
         } else if (tag == 0x0a) {
             /* Skip header (length-delimited) */
             uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
-        } else {
-            uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+        } else if (tag == 0x00) {
+            continue;
+        } else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                  &rpos, tag)
+                   != CETCD_OK) {
+            break;
         }
     }
     return 0;

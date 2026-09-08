@@ -838,6 +838,13 @@ Performance-first, fail-closed design:
   (cannot print leftover text or set `ETCD_WATCH_KEY`). Dummy `0x00`
   is not a skip length. `cetcdctl watch` leftover-safe-skips unknown
   fields. Accepting leftover payload as the printed key is rejected.
+- **DeleteRange leftover-safe prev_kv** — leftover-safe-parses
+  DeleteRangeResponse so leftover length-delimited bytes cannot steal
+  a printed prev_kv key. A truncated prev_kv / key fail-closes
+  (cannot print leftover text). Dummy `0x00` is not a skip length.
+  `cetcdctl del --prev-kv` / `put --prev-kv` leftover-safe-skip
+  unknown fields. Accepting leftover payload as the printed key is
+  rejected.
 - **auth login leftover-safe printed token** — leftover-safe-parses
   AuthenticateResponse so leftover length-delimited bytes cannot steal
   a printed login token. AuthStatus leftover-safe-parses so leftover
