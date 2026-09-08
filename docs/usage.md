@@ -500,6 +500,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl member list                     # List cluster members (linearizable; default true)
 ./build/bin/cetcdctl member list --linearizable=false # Serializable MemberList (ok on a follower)
 # leftover member list --linearizable --foo fail-closes (cannot list members)
+# leftover cannot steal a printed member name
 # leftover cannot steal a printed peerURL or isLearner
 ./build/bin/cetcdctl member add --peer-urls http://localhost:2380 --name node2  # Add member with name
 # leftover-safe: leftover proto bytes cannot steal the peerURL or isLearner

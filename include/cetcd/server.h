@@ -547,6 +547,16 @@ int cetcd_encode_member_list_client_url(const char *url, uint8_t *out,
                                         size_t cap, size_t *n);
 int cetcd_parse_member_list_client_url(const uint8_t *req, size_t len,
                                        char *url, size_t url_cap);
+/* leftover-safe Member.name (field 2, tag 0x12). omitted / empty /
+ * dummy 0x00 = empty. leftover truncated name is INVAL so a
+ * truncated list cannot print leftover text. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed member name. unknown wire types are INVAL.
+ * last name is copied when name/name_cap are set. */
+int cetcd_encode_member_list_name(const char *name, uint8_t *out, size_t cap,
+                                  size_t *n);
+int cetcd_parse_member_list_name(const uint8_t *req, size_t len, char *name,
+                                 size_t name_cap);
 /* leftover-safe AuthStatusResponse.enabled. omitted / empty / dummy
  * 0x00 = disabled. leftover truncated enabled is INVAL so a truncated
  * status cannot look like disabled. leftover length-delimited fields

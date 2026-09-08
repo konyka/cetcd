@@ -1904,6 +1904,63 @@ CETCD_TEST_CASE(auto_compact_parse_member_list_client_url) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_member_list_name) {
+    uint8_t buf[32];
+    size_t n = 0;
+    char name[16];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_name(NULL, buf, sizeof(buf),
+                                                      &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_name("", buf, sizeof(buf),
+                                                      &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_name("node1", buf, sizeof(buf),
+                                                      &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_name(buf, n, name, sizeof(name)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(name, "node1");
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_name(NULL, 0, name,
+                                                     sizeof(name)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(name, "");
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_name(dummy, 1, name,
+                                                     sizeof(name)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(name, "");
+
+    /* leftover truncated name cannot print leftover text */
+    uint8_t trunc[] = { 0x12, 0x01, 0x12 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_name(trunc, sizeof(trunc),
+                                                     name, sizeof(name)),
+                        CETCD_ERR_INVAL);
+    uint8_t trunc_len[] = { 0x12, 0x02, 0x12, 0x10 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_name(trunc_len,
+                                                     sizeof(trunc_len), name,
+                                                     sizeof(name)),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed member name */
+    uint8_t steal[] = {
+        0x12, 0x0a, 0x2a, 0x08, 0x12, 0x06,
+        's', 't', 'o', 'l', 'e', 'n'
+    };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_name(steal, sizeof(steal),
+                                                     name, sizeof(name)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(name, "");
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_name(fixed64, 1, name,
+                                                     sizeof(name)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_name(buf, n, NULL, 0),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_auth_status_response) {
     uint8_t buf[8];
     size_t n = 0;
@@ -4813,6 +4870,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_member_add_request),
     CETCD_TEST_ENTRY(auto_compact_parse_member_list_response),
     CETCD_TEST_ENTRY(auto_compact_parse_member_list_client_url),
+    CETCD_TEST_ENTRY(auto_compact_parse_member_list_name),
     CETCD_TEST_ENTRY(auto_compact_parse_auth_status_response),
     CETCD_TEST_ENTRY(auto_compact_parse_string_list_response),
     CETCD_TEST_ENTRY(auto_compact_parse_status_response),

@@ -783,6 +783,12 @@ Performance-first, fail-closed design:
   (cannot connect leftover text). Dummy `0x00` is not a skip length.
   `cetcdctl endpoint --cluster` leftover-safe-parses field 4.
   Accepting leftover payload as the connected URL is rejected.
+- **MemberList leftover-safe name** — leftover-safe-parses
+  Member.name so leftover length-delimited bytes cannot steal a
+  printed member name. A truncated name fail-closes (cannot print
+  leftover text). Dummy `0x00` is not a skip length. `cetcdctl
+  member list` leftover-safe-parses field 2. Accepting leftover
+  payload as the printed name is rejected.
 - **Status leftover-safe version / isLearner** — leftover-safe-parses
   StatusResponse so leftover length-delimited bytes cannot steal a
   printed version, dbSize, or `isLearner`. A truncated version /

@@ -875,10 +875,15 @@ static void parse_lease_ttl_response(const uint8_t *data, size_t len) {
 
 static void parse_member_list_response(const uint8_t *data, size_t len, int table_format, int json_format, int fields_format) {
     char leftover_curl[256];
+    char leftover_name[128];
     leftover_curl[0] = '\0';
-    /* leftover-safe: leftover cannot steal a printed client URL */
+    leftover_name[0] = '\0';
+    /* leftover-safe: leftover cannot steal a printed client URL or name */
     if (cetcd_parse_member_list_client_url(data, len, leftover_curl,
                                            sizeof(leftover_curl)) != CETCD_OK)
+        return;
+    if (cetcd_parse_member_list_name(data, len, leftover_name,
+                                     sizeof(leftover_name)) != CETCD_OK)
         return;
     size_t pos = 0;
     int first = 1;
@@ -3233,12 +3238,17 @@ static int collect_cluster_endpoints(struct cluster_endpoint *eps, int max_eps) 
     if (mrlen < 0) return -1;
     {
         char leftover_curl[256];
+        char leftover_name[128];
         leftover_curl[0] = '\0';
-        /* leftover-safe: leftover cannot steal a used --cluster URL */
+        leftover_name[0] = '\0';
+        /* leftover-safe: leftover cannot steal a used --cluster URL or name */
         if (cetcd_parse_member_list_client_url(mresp, (size_t)mrlen,
                                                leftover_curl,
                                                sizeof(leftover_curl))
             != CETCD_OK)
+            return -1;
+        if (cetcd_parse_member_list_name(mresp, (size_t)mrlen, leftover_name,
+                                         sizeof(leftover_name)) != CETCD_OK)
             return -1;
     }
     size_t mpos = 0;
@@ -5243,11 +5253,19 @@ static int cmd_member(int argc, char **argv) {
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         {
             char leftover_curl[256];
+            char leftover_name[128];
             leftover_curl[0] = '\0';
-            /* leftover-safe: leftover cannot steal a printed client URL */
+            leftover_name[0] = '\0';
+            /* leftover-safe: leftover cannot steal a printed client URL or name */
             if (cetcd_parse_member_list_client_url(resp, (size_t)rlen,
                                                    leftover_curl,
                                                    sizeof(leftover_curl))
+                != CETCD_OK) {
+                fprintf(stderr, "request failed\n");
+                return 1;
+            }
+            if (cetcd_parse_member_list_name(resp, (size_t)rlen, leftover_name,
+                                             sizeof(leftover_name))
                 != CETCD_OK) {
                 fprintf(stderr, "request failed\n");
                 return 1;
@@ -5303,11 +5321,19 @@ static int cmd_member(int argc, char **argv) {
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         {
             char leftover_curl[256];
+            char leftover_name[128];
             leftover_curl[0] = '\0';
-            /* leftover-safe: leftover cannot steal a printed client URL */
+            leftover_name[0] = '\0';
+            /* leftover-safe: leftover cannot steal a printed client URL or name */
             if (cetcd_parse_member_list_client_url(resp, (size_t)rlen,
                                                    leftover_curl,
                                                    sizeof(leftover_curl))
+                != CETCD_OK) {
+                fprintf(stderr, "request failed\n");
+                return 1;
+            }
+            if (cetcd_parse_member_list_name(resp, (size_t)rlen, leftover_name,
+                                             sizeof(leftover_name))
                 != CETCD_OK) {
                 fprintf(stderr, "request failed\n");
                 return 1;
