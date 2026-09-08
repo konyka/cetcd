@@ -297,6 +297,25 @@ int cetcd_encode_delete_range_request(const uint8_t *key, size_t key_len,
                                       uint8_t *out, size_t cap, size_t *n);
 int cetcd_parse_delete_range_request(const uint8_t *req, size_t len,
                                      cetcd_delete_range_request *out);
+/* leftover-safe AuthenticateRequest. omitted / empty / dummy 0x00 =
+ * empty name/password. leftover truncated varint/bytes is INVAL so a
+ * truncated password cannot look like a name-only authenticate.
+ * leftover length-delimited fields are skipped by payload so leftover
+ * bytes cannot steal name or password. unknown wire types are INVAL.
+ * name / password are malloced and NUL-terminated. */
+typedef struct cetcd_auth_name_pass_request {
+    uint8_t *name;
+    size_t name_len;
+    uint8_t *password;
+    size_t password_len;
+} cetcd_auth_name_pass_request;
+void cetcd_auth_name_pass_request_clear(cetcd_auth_name_pass_request *r);
+int cetcd_encode_auth_name_pass_request(const uint8_t *name, size_t name_len,
+                                        const uint8_t *password,
+                                        size_t password_len, uint8_t *out,
+                                        size_t cap, size_t *n);
+int cetcd_parse_auth_name_pass_request(const uint8_t *req, size_t len,
+                                       cetcd_auth_name_pass_request *out);
 /* MemberRemove/Promote field 1 (ID). 0 is INVAL. */
 int cetcd_encode_member_id_request(uint64_t id, uint8_t *out, size_t cap,
                                    size_t *n);

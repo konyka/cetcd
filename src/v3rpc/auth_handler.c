@@ -131,21 +131,136 @@ cetcd_rpc_bytes auth_handle_disable(cetcd_v3rpc *rpc, const uint8_t *req, size_t
     return simple_ok_response();
 }
 
+/* leftover-safe AuthenticateRequest. v3rpc cannot link server. */
+static void auth_name_pass_clear_(uint8_t **name, uint8_t **pass) {
+    free(*name);
+    free(*pass);
+    *name = NULL;
+    *pass = NULL;
+}
+
+static int parse_auth_name_pass_request_(const uint8_t *req, size_t len,
+                                         uint8_t **name, size_t *name_len,
+                                         uint8_t **pass, size_t *pass_len) {
+    size_t p = 0;
+    if (!name || !name_len || !pass || !pass_len) return -1;
+    *name = NULL; *name_len = 0;
+    *pass = NULL; *pass_len = 0;
+    if (!req || len == 0) return 0;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x0a || tag == 0x12) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    auth_name_pass_clear_(name, pass);
+                    return -1;
+                }
+            }
+            if (!got || p + skip > len) {
+                auth_name_pass_clear_(name, pass);
+                return -1;
+            }
+            if (skip == 0) {
+                if (tag == 0x0a) {
+                    free(*name);
+                    *name = NULL;
+                    *name_len = 0;
+                } else {
+                    free(*pass);
+                    *pass = NULL;
+                    *pass_len = 0;
+                }
+                continue;
+            }
+            uint8_t *copy = (uint8_t *)malloc((size_t)skip + 1);
+            if (!copy) {
+                auth_name_pass_clear_(name, pass);
+                return -1;
+            }
+            memcpy(copy, req + p, (size_t)skip);
+            copy[skip] = 0;
+            p += (size_t)skip;
+            if (tag == 0x0a) {
+                free(*name);
+                *name = copy;
+                *name_len = (size_t)skip;
+            } else {
+                free(*pass);
+                *pass = copy;
+                *pass_len = (size_t)skip;
+            }
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    auth_name_pass_clear_(name, pass);
+                    return -1;
+                }
+            }
+            if (!got) {
+                auth_name_pass_clear_(name, pass);
+                return -1;
+            }
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    auth_name_pass_clear_(name, pass);
+                    return -1;
+                }
+            }
+            if (!got || p + skip > len) {
+                auth_name_pass_clear_(name, pass);
+                return -1;
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        auth_name_pass_clear_(name, pass);
+        return -1;
+    }
+    return 0;
+}
+
 cetcd_rpc_bytes auth_handle_authenticate(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
     uint8_t *name = NULL; size_t name_len = 0;
     uint8_t *pass = NULL; size_t pass_len = 0;
-    size_t pos = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x0a) {
-            if (read_bytes_field(req, req_len, &pos, &name, &name_len) != 0) break;
-        } else if (tag == 0x12) {
-            if (read_bytes_field(req, req_len, &pos, &pass, &pass_len) != 0) break;
-        } else {
-            uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
-        }
-    }
+    if (parse_auth_name_pass_request_(req, req_len, &name, &name_len,
+                                      &pass, &pass_len) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
     bool ok = false;
     char *tok = NULL;
     if (g_rpc_auth && name && pass) {

@@ -633,6 +633,21 @@ CETCD_TEST_CASE(v3rpc_auth_user_add_authenticate) {
     CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
     cetcd_rpc_bytes_free(&resp);
 
+    /* leftover truncated password cannot look like a name-only authenticate */
+    uint8_t trunc[] = { 0x0a, 0x05, 'a', 'l', 'i', 'c', 'e', 0x12 };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/Authenticate",
+                                trunc, sizeof(trunc));
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover length-delimited payload cannot steal a password */
+    uint8_t steal[] = { 0x0a, 0x05, 'a', 'l', 'i', 'c', 'e',
+                        0x22, 0x09, 0x12, 0x07, 'p', 'a', 's', 's', '1', '2', '3' };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/Authenticate",
+                                steal, sizeof(steal));
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
     cetcd_v3rpc_free(rpc);
 }
 

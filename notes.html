@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 131 — leftover-safe Txn embedded ops</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 132 — leftover-safe Authenticate</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 131 leftover-safe-parses
-     Txn-embedded Put/Range/DeleteRange so leftover length-delimited
-     bytes cannot steal lease/rev/range_end.</p>
+  <p><strong>v0.3.0</strong>. Phase 132 leftover-safe-parses
+     AuthenticateRequest so leftover length-delimited bytes cannot steal
+     a name or password.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -184,6 +184,7 @@
       <tr><td>129</td><td>leftover-safe Put lease</td><td>Put leftover-safe-parses so leftover length-delimited bytes cannot steal the lease; truncated --lease fail-closes (cannot look like a no-lease put); dummy 0x00 / omitted is lease 0 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>130</td><td>leftover-safe DeleteRange range_end</td><td>DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal range_end and turn a point delete into a range delete; truncated range_end fail-closes (cannot look like a point delete); dummy 0x00 / omitted is empty range_end — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>131</td><td>leftover-safe Txn embedded ops</td><td>Txn leftover-safe-parses embedded Put/Range/DeleteRange so leftover length-delimited bytes cannot steal lease/rev/range_end; truncated inner field fail-closes the whole Txn — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>132</td><td>leftover-safe Authenticate</td><td>Authenticate leftover-safe-parses so leftover length-delimited bytes cannot steal a name or password; truncated password fail-closes (cannot look like a name-only authenticate); dummy 0x00 / omitted is empty — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

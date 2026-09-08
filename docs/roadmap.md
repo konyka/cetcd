@@ -700,6 +700,11 @@ Performance-first, fail-closed design:
   inner field fail-closes the whole Txn (cannot look like a
   no-lease put, a live-tree range, or a point delete). Accepting
   leftover payload as an embedded field is rejected.
+- **Authenticate leftover-safe name/password** — leftover-safe-parses
+  AuthenticateRequest so leftover length-delimited bytes cannot steal
+  a name or password. A truncated password fail-closes (cannot look
+  like a name-only authenticate). Dummy `0x00` / omitted is empty.
+  Accepting leftover payload as the password is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

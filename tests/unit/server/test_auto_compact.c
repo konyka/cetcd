@@ -2028,6 +2028,61 @@ CETCD_TEST_CASE(auto_compact_parse_delete_range_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_auth_name_pass_request) {
+    uint8_t buf[32];
+    size_t n = 0;
+    cetcd_auth_name_pass_request ap;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_auth_name_pass_request(
+                            NULL, 0, NULL, 0, buf, sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_auth_name_pass_request(
+                            (const uint8_t *)"root", 4,
+                            (const uint8_t *)"secret", 6, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_name_pass_request(buf, n, &ap),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ap.name_len == 4 && ap.name &&
+                      memcmp(ap.name, "root", 4) == 0);
+    CETCD_ASSERT_TRUE(ap.password_len == 6 && ap.password &&
+                      memcmp(ap.password, "secret", 6) == 0);
+    cetcd_auth_name_pass_request_clear(&ap);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_name_pass_request(NULL, 0, &ap),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ap.name == NULL);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_name_pass_request(dummy, 1, &ap),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ap.password == NULL);
+
+    /* leftover truncated password cannot look like a name-only authenticate */
+    uint8_t trunc[] = { 0x0a, 0x04, 'r', 'o', 'o', 't', 0x12 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_name_pass_request(trunc, 7, &ap),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_TRUE(ap.name == NULL);
+
+    /* leftover length-delimited payload cannot steal password */
+    uint8_t steal[] = { 0x0a, 0x04, 'r', 'o', 'o', 't',
+                        0x22, 0x08, 0x12, 0x06, 's', 'e', 'c', 'r', 'e', 't' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_name_pass_request(steal, sizeof(steal),
+                                                          &ap),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ap.password == NULL);
+    CETCD_ASSERT_TRUE(ap.name_len == 4 && ap.name &&
+                      memcmp(ap.name, "root", 4) == 0);
+    cetcd_auth_name_pass_request_clear(&ap);
+
+    uint8_t badskip[] = { 0x0a, 0x04, 'r', 'o', 'o', 't', 0x22, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_name_pass_request(badskip, 8, &ap),
+                        CETCD_ERR_INVAL);
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_name_pass_request(fixed64, 1, &ap),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_name_pass_request(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_compact_argv) {
     int physical = 0;
     int64_t rev = 0;
@@ -2642,6 +2697,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_range_request),
     CETCD_TEST_ENTRY(auto_compact_parse_put_request),
     CETCD_TEST_ENTRY(auto_compact_parse_delete_range_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_auth_name_pass_request),
     CETCD_TEST_ENTRY(auto_compact_parse_compact_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_defrag_argv),
