@@ -792,6 +792,7 @@ Several commands support `-w table` for tabular output:
 
 # Hash/hashkv in table format
 ./build/bin/cetcdctl hash -w table
+# leftover cannot steal a printed hash or compact_revision
 ./build/bin/cetcdctl hashkv --rev 0 -w table  # 0 / omitted = current; leftover 10foo fail-closes
 # a truncated HashKV revision proto fail-closes (cannot hash the live tree)
 

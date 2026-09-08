@@ -2223,6 +2223,65 @@ CETCD_TEST_CASE(auto_compact_parse_txn_succeeded) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_hash_response) {
+    uint8_t buf[16];
+    size_t n = 0;
+    uint32_t hash = 9;
+    int64_t compact = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_hash_response(42, -1, NULL, sizeof(buf),
+                                                  &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_hash_response(42, -1, buf, sizeof(buf),
+                                                  &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_hash_response(buf, n, &hash, &compact),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(hash == 42);
+    CETCD_ASSERT_TRUE(compact == 0);
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_hash_response(42, 7, buf, sizeof(buf),
+                                                  &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_hash_response(buf, n, &hash, &compact),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(hash == 42);
+    CETCD_ASSERT_TRUE(compact == 7);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_hash_response(NULL, 0, &hash, &compact),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(hash == 0);
+    CETCD_ASSERT_TRUE(compact == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_hash_response(dummy, 1, &hash, &compact),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(hash == 0);
+
+    /* leftover truncated hash cannot look like 0 */
+    uint8_t trunc[] = { 0x10 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_hash_response(trunc, 1, &hash, &compact),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed hash */
+    uint8_t steal[] = { 0x1a, 0x02, 0x10, 0x2a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_hash_response(steal, sizeof(steal),
+                                                 &hash, &compact),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(hash == 0);
+
+    uint8_t steal_rev[] = { 0x1a, 0x02, 0x18, 0x07 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_hash_response(steal_rev, sizeof(steal_rev),
+                                                 &hash, &compact),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(compact == 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_hash_response(fixed64, 1, &hash, &compact),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_hash_response(buf, n, NULL, &compact),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_downgrade_request) {
     uint8_t buf[64];
     size_t n = 0;
@@ -3885,6 +3944,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_lease_ttl_response),
     CETCD_TEST_ENTRY(auto_compact_parse_authenticate_response),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_succeeded),
+    CETCD_TEST_ENTRY(auto_compact_parse_hash_response),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_request),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_op_key),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),

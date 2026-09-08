@@ -3463,15 +3463,15 @@ static int cmd_endpoint(int argc, char **argv) {
                 int hrlen = do_rpc("/etcdserverpb.Maintenance/HashKV", hreq, hn,
                                    hresp, sizeof(hresp));
                 if (hrlen < 0) continue;
-                size_t rpos = 0;
+                uint32_t hash32 = 0;
+                int64_t compact_i = 0;
                 uint64_t hash_val = 0, compact_rev = 0;
-                while (rpos < (size_t)hrlen) {
-                    uint8_t tag = hresp[rpos++];
-                    if (tag == 0x10) { read_varint(hresp, hrlen, &rpos, &hash_val); }
-                    else if (tag == 0x18) { read_varint(hresp, hrlen, &rpos, &compact_rev); }
-                    else if (tag == 0x0a) { uint64_t l = 0; read_varint(hresp, hrlen, &rpos, &l); rpos += l; }
-                    else { uint64_t v = 0; read_varint(hresp, hrlen, &rpos, &v); }
-                }
+                if (cetcd_parse_hash_response(hresp, (size_t)hrlen,
+                                             &hash32, &compact_i)
+                    != CETCD_OK)
+                    continue;
+                hash_val = hash32;
+                compact_rev = (uint64_t)compact_i;
                 if (want_json) {
                     fputs("{\"endpoint\":\"", stdout);
                     printf("%s\",", ep_str_());
@@ -3507,15 +3507,15 @@ static int cmd_endpoint(int argc, char **argv) {
         int rlen = do_rpc("/etcdserverpb.Maintenance/HashKV", req, req_n, resp,
                           sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        size_t rpos = 0;
-        uint64_t hash_val = 0, compact_rev = 0;
-        while (rpos < (size_t)rlen) {
-            uint8_t tag = resp[rpos++];
-            if (tag == 0x10) { read_varint(resp, rlen, &rpos, &hash_val); }
-            else if (tag == 0x18) { read_varint(resp, rlen, &rpos, &compact_rev); }
-            else if (tag == 0x0a) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
-            else { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
+        uint32_t hash32 = 0;
+        int64_t compact_i = 0;
+        if (cetcd_parse_hash_response(resp, (size_t)rlen, &hash32, &compact_i)
+            != CETCD_OK) {
+            fprintf(stderr, "request failed\n");
+            return 1;
         }
+        uint64_t hash_val = hash32;
+        uint64_t compact_rev = (uint64_t)compact_i;
         if (want_json) {
             fputs("{\"endpoint\":\"", stdout);
             printf("%s\",", ep_str_());
@@ -6181,19 +6181,13 @@ static int cmd_hash(int argc, char **argv) {
     uint8_t req[] = {0x00}, resp[256];
     int rlen = do_rpc("/etcdserverpb.Maintenance/Hash", req, 1, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-    /* HashResponse: field 1 (header), field 2 (hash) = uint32, tag = 0x10 */
-    size_t rpos = 0;
-    uint64_t hash_val = 0;
-    while (rpos < (size_t)rlen) {
-        uint8_t tag = resp[rpos++];
-        if (tag == 0x10) {
-            read_varint(resp, rlen, &rpos, &hash_val);
-        } else if (tag == 0x0a) {
-            uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
-        } else {
-            uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
-        }
+    uint32_t hash32 = 0;
+    if (cetcd_parse_hash_response(resp, (size_t)rlen, &hash32, NULL)
+        != CETCD_OK) {
+        fprintf(stderr, "request failed\n");
+        return 1;
     }
+    uint64_t hash_val = hash32;
     if (want_json) {
         fputs("{", stdout);
         parse_and_print_header_json(resp, (size_t)rlen);
@@ -6241,21 +6235,15 @@ static int cmd_hashkv(int argc, char **argv) {
     }
     int rlen = do_rpc("/etcdserverpb.Maintenance/HashKV", req, req_n, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-    /* HashKVResponse: field 1 (header), field 2 (hash), field 3 (compact_revision) */
-    size_t rpos = 0;
-    uint64_t hash_val = 0, compact_rev = 0;
-    while (rpos < (size_t)rlen) {
-        uint8_t tag = resp[rpos++];
-        if (tag == 0x10) {
-            read_varint(resp, rlen, &rpos, &hash_val);
-        } else if (tag == 0x18) {
-            read_varint(resp, rlen, &rpos, &compact_rev);
-        } else if (tag == 0x0a) {
-            uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
-        } else {
-            uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
-        }
+    uint32_t hash32 = 0;
+    int64_t compact_i = 0;
+    if (cetcd_parse_hash_response(resp, (size_t)rlen, &hash32, &compact_i)
+        != CETCD_OK) {
+        fprintf(stderr, "request failed\n");
+        return 1;
     }
+    uint64_t hash_val = hash32;
+    uint64_t compact_rev = (uint64_t)compact_i;
     if (want_json) {
         fputs("{", stdout);
         parse_and_print_header_json(resp, (size_t)rlen);

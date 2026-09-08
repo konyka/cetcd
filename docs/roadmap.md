@@ -796,6 +796,12 @@ Performance-first, fail-closed design:
   fail-closes (cannot look like a held lock). Dummy `0x00` is not a
   skip length. `cetcdctl lock` / `elect` / `txn` leftover-safe-parse
   field 2. Accepting leftover payload as succeeded is rejected.
+- **Hash leftover-safe printed hash** — leftover-safe-parses Hash /
+  HashKV so leftover length-delimited bytes cannot steal a printed
+  hash or compact_revision. A truncated hash fail-closes (cannot look
+  like 0). Dummy `0x00` is not a skip length. `cetcdctl hash` /
+  `hashkv` leftover-safe-parse field 2/3. Accepting leftover payload
+  as the printed hash is rejected.
 - **AuthStatus / user-role list leftover-safe** — leftover-safe-parses
   AuthStatusResponse and UserList/RoleList so leftover length-delimited
   bytes cannot steal `enabled` or a printed user/role name. A truncated

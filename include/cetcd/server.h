@@ -598,6 +598,16 @@ int cetcd_parse_authenticate_response(const uint8_t *req, size_t len,
 int cetcd_encode_txn_succeeded(int succeeded, uint8_t *out, size_t cap,
                                size_t *n);
 int cetcd_parse_txn_succeeded(const uint8_t *req, size_t len, int *succeeded);
+/* leftover-safe Hash / HashKV response. omitted / empty / dummy
+ * 0x00 = hash 0 / compact_rev 0. leftover truncated hash /
+ * compact_rev is INVAL so a truncated hash cannot look like 0.
+ * leftover length-delimited fields are skipped by payload so
+ * leftover bytes cannot steal a printed hash. unknown wire types
+ * are INVAL. compact_rev < 0 omits field 3 on encode. */
+int cetcd_encode_hash_response(uint32_t hash, int64_t compact_rev,
+                               uint8_t *out, size_t cap, size_t *n);
+int cetcd_parse_hash_response(const uint8_t *req, size_t len,
+                              uint32_t *hash, int64_t *compact_rev);
 /* leftover-safe DowngradeRequest. omitted / empty / dummy 0x00 =
  * action VALIDATE (0) / empty version. leftover truncated action /
  * version is INVAL so a truncated validate cannot look like ENABLE
