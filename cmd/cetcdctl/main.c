@@ -5182,33 +5182,28 @@ static int cmd_auth(int argc, char **argv) {
         pos = encode_string_field(req, sizeof(req), pos, 0x12, pass);
         int rlen = do_rpc("/etcdserverpb.Auth/Authenticate", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "authentication failed\n"); return 1; }
-        /* Parse AuthenticateResponse: field 1 (header) = bytes tag=0x0a, field 2 (token) = bytes tag=0x12 */
-        size_t rpos = 0;
-        while (rpos < (size_t)rlen) {
-            uint8_t tag = resp[rpos++];
-            if (tag == 0x12) {
-                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
-                if (want_json) {
-                    fputs("{", stdout);
-                    parse_and_print_header_json(resp, (size_t)rlen);
-                    fputs(",\"token\":", stdout);
-                    print_json_string(resp + rpos, (size_t)l);
-                    fputs("}\n", stdout);
-                } else if (want_fields) {
-                    parse_and_print_header_json(resp, (size_t)rlen);
-                    printf("token: %.*s\n", (int)l, resp + rpos);
-                    fputs("\n", stdout);
-                } else {
-                    printf("token: %.*s\n", (int)l, resp + rpos);
-                }
-                return 0;
-            } else if (tag == 0x0a) {
-                /* Skip header (length-delimited) */
-                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
-                rpos += l;
+        /* leftover-safe: leftover cannot steal a printed token */
+        char token[256];
+        if (cetcd_parse_authenticate_response(resp, (size_t)rlen, token,
+                                              sizeof(token)) != CETCD_OK) {
+            fprintf(stderr, "authentication failed\n");
+            return 1;
+        }
+        if (token[0]) {
+            if (want_json) {
+                fputs("{", stdout);
+                parse_and_print_header_json(resp, (size_t)rlen);
+                fputs(",\"token\":", stdout);
+                print_json_string((const uint8_t *)token, strlen(token));
+                fputs("}\n", stdout);
+            } else if (want_fields) {
+                parse_and_print_header_json(resp, (size_t)rlen);
+                printf("token: %s\n", token);
+                fputs("\n", stdout);
             } else {
-                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+                printf("token: %s\n", token);
             }
+            return 0;
         }
         if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }
         else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); fputs("\n", stdout); }
@@ -5240,13 +5235,12 @@ static int cmd_auth(int argc, char **argv) {
     int rlen = do_rpc(path, req, 1, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
     if (strcmp(argv[2], "status") == 0) {
-        size_t rpos = 0;
-        uint64_t enabled = 0;
-        while (rpos < (size_t)rlen) {
-            uint8_t tag = resp[rpos++];
-            if (tag == 0x10) { read_varint(resp, rlen, &rpos, &enabled); }
-            else if (tag == 0x0a) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
-            else { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
+        int enabled = 0;
+        /* leftover-safe: leftover cannot steal printed enabled */
+        if (cetcd_parse_auth_status_response(resp, (size_t)rlen, &enabled)
+            != CETCD_OK) {
+            fprintf(stderr, "request failed\n");
+            return 1;
         }
         if (want_json) {
             fputs("{", stdout);

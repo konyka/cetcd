@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 155 — leftover-safe Watch</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 156 — leftover-safe login token</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 155 leftover-safe-parses
-     Watch so leftover length-delimited bytes cannot steal a
-     printed Event key or type.</p>
+  <p><strong>v0.3.0</strong>. Phase 156 leftover-safe-parses
+     auth login so leftover length-delimited bytes cannot steal a
+     printed token.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -208,6 +208,7 @@
       <tr><td>153</td><td>leftover-safe KeepAlive</td><td>KeepAlive leftover-safe-parses so leftover length-delimited bytes cannot steal a printed or lock-used TTL; truncated TTL fail-closes — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>154</td><td>leftover-safe RoleGet</td><td>RoleGet leftover-safe-parses so leftover length-delimited bytes cannot steal a printed Permission key or permType; truncated perm / key fail-closes; cetcdctl leftover-safe-skips unknown fields — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>155</td><td>leftover-safe Watch</td><td>Watch leftover-safe-parses so leftover length-delimited bytes cannot steal a printed Event key or type; truncated event / kv / key fail-closes; cetcdctl leftover-safe-skips unknown fields — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>156</td><td>leftover-safe login token</td><td>auth login leftover-safe-parses so leftover length-delimited bytes cannot steal a printed token; AuthStatus leftover-safe-parses so leftover cannot steal printed enabled — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

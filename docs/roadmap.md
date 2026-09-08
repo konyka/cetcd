@@ -838,6 +838,13 @@ Performance-first, fail-closed design:
   (cannot print leftover text or set `ETCD_WATCH_KEY`). Dummy `0x00`
   is not a skip length. `cetcdctl watch` leftover-safe-skips unknown
   fields. Accepting leftover payload as the printed key is rejected.
+- **auth login leftover-safe printed token** — leftover-safe-parses
+  AuthenticateResponse so leftover length-delimited bytes cannot steal
+  a printed login token. AuthStatus leftover-safe-parses so leftover
+  cannot steal printed `enabled`. A truncated token / enabled
+  fail-closes. Dummy `0x00` is not a skip length. `cetcdctl auth login`
+  / `auth status` leftover-safe-parse field 2. Accepting leftover
+  payload as the printed token is rejected.
 - **AuthStatus / user-role list leftover-safe** — leftover-safe-parses
   AuthStatusResponse and UserList/RoleList so leftover length-delimited
   bytes cannot steal `enabled` or a printed user/role name. A truncated
