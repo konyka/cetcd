@@ -734,6 +734,13 @@ Performance-first, fail-closed design:
   range_end, or permType. A truncated name / Permission / key fail-closes
   (cannot look like a successful grant). Dummy `0x00` / omitted is empty.
   Accepting leftover payload as the key is rejected.
+- **WatchCreate leftover-safe start_rev** — leftover-safe-parses
+  WatchCreateRequest so leftover length-delimited bytes cannot steal
+  `start_rev`, `range_end`, `watch_id`, or `fragment`. A truncated
+  `--start-rev` fail-closes (cannot watch the live tree). Dummy `0x00` /
+  omitted is from-now. Accepting leftover payload as the start revision
+  is rejected. `fragment` is leftover-safe-parsed; splitting large
+  WatchResponses is a separate land (a no-op fragment flag is rejected).
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

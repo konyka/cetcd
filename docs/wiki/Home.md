@@ -903,7 +903,7 @@ Authenticate leftover-safe-parses field 1/2 so leftover length-delimited bytes c
 UserAdd leftover-safe-parses so leftover length-delimited bytes cannot steal a password or `no_password` (truncated password / options fail-closes). UserChangePassword leftover-safe-parses the same name/password fields.
 UserDelete / RoleAdd / RoleDelete / UserGet / RoleGet leftover-safe-parses so leftover length-delimited bytes cannot steal the name and delete or look up the wrong principal (truncated name fail-closes). UserGrantRole / UserRevokeRole leftover-safe-parses so leftover cannot steal the user or role.
 RoleGrantPermission / RoleRevokePermission leftover-safe-parses so leftover length-delimited bytes cannot steal the role, Permission key, range_end, or permType (truncated name / Permission / key fail-closes).
-`cetcdctl watch --start-rev` must be an integer `>= 0`; leftover text fail-closes instead of starting at a truncated revision.
+`cetcdctl watch --start-rev` must be an integer `>= 0`; leftover text fail-closes instead of starting at a truncated revision. WatchCreate leftover-safe-parses so leftover length-delimited bytes cannot steal `start_rev` / `range_end` / `watch_id` (truncated `--start-rev` fail-closes).
 `--help` does not pre-empt an earlier invalid flag. `--config-file` is skipped when `--help` is present.
 A `cert-file` enables client TLS even without an https listen URL. A data-dir join does not campaign as a singleton before persisted peers load.
 `--grpc-keepalive-time` / `--grpc-keepalive-interval` / `--grpc-keepalive-timeout`

@@ -3354,6 +3354,59 @@ CETCD_TEST_CASE(v3rpc_watch_start_rev_compacted) {
     CETCD_ASSERT_FALSE(found_event);
     cetcd_rpc_bytes_free(&resp);
 
+    /* leftover truncated start_rev cannot look like from-now */
+    uint8_t trunc_inner[] = { 0x0a, 0x02, 'k', '1', 0x18 };
+    uint8_t trunc_watch[16];
+    wpos = 0;
+    trunc_watch[wpos++] = 0x0a;
+    trunc_watch[wpos++] = (uint8_t)sizeof(trunc_inner);
+    memcpy(trunc_watch + wpos, trunc_inner, sizeof(trunc_inner));
+    wpos += sizeof(trunc_inner);
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Watch/Watch",
+                                trunc_watch, wpos);
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover cannot steal start_rev and look compacted */
+    uint8_t steal_inner[] = { 0x0a, 0x02, 'k', '1', 0x4a, 0x02, 0x18, 0x01 };
+    uint8_t steal_watch[16];
+    wpos = 0;
+    steal_watch[wpos++] = 0x0a;
+    steal_watch[wpos++] = (uint8_t)sizeof(steal_inner);
+    memcpy(steal_watch + wpos, steal_inner, sizeof(steal_inner));
+    wpos += sizeof(steal_inner);
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Watch/Watch",
+                                steal_watch, wpos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    found_canceled = 0;
+    rpos = 0;
+    while (rpos < resp.len) {
+        uint8_t tag = resp.data[rpos++];
+        if (tag == 0x0a) {
+            uint64_t l = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                l |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) break;
+                shift += 7;
+            }
+            rpos += (size_t)l;
+        } else if ((tag & 7) == 0) {
+            uint64_t v = 0; int shift = 0;
+            while (rpos < resp.len) {
+                uint8_t b = resp.data[rpos++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) break;
+                shift += 7;
+            }
+            if (tag == 0x20 && v == 1) found_canceled = 1;
+        } else {
+            break;
+        }
+    }
+    CETCD_ASSERT_FALSE(found_canceled);
+    cetcd_rpc_bytes_free(&resp);
+
     cetcd_v3rpc_free(rpc);
 }
 

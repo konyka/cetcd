@@ -559,7 +559,7 @@ requires this node to be leader (same fail-closed empty body as a follower Range
 The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/keepalive`,
 `member add/remove/update/promote`, `user delete/change-password/grant-role/revoke-role`,
 `role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix/--keys-only/--rev` (`--rev`/`--limit`/`--*-mod-rev`/`--*-create-rev` must be integers `>= 0`; leftover text fail-closes); Range leftover-safe-parses so leftover length-delimited bytes cannot steal `rev` / `limit` (truncated `--rev` fail-closes),
-`del --prefix/--prev-kv` (DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal `range_end` and turn a point delete into a range delete; truncated `range_end` fail-closes), `put --prev-kv`, `watch --prefix/--prev-kv/--start-rev` (`--start-rev` must be an integer `>= 0`; leftover text fail-closes), `txn cas` (compare-and-swap; leftover-safe so leftover cannot steal Compare result and flip a CAS),
+`del --prefix/--prev-kv` (DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal `range_end` and turn a point delete into a range delete; truncated `range_end` fail-closes), `put --prev-kv`, `watch --prefix/--prev-kv/--start-rev` (`--start-rev` must be an integer `>= 0`; leftover text fail-closes; WatchCreate leftover-safe-parses so leftover cannot steal `start_rev` / `range_end`), `txn cas` (compare-and-swap; leftover-safe so leftover cannot steal Compare result and flip a CAS),
 `auth login` (token-based authentication; Authenticate leftover-safe-parses so leftover length-delimited bytes cannot steal a name or password; truncated password fail-closes), `user add` / `user passwd` leftover-safe-parses so leftover cannot steal a password or `no_password`, `user delete` / `user get` / `role add` / `role delete` / `role get` leftover-safe-parses so leftover cannot steal the name and delete or look up the wrong principal, `user grant-role` / `user revoke-role` leftover-safe-parses so leftover cannot steal the user or role, `role grant-permission` / `role revoke-permission` leftover-safe-parses so leftover cannot steal the role, key, range_end, or permType, `get --count-only/--limit N/--sort-by/--sort-order/--print-value-only`,
 `put --ignore-value/--ignore-lease`, `get/del KEY RANGE_END` (positional range_end argument),
 `get/del --from-key` (unbounded range queries), `put --lease ID` (attach lease to key; leftover `10foo` fail-closes; `--lease=1` accepted),
@@ -849,7 +849,10 @@ etcd v3.5 protobuf field numbers: key (field 1, 0x0a), create_revision (field 2,
 mod_revision (field 3, 0x18), version (field 4, 0x20), value (field 5, 0x2a), and lease
 (field 6, 0x30 when non-zero). Range/Put/Delete/Txn KeyValue responses encode lease the
 same way. The
-`WatchCreateRequest` parser also supports `prev_kv` (field 6) and client-specified `watch_id`
+`WatchCreateRequest` parser leftover-safe-parses so leftover length-delimited
+bytes cannot steal `start_rev`, `range_end`, `watch_id`, or `fragment`; a
+truncated `--start-rev` fail-closes (cannot watch the live tree). Dummy `0x00` /
+omitted is from-now. It also supports `prev_kv` (field 6) and client-specified `watch_id`
 (field 7). The cetcdctl `watch` command supports `--prev-kv` and `--start-rev` flags.
 The Watch handler encodes `prev_kv` (field 3, tag 0x1a) in Event messages when the watcher
 requests it via `prev_kv=true` and a previous value exists. The MVCC layer captures the

@@ -2415,6 +2415,61 @@ CETCD_TEST_CASE(auto_compact_parse_auth_role_revoke_perm_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_watch_create_request) {
+    uint8_t buf[32];
+    size_t n = 0;
+    cetcd_watch_create_request w;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_watch_create_request(
+                            NULL, 0, 0, buf, sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_watch_create_request(
+                            (const uint8_t *)"k1", 2, 5, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_create_request(buf, n, &w), CETCD_OK);
+    CETCD_ASSERT_TRUE(w.key_len == 2 && w.key && memcmp(w.key, "k1", 2) == 0);
+    CETCD_ASSERT_TRUE(w.start_rev == 5);
+    cetcd_watch_create_request_clear(&w);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_create_request(NULL, 0, &w), CETCD_OK);
+    CETCD_ASSERT_TRUE(w.start_rev == 0 && w.key == NULL);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_create_request(dummy, 1, &w),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(w.start_rev == 0);
+
+    /* leftover truncated start_rev cannot look like from-now */
+    uint8_t trunc[] = { 0x0a, 0x02, 'k', '1', 0x18 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_create_request(trunc, sizeof(trunc),
+                                                        &w),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_TRUE(w.key == NULL);
+
+    /* leftover cannot steal start_rev */
+    uint8_t steal[] = { 0x0a, 0x02, 'k', '1', 0x4a, 0x02, 0x18, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_create_request(steal, sizeof(steal),
+                                                        &w),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(w.start_rev == 0);
+    CETCD_ASSERT_TRUE(w.key_len == 2);
+    cetcd_watch_create_request_clear(&w);
+
+    /* leftover cannot steal range_end */
+    uint8_t steal_re[] = { 0x0a, 0x02, 'k', '1',
+                           0x4a, 0x04, 0x12, 0x02, 'k', '2' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_create_request(steal_re,
+                                                        sizeof(steal_re), &w),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(w.range_end == NULL);
+    cetcd_watch_create_request_clear(&w);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_create_request(fixed64, 1, &w),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_create_request(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_compact_argv) {
     int physical = 0;
     int64_t rev = 0;
@@ -3036,6 +3091,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_auth_name_request),
     CETCD_TEST_ENTRY(auto_compact_parse_auth_role_grant_perm_request),
     CETCD_TEST_ENTRY(auto_compact_parse_auth_role_revoke_perm_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_watch_create_request),
     CETCD_TEST_ENTRY(auto_compact_parse_compact_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_defrag_argv),

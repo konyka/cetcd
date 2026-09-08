@@ -369,6 +369,31 @@ int cetcd_encode_auth_role_revoke_perm_request(const uint8_t *name,
                                                size_t *n);
 int cetcd_parse_auth_role_revoke_perm_request(const uint8_t *req, size_t len,
                                               cetcd_auth_role_perm_request *out);
+/* leftover-safe WatchCreateRequest. omitted / empty / dummy 0x00 =
+ * empty key / start_rev 0 (from now). leftover truncated varint is
+ * INVAL so a truncated --start-rev cannot watch the live tree.
+ * leftover length-delimited fields are skipped by payload so leftover
+ * bytes cannot steal start_rev, range_end, watch_id, or fragment.
+ * unknown wire types are INVAL. key / range_end are malloced. */
+typedef struct cetcd_watch_create_request {
+    uint8_t *key;
+    size_t key_len;
+    uint8_t *range_end;
+    size_t range_end_len;
+    int64_t start_rev;
+    int progress_notify;
+    int filter_noput;
+    int filter_nodelete;
+    int prev_kv;
+    int64_t watch_id;
+    int fragment;
+} cetcd_watch_create_request;
+void cetcd_watch_create_request_clear(cetcd_watch_create_request *r);
+int cetcd_encode_watch_create_request(const uint8_t *key, size_t key_len,
+                                      int64_t start_rev, uint8_t *out,
+                                      size_t cap, size_t *n);
+int cetcd_parse_watch_create_request(const uint8_t *req, size_t len,
+                                     cetcd_watch_create_request *out);
 /* leftover-safe AuthUserAddRequest. omitted / empty / dummy 0x00 =
  * empty name/password. leftover truncated password / options is INVAL
  * so a truncated password cannot look like a name-only add. leftover

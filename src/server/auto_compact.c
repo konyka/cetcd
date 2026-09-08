@@ -2963,6 +2963,114 @@ int cetcd_parse_auth_role_revoke_perm_request(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+void cetcd_watch_create_request_clear(cetcd_watch_create_request *r) {
+    if (!r) return;
+    free(r->key);
+    free(r->range_end);
+    memset(r, 0, sizeof(*r));
+}
+
+int cetcd_encode_watch_create_request(const uint8_t *key, size_t key_len,
+                                      int64_t start_rev, uint8_t *out,
+                                      size_t cap, size_t *n) {
+    size_t pos = 0;
+    int rc;
+    if (!out || !n || !key || key_len == 0 || start_rev < 0)
+        return CETCD_ERR_INVAL;
+    rc = write_bytes_field_(out, cap, &pos, 0x0a, key, key_len);
+    if (rc != CETCD_OK) return rc;
+    if (start_rev > 0) {
+        uint64_t v;
+        if (pos + 2 > cap) return CETCD_ERR_OVERFLOW;
+        out[pos++] = 0x18;
+        v = (uint64_t)start_rev;
+        do {
+            if (pos >= cap) return CETCD_ERR_OVERFLOW;
+            uint8_t b = (uint8_t)(v & 0x7fu);
+            v >>= 7;
+            if (v) b |= 0x80u;
+            out[pos++] = b;
+        } while (v);
+    }
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_watch_create_request(const uint8_t *req, size_t len,
+                                     cetcd_watch_create_request *out) {
+    size_t p = 0;
+    if (!out) return CETCD_ERR_INVAL;
+    memset(out, 0, sizeof(*out));
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x0a) {
+            int rc = leftover_safe_copy_bytes_at_(req, len, &p, &out->key,
+                                                  &out->key_len);
+            if (rc != CETCD_OK) {
+                cetcd_watch_create_request_clear(out);
+                return rc;
+            }
+            continue;
+        }
+        if (tag == 0x12) {
+            int rc = leftover_safe_copy_bytes_at_(req, len, &p, &out->range_end,
+                                                  &out->range_end_len);
+            if (rc != CETCD_OK) {
+                cetcd_watch_create_request_clear(out);
+                return rc;
+            }
+            continue;
+        }
+        if (tag == 0x18 || tag == 0x20 || tag == 0x28 || tag == 0x30 ||
+            tag == 0x38 || tag == 0x40) {
+            uint64_t v = 0;
+            if (leftover_safe_varint_at_(req, len, &p, &v) != CETCD_OK) {
+                cetcd_watch_create_request_clear(out);
+                return CETCD_ERR_INVAL;
+            }
+            if (tag == 0x18) out->start_rev = (int64_t)v;
+            else if (tag == 0x20) out->progress_notify = v != 0;
+            else if (tag == 0x28) {
+                if (v == 0) out->filter_noput = 1;
+                else if (v == 1) out->filter_nodelete = 1;
+            } else if (tag == 0x30) out->prev_kv = v != 0;
+            else if (tag == 0x38) out->watch_id = (int64_t)v;
+            else out->fragment = v != 0;
+            continue;
+        }
+        if (tag == 0x2a) {
+            uint64_t skip = 0;
+            size_t ip = 0;
+            if (leftover_safe_varint_at_(req, len, &p, &skip) != CETCD_OK ||
+                p + skip > len) {
+                cetcd_watch_create_request_clear(out);
+                return CETCD_ERR_INVAL;
+            }
+            const uint8_t *pl = req + p;
+            p += (size_t)skip;
+            while (ip < (size_t)skip) {
+                uint64_t fv = 0;
+                if (leftover_safe_varint_at_(pl, (size_t)skip, &ip, &fv)
+                    != CETCD_OK) {
+                    cetcd_watch_create_request_clear(out);
+                    return CETCD_ERR_INVAL;
+                }
+                if (fv == 0) out->filter_noput = 1;
+                else if (fv == 1) out->filter_nodelete = 1;
+            }
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK) {
+            cetcd_watch_create_request_clear(out);
+            return CETCD_ERR_INVAL;
+        }
+    }
+    return CETCD_OK;
+}
+
 void cetcd_user_add_request_clear(cetcd_user_add_request *r) {
     if (!r) return;
     free(r->name);

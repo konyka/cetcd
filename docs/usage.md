@@ -389,6 +389,7 @@ so many concurrent watchers can share a single TCP connection.
 # Watch from a specific revision
 ./build/bin/cetcdctl watch --start-rev 42 foo
 # --start-rev must be >= 0; leftover text is not a silent truncated revision
+# leftover-safe: leftover proto bytes cannot steal start_rev / range_end
 # leftover watch --foo key fail-closes (not a watch on key --foo)
 
 # Include the previous key-value in each event

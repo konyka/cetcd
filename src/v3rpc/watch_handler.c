@@ -32,31 +32,6 @@ cetcd_rpc_bytes watch_handle_watch(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
 
 /* ── Minimal protobuf varint/bytes helpers ─────────────────────────────── */
 
-static int read_varint_w(const uint8_t *buf, size_t len, size_t *pos, uint64_t *out) {
-    uint64_t val = 0; int shift = 0;
-    while (*pos < len) {
-        uint8_t b = buf[*pos]; (*pos)++;
-        val |= (uint64_t)(b & 0x7F) << shift;
-        if ((b & 0x80) == 0) { *out = val; return 0; }
-        shift += 7; if (shift > 63) break;
-    }
-    return -1;
-}
-
-static int read_bytes_w(const uint8_t *buf, size_t len, size_t *pos,
-                         uint8_t **out, size_t *out_len) {
-    uint64_t l = 0;
-    if (read_varint_w(buf, len, pos, &l) != 0) return -1;
-    if (*pos + l > len) return -1;
-    uint8_t *p = (uint8_t *)malloc((size_t)l);
-    if (!p && l > 0) return -1;
-    if (l > 0) memcpy(p, buf + *pos, (size_t)l);
-    *pos += (size_t)l;
-    *out = p;
-    *out_len = (size_t)l;
-    return 0;
-}
-
 static size_t write_varint_w(uint8_t *buf, size_t cap, size_t pos, uint64_t val) {
     while (pos < cap) {
         uint8_t b = val & 0x7F;
@@ -400,89 +375,204 @@ typedef struct {
     int64_t  cancel_id;
 } watch_request_parsed;
 
-static void parse_watch_request(const uint8_t *req, size_t req_len,
-                                 watch_request_parsed *out) {
-    memset(out, 0, sizeof(*out));
+static void free_watch_request_parsed(watch_request_parsed *p);
+
+static int leftover_safe_varint_w(const uint8_t *buf, size_t len, size_t *pos,
+                                  uint64_t *out) {
+    uint64_t v = 0;
+    int shift = 0;
+    int got = 0;
+    if (!buf || !pos) return -1;
+    while (*pos < len) {
+        uint8_t b = buf[(*pos)++];
+        v |= (uint64_t)(b & 0x7F) << shift;
+        if ((b & 0x80) == 0) {
+            got = 1;
+            break;
+        }
+        shift += 7;
+        if (shift > 63) return -1;
+    }
+    if (!got) return -1;
+    if (out) *out = v;
+    return 0;
+}
+
+static int leftover_safe_ldelim_w(const uint8_t *buf, size_t len, size_t *pos,
+                                  const uint8_t **payload, size_t *payload_len) {
+    uint64_t n = 0;
+    if (leftover_safe_varint_w(buf, len, pos, &n) != 0) return -1;
+    if (*pos + n > len) return -1;
+    *payload = buf + *pos;
+    *payload_len = (size_t)n;
+    *pos += (size_t)n;
+    return 0;
+}
+
+static int leftover_safe_copy_w(const uint8_t *buf, size_t len, size_t *pos,
+                                uint8_t **out, size_t *out_len) {
+    const uint8_t *pl = NULL;
+    size_t n = 0;
+    if (leftover_safe_ldelim_w(buf, len, pos, &pl, &n) != 0) return -1;
+    free(*out);
+    if (n == 0) {
+        *out = NULL;
+        *out_len = 0;
+        return 0;
+    }
+    uint8_t *copy = (uint8_t *)malloc(n);
+    if (!copy) {
+        *out = NULL;
+        *out_len = 0;
+        return -1;
+    }
+    memcpy(copy, pl, n);
+    *out = copy;
+    *out_len = n;
+    return 0;
+}
+
+static int leftover_safe_skip_unknown_w(const uint8_t *buf, size_t len,
+                                        size_t *pos, uint8_t tag) {
+    if ((tag & 7) == 0)
+        return leftover_safe_varint_w(buf, len, pos, NULL);
+    if ((tag & 7) == 2) {
+        const uint8_t *pl = NULL;
+        size_t n = 0;
+        return leftover_safe_ldelim_w(buf, len, pos, &pl, &n);
+    }
+    return -1;
+}
+
+/* leftover-safe WatchRequest. truncated create/cancel/start_rev is INVAL
+ * so leftover bytes cannot steal start_rev or look like from-now. */
+static int parse_watch_request(const uint8_t *req, size_t req_len,
+                               watch_request_parsed *out) {
     size_t pos = 0;
+    memset(out, 0, sizeof(*out));
+    if (!req || req_len == 0) return 0;
     while (pos < req_len) {
         uint8_t tag = req[pos++];
+        if (tag == 0x00)
+            continue;
         if (tag == 0x0a) { /* WatchCreateRequest */
+            const uint8_t *pl = NULL;
+            size_t n = 0;
+            size_t ip = 0;
             out->is_create = true;
-            uint64_t clen = 0;
-            if (read_varint_w(req, req_len, &pos, &clen) != 0) break;
-            size_t cend = pos + (size_t)clen;
-            while (pos < cend) {
-                uint8_t ctag = req[pos++];
+            if (leftover_safe_ldelim_w(req, req_len, &pos, &pl, &n) != 0) {
+                free_watch_request_parsed(out);
+                return -1;
+            }
+            while (ip < n) {
+                uint8_t ctag = pl[ip++];
+                if (ctag == 0x00)
+                    continue;
                 if (ctag == 0x0a) {
-                    read_bytes_w(req, cend, &pos, &out->key, &out->key_len);
-                } else if (ctag == 0x12) {
-                    read_bytes_w(req, cend, &pos, &out->range_end, &out->range_end_len);
-                } else if (ctag == 0x18) {
+                    if (leftover_safe_copy_w(pl, n, &ip, &out->key,
+                                             &out->key_len) != 0) {
+                        free_watch_request_parsed(out);
+                        return -1;
+                    }
+                    continue;
+                }
+                if (ctag == 0x12) {
+                    if (leftover_safe_copy_w(pl, n, &ip, &out->range_end,
+                                             &out->range_end_len) != 0) {
+                        free_watch_request_parsed(out);
+                        return -1;
+                    }
+                    continue;
+                }
+                if (ctag == 0x18 || ctag == 0x20 || ctag == 0x28 ||
+                    ctag == 0x30 || ctag == 0x38 || ctag == 0x40) {
                     uint64_t v = 0;
-                    if (read_varint_w(req, cend, &pos, &v) == 0) out->start_rev = (int64_t)v;
-                } else if (ctag == 0x20) {
-                    /* field 4 = progress_notify (bool) */
-                    uint64_t v = 0;
-                    if (read_varint_w(req, cend, &pos, &v) == 0) out->want_progress_notify = (int)v;
-                } else if (ctag == 0x28) {
-                    /* field 5 = filters (repeated enum, non-packed: NOPUT=0, NODELETE=1) */
-                    uint64_t v = 0;
-                    if (read_varint_w(req, cend, &pos, &v) == 0) {
+                    if (leftover_safe_varint_w(pl, n, &ip, &v) != 0) {
+                        free_watch_request_parsed(out);
+                        return -1;
+                    }
+                    if (ctag == 0x18) out->start_rev = (int64_t)v;
+                    else if (ctag == 0x20) out->want_progress_notify = (int)v;
+                    else if (ctag == 0x28) {
                         if (v == 0) out->filter_noput = 1;
                         else if (v == 1) out->filter_nodelete = 1;
+                    } else if (ctag == 0x30) out->want_prev_kv = (int)v;
+                    else if (ctag == 0x38) out->client_watch_id = (int64_t)v;
+                    else out->fragment = (int)v;
+                    continue;
+                }
+                if (ctag == 0x2a) {
+                    const uint8_t *fl = NULL;
+                    size_t fn = 0;
+                    size_t fp = 0;
+                    if (leftover_safe_ldelim_w(pl, n, &ip, &fl, &fn) != 0) {
+                        free_watch_request_parsed(out);
+                        return -1;
                     }
-                } else if (ctag == 0x2a) {
-                    /* field 5 = filters (packed varint) */
-                    uint64_t flen = 0;
-                    if (read_varint_w(req, cend, &pos, &flen) == 0) {
-                        size_t fend = pos + (size_t)flen;
-                        while (pos < fend) {
-                            uint64_t fv = 0;
-                            if (read_varint_w(req, fend, &pos, &fv) == 0) {
-                                if (fv == 0) out->filter_noput = 1;
-                                else if (fv == 1) out->filter_nodelete = 1;
-                            }
+                    while (fp < fn) {
+                        uint64_t fv = 0;
+                        if (leftover_safe_varint_w(fl, fn, &fp, &fv) != 0) {
+                            free_watch_request_parsed(out);
+                            return -1;
                         }
+                        if (fv == 0) out->filter_noput = 1;
+                        else if (fv == 1) out->filter_nodelete = 1;
                     }
-                } else if (ctag == 0x30) {
-                    uint64_t v = 0;
-                    if (read_varint_w(req, cend, &pos, &v) == 0) out->want_prev_kv = (int)v;
-                } else if (ctag == 0x38) {
-                    uint64_t v = 0;
-                    if (read_varint_w(req, cend, &pos, &v) == 0) out->client_watch_id = (int64_t)v;
-                } else if (ctag == 0x40) {
-                    /* field 8 = fragment (bool) */
-                    uint64_t v = 0;
-                    if (read_varint_w(req, cend, &pos, &v) == 0) out->fragment = (int)v;
-                } else {
-                    uint64_t skip = 0; read_varint_w(req, cend, &pos, &skip);
+                    continue;
+                }
+                if (leftover_safe_skip_unknown_w(pl, n, &ip, ctag) != 0) {
+                    free_watch_request_parsed(out);
+                    return -1;
                 }
             }
-            pos = cend;
-        } else if (tag == 0x12) { /* WatchCancelRequest */
+            continue;
+        }
+        if (tag == 0x12) { /* WatchCancelRequest */
+            const uint8_t *pl = NULL;
+            size_t n = 0;
+            size_t ip = 0;
             out->is_cancel = true;
-            uint64_t clen = 0;
-            if (read_varint_w(req, req_len, &pos, &clen) != 0) break;
-            size_t cend = pos + (size_t)clen;
-            while (pos < cend) {
-                uint8_t ctag = req[pos++];
+            if (leftover_safe_ldelim_w(req, req_len, &pos, &pl, &n) != 0) {
+                free_watch_request_parsed(out);
+                return -1;
+            }
+            while (ip < n) {
+                uint8_t ctag = pl[ip++];
+                if (ctag == 0x00)
+                    continue;
                 if (ctag == 0x08) {
                     uint64_t v = 0;
-                    if (read_varint_w(req, cend, &pos, &v) == 0) out->cancel_id = (int64_t)v;
-                } else {
-                    uint64_t skip = 0; read_varint_w(req, cend, &pos, &skip);
+                    if (leftover_safe_varint_w(pl, n, &ip, &v) != 0) {
+                        free_watch_request_parsed(out);
+                        return -1;
+                    }
+                    out->cancel_id = (int64_t)v;
+                    continue;
+                }
+                if (leftover_safe_skip_unknown_w(pl, n, &ip, ctag) != 0) {
+                    free_watch_request_parsed(out);
+                    return -1;
                 }
             }
-            pos = cend;
-        } else if (tag == 0x1a) { /* WatchProgressRequest (empty message) */
+            continue;
+        }
+        if (tag == 0x1a) { /* WatchProgressRequest */
+            const uint8_t *pl = NULL;
+            size_t n = 0;
             out->is_progress = true;
-            uint64_t clen = 0;
-            if (read_varint_w(req, req_len, &pos, &clen) != 0) break;
-            pos += (size_t)clen;
-        } else {
-            uint64_t skip = 0; read_varint_w(req, req_len, &pos, &skip);
+            if (leftover_safe_ldelim_w(req, req_len, &pos, &pl, &n) != 0) {
+                free_watch_request_parsed(out);
+                return -1;
+            }
+            (void)pl;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_w(req, req_len, &pos, tag) != 0) {
+            free_watch_request_parsed(out);
+            return -1;
         }
     }
+    return 0;
 }
 
 static void free_watch_request_parsed(watch_request_parsed *p) {
@@ -689,7 +779,8 @@ cetcd_rpc_bytes watch_handle_watch(cetcd_v3rpc *rpc,
                                     const uint8_t *req, size_t req_len) {
     (void)rpc;
     watch_request_parsed p;
-    parse_watch_request(req, req_len, &p);
+    if (parse_watch_request(req, req_len, &p) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
 
     /* etcd ErrEmptyKey: WatchCreate requires key len > 0 ("\0" len=1 is valid). */
     if (p.is_create && (!p.key || p.key_len == 0)) {
