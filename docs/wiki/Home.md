@@ -906,6 +906,7 @@ Downgrade leftover-safe-parses so leftover length-delimited bytes cannot steal a
 Put leftover-safe-parses field 3 so leftover length-delimited bytes cannot steal the lease (truncated `--lease` fail-closes; dummy `0x00` / omitted = lease 0).
 DeleteRange leftover-safe-parses field 2 so leftover length-delimited bytes cannot steal `range_end` and turn a point delete into a range delete (truncated `range_end` fail-closes; dummy `0x00` / omitted = empty range_end).
 DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal a printed prev_kv key (truncated prev_kv / key fail-closes).
+DeleteRange leftover-safe-parses `deleted` so leftover length-delimited bytes cannot steal a printed delete count (truncated deleted fail-closes). `cetcdctl del` leftover-safe-parses field 2.
 Txn leftover-safe-parses embedded Put/Range/DeleteRange so leftover length-delimited bytes cannot steal `lease` / `rev` / `range_end` (truncated inner field fail-closes the whole Txn).
 Txn perm leftover-safe-parses the RequestOp key so leftover dummy `0x00` cannot eat the key tag and skip the perm check (truncated key fail-closes; leftover cannot steal the key).
 Txn Compare leftover-safe-parses so leftover length-delimited bytes cannot steal `result` and flip a CAS (truncated result fail-closes; dummy `0x00` / omitted is EQUAL).

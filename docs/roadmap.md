@@ -875,6 +875,12 @@ Performance-first, fail-closed design:
   `cetcdctl del --prev-kv` / `put --prev-kv` leftover-safe-skip
   unknown fields. Accepting leftover payload as the printed key is
   rejected.
+- **DeleteRange leftover-safe deleted** — leftover-safe-parses
+  DeleteRangeResponse.deleted so leftover length-delimited bytes
+  cannot steal a printed delete count. A truncated deleted
+  fail-closes (cannot print 0). Dummy `0x00` is not a skip length.
+  `cetcdctl del` leftover-safe-parses field 2. Accepting leftover
+  payload as the printed count is rejected.
 - **auth login leftover-safe printed token** — leftover-safe-parses
   AuthenticateResponse so leftover length-delimited bytes cannot steal
   a printed login token. AuthStatus leftover-safe-parses so leftover

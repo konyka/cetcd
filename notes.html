@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 162 — leftover-safe Range count</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 163 — leftover-safe DeleteRange deleted</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 162 leftover-safe-parses
-     Range count / more so leftover length-delimited bytes cannot
-     steal a printed get --count-only count or more=true.</p>
+  <p><strong>v0.3.0</strong>. Phase 163 leftover-safe-parses
+     DeleteRange deleted so leftover length-delimited bytes cannot
+     steal a printed delete count.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -215,6 +215,7 @@
       <tr><td>160</td><td>leftover-safe Watch fragment</td><td>Watch leftover-safe-parses so leftover length-delimited bytes cannot steal fragment=true; truncated fragment fail-closes; leftover-safe-splits oversized WatchResponses by --max-request-bytes; cetcdctl --fragment leftover-safe-encodes field 8 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>161</td><td>leftover-safe Watch cancel_reason</td><td>Watch leftover-safe-parses so leftover length-delimited bytes cannot steal a printed compact cancel; truncated reason fail-closes; compacted WatchCreate / active-watch cancel encodes etcd ErrCompacted; cetcdctl leftover-safe-parses field 6 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>162</td><td>leftover-safe Range count</td><td>Range leftover-safe-parses so leftover length-delimited bytes cannot steal a printed get --count-only count or more=true; truncated count / more fail-closes; cetcdctl leftover-safe-parses field 3/4 — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>163</td><td>leftover-safe DeleteRange deleted</td><td>DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal a printed delete count; truncated deleted fail-closes; cetcdctl leftover-safe-parses field 2 — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

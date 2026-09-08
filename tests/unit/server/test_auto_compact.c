@@ -2832,6 +2832,48 @@ CETCD_TEST_CASE(auto_compact_parse_delete_range_response) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_delete_range_deleted) {
+    uint8_t buf[16];
+    size_t n = 0;
+    int64_t deleted = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_delete_range_deleted(-1, buf,
+                                                          sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_delete_range_deleted(3, buf,
+                                                          sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_delete_range_deleted(buf, n, &deleted),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(deleted == 3);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_delete_range_deleted(NULL, 0, &deleted),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(deleted == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_delete_range_deleted(dummy, 1, &deleted),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(deleted == 0);
+
+    /* leftover truncated deleted cannot print 0 */
+    uint8_t trunc[] = { 0x10 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_delete_range_deleted(trunc, 1, &deleted),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed delete count */
+    uint8_t steal[] = { 0x22, 0x02, 0x10, 0x07 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_delete_range_deleted(steal, sizeof(steal),
+                                                         &deleted),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(deleted == 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_delete_range_deleted(fixed64, 1, &deleted),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_delete_range_deleted(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_downgrade_request) {
     uint8_t buf[64];
     size_t n = 0;
@@ -4618,6 +4660,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_watch_fragment),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_cancel_reason),
     CETCD_TEST_ENTRY(auto_compact_parse_delete_range_response),
+    CETCD_TEST_ENTRY(auto_compact_parse_delete_range_deleted),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_request),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_response),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_op_key),

@@ -1838,13 +1838,22 @@ static int cmd_del(int argc, char **argv) {
     }
     int rlen = do_rpc("/etcdserverpb.KV/DeleteRange", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+    int64_t leftover_deleted = 0;
+    /* leftover-safe: leftover cannot steal a printed delete count */
+    if (cetcd_parse_delete_range_deleted(resp, (size_t)rlen, &leftover_deleted)
+        != CETCD_OK) {
+        fprintf(stderr, "request failed\n");
+        return 1;
+    }
     if (want_fields) {
         size_t rpos = 0;
-        uint64_t deleted = 0;
+        uint64_t deleted = (uint64_t)leftover_deleted;
         while (rpos < (size_t)rlen) {
             uint8_t tag = resp[rpos++];
             if (tag == 0x10) {
-                read_varint(resp, rlen, &rpos, &deleted);
+                if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                    &rpos, tag) != CETCD_OK)
+                    break;
             } else if (tag == 0x1a && prev_kv) {
                 uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
                 size_t kv_end = rpos + (size_t)l;
@@ -1907,7 +1916,7 @@ static int cmd_del(int argc, char **argv) {
     if (want_json) {
         /* JSON output: {"header":{...},"deleted":N,"prev_kvs":[...]} */
         size_t rpos = 0;
-        uint64_t deleted = 0;
+        uint64_t deleted = (uint64_t)leftover_deleted;
         /* Collect prev_kvs */
         int has_prev_kvs = 0;
         fputs("{", stdout);
@@ -1916,7 +1925,9 @@ static int cmd_del(int argc, char **argv) {
         while (rpos < (size_t)rlen) {
             uint8_t tag = resp[rpos++];
             if (tag == 0x10) {
-                read_varint(resp, rlen, &rpos, &deleted);
+                if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                    &rpos, tag) != CETCD_OK)
+                    break;
             } else if (tag == 0x1a && prev_kv) {
                 uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
                 size_t kv_end = rpos + (size_t)l;
@@ -2021,12 +2032,14 @@ static int cmd_del(int argc, char **argv) {
         return 0;
     }
     /* Parse DeleteRangeResponse: field 2 (deleted), field 3 (prev_kvs) */
+    printf("%llu key(s) deleted\n", (unsigned long long)leftover_deleted);
     size_t rpos = 0;
     while (rpos < (size_t)rlen) {
         uint8_t tag = resp[rpos++];
         if (tag == 0x10) {
-            uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
-            printf("%llu key(s) deleted\n", (unsigned long long)v);
+            if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                &rpos, tag) != CETCD_OK)
+                break;
         } else if (tag == 0x1a && prev_kv) {
             /* prev_kvs: repeated KeyValue */
             uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
