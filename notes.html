@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 176 — leftover-safe Status version</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 177 — leftover-safe Status isLearner</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 176 leftover-safe-parses
-     Status version so leftover length-delimited bytes cannot
-     steal a printed cluster version.</p>
+  <p><strong>v0.3.0</strong>. Phase 177 leftover-safe-parses
+     Status isLearner so leftover length-delimited bytes cannot
+     steal a printed learner.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -229,6 +229,7 @@
       <tr><td>174</td><td>leftover-safe TimeToLive keys</td><td>TimeToLive leftover-safe-parses so leftover length-delimited bytes cannot steal a printed TTL key; truncated key fail-closes; cetcdctl leftover-safe-parses field 5 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>175</td><td>leftover-safe Status dbSize</td><td>Status leftover-safe-parses so leftover length-delimited bytes cannot steal a printed dbSize; truncated dbSize fail-closes; header revision is not dbSize; cetcdctl leftover-safe-parses field 3 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>176</td><td>leftover-safe Status version</td><td>Status leftover-safe-parses so leftover length-delimited bytes cannot steal a printed version; truncated version fail-closes; header is not version; cetcdctl leftover-safe-parses field 2 — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>177</td><td>leftover-safe Status isLearner</td><td>Status leftover-safe-parses so leftover length-delimited bytes cannot steal a printed isLearner; truncated isLearner fail-closes; cetcdctl leftover-safe-parses field 10 — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

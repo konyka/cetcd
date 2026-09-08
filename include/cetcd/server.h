@@ -632,6 +632,16 @@ int cetcd_encode_status_version(const char *version, uint8_t *out, size_t cap,
                                 size_t *n);
 int cetcd_parse_status_version(const uint8_t *req, size_t len, char *version,
                                size_t version_cap);
+/* leftover-safe StatusResponse.isLearner (field 10, tag 0x50). omitted /
+ * empty / dummy 0x00 = voter. leftover truncated isLearner is INVAL so
+ * a truncated status cannot look like a voter. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed isLearner. unknown wire types are INVAL.
+ * last isLearner is copied when is_learner is set. */
+int cetcd_encode_status_is_learner(int is_learner, uint8_t *out, size_t cap,
+                                   size_t *n);
+int cetcd_parse_status_is_learner(const uint8_t *req, size_t len,
+                                  int *is_learner);
 /* leftover-safe StatusResponse.leader (field 4, tag 0x20). omitted /
  * empty / dummy 0x00 = 0. leftover truncated leader is INVAL so a
  * truncated status cannot look like leader 0. leftover

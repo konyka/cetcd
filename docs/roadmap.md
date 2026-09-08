@@ -849,6 +849,12 @@ Performance-first, fail-closed design:
   header is not version. `cetcdctl status` / `endpoint status`
   leftover-safe-parse field 2. Accepting leftover payload as the
   printed version is rejected.
+- **Status leftover-safe isLearner** — leftover-safe-parses
+  StatusResponse.isLearner so leftover length-delimited bytes cannot
+  steal a printed learner. A truncated isLearner fail-closes (cannot
+  look like a voter). Dummy `0x00` is not a skip length. `cetcdctl
+  status` / `endpoint status` leftover-safe-parse field 10. Accepting
+  leftover payload as the printed isLearner is rejected.
 - **LeaseGrant / TimeToLive leftover-safe ID** — leftover-safe-parses
   LeaseGrantResponse and LeaseTimeToLiveResponse so leftover
   length-delimited bytes cannot steal a printed or lock-used ID, TTL,

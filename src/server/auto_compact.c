@@ -4872,6 +4872,42 @@ int cetcd_parse_status_version(const uint8_t *req, size_t len, char *version,
     return CETCD_OK;
 }
 
+int cetcd_encode_status_is_learner(int is_learner, uint8_t *out, size_t cap,
+                                   size_t *n) {
+    size_t pos = 0;
+    if (!out || !n) return CETCD_ERR_INVAL;
+    *n = 0;
+    if (!is_learner) return CETCD_OK;
+    if (pos + 2 > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x50;
+    out[pos++] = 0x01;
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_status_is_learner(const uint8_t *req, size_t len,
+                                  int *is_learner) {
+    size_t p = 0;
+    if (!is_learner) return CETCD_ERR_INVAL;
+    *is_learner = 0;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x50) {
+            uint64_t v = 0;
+            if (leftover_safe_varint_at_(req, len, &p, &v) != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            *is_learner = v != 0;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_status_leader(uint64_t leader, uint8_t *out, size_t cap,
                                size_t *n) {
     size_t pos = 0;

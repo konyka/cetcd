@@ -797,6 +797,10 @@ static void parse_status_response(const uint8_t *data, size_t len) {
     if (cetcd_parse_status_version(data, len, leftover_ver, sizeof(leftover_ver))
         != CETCD_OK)
         return;
+    int leftover_learner = 0;
+    /* leftover-safe: leftover cannot steal a printed isLearner */
+    if (cetcd_parse_status_is_learner(data, len, &leftover_learner) != CETCD_OK)
+        return;
     size_t pos = 0;
     while (pos < len) {
         uint8_t tag = data[pos++];
@@ -858,8 +862,12 @@ static void parse_status_response(const uint8_t *data, size_t len) {
             }
             printf("dbSizeInUse: %llu\n", (unsigned long long)leftover_inuse);
         } else if (tag == 0x50) {
-            uint64_t v = 0; read_varint(data, len, &pos, &v);
-            if (v) printf("isLearner: true\n");
+            /* leftover-safe-skip field 10; leftover-safe isLearner is printed */
+            if (cetcd_leftover_safe_skip_field(data, len, &pos, tag)
+                != CETCD_OK) {
+                break;
+            }
+            if (leftover_learner) printf("isLearner: true\n");
         } else if (tag == 0x0a) {
             /* Skip header (length-delimited) */
             uint64_t l = 0; read_varint(data, len, &pos, &l);
@@ -3293,12 +3301,19 @@ static int cmd_status(int argc, char **argv) {
         fprintf(stderr, "request failed\n");
         return 1;
     }
+    int leftover_learner = 0;
+    /* leftover-safe: leftover cannot steal a printed isLearner */
+    if (cetcd_parse_status_is_learner(resp, (size_t)rlen, &leftover_learner)
+        != CETCD_OK) {
+        fprintf(stderr, "request failed\n");
+        return 1;
+    }
     /* Parse StatusResponse */
     size_t pos = 0;
     const uint8_t *version = (const uint8_t *)leftover_ver;
     size_t version_len = strlen(leftover_ver);
     uint64_t db_size = leftover_dbsize, leader = leftover_leader, raft_index = leftover_ridx, raft_term = leftover_rterm, revision = 0;
-    uint64_t raft_applied = leftover_rapplied, db_inuse = leftover_inuse, is_learner = 0;
+    uint64_t raft_applied = leftover_rapplied, db_inuse = leftover_inuse, is_learner = leftover_learner;
     while (pos < (size_t)rlen) {
         uint8_t tag = resp[pos++];
         if (tag == 0x12) {
@@ -3350,7 +3365,11 @@ static int cmd_status(int argc, char **argv) {
                 break;
             }
         } else if (tag == 0x50) {
-            read_varint(resp, rlen, &pos, &is_learner);
+            /* leftover-safe: leftover cannot steal a printed isLearner */
+            if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen, &pos, tag)
+                != CETCD_OK) {
+                break;
+            }
         } else if (tag == 0x0a) {
             /* ResponseHeader: field 1 (cluster_id), field 2 (member_id), field 3 (revision) */
             uint64_t l = 0; read_varint(resp, rlen, &pos, &l);
@@ -3686,6 +3705,12 @@ static int cmd_endpoint(int argc, char **argv) {
                 if (cetcd_parse_status_version(sresp, (size_t)srlen, leftover_ver,
                                                sizeof(leftover_ver)) != CETCD_OK)
                     continue;
+                int leftover_learner = 0;
+                /* leftover-safe: leftover cannot steal a printed isLearner */
+                if (cetcd_parse_status_is_learner(sresp, (size_t)srlen,
+                                                  &leftover_learner) != CETCD_OK)
+                    continue;
+                (void)leftover_learner;
                 size_t pos = 0;
                 const uint8_t *ver = (const uint8_t *)leftover_ver;
                 size_t ver_len = strlen(leftover_ver);
@@ -3875,6 +3900,14 @@ static int cmd_endpoint(int argc, char **argv) {
             fprintf(stderr, "request failed\n");
             return 1;
         }
+        int leftover_learner = 0;
+        /* leftover-safe: leftover cannot steal a printed isLearner */
+        if (cetcd_parse_status_is_learner(resp, (size_t)rlen, &leftover_learner)
+            != CETCD_OK) {
+            fprintf(stderr, "request failed\n");
+            return 1;
+        }
+        (void)leftover_learner;
         size_t pos = 0;
         const uint8_t *ver = (const uint8_t *)leftover_ver;
         size_t ver_len = strlen(leftover_ver);
