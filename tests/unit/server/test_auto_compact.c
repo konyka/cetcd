@@ -2338,6 +2338,73 @@ CETCD_TEST_CASE(auto_compact_parse_lease_list_response) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_response_header) {
+    uint8_t buf[64];
+    size_t n = 0;
+    uint64_t cluster = 9, member = 9, term = 9;
+    int64_t rev = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_response_header(1, 2, 3, 4, NULL,
+                                                     sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_response_header(1, 2, 3, 4, buf,
+                                                     sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_response_header(buf, n, &cluster, &member,
+                                                    &rev, &term),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(cluster == 1);
+    CETCD_ASSERT_TRUE(member == 2);
+    CETCD_ASSERT_TRUE(rev == 3);
+    CETCD_ASSERT_TRUE(term == 4);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_response_header(NULL, 0, &cluster, &member,
+                                                    &rev, &term),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rev == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_response_header(dummy, 1, &cluster, &member,
+                                                    &rev, &term),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rev == 0);
+
+    /* leftover truncated header cannot print leftover revision */
+    uint8_t trunc[] = { 0x0a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_response_header(trunc, 1, &cluster, &member,
+                                                    &rev, &term),
+                        CETCD_ERR_INVAL);
+    uint8_t trunc_rev[] = { 0x0a, 0x01, 0x18 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_response_header(trunc_rev,
+                                                    sizeof(trunc_rev),
+                                                    &cluster, &member, &rev,
+                                                    &term),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed revision */
+    uint8_t steal[] = { 0x32, 0x04, 0x0a, 0x02, 0x18, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_response_header(steal, sizeof(steal),
+                                                    &cluster, &member, &rev,
+                                                    &term),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rev == 0);
+
+    uint8_t inner_steal[] = { 0x0a, 0x04, 0x22, 0x02, 0x18, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_response_header(inner_steal,
+                                                    sizeof(inner_steal),
+                                                    &cluster, &member, &rev,
+                                                    &term),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rev == 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_response_header(fixed64, 1, &cluster,
+                                                    &member, &rev, &term),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_response_header(buf, n, NULL, NULL, NULL,
+                                                    NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_downgrade_request) {
     uint8_t buf[64];
     size_t n = 0;
@@ -4002,6 +4069,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_txn_succeeded),
     CETCD_TEST_ENTRY(auto_compact_parse_hash_response),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_list_response),
+    CETCD_TEST_ENTRY(auto_compact_parse_response_header),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_request),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_op_key),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),

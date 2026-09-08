@@ -491,34 +491,22 @@ static int do_rpc(const char *path, const uint8_t *req, size_t req_len,
  * Scans the message for tag 0x0a (field 1 = header, length-delimited).
  * Returns 1 if header found, 0 if not. */
 static int parse_and_print_header_json(const uint8_t *data, size_t len) {
-    size_t pos = 0;
-    while (pos < len) {
-        uint8_t tag = data[pos++];
-        if (tag == 0x0a) {
-            uint64_t l = 0; read_varint(data, len, &pos, &l);
-            size_t hdr_end = pos + (size_t)l;
-            uint64_t cluster_id = 0, member_id = 0, revision = 0, raft_term = 0;
-            while (pos < hdr_end) {
-                uint8_t htag = data[pos++];
-                if (htag == 0x08) read_varint(data, hdr_end, &pos, &cluster_id);
-                else if (htag == 0x10) read_varint(data, hdr_end, &pos, &member_id);
-                else if (htag == 0x18) read_varint(data, hdr_end, &pos, &revision);
-                else if (htag == 0x20) read_varint(data, hdr_end, &pos, &raft_term);
-                else { uint64_t v = 0; read_varint(data, hdr_end, &pos, &v); }
-            }
-            printf("\"header\":{\"cluster_id\":%llu,\"member_id\":%llu,\"revision\":%llu,\"raft_term\":%llu}",
-                   (unsigned long long)cluster_id, (unsigned long long)member_id,
-                   (unsigned long long)revision, (unsigned long long)raft_term);
-            return 1;
-        } else if (tag == 0x12 || tag == 0x1a || tag == 0x22) {
-            /* Skip nested messages (kvs, prev_kv, etc.) */
-            uint64_t l = 0; read_varint(data, len, &pos, &l); pos += l;
-        } else {
-            uint64_t v = 0; read_varint(data, len, &pos, &v);
-        }
+    uint64_t cluster_id = 0, member_id = 0, raft_term = 0;
+    int64_t revision = 0;
+    if (!data || len == 0) {
+        fputs("\"header\":{}", stdout);
+        return 0;
     }
-    fputs("\"header\":{}", stdout);
-    return 0;
+    /* leftover-safe: leftover cannot steal a printed revision */
+    if (cetcd_parse_response_header(data, len, &cluster_id, &member_id,
+                                    &revision, &raft_term) != CETCD_OK) {
+        fputs("\"header\":{}", stdout);
+        return 0;
+    }
+    printf("\"header\":{\"cluster_id\":%llu,\"member_id\":%llu,\"revision\":%lld,\"raft_term\":%llu}",
+           (unsigned long long)cluster_id, (unsigned long long)member_id,
+           (long long)revision, (unsigned long long)raft_term);
+    return 1;
 }
 
 /* Print a byte buffer as a JSON string with proper escaping. */

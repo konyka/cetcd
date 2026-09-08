@@ -613,6 +613,7 @@ to cancel the watch and close the stream.
   --initial-cluster-state existing  # persist peers/name so start can omit them
 ./build/bin/cetcdctl get --prefix foo --count-only -w fields  # Count-only with fields output
 ./build/bin/cetcdctl endpoint health -w json  # Health check with ResponseHeader (IPv6 is [::1]:2379)
+# leftover cannot steal a printed JSON revision
 ./build/bin/cetcdctl endpoint status -w table  # Status in table format
 # leftover cannot steal a printed version, dbSize, or isLearner
 ./build/bin/cetcdctl endpoint hashkv --rev 10 -w json  # HashKV at rev (leftover 10foo fail-closes)

@@ -617,6 +617,18 @@ int cetcd_encode_lease_list_item(int64_t id, uint8_t *out, size_t cap,
                                  size_t *n);
 int cetcd_parse_lease_list_response(const uint8_t *req, size_t len,
                                     int64_t *id, size_t *n);
+/* leftover-safe ResponseHeader revision. omitted / empty / dummy
+ * 0x00 = revision 0. leftover truncated header / revision is INVAL
+ * so a truncated JSON header cannot print leftover revision.
+ * leftover length-delimited fields are skipped by payload so
+ * leftover bytes cannot steal a printed revision. unknown wire
+ * types are INVAL. */
+int cetcd_encode_response_header(uint64_t cluster_id, uint64_t member_id,
+                                 int64_t revision, uint64_t raft_term,
+                                 uint8_t *out, size_t cap, size_t *n);
+int cetcd_parse_response_header(const uint8_t *req, size_t len,
+                                uint64_t *cluster_id, uint64_t *member_id,
+                                int64_t *revision, uint64_t *raft_term);
 /* leftover-safe DowngradeRequest. omitted / empty / dummy 0x00 =
  * action VALIDATE (0) / empty version. leftover truncated action /
  * version is INVAL so a truncated validate cannot look like ENABLE

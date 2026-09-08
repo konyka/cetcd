@@ -4802,6 +4802,121 @@ int cetcd_parse_lease_list_response(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+int cetcd_encode_response_header(uint64_t cluster_id, uint64_t member_id,
+                                 int64_t revision, uint64_t raft_term,
+                                 uint8_t *out, size_t cap, size_t *n) {
+    uint8_t inner[48];
+    size_t in = 0;
+    uint64_t v;
+    size_t pos = 0;
+    if (!out || !n) return CETCD_ERR_INVAL;
+    inner[in++] = 0x08;
+    v = cluster_id;
+    do {
+        if (in >= sizeof(inner)) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        inner[in++] = b;
+    } while (v);
+    inner[in++] = 0x10;
+    v = member_id;
+    do {
+        if (in >= sizeof(inner)) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        inner[in++] = b;
+    } while (v);
+    inner[in++] = 0x18;
+    v = revision > 0 ? (uint64_t)revision : 0;
+    do {
+        if (in >= sizeof(inner)) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        inner[in++] = b;
+    } while (v);
+    inner[in++] = 0x20;
+    v = raft_term;
+    do {
+        if (in >= sizeof(inner)) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        inner[in++] = b;
+    } while (v);
+    if (pos + 2 + in > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x0a;
+    v = in;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    memcpy(out + pos, inner, in);
+    pos += in;
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_response_header(const uint8_t *req, size_t len,
+                                uint64_t *cluster_id, uint64_t *member_id,
+                                int64_t *revision, uint64_t *raft_term) {
+    size_t p = 0;
+    if (cluster_id) *cluster_id = 0;
+    if (member_id) *member_id = 0;
+    if (revision) *revision = 0;
+    if (raft_term) *raft_term = 0;
+    if (!cluster_id && !member_id && !revision && !raft_term)
+        return CETCD_ERR_INVAL;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x0a) {
+            uint64_t skip = 0;
+            size_t ip = 0;
+            int rc = leftover_safe_varint_at_(req, len, &p, &skip);
+            if (rc != CETCD_OK || p + skip > len) return CETCD_ERR_INVAL;
+            if (cluster_id) *cluster_id = 0;
+            if (member_id) *member_id = 0;
+            if (revision) *revision = 0;
+            if (raft_term) *raft_term = 0;
+            while (ip < (size_t)skip) {
+                uint8_t ht = req[p + ip];
+                ip++;
+                if (ht == 0x00)
+                    continue;
+                if (ht == 0x08 || ht == 0x10 || ht == 0x18 || ht == 0x20) {
+                    uint64_t v = 0;
+                    size_t qp = ip;
+                    if (leftover_safe_varint_at_(req + p, (size_t)skip, &qp, &v)
+                        != CETCD_OK)
+                        return CETCD_ERR_INVAL;
+                    ip = qp;
+                    if (ht == 0x08 && cluster_id) *cluster_id = v;
+                    if (ht == 0x10 && member_id) *member_id = v;
+                    if (ht == 0x18 && revision) *revision = (int64_t)v;
+                    if (ht == 0x20 && raft_term) *raft_term = v;
+                    continue;
+                }
+                if (leftover_safe_skip_unknown_at_(req + p, (size_t)skip, &ip,
+                                                   ht) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n) {
     if (!out || !n || cap < 2) return CETCD_ERR_INVAL;

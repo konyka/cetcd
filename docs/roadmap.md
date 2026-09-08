@@ -808,6 +808,12 @@ Performance-first, fail-closed design:
   leftover text). Dummy `0x00` is not a skip length. `cetcdctl lease
   list` leftover-safe-skips unknown fields. Accepting leftover payload
   as the printed ID is rejected.
+- **ResponseHeader leftover-safe revision** — leftover-safe-parses
+  ResponseHeader so leftover length-delimited bytes cannot steal a
+  printed JSON revision. A truncated header / revision fail-closes
+  (cannot print leftover text). Dummy `0x00` is not a skip length.
+  `cetcdctl -w json` leftover-safe-parses field 1. Accepting leftover
+  payload as the printed revision is rejected.
 - **AuthStatus / user-role list leftover-safe** — leftover-safe-parses
   AuthStatusResponse and UserList/RoleList so leftover length-delimited
   bytes cannot steal `enabled` or a printed user/role name. A truncated
