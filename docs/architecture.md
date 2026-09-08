@@ -648,7 +648,7 @@ IPv6 zone UniqueURLs leftover-safe-split `addr%zone` (`[fe80::1%1]:2379`; empty 
 `status -w json` enhanced (now includes ResponseHeader with cluster_id/member_id/revision/raft_term before version/dbSize/leader fields),
 `watch -w json` enhanced (now outputs `{"header":{...},"Events":[...]}` format with full KV fields: create_revision/mod_revision/version/lease in each event, and prev_kv support with full metadata),
 `parse_string_list_response -w json` enhanced (user list/role list/user get now parse real ResponseHeader),
-`snapshot save` fixed (now correctly extracts blob data from SnapshotResponse protobuf, writing only snapshot data to file instead of raw protobuf; JSON output now includes real ResponseHeader),
+`snapshot save` leftover-safe-parses SnapshotResponse so leftover length-delimited bytes cannot steal the blob written to disk (truncated blob fail-closes; JSON output leftover-safe-parses ResponseHeader),
 `check perf -w json` fixed (now includes real ResponseHeader from Put response),
 `member add --peer-urls URL` / `--learner` (etcdctl-compatible flags for adding cluster members; --learner sends isLearner=true in MemberAddRequest),
 `check datascale [--load N] [--prefix PREFIX] [-w json]` (new subcommand to test database scalability by loading N keys and reporting DB size and elapsed time; `--load` must be `> 0`; a typo fail-closes),

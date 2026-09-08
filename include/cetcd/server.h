@@ -629,6 +629,16 @@ int cetcd_encode_response_header(uint64_t cluster_id, uint64_t member_id,
 int cetcd_parse_response_header(const uint8_t *req, size_t len,
                                 uint64_t *cluster_id, uint64_t *member_id,
                                 int64_t *revision, uint64_t *raft_term);
+/* leftover-safe SnapshotResponse blob. omitted / empty / dummy 0x00
+ * = empty blob. leftover truncated blob is INVAL so a truncated
+ * save cannot write leftover bytes as a snapshot. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal the blob. unknown wire types are INVAL. last blob
+ * is copied when blob/blob_cap are set. */
+int cetcd_encode_snapshot_response(const uint8_t *blob, size_t blob_len,
+                                   uint8_t *out, size_t cap, size_t *n);
+int cetcd_parse_snapshot_response(const uint8_t *req, size_t len,
+                                  uint8_t *blob, size_t blob_cap, size_t *n);
 /* leftover-safe DowngradeRequest. omitted / empty / dummy 0x00 =
  * action VALIDATE (0) / empty version. leftover truncated action /
  * version is INVAL so a truncated validate cannot look like ENABLE

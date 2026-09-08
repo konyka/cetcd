@@ -591,6 +591,7 @@ to cancel the watch and close the stream.
 
 ```sh
 ./build/bin/cetcdctl snapshot save backup.snap   # Save KV snapshot to file
+# leftover cannot steal the snapshot blob written to disk
 ./build/bin/cetcdctl snapshot save backup.snap --compaction-periodical  # With etcd-compatible flag (no-op)
 # leftover snapshot save --foo fail-closes (not a file named --foo)
 ./build/bin/cetcdctl snapshot save backup.snap -w json  # Save with JSON output

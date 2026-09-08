@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 151 — leftover-safe ResponseHeader</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 152 — leftover-safe Snapshot</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 151 leftover-safe-parses
-     ResponseHeader so leftover length-delimited bytes cannot steal a
-     printed JSON revision.</p>
+  <p><strong>v0.3.0</strong>. Phase 152 leftover-safe-parses
+     SnapshotResponse so leftover length-delimited bytes cannot steal
+     the blob written to disk.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -204,6 +204,7 @@
       <tr><td>149</td><td>leftover-safe Hash</td><td>Hash / HashKV leftover-safe-parses so leftover length-delimited bytes cannot steal a printed hash or compact_revision; truncated hash fail-closes — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>150</td><td>leftover-safe LeaseLeases</td><td>LeaseLeases leftover-safe-parses so leftover length-delimited bytes cannot steal a printed lease ID; truncated lease / ID fail-closes; cetcdctl leftover-safe-skips unknown fields — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>151</td><td>leftover-safe ResponseHeader</td><td>ResponseHeader leftover-safe-parses so leftover length-delimited bytes cannot steal a printed JSON revision; truncated header / revision fail-closes — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>152</td><td>leftover-safe Snapshot</td><td>Snapshot leftover-safe-parses so leftover length-delimited bytes cannot steal the blob written to disk; truncated blob fail-closes — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

@@ -4917,6 +4917,48 @@ int cetcd_parse_response_header(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+int cetcd_encode_snapshot_response(const uint8_t *blob, size_t blob_len,
+                                   uint8_t *out, size_t cap, size_t *n) {
+    size_t pos = 0;
+    int rc;
+    if (!out || !n || !blob || blob_len == 0) return CETCD_ERR_INVAL;
+    rc = write_bytes_field_(out, cap, &pos, 0x1a, blob, blob_len);
+    if (rc != CETCD_OK) return rc;
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_snapshot_response(const uint8_t *req, size_t len,
+                                  uint8_t *blob, size_t blob_cap, size_t *n) {
+    size_t p = 0;
+    if (n) *n = 0;
+    if (blob && blob_cap)
+        blob[0] = 0;
+    if (!blob && !n) return CETCD_ERR_INVAL;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x1a) {
+            uint64_t skip = 0;
+            int rc = leftover_safe_varint_at_(req, len, &p, &skip);
+            if (rc != CETCD_OK || p + skip > len) return CETCD_ERR_INVAL;
+            if (blob && blob_cap) {
+                if (skip >= blob_cap) return CETCD_ERR_INVAL;
+                memcpy(blob, req + p, (size_t)skip);
+                blob[skip] = 0;
+            }
+            if (n) *n = (size_t)skip;
+            p += (size_t)skip;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n) {
     if (!out || !n || cap < 2) return CETCD_ERR_INVAL;

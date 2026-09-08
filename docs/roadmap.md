@@ -814,6 +814,12 @@ Performance-first, fail-closed design:
   (cannot print leftover text). Dummy `0x00` is not a skip length.
   `cetcdctl -w json` leftover-safe-parses field 1. Accepting leftover
   payload as the printed revision is rejected.
+- **Snapshot leftover-safe blob** — leftover-safe-parses
+  SnapshotResponse so leftover length-delimited bytes cannot steal
+  the blob written to disk. A truncated blob fail-closes (cannot
+  write leftover bytes as a snapshot). Dummy `0x00` is not a skip
+  length. `cetcdctl snapshot save` leftover-safe-parses field 3.
+  Accepting leftover payload as the snapshot is rejected.
 - **AuthStatus / user-role list leftover-safe** — leftover-safe-parses
   AuthStatusResponse and UserList/RoleList so leftover length-delimited
   bytes cannot steal `enabled` or a printed user/role name. A truncated

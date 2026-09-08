@@ -4455,37 +4455,23 @@ static int cmd_snapshot(int argc, char **argv) {
         uint8_t req[] = {0x00}, resp[65536];
         int rlen = do_rpc("/etcdserverpb.Maintenance/Snapshot", req, 1, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        /* Parse SnapshotResponse: field 1 (header), field 2 (remaining), field 3 (blob) */
-        size_t spos = 0;
-        const uint8_t *blob_data = NULL; size_t blob_len = 0;
+        /* leftover-safe: leftover cannot steal the snapshot blob */
+        uint8_t snap_blob[65536];
+        size_t blob_len = 0;
+        if (cetcd_parse_snapshot_response(resp, (size_t)rlen, snap_blob,
+                                          sizeof(snap_blob), &blob_len)
+            != CETCD_OK) {
+            fprintf(stderr, "request failed\n");
+            return 1;
+        }
+        const uint8_t *blob_data = snap_blob;
         uint64_t snap_revision = 0;
-        while (spos < (size_t)rlen) {
-            uint8_t stag = resp[spos++];
-            if (stag == 0x0a) {
-                /* header (length-delimited) — extract revision */
-                uint64_t l = 0; read_varint(resp, rlen, &spos, &l);
-                size_t hdr_end = spos + (size_t)l;
-                while (spos < hdr_end) {
-                    uint8_t htag = resp[spos++];
-                    if (htag == 0x18) { /* revision */
-                        read_varint(resp, hdr_end, &spos, &snap_revision);
-                    } else if (htag == 0x08 || htag == 0x10 || htag == 0x20) {
-                        uint64_t v = 0; read_varint(resp, hdr_end, &spos, &v);
-                    } else {
-                        uint64_t v = 0; read_varint(resp, hdr_end, &spos, &v);
-                    }
-                }
-                spos = hdr_end;
-            } else if (stag == 0x10) {
-                /* remaining (varint) */
-                uint64_t v = 0; read_varint(resp, rlen, &spos, &v);
-            } else if (stag == 0x1a) {
-                /* blob (bytes) */
-                uint64_t l = 0; read_varint(resp, rlen, &spos, &l);
-                blob_data = resp + spos; blob_len = (size_t)l; spos += l;
-            } else {
-                uint64_t v = 0; read_varint(resp, rlen, &spos, &v);
-            }
+        {
+            int64_t rev = 0;
+            uint64_t cluster = 0, member = 0, term = 0;
+            if (cetcd_parse_response_header(resp, (size_t)rlen, &cluster,
+                                            &member, &rev, &term) == CETCD_OK)
+                snap_revision = (uint64_t)rev;
         }
         size_t snapshot_size = blob_len;
         /* If a file is specified, write the blob to it */

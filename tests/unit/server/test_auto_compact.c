@@ -2405,6 +2405,56 @@ CETCD_TEST_CASE(auto_compact_parse_response_header) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_snapshot_response) {
+    uint8_t buf[32];
+    size_t n = 0, got = 9;
+    uint8_t blob[16];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_snapshot_response(NULL, 4, buf,
+                                                       sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_snapshot_response((const uint8_t *)"snap",
+                                                       4, buf, sizeof(buf),
+                                                       &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snapshot_response(buf, n, blob,
+                                                      sizeof(blob), &got),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(got == 4);
+    CETCD_ASSERT_EQ_STR((const char *)blob, "snap");
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snapshot_response(NULL, 0, blob,
+                                                      sizeof(blob), &got),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(got == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snapshot_response(dummy, 1, blob,
+                                                      sizeof(blob), &got),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(got == 0);
+
+    /* leftover truncated blob cannot write leftover bytes as a snapshot */
+    uint8_t trunc[] = { 0x1a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snapshot_response(trunc, 1, blob,
+                                                      sizeof(blob), &got),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal the blob */
+    uint8_t steal[] = { 0x22, 0x06, 0x1a, 0x04, 's', 'n', 'a', 'p' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snapshot_response(steal, sizeof(steal),
+                                                      blob, sizeof(blob),
+                                                      &got),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(got == 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snapshot_response(fixed64, 1, blob,
+                                                      sizeof(blob), &got),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_snapshot_response(buf, n, NULL, 0, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_downgrade_request) {
     uint8_t buf[64];
     size_t n = 0;
@@ -4070,6 +4120,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_hash_response),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_list_response),
     CETCD_TEST_ENTRY(auto_compact_parse_response_header),
+    CETCD_TEST_ENTRY(auto_compact_parse_snapshot_response),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_request),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_op_key),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),
