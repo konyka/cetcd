@@ -728,6 +728,13 @@ Performance-first, fail-closed design:
   is not lease. `cetcdctl get` / `put --prev-kv` / `del --prev-kv` /
   `watch` leftover-safe-parse field 6. Accepting leftover payload as
   the printed lease is rejected.
+- **Range leftover-safe KV version** — leftover-safe-parses
+  RangeResponse KV version so leftover length-delimited bytes cannot
+  steal a printed version. A truncated version fail-closes (cannot
+  look like version 0). Dummy `0x00` is not a skip length. Tag `0x0a`
+  header raft_term is not version. `cetcdctl get` / `put --prev-kv` /
+  `del --prev-kv` / `watch` leftover-safe-parse field 5. Accepting
+  leftover payload as the printed version is rejected.
 - **Authenticate leftover-safe name/password** — leftover-safe-parses
   AuthenticateRequest so leftover length-delimited bytes cannot steal
   a name or password. A truncated password fail-closes (cannot look

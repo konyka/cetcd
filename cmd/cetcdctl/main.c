@@ -540,6 +540,12 @@ static void parse_range_response(const uint8_t *data, size_t len) {
         != CETCD_OK)
         return;
     (void)leftover_lease;
+    int64_t leftover_version = 0;
+    /* leftover-safe: leftover cannot steal a printed version */
+    if (cetcd_parse_range_response_kv_version(data, len, &leftover_version)
+        != CETCD_OK)
+        return;
+    (void)leftover_version;
     int count_rc = cetcd_parse_range_response_count(data, len, &leftover_count,
                                                     &leftover_more);
     /* leftover-safe: leftover cannot steal a printed count or more=true */
@@ -1419,6 +1425,15 @@ static int cmd_put(int argc, char **argv) {
         return 1;
     }
     (void)leftover_lease;
+    int64_t leftover_version = 0;
+    /* leftover-safe: leftover cannot steal a printed version */
+    if (cetcd_parse_range_response_kv_version(resp, (size_t)rlen,
+                                              &leftover_version) != CETCD_OK) {
+        fprintf(stderr, "request failed\n");
+        if (stdin_val) free(stdin_val);
+        return 1;
+    }
+    (void)leftover_version;
     if (want_fields) {
         if (prev_kv) {
             size_t rpos = 0;
@@ -2004,6 +2019,14 @@ static int cmd_del(int argc, char **argv) {
         return 1;
     }
     (void)leftover_lease;
+    int64_t leftover_version = 0;
+    /* leftover-safe: leftover cannot steal a printed version */
+    if (cetcd_parse_range_response_kv_version(resp, (size_t)rlen,
+                                              &leftover_version) != CETCD_OK) {
+        fprintf(stderr, "request failed\n");
+        return 1;
+    }
+    (void)leftover_version;
     if (want_fields) {
         size_t rpos = 0;
         uint64_t deleted = (uint64_t)leftover_deleted;
@@ -6634,6 +6657,12 @@ static int print_watch_response(const uint8_t *resp, size_t rlen,
         != CETCD_OK)
         leftover_lease = 0;
     (void)leftover_lease;
+    int64_t leftover_version = 0;
+    /* leftover-safe: leftover cannot steal a printed version */
+    if (cetcd_parse_range_response_kv_version(resp, rlen, &leftover_version)
+        != CETCD_OK)
+        leftover_version = 0;
+    (void)leftover_version;
 
     if (want_json) {
         fputs("{", stdout);

@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 182 — leftover-safe Range KV lease</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 183 — leftover-safe Range KV version</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 182 leftover-safe-parses
-     Range KV lease so leftover length-delimited bytes cannot
-     steal a printed lease.</p>
+  <p><strong>v0.3.0</strong>. Phase 183 leftover-safe-parses
+     Range KV version so leftover length-delimited bytes cannot
+     steal a printed version.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -235,6 +235,7 @@
       <tr><td>180</td><td>leftover-safe TimeToLive remaining TTL</td><td>TimeToLive leftover-safe-parses so leftover length-delimited bytes cannot steal a printed remaining TTL; truncated remaining TTL fail-closes; header revision is not remaining TTL; cetcdctl leftover-safe-parses field 3 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>181</td><td>leftover-safe TimeToLive ID</td><td>TimeToLive leftover-safe-parses so leftover length-delimited bytes cannot steal a printed lease ID; truncated ID fail-closes; header member_id is not the lease ID; cetcdctl leftover-safe-parses field 2 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>182</td><td>leftover-safe Range KV lease</td><td>Range leftover-safe-parses so leftover length-delimited bytes cannot steal a printed KV lease; truncated lease fail-closes; header is not lease; cetcdctl leftover-safe-parses field 6 — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>183</td><td>leftover-safe Range KV version</td><td>Range leftover-safe-parses so leftover length-delimited bytes cannot steal a printed KV version; truncated version fail-closes; header raft_term is not version; cetcdctl leftover-safe-parses field 5 — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

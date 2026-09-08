@@ -271,6 +271,17 @@ int cetcd_encode_range_response_kv_lease(int64_t lease, uint8_t *out,
                                          size_t cap, size_t *n);
 int cetcd_parse_range_response_kv_lease(const uint8_t *req, size_t len,
                                         int64_t *lease);
+/* leftover-safe RangeResponse KV version (field 5, tag 0x20). omitted /
+ * empty / dummy 0x00 = 0. leftover truncated version is INVAL so a
+ * truncated get cannot look like version 0. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed version (tag 0x0a header raft_term is not
+ * version). unknown wire types are INVAL. last version is copied
+ * when version is set. */
+int cetcd_encode_range_response_kv_version(int64_t version, uint8_t *out,
+                                           size_t cap, size_t *n);
+int cetcd_parse_range_response_kv_version(const uint8_t *req, size_t len,
+                                          int64_t *version);
 /* leftover-safe RangeResponse.count / more. omitted / empty / dummy
  * 0x00 = count 0 / more false. leftover truncated count / more is
  * INVAL so a truncated get --count-only cannot print 0. leftover
