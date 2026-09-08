@@ -846,6 +846,13 @@ Performance-first, fail-closed design:
   not a skip length. Tag `0x0a` header cluster_id is not member id.
   `cetcdctl member list` leftover-safe-parses field 1. Accepting
   leftover payload as the printed id is rejected.
+- **MemberList leftover-safe peerURL** — leftover-safe-parses
+  Member.peerURLs so leftover length-delimited bytes cannot steal a
+  printed peerURL. A truncated peerURL fail-closes (cannot print
+  leftover text). Dummy `0x00` is not a skip length. Tag `0x0a`
+  header is not peerURL. `cetcdctl member list` leftover-safe-parses
+  field 3. Accepting leftover payload as the printed peerURL is
+  rejected.
 - **Status leftover-safe version / isLearner** — leftover-safe-parses
   StatusResponse so leftover length-delimited bytes cannot steal a
   printed version, dbSize, or `isLearner`. A truncated version /

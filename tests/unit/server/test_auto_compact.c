@@ -2066,6 +2066,68 @@ CETCD_TEST_CASE(auto_compact_parse_member_list_id) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_member_list_peer_url) {
+    uint8_t buf[32];
+    size_t n = 0;
+    char url[16];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_peer_url("", buf, sizeof(buf),
+                                                         &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_peer_url("ok", buf,
+                                                         sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_peer_url(buf, n, url,
+                                                         sizeof(url)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(url, "ok");
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_peer_url(NULL, 0, url,
+                                                         sizeof(url)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(url, "");
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_peer_url(dummy, 1, url,
+                                                         sizeof(url)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(url, "");
+
+    /* leftover truncated peerURL cannot print leftover text */
+    uint8_t trunc[] = { 0x12, 0x01, 0x1a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_peer_url(trunc, sizeof(trunc),
+                                                         url, sizeof(url)),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed peerURL */
+    uint8_t steal[] = { 0x12, 0x06, 0x32, 0x04, 0x1a, 0x02, 'o', 'k' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_peer_url(steal, sizeof(steal),
+                                                         url, sizeof(url)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(url, "");
+
+    /* leftover header is not peerURL */
+    uint8_t header[] = { 0x0a, 0x04, 0x1a, 0x02, 'x', 'y' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_peer_url(header, sizeof(header),
+                                                         url, sizeof(url)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(url, "");
+
+    uint8_t last[] = { 0x12, 0x04, 0x1a, 0x02, 'a', 'a',
+                       0x12, 0x04, 0x1a, 0x02, 'b', 'b' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_peer_url(last, sizeof(last),
+                                                         url, sizeof(url)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(url, "bb");
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_peer_url(fixed64, 1, url,
+                                                         sizeof(url)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_peer_url(buf, n, NULL, 0),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_auth_status_response) {
     uint8_t buf[8];
     size_t n = 0;
@@ -7284,6 +7346,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_member_list_name),
     CETCD_TEST_ENTRY(auto_compact_parse_member_list_is_learner),
     CETCD_TEST_ENTRY(auto_compact_parse_member_list_id),
+    CETCD_TEST_ENTRY(auto_compact_parse_member_list_peer_url),
     CETCD_TEST_ENTRY(auto_compact_parse_auth_status_response),
     CETCD_TEST_ENTRY(auto_compact_parse_auth_status_auth_revision),
     CETCD_TEST_ENTRY(auto_compact_parse_string_list_response),

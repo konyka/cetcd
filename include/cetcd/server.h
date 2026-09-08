@@ -646,6 +646,18 @@ int cetcd_parse_member_list_is_learner(const uint8_t *req, size_t len,
 int cetcd_encode_member_list_id(uint64_t id, uint8_t *out, size_t cap,
                                 size_t *n);
 int cetcd_parse_member_list_id(const uint8_t *req, size_t len, uint64_t *id);
+/* leftover-safe Member.peerURLs (field 3, tag 0x1a inside field 2,
+ * tag 0x12). omitted / empty / dummy 0x00 = empty. leftover
+ * truncated peerURL is INVAL so a truncated list cannot print
+ * leftover text. leftover length-delimited fields are skipped by
+ * payload so leftover bytes cannot steal a printed peerURL (tag
+ * 0x0a header is not peerURL). unknown wire types are INVAL. last
+ * peerURL is copied when url/url_cap are set. proto3 omitted
+ * peerURL is empty. */
+int cetcd_encode_member_list_peer_url(const char *url, uint8_t *out,
+                                      size_t cap, size_t *n);
+int cetcd_parse_member_list_peer_url(const uint8_t *req, size_t len,
+                                     char *url, size_t url_cap);
 /* leftover-safe AuthStatusResponse.enabled. omitted / empty / dummy
  * 0x00 = disabled. leftover truncated enabled is INVAL so a truncated
  * status cannot look like disabled. leftover length-delimited fields

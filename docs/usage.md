@@ -520,6 +520,7 @@ to cancel the watch and close the stream.
 # leftover member list --linearizable --foo fail-closes (cannot list members)
 # leftover cannot steal a printed member name
 # leftover cannot steal a printed peerURL, isLearner, or member id
+# leftover header is not a printed peerURL
 ./build/bin/cetcdctl member add --peer-urls http://localhost:2380 --name node2  # Add member with name
 # leftover-safe: leftover proto bytes cannot steal the peerURL or isLearner
 # peer URL port must be 1..65535; leftover 2380foo is not truncated port 2380

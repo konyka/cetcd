@@ -1042,6 +1042,13 @@ static void parse_member_list_response(const uint8_t *data, size_t len, int tabl
     if (cetcd_parse_member_list_id(data, len, &leftover_id) != CETCD_OK)
         return;
     (void)leftover_id;
+    char leftover_purl[256];
+    leftover_purl[0] = '\0';
+    /* leftover-safe: leftover cannot steal a printed peerURL */
+    if (cetcd_parse_member_list_peer_url(data, len, leftover_purl,
+                                         sizeof(leftover_purl)) != CETCD_OK)
+        return;
+    (void)leftover_purl;
     size_t pos = 0;
     int first = 1;
     if (table_format) {
@@ -3774,6 +3781,15 @@ static int collect_cluster_endpoints(struct cluster_endpoint *eps, int max_eps) 
             != CETCD_OK)
             return -1;
         (void)leftover_id;
+        char leftover_purl[256];
+        leftover_purl[0] = '\0';
+        /* leftover-safe: leftover cannot steal a used --cluster peerURL */
+        if (cetcd_parse_member_list_peer_url(mresp, (size_t)mrlen,
+                                             leftover_purl,
+                                             sizeof(leftover_purl))
+            != CETCD_OK)
+            return -1;
+        (void)leftover_purl;
     }
     size_t mpos = 0;
     int count = 0;
@@ -5979,6 +5995,17 @@ static int cmd_member(int argc, char **argv) {
                 return 1;
             }
             (void)leftover_id;
+            char leftover_purl[256];
+            leftover_purl[0] = '\0';
+            /* leftover-safe: leftover cannot steal a printed peerURL */
+            if (cetcd_parse_member_list_peer_url(resp, (size_t)rlen,
+                                                 leftover_purl,
+                                                 sizeof(leftover_purl))
+                != CETCD_OK) {
+                fprintf(stderr, "request failed\n");
+                return 1;
+            }
+            (void)leftover_purl;
         }
         parse_member_list_response(resp, rlen, table_fmt, json_fmt, fields_fmt);
     } else if (strcmp(argv[2], "add") == 0) {
@@ -6064,6 +6091,17 @@ static int cmd_member(int argc, char **argv) {
                 return 1;
             }
             (void)leftover_id;
+            char leftover_purl[256];
+            leftover_purl[0] = '\0';
+            /* leftover-safe: leftover cannot steal a printed peerURL */
+            if (cetcd_parse_member_list_peer_url(resp, (size_t)rlen,
+                                                 leftover_purl,
+                                                 sizeof(leftover_purl))
+                != CETCD_OK) {
+                fprintf(stderr, "request failed\n");
+                return 1;
+            }
+            (void)leftover_purl;
         }
         if (want_json) {
             parse_member_list_response(resp, rlen, 0, 1, 0);
