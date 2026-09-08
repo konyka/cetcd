@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 184 — leftover-safe Range KV create_revision</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 185 — leftover-safe Range KV mod_revision</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 184 leftover-safe-parses
-     Range KV create_revision so leftover length-delimited bytes cannot
-     steal a printed create_revision.</p>
+  <p><strong>v0.3.0</strong>. Phase 185 leftover-safe-parses
+     Range KV mod_revision so leftover length-delimited bytes cannot
+     steal a printed mod_revision.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -237,6 +237,7 @@
       <tr><td>182</td><td>leftover-safe Range KV lease</td><td>Range leftover-safe-parses so leftover length-delimited bytes cannot steal a printed KV lease; truncated lease fail-closes; header is not lease; cetcdctl leftover-safe-parses field 6 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>183</td><td>leftover-safe Range KV version</td><td>Range leftover-safe-parses so leftover length-delimited bytes cannot steal a printed KV version; truncated version fail-closes; header raft_term is not version; cetcdctl leftover-safe-parses field 5 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>184</td><td>leftover-safe Range KV create_revision</td><td>Range leftover-safe-parses so leftover length-delimited bytes cannot steal a printed KV create_revision; truncated create_revision fail-closes; header member_id is not create_revision; cetcdctl leftover-safe-parses field 3 — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>185</td><td>leftover-safe Range KV mod_revision</td><td>Range leftover-safe-parses so leftover length-delimited bytes cannot steal a printed KV mod_revision; truncated mod_revision fail-closes; header revision is not mod_revision; cetcdctl leftover-safe-parses field 3 — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

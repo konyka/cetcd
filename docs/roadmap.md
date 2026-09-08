@@ -743,6 +743,14 @@ Performance-first, fail-closed design:
   `cetcdctl get` / `put --prev-kv` / `del --prev-kv` / `watch`
   leftover-safe-parse field 3. Accepting leftover payload as the printed
   create_revision is rejected.
+- **Range leftover-safe KV mod_revision** — leftover-safe-parses
+  RangeResponse KV mod_revision so leftover length-delimited bytes
+  cannot steal a printed mod_revision. A truncated mod_revision
+  fail-closes (cannot look like mod_revision 0). Dummy `0x00` is not
+  a skip length. Tag `0x0a` header revision is not mod_revision.
+  `cetcdctl get` / `put --prev-kv` / `del --prev-kv` / `watch`
+  leftover-safe-parse field 3. Accepting leftover payload as the printed
+  mod_revision is rejected.
 - **Authenticate leftover-safe name/password** — leftover-safe-parses
   AuthenticateRequest so leftover length-delimited bytes cannot steal
   a name or password. A truncated password fail-closes (cannot look
