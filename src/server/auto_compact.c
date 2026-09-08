@@ -4785,6 +4785,50 @@ int cetcd_parse_status_db_size_in_use(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+int cetcd_encode_status_db_size(uint64_t db_size, uint8_t *out, size_t cap,
+                                size_t *n) {
+    size_t pos = 0;
+    uint64_t v;
+    if (!out || !n) return CETCD_ERR_INVAL;
+    *n = 0;
+    if (db_size == 0) return CETCD_OK;
+    if (pos + 2 > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x18;
+    v = db_size;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_status_db_size(const uint8_t *req, size_t len,
+                               uint64_t *db_size) {
+    size_t p = 0;
+    if (!db_size) return CETCD_ERR_INVAL;
+    *db_size = 0;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x18) {
+            uint64_t v = 0;
+            if (leftover_safe_varint_at_(req, len, &p, &v) != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            *db_size = v;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_status_leader(uint64_t leader, uint8_t *out, size_t cap,
                                size_t *n) {
     size_t pos = 0;

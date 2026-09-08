@@ -2223,6 +2223,54 @@ CETCD_TEST_CASE(auto_compact_parse_status_db_size_in_use) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_status_db_size) {
+    uint8_t buf[16];
+    size_t n = 0;
+    uint64_t db = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_status_db_size(0, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_status_db_size(4096, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_db_size(buf, n, &db), CETCD_OK);
+    CETCD_ASSERT_TRUE(db == 4096);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_db_size(NULL, 0, &db), CETCD_OK);
+    CETCD_ASSERT_TRUE(db == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_db_size(dummy, 1, &db), CETCD_OK);
+    CETCD_ASSERT_TRUE(db == 0);
+
+    /* leftover truncated dbSize cannot look like an empty allocated size */
+    uint8_t trunc[] = { 0x18 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_db_size(trunc, 1, &db),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed dbSize */
+    uint8_t steal[] = { 0x1a, 0x03, 0x18, 0x80, 0x20 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_db_size(steal, sizeof(steal), &db),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(db == 0);
+
+    /* leftover header revision is not dbSize */
+    uint8_t header[] = { 0x0a, 0x02, 0x18, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_db_size(header, sizeof(header), &db),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(db == 0);
+
+    uint8_t last[] = { 0x18, 0x01, 0x18, 0x02 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_db_size(last, sizeof(last), &db),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(db == 2);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_db_size(fixed64, 1, &db),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_db_size(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_status_leader) {
     uint8_t buf[16];
     size_t n = 0;
@@ -5184,6 +5232,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_status_response),
     CETCD_TEST_ENTRY(auto_compact_parse_status_errors),
     CETCD_TEST_ENTRY(auto_compact_parse_status_db_size_in_use),
+    CETCD_TEST_ENTRY(auto_compact_parse_status_db_size),
     CETCD_TEST_ENTRY(auto_compact_parse_status_leader),
     CETCD_TEST_ENTRY(auto_compact_parse_status_raft_index),
     CETCD_TEST_ENTRY(auto_compact_parse_status_raft_term),

@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 174 — leftover-safe TimeToLive keys</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 175 — leftover-safe Status dbSize</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 174 leftover-safe-parses
-     TimeToLive keys so leftover length-delimited bytes cannot
-     steal a printed TTL key.</p>
+  <p><strong>v0.3.0</strong>. Phase 175 leftover-safe-parses
+     Status dbSize so leftover length-delimited bytes cannot
+     steal a printed allocated size.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -227,6 +227,7 @@
       <tr><td>172</td><td>leftover-safe Status raftTerm</td><td>Status leftover-safe-parses so leftover length-delimited bytes cannot steal a printed raftTerm; truncated raftTerm fail-closes; cetcdctl leftover-safe-parses field 6 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>173</td><td>leftover-safe Status raftAppliedIndex</td><td>Status leftover-safe-parses so leftover length-delimited bytes cannot steal a printed raftAppliedIndex; truncated raftAppliedIndex fail-closes; cetcdctl leftover-safe-parses field 7 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>174</td><td>leftover-safe TimeToLive keys</td><td>TimeToLive leftover-safe-parses so leftover length-delimited bytes cannot steal a printed TTL key; truncated key fail-closes; cetcdctl leftover-safe-parses field 5 — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>175</td><td>leftover-safe Status dbSize</td><td>Status leftover-safe-parses so leftover length-delimited bytes cannot steal a printed dbSize; truncated dbSize fail-closes; header revision is not dbSize; cetcdctl leftover-safe-parses field 3 — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

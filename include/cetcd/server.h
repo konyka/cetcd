@@ -610,6 +610,17 @@ int cetcd_encode_status_db_size_in_use(uint64_t db_inuse, uint8_t *out,
                                        size_t cap, size_t *n);
 int cetcd_parse_status_db_size_in_use(const uint8_t *req, size_t len,
                                       uint64_t *db_inuse);
+/* leftover-safe StatusResponse.dbSize (field 3, tag 0x18). omitted /
+ * empty / dummy 0x00 = 0. leftover truncated dbSize is INVAL so a
+ * truncated status cannot look like an empty allocated size.
+ * leftover length-delimited fields are skipped by payload so leftover
+ * bytes cannot steal a printed dbSize (tag 0x0a header revision is
+ * not dbSize). unknown wire types are INVAL. last dbSize is copied
+ * when db_size is set. */
+int cetcd_encode_status_db_size(uint64_t db_size, uint8_t *out, size_t cap,
+                                size_t *n);
+int cetcd_parse_status_db_size(const uint8_t *req, size_t len,
+                               uint64_t *db_size);
 /* leftover-safe StatusResponse.leader (field 4, tag 0x20). omitted /
  * empty / dummy 0x00 = 0. leftover truncated leader is INVAL so a
  * truncated status cannot look like leader 0. leftover
