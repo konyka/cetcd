@@ -229,6 +229,33 @@ int cetcd_encode_alarm_request(int action, uint64_t member_id, int alarm,
  * types are INVAL. */
 int cetcd_parse_alarm_request(const uint8_t *req, size_t len, int *action,
                               uint64_t *member_id, int *alarm);
+/* leftover-safe RangeRequest. omitted / empty / dummy 0x00 = empty key /
+ * rev 0 (current). leftover truncated varint is INVAL so a truncated
+ * --rev cannot range the live tree. leftover length-delimited fields
+ * are skipped by payload so leftover bytes cannot steal rev or limit.
+ * unknown wire types are INVAL. key / range_end are malloced. */
+typedef struct cetcd_range_request {
+    uint8_t *key;
+    size_t key_len;
+    uint8_t *range_end;
+    size_t range_end_len;
+    int64_t rev;
+    int64_t limit;
+    int sort_order;
+    int sort_target;
+    int serializable;
+    int keys_only;
+    int count_only;
+    int64_t min_mod_rev;
+    int64_t max_mod_rev;
+    int64_t min_create_rev;
+    int64_t max_create_rev;
+} cetcd_range_request;
+void cetcd_range_request_clear(cetcd_range_request *r);
+int cetcd_encode_range_request(const uint8_t *key, size_t key_len, int64_t rev,
+                               uint8_t *out, size_t cap, size_t *n);
+int cetcd_parse_range_request(const uint8_t *req, size_t len,
+                              cetcd_range_request *out);
 /* MemberRemove/Promote field 1 (ID). 0 is INVAL. */
 int cetcd_encode_member_id_request(uint64_t id, uint8_t *out, size_t cap,
                                    size_t *n);

@@ -558,7 +558,7 @@ requires this node to be leader (same fail-closed empty body as a follower Range
 
 The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/keepalive`,
 `member add/remove/update/promote`, `user delete/change-password/grant-role/revoke-role`,
-`role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix/--keys-only/--rev` (`--rev`/`--limit`/`--*-mod-rev`/`--*-create-rev` must be integers `>= 0`; leftover text fail-closes),
+`role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix/--keys-only/--rev` (`--rev`/`--limit`/`--*-mod-rev`/`--*-create-rev` must be integers `>= 0`; leftover text fail-closes); Range leftover-safe-parses so leftover length-delimited bytes cannot steal `rev` / `limit` (truncated `--rev` fail-closes),
 `del --prefix/--prev-kv`, `put --prev-kv`, `watch --prefix/--prev-kv/--start-rev` (`--start-rev` must be an integer `>= 0`; leftover text fail-closes), `txn cas` (compare-and-swap),
 `auth login` (token-based authentication), `get --count-only/--limit N/--sort-by/--sort-order/--print-value-only`,
 `put --ignore-value/--ignore-lease`, `get/del KEY RANGE_END` (positional range_end argument),
@@ -747,7 +747,9 @@ non-empty `value` fails (`ErrValueProvided`); `ignore_lease` with a non-zero `le
 fails (`ErrLeaseProvided`). A Put (or Txn `RequestPut`) with a non-existent positive
 `lease` fails at the RPC layer instead of returning a successful no-op write. `DeleteRange`
 supports `range_end` for range deletes and `prev_kv` for returning deleted key-values.
-The `Range` handler also supports `limit` (truncating results and setting the `more` flag as
+The `Range` handler leftover-safe-parses RangeRequest so leftover length-delimited
+bytes cannot steal `rev` / `limit`; a truncated `--rev` fail-closes (cannot range
+the live tree). Dummy `0x00` / omitted is rev 0 (current). The `Range` handler also supports `limit` (truncating results and setting the `more` flag as
 field 3 tag 0x18), `count_only` (returning only the count without kvs), `keys_only` (omitting values), and
 `sort_order`/`sort_target` (sorting results by KEY, VERSION, CREATE, MOD, or VALUE in ASCEND
 or DESCEND order before applying the limit; out-of-range enums fail with etcd

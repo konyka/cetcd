@@ -172,6 +172,22 @@ CETCD_TEST_CASE(v3rpc_range_returns_actual_kv) {
     CETCD_ASSERT_TRUE(found_bar);
 
     cetcd_rpc_bytes_free(&resp);
+
+    uint8_t trunc[] = { 0x0a, 0x03, 'f', 'o', 'o', 0x20 };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", trunc, 6);
+    /* leftover truncated rev cannot range the live tree */
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover length-delimited payload cannot steal a future rev */
+    uint8_t steal[] = { 0x0a, 0x03, 'f', 'o', 'o', 0x20, 0x01,
+                        0x72, 0x02, 0x20, 0x63 };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", steal,
+                                sizeof(steal));
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_rpc_bytes_free(&resp);
+
     cetcd_v3rpc_free(rpc);
 }
 

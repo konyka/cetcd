@@ -1867,6 +1867,57 @@ CETCD_TEST_CASE(auto_compact_parse_alarm_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_range_request) {
+    uint8_t buf[32];
+    size_t n = 0;
+    cetcd_range_request rr;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_range_request((const uint8_t *)"k", 1, -1,
+                                                   buf, sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_range_request((const uint8_t *)"k", 1, 1,
+                                                   buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_request(buf, n, &rr), CETCD_OK);
+    CETCD_ASSERT_TRUE(rr.key_len == 1);
+    CETCD_ASSERT_TRUE(rr.key && rr.key[0] == 'k');
+    CETCD_ASSERT_TRUE(rr.rev == 1);
+    cetcd_range_request_clear(&rr);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_request(NULL, 0, &rr), CETCD_OK);
+    CETCD_ASSERT_TRUE(rr.rev == 0);
+    CETCD_ASSERT_TRUE(rr.key == NULL);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_request(dummy, 1, &rr), CETCD_OK);
+    CETCD_ASSERT_TRUE(rr.rev == 0);
+
+    /* leftover truncated --rev cannot range the live tree */
+    uint8_t trunc[] = { 0x0a, 0x01, 'k', 0x20 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_request(trunc, 4, &rr),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_TRUE(rr.key == NULL);
+
+    /* leftover length-delimited payload cannot steal rev */
+    uint8_t steal[] = { 0x0a, 0x01, 'k', 0x20, 0x01, 0x72, 0x02, 0x20, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_request(steal, sizeof(steal), &rr),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rr.rev == 1);
+    CETCD_ASSERT_TRUE(rr.limit == 0);
+    cetcd_range_request_clear(&rr);
+
+    uint8_t badskip[] = { 0x0a, 0x01, 'k', 0x72, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_request(badskip, 5, &rr),
+                        CETCD_ERR_INVAL);
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_request(fixed64, 1, &rr),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_request(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_range_request((const uint8_t *)"k", 1, 1,
+                                                   NULL, sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_compact_argv) {
     int physical = 0;
     int64_t rev = 0;
@@ -2478,6 +2529,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_id_request),
     CETCD_TEST_ENTRY(auto_compact_parse_alarm_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_range_request),
     CETCD_TEST_ENTRY(auto_compact_parse_compact_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_defrag_argv),

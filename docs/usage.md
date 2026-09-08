@@ -352,6 +352,8 @@ fail-close. `--prefix=false` does not eat the key.
 ./build/bin/cetcdctl get --consistency s foo     # Serializable local read (ok on a follower)
 ./build/bin/cetcdctl get --consistency l foo     # Linearizable (default; fail-closes on a follower)
 # --rev / --limit / --min-mod-rev and related flags must be integers >= 0; leftover text is not a truncated revision
+# leftover truncated Range --rev fail-closes (cannot range the live tree)
+# leftover length-delimited bytes cannot steal rev / limit
 # equals-form is accepted: get --rev=5 --write-out=json foo
 ./build/bin/cetcdctl get --range-end zzz foo     # Get keys from foo to zzz
 ./build/bin/cetcdctl del foo

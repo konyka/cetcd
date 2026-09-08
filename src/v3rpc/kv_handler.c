@@ -309,9 +309,180 @@ static void range_sort_apply_defaults_(int *sort_order, int sort_target) {
         *sort_order = 1;
 }
 
+/* leftover-safe RangeRequest. v3rpc cannot link server. */
+static void range_req_clear_(uint8_t **key, uint8_t **range_end) {
+    free(*key);
+    free(*range_end);
+    *key = NULL;
+    *range_end = NULL;
+}
+
+static int parse_range_request_(const uint8_t *req, size_t len,
+                                uint8_t **key, size_t *key_len,
+                                uint8_t **range_end, size_t *range_end_len,
+                                int64_t *rev, int64_t *limit,
+                                int *sort_order, int *sort_target,
+                                int *serializable, int *keys_only, int *count_only,
+                                int64_t *min_mod_rev, int64_t *max_mod_rev,
+                                int64_t *min_create_rev, int64_t *max_create_rev) {
+    size_t p = 0;
+    if (!key || !key_len || !range_end || !range_end_len || !rev || !limit ||
+        !sort_order || !sort_target || !serializable || !keys_only ||
+        !count_only || !min_mod_rev || !max_mod_rev || !min_create_rev ||
+        !max_create_rev)
+        return -1;
+    *key = NULL; *key_len = 0;
+    *range_end = NULL; *range_end_len = 0;
+    *rev = 0; *limit = 0;
+    *sort_order = 0; *sort_target = 0;
+    *serializable = 0; *keys_only = 0; *count_only = 0;
+    *min_mod_rev = 0; *max_mod_rev = 0;
+    *min_create_rev = 0; *max_create_rev = 0;
+    if (!req || len == 0) return 0;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x0a || tag == 0x12) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    range_req_clear_(key, range_end);
+                    return -1;
+                }
+            }
+            if (!got || p + skip > len) {
+                range_req_clear_(key, range_end);
+                return -1;
+            }
+            if (skip == 0) {
+                if (tag == 0x0a) {
+                    free(*key);
+                    *key = NULL;
+                    *key_len = 0;
+                } else {
+                    free(*range_end);
+                    *range_end = NULL;
+                    *range_end_len = 0;
+                }
+                continue;
+            }
+            uint8_t *copy = (uint8_t *)malloc((size_t)skip);
+            if (!copy) {
+                range_req_clear_(key, range_end);
+                return -1;
+            }
+            memcpy(copy, req + p, (size_t)skip);
+            p += (size_t)skip;
+            if (tag == 0x0a) {
+                free(*key);
+                *key = copy;
+                *key_len = (size_t)skip;
+            } else {
+                free(*range_end);
+                *range_end = copy;
+                *range_end_len = (size_t)skip;
+            }
+            continue;
+        }
+        if (tag == 0x18 || tag == 0x20 || tag == 0x28 || tag == 0x30 ||
+            tag == 0x38 || tag == 0x40 || tag == 0x48 || tag == 0x50 ||
+            tag == 0x58 || tag == 0x60 || tag == 0x68) {
+            uint64_t v = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    range_req_clear_(key, range_end);
+                    return -1;
+                }
+            }
+            if (!got || v > (uint64_t)INT64_MAX) {
+                range_req_clear_(key, range_end);
+                return -1;
+            }
+            if (tag == 0x18) *limit = (int64_t)v;
+            else if (tag == 0x20) *rev = (int64_t)v;
+            else if (tag == 0x28) *sort_order = (int)v;
+            else if (tag == 0x30) *sort_target = (int)v;
+            else if (tag == 0x38) *serializable = v != 0;
+            else if (tag == 0x40) *keys_only = v != 0;
+            else if (tag == 0x48) *count_only = v != 0;
+            else if (tag == 0x50) *min_mod_rev = (int64_t)v;
+            else if (tag == 0x58) *max_mod_rev = (int64_t)v;
+            else if (tag == 0x60) *min_create_rev = (int64_t)v;
+            else *max_create_rev = (int64_t)v;
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    range_req_clear_(key, range_end);
+                    return -1;
+                }
+            }
+            if (!got) {
+                range_req_clear_(key, range_end);
+                return -1;
+            }
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    range_req_clear_(key, range_end);
+                    return -1;
+                }
+            }
+            if (!got || p + skip > len) {
+                range_req_clear_(key, range_end);
+                return -1;
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        range_req_clear_(key, range_end);
+        return -1;
+    }
+    return 0;
+}
+
 cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
-    size_t pos = 0;
     uint8_t *key = NULL; size_t key_len = 0;
     uint8_t *range_end = NULL; size_t range_end_len = 0;
     int64_t rev = 0;
@@ -323,39 +494,12 @@ cetcd_rpc_bytes kv_handle_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req
     int64_t min_mod_rev = 0, max_mod_rev = 0;
     int64_t min_create_rev = 0, max_create_rev = 0;
     int serializable = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x0a) { /* field 1 = key */
-            if (read_bytes(req, req_len, &pos, &key, &key_len) != 0) break;
-        } else if (tag == 0x12) { /* field 2 = range_end */
-            if (read_bytes(req, req_len, &pos, &range_end, &range_end_len) != 0) break;
-        } else if (tag == 0x18) { /* field 3 = limit */
-            uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; limit = (int64_t)v;
-        } else if (tag == 0x20) { /* field 4 = revision */
-            uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; rev = (int64_t)v;
-        } else if (tag == 0x28) { /* field 5 = sort_order */
-            uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; sort_order = (int)v;
-        } else if (tag == 0x30) { /* field 6 = sort_target */
-            uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; sort_target = (int)v;
-        } else if (tag == 0x38) { /* field 7 = serializable */
-            uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break;
-            serializable = (int)v;
-        } else if (tag == 0x40) { /* field 8 = keys_only */
-            uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; keys_only = (int)v;
-        } else if (tag == 0x48) { /* field 9 = count_only */
-            uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; count_only = (int)v;
-        } else if (tag == 0x50) { /* field 10 = min_mod_revision */
-            uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; min_mod_rev = (int64_t)v;
-        } else if (tag == 0x58) { /* field 11 = max_mod_revision */
-            uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; max_mod_rev = (int64_t)v;
-        } else if (tag == 0x60) { /* field 12 = min_create_revision */
-            uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; min_create_rev = (int64_t)v;
-        } else if (tag == 0x68) { /* field 13 = max_create_revision */
-            uint64_t v = 0; if (read_varint(req, req_len, &pos, &v) != 0) break; max_create_rev = (int64_t)v;
-        } else {
-            uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
-        }
-    }
+    if (parse_range_request_(req, req_len, &key, &key_len, &range_end,
+                             &range_end_len, &rev, &limit, &sort_order,
+                             &sort_target, &serializable, &keys_only,
+                             &count_only, &min_mod_rev, &max_mod_rev,
+                             &min_create_rev, &max_create_rev) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
 
     /* etcd ErrEmptyKey: key must be provided (len > 0; "\0" alone is valid). */
     if (!key || key_len == 0) {

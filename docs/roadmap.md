@@ -678,6 +678,11 @@ Performance-first, fail-closed design:
   truncated action varint fail-closes (cannot look like GET). Dummy
   `0x00` / omitted is GET. Accepting leftover payload as the action
   is rejected.
+- **Range leftover-safe revision** — leftover-safe-parses
+  RangeRequest so leftover length-delimited bytes cannot steal `rev`
+  or `limit`. A truncated field-4 varint fail-closes (cannot range
+  the live tree). Dummy `0x00` / omitted is rev 0 (current).
+  Accepting leftover payload as the revision is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`
