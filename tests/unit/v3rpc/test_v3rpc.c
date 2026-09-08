@@ -2596,7 +2596,7 @@ CETCD_TEST_CASE(v3rpc_auth_role_grant_permission) {
     size_t ppos = 0;
     perm[ppos++] = 0x08; /* field 1 = permType */
     perm[ppos++] = 0x02; /* READWRITE */
-    perm[ppos++] = 0x0a; /* field 2 = key */
+    perm[ppos++] = 0x12; /* field 2 = key */
     perm[ppos++] = 0x04;
     memcpy(perm + ppos, "/foo", 4); ppos += 4;
 
@@ -2697,7 +2697,7 @@ CETCD_TEST_CASE(v3rpc_auth_role_revoke_permission_key) {
     uint8_t perm[32];
     size_t ppos = 0;
     perm[ppos++] = 0x08; perm[ppos++] = 0x02;
-    perm[ppos++] = 0x0a; perm[ppos++] = 0x04;
+    perm[ppos++] = 0x12; perm[ppos++] = 0x04;
     memcpy(perm + ppos, "/foo", 4); ppos += 4;
     uint8_t grant[64];
     pos = 0;
@@ -6771,11 +6771,11 @@ CETCD_TEST_CASE(v3rpc_auth_key_permission_denied) {
     cetcd_rpc_bytes r = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleAdd", role_buf, p);
     cetcd_rpc_bytes_free(&r);
 
-    /* RoleGrantPermission: Permission key is field 2 tag 0x0a */
+    /* RoleGrantPermission: Permission key is field 2 tag 0x12 */
     uint8_t perm[32];
     size_t ppos = 0;
     perm[ppos++] = 0x08; perm[ppos++] = 0x02; /* READWRITE */
-    perm[ppos++] = 0x0a; perm[ppos++] = 0x04;
+    perm[ppos++] = 0x12; perm[ppos++] = 0x04;
     memcpy(perm + ppos, "/app", 4); ppos += 4;
     uint8_t perm_buf[64];
     p = 0;

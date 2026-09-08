@@ -692,6 +692,17 @@ int cetcd_encode_role_get_perm(int perm_type, const char *key, uint8_t *out,
 int cetcd_parse_role_get_response(const uint8_t *req, size_t len,
                                   int *perm_type, char *key, size_t key_cap,
                                   size_t *n);
+/* leftover-safe Permission.range_end (field 3, tag 0x1a). omitted /
+ * empty / dummy 0x00 = empty. leftover truncated range_end is INVAL
+ * so a truncated get cannot print leftover text. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed range_end. unknown wire types are INVAL.
+ * last range_end is copied when range_end/range_end_cap are set.
+ * Permission leftover-safe-encodes etcd field 2 key (0x12). */
+int cetcd_encode_role_get_range_end(const char *range_end, uint8_t *out,
+                                    size_t cap, size_t *n);
+int cetcd_parse_role_get_range_end(const uint8_t *req, size_t len,
+                                   char *range_end, size_t range_end_cap);
 /* leftover-safe WatchResponse last Event key. omitted / empty /
  * dummy 0x00 = 0 events / PUT / empty key. leftover truncated
  * event / kv / key is INVAL so a truncated watch cannot print a

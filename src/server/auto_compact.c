@@ -2795,9 +2795,9 @@ int cetcd_encode_auth_role_grant_perm_request(const uint8_t *name,
         if (lv) b |= 0x80u;
         perm[ppos++] = b;
     } while (lv);
-    rc = write_bytes_field_(perm, sizeof(perm), &ppos, 0x0a, key, key_len);
+    rc = write_bytes_field_(perm, sizeof(perm), &ppos, 0x12, key, key_len);
     if (rc != CETCD_OK) return rc;
-    rc = write_bytes_field_(perm, sizeof(perm), &ppos, 0x12, range_end,
+    rc = write_bytes_field_(perm, sizeof(perm), &ppos, 0x1a, range_end,
                             range_end_len);
     if (rc != CETCD_OK) return rc;
     rc = write_bytes_field_(out, cap, &pos, 0x0a, name, name_len);
@@ -2862,7 +2862,7 @@ int cetcd_parse_auth_role_grant_perm_request(const uint8_t *req, size_t len,
                     out->perm_type = (int)v;
                     continue;
                 }
-                if (ptag == 0x0a) {
+                if (ptag == 0x12) {
                     if (leftover_safe_copy_bytes_at_(pl, (size_t)skip, &ip,
                                                      &out->key, &out->key_len)
                         != CETCD_OK) {
@@ -2871,7 +2871,7 @@ int cetcd_parse_auth_role_grant_perm_request(const uint8_t *req, size_t len,
                     }
                     continue;
                 }
-                if (ptag == 0x12) {
+                if (ptag == 0x1a) {
                     if (leftover_safe_copy_bytes_at_(pl, (size_t)skip, &ip,
                                                      &out->range_end,
                                                      &out->range_end_len)
@@ -5193,7 +5193,7 @@ int cetcd_encode_role_get_perm(int perm_type, const char *key, uint8_t *out,
     if (in + 2 > sizeof(inner)) return CETCD_ERR_OVERFLOW;
     inner[in++] = 0x08;
     inner[in++] = (uint8_t)perm_type;
-    rc = write_bytes_field_(inner, sizeof(inner), &in, 0x0a,
+    rc = write_bytes_field_(inner, sizeof(inner), &in, 0x12,
                             (const uint8_t *)key, strlen(key));
     if (rc != CETCD_OK) return rc;
     if (pos + 2 + in > cap) return CETCD_ERR_OVERFLOW;
@@ -5249,16 +5249,92 @@ int cetcd_parse_role_get_response(const uint8_t *req, size_t len,
                     if (perm_type) *perm_type = (int)v;
                     continue;
                 }
-                if (mt == 0x0a || mt == 0x12) {
+                if (mt == 0x12 || mt == 0x1a) {
                     uint64_t sl = 0;
                     size_t qp = ip;
                     if (leftover_safe_varint_at_(req + p, (size_t)skip, &qp, &sl)
                         != CETCD_OK || qp + sl > (size_t)skip)
                         return CETCD_ERR_INVAL;
-                    if (mt == 0x0a && key && key_cap) {
+                    if (mt == 0x12 && key && key_cap) {
                         if (sl >= key_cap) return CETCD_ERR_INVAL;
                         memcpy(key, req + p + qp, (size_t)sl);
                         key[sl] = '\0';
+                    }
+                    ip = qp + (size_t)sl;
+                    continue;
+                }
+                if (leftover_safe_skip_unknown_at_(req + p, (size_t)skip, &ip,
+                                                   mt) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
+int cetcd_encode_role_get_range_end(const char *range_end, uint8_t *out,
+                                    size_t cap, size_t *n) {
+    uint8_t inner[96];
+    size_t in = 0;
+    uint64_t v;
+    size_t pos = 0;
+    int rc;
+    if (!out || !n || !range_end || !range_end[0]) return CETCD_ERR_INVAL;
+    rc = write_bytes_field_(inner, sizeof(inner), &in, 0x1a,
+                            (const uint8_t *)range_end, strlen(range_end));
+    if (rc != CETCD_OK) return rc;
+    if (pos + 2 + in > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x12; /* field 2 perm */
+    v = in;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    memcpy(out + pos, inner, in);
+    pos += in;
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_role_get_range_end(const uint8_t *req, size_t len,
+                                   char *range_end, size_t range_end_cap) {
+    size_t p = 0;
+    if (range_end && range_end_cap)
+        range_end[0] = '\0';
+    if (!range_end) return CETCD_ERR_INVAL;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x12) {
+            uint64_t skip = 0;
+            size_t ip = 0;
+            int rc = leftover_safe_varint_at_(req, len, &p, &skip);
+            if (rc != CETCD_OK || p + skip > len) return CETCD_ERR_INVAL;
+            if (range_end && range_end_cap) range_end[0] = '\0';
+            while (ip < (size_t)skip) {
+                uint8_t mt = req[p + ip];
+                ip++;
+                if (mt == 0x00)
+                    continue;
+                if (mt == 0x1a) {
+                    uint64_t sl = 0;
+                    size_t qp = ip;
+                    if (leftover_safe_varint_at_(req + p, (size_t)skip, &qp, &sl)
+                        != CETCD_OK || qp + sl > (size_t)skip)
+                        return CETCD_ERR_INVAL;
+                    if (range_end_cap) {
+                        if (sl >= range_end_cap) return CETCD_ERR_INVAL;
+                        memcpy(range_end, req + p + qp, (size_t)sl);
+                        range_end[sl] = '\0';
                     }
                     ip = qp + (size_t)sl;
                     continue;

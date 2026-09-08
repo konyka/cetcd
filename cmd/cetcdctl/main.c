@@ -5739,6 +5739,17 @@ static int cmd_role(int argc, char **argv) {
         pos = encode_string_field(req, sizeof(req), pos, 0x0a, name);
         int rlen = do_rpc("/etcdserverpb.Auth/RoleGet", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        {
+            char leftover_re[256];
+            leftover_re[0] = '\0';
+            /* leftover-safe: leftover cannot steal a printed range_end */
+            if (cetcd_parse_role_get_range_end(resp, (size_t)rlen, leftover_re,
+                                               sizeof(leftover_re))
+                != CETCD_OK) {
+                fprintf(stderr, "request failed\n");
+                return 1;
+            }
+        }
         if (want_fields) {
             parse_and_print_header_json(resp, (size_t)rlen);
             printf("role: %s\n", name);
@@ -5753,9 +5764,13 @@ static int cmd_role(int argc, char **argv) {
                         if (ptag == 0x08) {
                             uint64_t pt = 0; read_varint(resp, pend, &rpos, &pt);
                             printf("permType: %s\n", pt == 0 ? "READ" : pt == 1 ? "WRITE" : "READWRITE");
-                        } else if (ptag == 0x0a) {
+                        } else if (ptag == 0x12) {
                             uint64_t l = 0; read_varint(resp, pend, &rpos, &l);
                             printf("key: %.*s\n", (int)l, resp + rpos);
+                            rpos += l;
+                        } else if (ptag == 0x1a) {
+                            uint64_t l = 0; read_varint(resp, pend, &rpos, &l);
+                            printf("range_end: %.*s\n", (int)l, resp + rpos);
                             rpos += l;
                         } else if (ptag == 0x00) {
                             continue;
@@ -5792,15 +5807,22 @@ static int cmd_role(int argc, char **argv) {
                     const char *ptype = "READWRITE";
                     const char *pkey = NULL;
                     size_t pkey_len = 0;
+                    const char *prend = NULL;
+                    size_t prend_len = 0;
                     while (rpos < pend) {
                         uint8_t ptag = resp[rpos++];
                         if (ptag == 0x08) {
                             uint64_t pt = 0; read_varint(resp, pend, &rpos, &pt);
                             ptype = pt == 0 ? "READ" : pt == 1 ? "WRITE" : "READWRITE";
-                        } else if (ptag == 0x0a) {
+                        } else if (ptag == 0x12) {
                             uint64_t l = 0; read_varint(resp, pend, &rpos, &l);
                             pkey = (const char *)(resp + rpos);
                             pkey_len = (size_t)l;
+                            rpos += l;
+                        } else if (ptag == 0x1a) {
+                            uint64_t l = 0; read_varint(resp, pend, &rpos, &l);
+                            prend = (const char *)(resp + rpos);
+                            prend_len = (size_t)l;
                             rpos += l;
                         } else if (ptag == 0x00) {
                             continue;
@@ -5813,6 +5835,10 @@ static int cmd_role(int argc, char **argv) {
                     if (!first) printf(",");
                     printf("{\"permType\":\"%s\",\"key\":", ptype);
                     if (pkey) print_json_string((const uint8_t *)pkey, pkey_len); else fputs("\"\"", stdout);
+                    if (prend) {
+                        fputs(",\"range_end\":", stdout);
+                        print_json_string((const uint8_t *)prend, prend_len);
+                    }
                     fputs("}", stdout);
                     first = 0;
                     rpos = pend;
@@ -5841,9 +5867,13 @@ static int cmd_role(int argc, char **argv) {
                         if (ptag == 0x08) {
                             uint64_t pt = 0; read_varint(resp, pend, &rpos, &pt);
                             printf("  permType: %s\n", pt == 0 ? "READ" : pt == 1 ? "WRITE" : "READWRITE");
-                        } else if (ptag == 0x0a) {
+                        } else if (ptag == 0x12) {
                             uint64_t l = 0; read_varint(resp, pend, &rpos, &l);
                             printf("  key: %.*s\n", (int)l, resp + rpos);
+                            rpos += l;
+                        } else if (ptag == 0x1a) {
+                            uint64_t l = 0; read_varint(resp, pend, &rpos, &l);
+                            printf("  range_end: %.*s\n", (int)l, resp + rpos);
                             rpos += l;
                         } else if (ptag == 0x00) {
                             continue;
@@ -5890,7 +5920,7 @@ static int cmd_role(int argc, char **argv) {
         perm[ppos++] = 0x08; /* field 1 = permType */
         perm[ppos++] = (uint8_t)perm_type;
         size_t klen = strlen(key_str);
-        perm[ppos++] = 0x0a; /* field 2 = key */
+        perm[ppos++] = 0x12; /* field 2 = key */
         uint64_t l = klen;
         while (l >= 0x80) { perm[ppos++] = (uint8_t)(l | 0x80); l >>= 7; }
         perm[ppos++] = (uint8_t)l;
@@ -5898,7 +5928,7 @@ static int cmd_role(int argc, char **argv) {
         /* field 3 = range_end (--prefix / --from-key / --range-end / ENDKEY) */
         if (from_key) {
             uint8_t z = 0;
-            perm[ppos++] = 0x12;
+            perm[ppos++] = 0x1a;
             perm[ppos++] = 0x01;
             perm[ppos++] = z;
         } else if (prefix) {
@@ -5906,14 +5936,14 @@ static int cmd_role(int argc, char **argv) {
             size_t pe_len = cetcd_key_prefix_end(prefix_end, sizeof(prefix_end),
                                                  cetcd_slice_make(key_str, klen));
             if (pe_len == 0) { fprintf(stderr, "key too long\n"); return 1; }
-            perm[ppos++] = 0x12;
+            perm[ppos++] = 0x1a;
             l = pe_len;
             while (l >= 0x80) { perm[ppos++] = (uint8_t)(l | 0x80); l >>= 7; }
             perm[ppos++] = (uint8_t)l;
             memcpy(perm + ppos, prefix_end, pe_len); ppos += pe_len;
         } else if (range_end_arg) {
             size_t re_len = strlen(range_end_arg);
-            perm[ppos++] = 0x12;
+            perm[ppos++] = 0x1a;
             l = re_len;
             while (l >= 0x80) { perm[ppos++] = (uint8_t)(l | 0x80); l >>= 7; }
             perm[ppos++] = (uint8_t)l;

@@ -861,6 +861,15 @@ Performance-first, fail-closed design:
   fail-closes (cannot print leftover text). Dummy `0x00` is not a
   skip length. `cetcdctl role get` leftover-safe-skips unknown fields.
   Accepting leftover payload as the printed key is rejected.
+  Permission leftover-safe-encodes etcd field 2 `key` (`0x12`) /
+  field 3 `range_end` (`0x1a`) (a swapped key/range_end wire is
+  rejected).
+- **RoleGet leftover-safe range_end** — leftover-safe-parses
+  Permission.range_end so leftover length-delimited bytes cannot
+  steal a printed range_end. A truncated range_end fail-closes
+  (cannot print leftover text). Dummy `0x00` is not a skip length.
+  `cetcdctl role get` leftover-safe-parses field 3. Accepting leftover
+  payload as the printed range is rejected.
 - **Watch leftover-safe event key** — leftover-safe-parses
   WatchResponse so leftover length-delimited bytes cannot steal a
   printed Event key or type. A truncated event / kv / key fail-closes

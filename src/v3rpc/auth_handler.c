@@ -744,8 +744,10 @@ cetcd_rpc_bytes auth_handle_user_get(cetcd_v3rpc *rpc, const uint8_t *req, size_
  *   field 2 (perm) = Permission, tag = 0x12
  *     Permission:
  *       field 1 (permType) = int (0=READ, 1=WRITE, 2=READWRITE), tag = 0x08
- *       field 2 (key)      = bytes, tag = 0x0a
- *       field 3 (range_end) = bytes, tag = 0x12
+ *       field 2 (key)      = bytes, tag = 0x12
+ *       field 3 (range_end) = bytes, tag = 0x1a
+ *       leftover-safe: leftover cannot steal a printed range_end;
+ *       truncated range_end fail-closes
  */
 cetcd_rpc_bytes auth_handle_role_get(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
@@ -771,7 +773,7 @@ cetcd_rpc_bytes auth_handle_role_get(cetcd_v3rpc *rpc, const uint8_t *req, size_
 
     /* field 2 = key */
     if (r->key_prefix_len > 0) {
-        perm_buf[ppos++] = 0x0a; /* tag */
+        perm_buf[ppos++] = 0x12; /* field 2 = key */
         uint64_t l = r->key_prefix_len;
         while (l >= 0x80) { perm_buf[ppos++] = (uint8_t)(l | 0x80); l >>= 7; }
         perm_buf[ppos++] = (uint8_t)l;
@@ -780,7 +782,7 @@ cetcd_rpc_bytes auth_handle_role_get(cetcd_v3rpc *rpc, const uint8_t *req, size_
     }
     /* field 3 = range_end (omitted = leftover prefix-only) */
     if (r->range_end_len > 0 && ppos + 6 + r->range_end_len < sizeof(perm_buf)) {
-        perm_buf[ppos++] = 0x12;
+        perm_buf[ppos++] = 0x1a;
         uint64_t l = r->range_end_len;
         while (l >= 0x80) { perm_buf[ppos++] = (uint8_t)(l | 0x80); l >>= 7; }
         perm_buf[ppos++] = (uint8_t)l;
@@ -938,14 +940,14 @@ static int parse_auth_role_grant_perm_(const uint8_t *req, size_t len,
                     *perm_type = (int)v;
                     continue;
                 }
-                if (ptag == 0x0a) {
+                if (ptag == 0x12) {
                     if (leftover_safe_copy_bytes_(pl, n, &ip, key, key_len) != 0) {
                         auth_role_perm_clear_(name, key, range_end);
                         return -1;
                     }
                     continue;
                 }
-                if (ptag == 0x12) {
+                if (ptag == 0x1a) {
                     if (leftover_safe_copy_bytes_(pl, n, &ip, range_end,
                                                   range_end_len) != 0) {
                         auth_role_perm_clear_(name, key, range_end);
@@ -1021,8 +1023,8 @@ static int parse_auth_role_revoke_perm_(const uint8_t *req, size_t len,
  *   field 2 (perm) = Permission, tag = 0x12
  *     Permission:
  *       field 1 (permType) = int, tag = 0x08
- *       field 2 (key)      = bytes, tag = 0x0a
- *       field 3 (range_end) = bytes, tag = 0x12
+ *       field 2 (key)      = bytes, tag = 0x12
+ *       field 3 (range_end) = bytes, tag = 0x1a
  * Response: empty (header only)
  */
 cetcd_rpc_bytes auth_handle_role_grant_permission(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {

@@ -2649,7 +2649,7 @@ CETCD_TEST_CASE(auto_compact_parse_role_get_response) {
     CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_response(trunc, 1, &perm, key,
                                                       sizeof(key), &got),
                         CETCD_ERR_INVAL);
-    uint8_t trunc_key[] = { 0x12, 0x01, 0x0a };
+    uint8_t trunc_key[] = { 0x12, 0x01, 0x12 };
     CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_response(trunc_key,
                                                       sizeof(trunc_key),
                                                       &perm, key, sizeof(key),
@@ -2665,7 +2665,7 @@ CETCD_TEST_CASE(auto_compact_parse_role_get_response) {
     CETCD_ASSERT_TRUE(got == 0);
     CETCD_ASSERT_EQ_STR(key, "");
 
-    uint8_t inner_steal[] = { 0x12, 0x06, 0x1a, 0x04, 0x0a, 0x02, '/', 'k' };
+    uint8_t inner_steal[] = { 0x12, 0x06, 0x2a, 0x04, 0x12, 0x02, '/', 'k' };
     CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_response(inner_steal,
                                                       sizeof(inner_steal),
                                                       &perm, key, sizeof(key),
@@ -2688,6 +2688,63 @@ CETCD_TEST_CASE(auto_compact_parse_role_get_response) {
                         CETCD_ERR_INVAL);
     CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_response(buf, n, NULL, NULL, 0,
                                                       NULL),
+                        CETCD_ERR_INVAL);
+}
+
+CETCD_TEST_CASE(auto_compact_parse_role_get_range_end) {
+    uint8_t buf[32];
+    size_t n = 0;
+    char range_end[16];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_role_get_range_end(NULL, buf, sizeof(buf),
+                                                        &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_role_get_range_end("", buf, sizeof(buf),
+                                                        &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_role_get_range_end("/z", buf, sizeof(buf),
+                                                        &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_range_end(buf, n, range_end,
+                                                       sizeof(range_end)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(range_end, "/z");
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_range_end(NULL, 0, range_end,
+                                                       sizeof(range_end)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(range_end, "");
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_range_end(dummy, 1, range_end,
+                                                       sizeof(range_end)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(range_end, "");
+
+    /* leftover truncated range_end cannot print leftover text */
+    uint8_t trunc[] = { 0x12, 0x01, 0x1a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_range_end(trunc, sizeof(trunc),
+                                                       range_end,
+                                                       sizeof(range_end)),
+                        CETCD_ERR_INVAL);
+    uint8_t trunc_len[] = { 0x12, 0x02, 0x1a, 0x10 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_range_end(
+                            trunc_len, sizeof(trunc_len), range_end,
+                            sizeof(range_end)),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed range_end */
+    uint8_t steal[] = { 0x12, 0x06, 0x2a, 0x04, 0x1a, 0x02, '/', 'z' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_range_end(steal, sizeof(steal),
+                                                       range_end,
+                                                       sizeof(range_end)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(range_end, "");
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_range_end(fixed64, 1, range_end,
+                                                       sizeof(range_end)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_range_end(buf, n, NULL, 0),
                         CETCD_ERR_INVAL);
 }
 
@@ -3993,7 +4050,7 @@ CETCD_TEST_CASE(auto_compact_parse_auth_role_grant_perm_request) {
 
     /* leftover cannot steal Permission.key */
     uint8_t steal_key[] = { 0x0a, 0x04, 'r', 'o', 'o', 't',
-                            0x12, 0x08, 0x22, 0x06, 0x0a, 0x04, '/', 'f', 'o', 'o' };
+                            0x12, 0x08, 0x22, 0x06, 0x12, 0x04, '/', 'f', 'o', 'o' };
     CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_grant_perm_request(
                             steal_key, sizeof(steal_key), &rp),
                         CETCD_OK);
@@ -4770,6 +4827,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_snapshot_response),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_keepalive_response),
     CETCD_TEST_ENTRY(auto_compact_parse_role_get_response),
+    CETCD_TEST_ENTRY(auto_compact_parse_role_get_range_end),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_response),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_fragment),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_cancel_reason),
