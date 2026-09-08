@@ -926,6 +926,10 @@ static void parse_lease_ttl_response(const uint8_t *data, size_t len) {
     if (cetcd_parse_lease_ttl_key(data, len, leftover_key, sizeof(leftover_key))
         != CETCD_OK)
         return;
+    int64_t leftover_granted = 0;
+    /* leftover-safe: leftover cannot steal a printed grantedTTL */
+    if (cetcd_parse_lease_ttl_granted(data, len, &leftover_granted) != CETCD_OK)
+        return;
     size_t pos = 0;
     while (pos < len) {
         uint8_t tag = data[pos++];
@@ -936,8 +940,12 @@ static void parse_lease_ttl_response(const uint8_t *data, size_t len) {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
             printf("remaining TTL: %lld\n", (long long)v);
         } else if (tag == 0x20) {
-            uint64_t v = 0; read_varint(data, len, &pos, &v);
-            printf("granted TTL: %lld\n", (long long)v);
+            /* leftover-safe-skip field 4; leftover-safe grantedTTL is printed */
+            if (cetcd_leftover_safe_skip_field(data, len, &pos, tag)
+                != CETCD_OK) {
+                break;
+            }
+            printf("granted TTL: %lld\n", (long long)leftover_granted);
         } else if (tag == 0x2a) {
             /* leftover-safe-parse already fail-closed truncated leftover */
             uint64_t l = 0; read_varint(data, len, &pos, &l);
@@ -2422,9 +2430,16 @@ static int cmd_lease(int argc, char **argv) {
             fprintf(stderr, "request failed\n");
             return 1;
         }
+        int64_t leftover_granted = 0;
+        /* leftover-safe: leftover cannot steal a printed grantedTTL */
+        if (cetcd_parse_lease_ttl_granted(resp, (size_t)rlen, &leftover_granted)
+            != CETCD_OK) {
+            fprintf(stderr, "request failed\n");
+            return 1;
+        }
         if (want_json) {
             size_t rpos = 0;
-            uint64_t lid = 0, ttl = 0, granted = 0;
+            uint64_t lid = 0, ttl = 0, granted = (uint64_t)leftover_granted;
             fputs("{", stdout);
             parse_and_print_header_json(resp, (size_t)rlen);
             fputs(",", stdout);
@@ -2434,8 +2449,14 @@ static int cmd_lease(int argc, char **argv) {
                 uint8_t tag = resp[rpos++];
                 if (tag == 0x10) { read_varint(resp, rlen, &rpos, &lid); }
                 else if (tag == 0x18) { read_varint(resp, rlen, &rpos, &ttl); }
-                else if (tag == 0x20) { read_varint(resp, rlen, &rpos, &granted); }
-                else if (tag == 0x2a) {
+                else if (tag == 0x20) {
+                    /* leftover-safe: leftover cannot steal a printed grantedTTL */
+                    if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                        &rpos, tag)
+                        != CETCD_OK) {
+                        break;
+                    }
+                } else if (tag == 0x2a) {
                     uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
                     rpos += l;
                     key_count++;
@@ -2476,12 +2497,19 @@ static int cmd_lease(int argc, char **argv) {
             fputs("}\n", stdout);
         } else if (want_fields) {
             size_t rpos = 0;
-            uint64_t lid = 0, ttl = 0, granted = 0;
+            uint64_t lid = 0, ttl = 0, granted = (uint64_t)leftover_granted;
             while (rpos < (size_t)rlen) {
                 uint8_t tag = resp[rpos++];
                 if (tag == 0x10) { read_varint(resp, rlen, &rpos, &lid); }
                 else if (tag == 0x18) { read_varint(resp, rlen, &rpos, &ttl); }
-                else if (tag == 0x20) { read_varint(resp, rlen, &rpos, &granted); }
+                else if (tag == 0x20) {
+                    /* leftover-safe: leftover cannot steal a printed grantedTTL */
+                    if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                        &rpos, tag)
+                        != CETCD_OK) {
+                        break;
+                    }
+                }
                 else if (tag == 0x2a) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
                 else if (tag == 0x0a) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
                 else if (tag == 0x00) { continue; }

@@ -2831,6 +2831,61 @@ CETCD_TEST_CASE(auto_compact_parse_lease_ttl_key) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_lease_ttl_granted) {
+    uint8_t buf[16];
+    size_t n = 0;
+    int64_t granted = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_lease_ttl_granted(0, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_lease_ttl_granted(10, buf, sizeof(buf),
+                                                      &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_granted(buf, n, &granted),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(granted == 10);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_granted(NULL, 0, &granted),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(granted == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_granted(dummy, 1, &granted),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(granted == 0);
+
+    /* leftover truncated grantedTTL cannot look like granted 0 */
+    uint8_t trunc[] = { 0x20 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_granted(trunc, 1, &granted),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed grantedTTL */
+    uint8_t steal[] = { 0x1a, 0x02, 0x20, 0x0a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_granted(steal, sizeof(steal),
+                                                     &granted),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(granted == 0);
+
+    /* leftover header raft_term is not grantedTTL */
+    uint8_t header[] = { 0x0a, 0x02, 0x20, 0x07 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_granted(header, sizeof(header),
+                                                     &granted),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(granted == 0);
+
+    uint8_t last[] = { 0x20, 0x01, 0x20, 0x02 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_granted(last, sizeof(last),
+                                                     &granted),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(granted == 2);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_granted(fixed64, 1, &granted),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_granted(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_authenticate_response) {
     uint8_t buf[32];
     size_t n = 0;
@@ -5414,6 +5469,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_error),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_ttl_response),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_ttl_key),
+    CETCD_TEST_ENTRY(auto_compact_parse_lease_ttl_granted),
     CETCD_TEST_ENTRY(auto_compact_parse_authenticate_response),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_succeeded),
     CETCD_TEST_ENTRY(auto_compact_parse_hash_response),

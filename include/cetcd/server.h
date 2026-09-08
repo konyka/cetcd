@@ -746,6 +746,17 @@ int cetcd_encode_lease_ttl_key(const char *key, uint8_t *out, size_t cap,
                                size_t *n);
 int cetcd_parse_lease_ttl_key(const uint8_t *req, size_t len, char *key,
                               size_t key_cap);
+/* leftover-safe LeaseTimeToLiveResponse.grantedTTL (field 4, tag
+ * 0x20). omitted / empty / dummy 0x00 = 0. leftover truncated
+ * grantedTTL is INVAL so a truncated TTL cannot look like granted 0.
+ * leftover length-delimited fields are skipped by payload so leftover
+ * bytes cannot steal a printed grantedTTL (tag 0x0a header raft_term
+ * is not grantedTTL). unknown wire types are INVAL. last grantedTTL
+ * is copied when granted is set. */
+int cetcd_encode_lease_ttl_granted(int64_t granted, uint8_t *out, size_t cap,
+                                   size_t *n);
+int cetcd_parse_lease_ttl_granted(const uint8_t *req, size_t len,
+                                  int64_t *granted);
 /* leftover-safe AuthenticateResponse.token. omitted / empty / dummy
  * 0x00 = empty token. leftover truncated token is INVAL so a
  * truncated login cannot look like no token. leftover
