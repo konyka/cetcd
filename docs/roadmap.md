@@ -1042,6 +1042,13 @@ Performance-first, fail-closed design:
   header revision is not Event mod_revision. `cetcdctl watch`
   leftover-safe-parses field 3 inside Event. Accepting leftover payload
   as the printed Event mod_revision is rejected.
+- **Watch leftover-safe Event KV value** — leftover-safe-parses
+  WatchResponse Event KV value so leftover length-delimited bytes
+  cannot steal a printed Event value. A truncated Event-nested value
+  fail-closes (cannot print leftover text). Dummy `0x00` is not a skip
+  length. Tag `0x0a` header is not Event value. `cetcdctl watch`
+  leftover-safe-parses field 5 inside Event. Accepting leftover payload
+  as the printed Event value is rejected.
 - **Watch leftover-safe Event prev_kv create_revision** —
   leftover-safe-parses WatchResponse Event prev_kv create_revision so
   leftover length-delimited bytes cannot steal a printed prev
