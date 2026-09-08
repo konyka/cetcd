@@ -915,6 +915,8 @@ DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal
 DeleteRange leftover-safe-parses prev_kv value so leftover length-delimited bytes cannot steal a printed prev value (truncated prev_kv value fail-closes; tag `0x0a` header is not prev value).
 DeleteRange leftover-safe-parses prev_kv lease so leftover length-delimited bytes cannot steal a printed prev lease (truncated prev_kv lease fail-closes; tag `0x0a` header is not prev lease).
 DeleteRange leftover-safe-parses prev_kv version so leftover length-delimited bytes cannot steal a printed prev version (truncated prev_kv version fail-closes; tag `0x0a` header raft_term is not prev version).
+DeleteRange leftover-safe-parses prev_kv create_revision so leftover length-delimited bytes cannot steal a printed prev create_revision (truncated prev_kv create_revision fail-closes; tag `0x0a` header member_id is not prev create_revision).
+DeleteRange leftover-safe-parses prev_kv mod_revision so leftover length-delimited bytes cannot steal a printed prev mod_revision (truncated prev_kv mod_revision fail-closes; tag `0x0a` header revision is not prev mod_revision).
 DeleteRange leftover-safe-parses `deleted` so leftover length-delimited bytes cannot steal a printed delete count (truncated deleted fail-closes). `cetcdctl del` leftover-safe-parses field 2.
 Txn leftover-safe-parses embedded Put/Range/DeleteRange so leftover length-delimited bytes cannot steal `lease` / `rev` / `range_end` (truncated inner field fail-closes the whole Txn).
 Txn perm leftover-safe-parses the RequestOp key so leftover dummy `0x00` cannot eat the key tag and skip the perm check (truncated key fail-closes; leftover cannot steal the key).

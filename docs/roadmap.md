@@ -1153,6 +1153,23 @@ Performance-first, fail-closed design:
   not a skip length. Tag `0x0a` header raft_term is not prev version.
   `cetcdctl del --prev-kv` leftover-safe-parses field 4 inside prev_kv.
   Accepting leftover payload as the printed prev version is rejected.
+- **DeleteRange leftover-safe prev_kv create_revision** —
+  leftover-safe-parses DeleteRangeResponse prev_kv create_revision so
+  leftover length-delimited bytes cannot steal a printed prev
+  create_revision. A truncated prev_kv create_revision fail-closes
+  (cannot look like create_revision 0). Dummy `0x00` is not a skip
+  length. Tag `0x0a` header member_id is not prev create_revision.
+  `cetcdctl del --prev-kv` leftover-safe-parses field 2 inside prev_kv.
+  Accepting leftover payload as the printed prev create_revision is
+  rejected.
+- **DeleteRange leftover-safe prev_kv mod_revision** —
+  leftover-safe-parses DeleteRangeResponse prev_kv mod_revision so
+  leftover length-delimited bytes cannot steal a printed prev
+  mod_revision. A truncated prev_kv mod_revision fail-closes (cannot
+  look like mod_revision 0). Dummy `0x00` is not a skip length. Tag
+  `0x0a` header revision is not prev mod_revision. `cetcdctl del
+  --prev-kv` leftover-safe-parses field 3 inside prev_kv. Accepting
+  leftover payload as the printed prev mod_revision is rejected.
 - **auth login leftover-safe printed token** — leftover-safe-parses
   AuthenticateResponse so leftover length-delimited bytes cannot steal
   a printed login token. AuthStatus leftover-safe-parses so leftover

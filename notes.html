@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 202 — leftover-safe DeleteRange prev_kv version</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 204 — leftover-safe DeleteRange prev_kv mod_revision</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 202 leftover-safe-parses
-     DeleteRange prev_kv version so leftover length-delimited bytes cannot
-     steal a printed prev version.</p>
+  <p><strong>v0.3.0</strong>. Phase 204 leftover-safe-parses
+     DeleteRange prev_kv create_revision and mod_revision so leftover
+     length-delimited bytes cannot steal a printed prev revision.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -255,6 +255,8 @@
       <tr><td>200</td><td>leftover-safe AuthStatus authRevision</td><td>AuthStatus leftover-safe-parses so leftover length-delimited bytes cannot steal a printed authRevision; truncated authRevision fail-closes; header revision is not authRevision; cetcdctl leftover-safe-parses field 3 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>201</td><td>leftover-safe DeleteRange prev_kv lease</td><td>DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal a printed prev lease; truncated prev_kv lease fail-closes; header is not prev lease; cetcdctl leftover-safe-parses field 6 inside prev_kv — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>202</td><td>leftover-safe DeleteRange prev_kv version</td><td>DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal a printed prev version; truncated prev_kv version fail-closes; header raft_term is not prev version; cetcdctl leftover-safe-parses field 4 inside prev_kv — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>203</td><td>leftover-safe DeleteRange prev_kv create_revision</td><td>DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal a printed prev create_revision; truncated prev_kv create_revision fail-closes; header member_id is not prev create_revision; cetcdctl leftover-safe-parses field 2 inside prev_kv — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>204</td><td>leftover-safe DeleteRange prev_kv mod_revision</td><td>DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal a printed prev mod_revision; truncated prev_kv mod_revision fail-closes; header revision is not prev mod_revision; cetcdctl leftover-safe-parses field 3 inside prev_kv — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

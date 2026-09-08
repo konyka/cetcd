@@ -1162,6 +1162,32 @@ int cetcd_encode_delete_range_prev_kv_version(int64_t version, uint8_t *out,
                                               size_t cap, size_t *n);
 int cetcd_parse_delete_range_prev_kv_version(const uint8_t *req, size_t len,
                                              int64_t *version);
+/* leftover-safe DeleteRangeResponse prev_kv create_revision (field 2,
+ * tag 0x10 inside field 3, tag 0x1a). omitted / empty / dummy 0x00 =
+ * 0. leftover truncated prev_kv create_revision is INVAL so a
+ * truncated del cannot look like create_revision 0. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed prev create_revision (tag 0x0a header
+ * member_id is not prev create_revision). unknown wire types are
+ * INVAL. last prev create_revision is copied when create_rev is
+ * set. */
+int cetcd_encode_delete_range_prev_kv_create_rev(int64_t create_rev,
+                                                 uint8_t *out, size_t cap,
+                                                 size_t *n);
+int cetcd_parse_delete_range_prev_kv_create_rev(const uint8_t *req, size_t len,
+                                                int64_t *create_rev);
+/* leftover-safe DeleteRangeResponse prev_kv mod_revision (field 3,
+ * tag 0x18 inside field 3, tag 0x1a). omitted / empty / dummy 0x00 =
+ * 0. leftover truncated prev_kv mod_revision is INVAL so a truncated
+ * del cannot look like mod_revision 0. leftover length-delimited
+ * fields are skipped by payload so leftover bytes cannot steal a
+ * printed prev mod_revision (tag 0x0a header revision is not prev
+ * mod_revision). unknown wire types are INVAL. last prev
+ * mod_revision is copied when mod_rev is set. */
+int cetcd_encode_delete_range_prev_kv_mod_rev(int64_t mod_rev, uint8_t *out,
+                                              size_t cap, size_t *n);
+int cetcd_parse_delete_range_prev_kv_mod_rev(const uint8_t *req, size_t len,
+                                             int64_t *mod_rev);
 /* leftover-safe DowngradeRequest. omitted / empty / dummy 0x00 =
  * action VALIDATE (0) / empty version. leftover truncated action /
  * version is INVAL so a truncated validate cannot look like ENABLE

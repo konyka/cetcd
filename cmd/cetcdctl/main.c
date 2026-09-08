@@ -2154,6 +2154,24 @@ static int cmd_del(int argc, char **argv) {
         return 1;
     }
     (void)leftover_prev_version;
+    int64_t leftover_prev_create = 0;
+    /* leftover-safe: leftover cannot steal a printed prev create_revision */
+    if (cetcd_parse_delete_range_prev_kv_create_rev(resp, (size_t)rlen,
+                                                    &leftover_prev_create)
+        != CETCD_OK) {
+        fprintf(stderr, "request failed\n");
+        return 1;
+    }
+    (void)leftover_prev_create;
+    int64_t leftover_prev_mod = 0;
+    /* leftover-safe: leftover cannot steal a printed prev mod_revision */
+    if (cetcd_parse_delete_range_prev_kv_mod_rev(resp, (size_t)rlen,
+                                                 &leftover_prev_mod)
+        != CETCD_OK) {
+        fprintf(stderr, "request failed\n");
+        return 1;
+    }
+    (void)leftover_prev_mod;
     if (want_fields) {
         size_t rpos = 0;
         uint64_t deleted = (uint64_t)leftover_deleted;
