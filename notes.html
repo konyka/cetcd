@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 188 — leftover-safe Watch Event KV create_revision</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 189 — leftover-safe Watch Event KV mod_revision</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 188 leftover-safe-parses
-     Watch Event KV create_revision so leftover length-delimited bytes cannot
-     steal a printed Event create_revision.</p>
+  <p><strong>v0.3.0</strong>. Phase 189 leftover-safe-parses
+     Watch Event KV mod_revision so leftover length-delimited bytes cannot
+     steal a printed Event mod_revision.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -241,6 +241,7 @@
       <tr><td>186</td><td>leftover-safe Watch Event KV lease</td><td>Watch leftover-safe-parses so leftover length-delimited bytes cannot steal a printed Event lease; truncated Event-nested lease fail-closes; header raft_term is not Event lease; cetcdctl leftover-safe-parses field 6 inside Event — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>187</td><td>leftover-safe Watch Event KV version</td><td>Watch leftover-safe-parses so leftover length-delimited bytes cannot steal a printed Event version; truncated Event-nested version fail-closes; header raft_term is not Event version; cetcdctl leftover-safe-parses field 4 inside Event — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>188</td><td>leftover-safe Watch Event KV create_revision</td><td>Watch leftover-safe-parses so leftover length-delimited bytes cannot steal a printed Event create_revision; truncated Event-nested create_revision fail-closes; header member_id is not Event create_revision; cetcdctl leftover-safe-parses field 2 inside Event — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>189</td><td>leftover-safe Watch Event KV mod_revision</td><td>Watch leftover-safe-parses so leftover length-delimited bytes cannot steal a printed Event mod_revision; truncated Event-nested mod_revision fail-closes; header revision is not Event mod_revision; cetcdctl leftover-safe-parses field 3 inside Event — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

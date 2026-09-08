@@ -6721,6 +6721,12 @@ static int print_watch_response(const uint8_t *resp, size_t rlen,
         != CETCD_OK)
         return 0;
     (void)leftover_event_create;
+    int64_t leftover_event_mod = 0;
+    /* leftover-safe: leftover cannot steal a printed Event mod_revision */
+    if (cetcd_parse_watch_event_kv_mod_rev(resp, rlen, &leftover_event_mod)
+        != CETCD_OK)
+        return 0;
+    (void)leftover_event_mod;
     int64_t leftover_version = 0;
     /* leftover-safe: leftover cannot steal a printed version */
     if (cetcd_parse_range_response_kv_version(resp, rlen, &leftover_version)

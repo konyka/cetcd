@@ -398,6 +398,7 @@ so many concurrent watchers can share a single TCP connection.
 # leftover-safe: leftover proto bytes cannot steal a printed Event lease
 # leftover-safe: leftover proto bytes cannot steal a printed Event version
 # leftover-safe: leftover proto bytes cannot steal a printed Event create_revision
+# leftover-safe: leftover proto bytes cannot steal a printed Event mod_revision
 # leftover-safe: leftover proto bytes cannot steal fragment=true
 # leftover-safe: leftover proto bytes cannot steal a printed compact cancel_reason
 # leftover watch --foo key fail-closes (not a watch on key --foo)
