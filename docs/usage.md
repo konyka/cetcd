@@ -407,6 +407,7 @@ so many concurrent watchers can share a single TCP connection.
 # leftover-safe: leftover proto bytes cannot steal a printed Event mod_revision
 # leftover-safe: leftover proto bytes cannot steal a printed Event value
 # leftover-safe: leftover proto bytes cannot steal a printed Event key
+# leftover-safe: leftover proto bytes cannot steal a printed Event type
 # leftover-safe: leftover proto bytes cannot steal a printed Event prev create_revision
 # leftover-safe: leftover proto bytes cannot steal a printed Event prev mod_revision
 # leftover-safe: leftover proto bytes cannot steal a printed Event prev version

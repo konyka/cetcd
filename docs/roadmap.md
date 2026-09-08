@@ -1092,6 +1092,13 @@ Performance-first, fail-closed design:
   length. Tag `0x0a` header is not Event key. `cetcdctl watch`
   leftover-safe-parses field 1 inside Event. Accepting leftover payload
   as the printed Event key is rejected.
+- **Watch leftover-safe Event type** — leftover-safe-parses
+  WatchResponse Event.type so leftover length-delimited bytes cannot
+  steal a printed Event type. A truncated Event type fail-closes
+  (cannot look like PUT). Dummy `0x00` is not a skip length. Tag
+  `0x0a` header cluster_id is not Event type. `cetcdctl watch`
+  leftover-safe-parses field 1 inside Event. Accepting leftover
+  payload as the printed Event type is rejected.
 - **Watch leftover-safe Event prev_kv create_revision** —
   leftover-safe-parses WatchResponse Event prev_kv create_revision so
   leftover length-delimited bytes cannot steal a printed prev
