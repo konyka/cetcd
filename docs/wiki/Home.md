@@ -903,6 +903,7 @@ Txn leftover-safe-parses embedded Put/Range/DeleteRange so leftover length-delim
 Txn perm leftover-safe-parses the RequestOp key so leftover dummy `0x00` cannot eat the key tag and skip the perm check (truncated key fail-closes; leftover cannot steal the key).
 Txn Compare leftover-safe-parses so leftover length-delimited bytes cannot steal `result` and flip a CAS (truncated result fail-closes; dummy `0x00` / omitted is EQUAL).
 TxnRequest leftover-safe-parses so leftover length-delimited bytes cannot inject an extra success/failure op (truncated success-op length fail-closes).
+Txn leftover-safe-parses `succeeded` so leftover length-delimited bytes cannot steal a successful lock, elect, or compare (truncated succeeded fail-closes).
 Authenticate leftover-safe-parses field 1/2 so leftover length-delimited bytes cannot steal a name or password (truncated password fail-closes; dummy `0x00` / omitted = empty).
 Authenticate leftover-safe-parses the response so leftover length-delimited bytes cannot steal a used token (truncated token fail-closes).
 AuthStatus leftover-safe-parses so leftover length-delimited bytes cannot steal `enabled`. UserList/RoleList leftover-safe-parses so leftover cannot steal a printed user or role.

@@ -4633,6 +4633,37 @@ int cetcd_parse_authenticate_response(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+int cetcd_encode_txn_succeeded(int succeeded, uint8_t *out, size_t cap,
+                               size_t *n) {
+    if (!out || !n || cap < 2) return CETCD_ERR_INVAL;
+    out[0] = 0x10; /* field 2 succeeded */
+    out[1] = succeeded ? 1 : 0;
+    *n = 2;
+    return CETCD_OK;
+}
+
+int cetcd_parse_txn_succeeded(const uint8_t *req, size_t len, int *succeeded) {
+    size_t p = 0;
+    if (!succeeded) return CETCD_ERR_INVAL;
+    *succeeded = 0;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x10) {
+            uint64_t v = 0;
+            if (leftover_safe_varint_at_(req, len, &p, &v) != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            *succeeded = v != 0;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n) {
     if (!out || !n || cap < 2) return CETCD_ERR_INVAL;

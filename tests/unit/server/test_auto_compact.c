@@ -2183,6 +2183,46 @@ CETCD_TEST_CASE(auto_compact_parse_authenticate_response) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_txn_succeeded) {
+    uint8_t buf[8];
+    size_t n = 0;
+    int succeeded = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_txn_succeeded(1, NULL, sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_txn_succeeded(1, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_succeeded(buf, n, &succeeded),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(succeeded, 1);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_succeeded(NULL, 0, &succeeded),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(succeeded, 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_succeeded(dummy, 1, &succeeded),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(succeeded, 0);
+
+    /* leftover truncated succeeded cannot look like a failed lock */
+    uint8_t trunc[] = { 0x10 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_succeeded(trunc, 1, &succeeded),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal succeeded (lock / elect false acquire) */
+    uint8_t steal[] = { 0x1a, 0x02, 0x10, 0x01 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_succeeded(steal, sizeof(steal),
+                                                 &succeeded),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(succeeded, 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_succeeded(fixed64, 1, &succeeded),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_succeeded(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_downgrade_request) {
     uint8_t buf[64];
     size_t n = 0;
@@ -3844,6 +3884,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_response),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_ttl_response),
     CETCD_TEST_ENTRY(auto_compact_parse_authenticate_response),
+    CETCD_TEST_ENTRY(auto_compact_parse_txn_succeeded),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_request),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_op_key),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),

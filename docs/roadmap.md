@@ -790,6 +790,12 @@ Performance-first, fail-closed design:
   token). Dummy `0x00` is not a skip length. `cetcdctl auth login`
   leftover-safe-parses field 2. Accepting leftover payload as the
   token is rejected.
+- **Txn leftover-safe succeeded** — leftover-safe-parses
+  TxnResponse.succeeded so leftover length-delimited bytes cannot
+  steal a successful lock, elect, or compare. A truncated succeeded
+  fail-closes (cannot look like a held lock). Dummy `0x00` is not a
+  skip length. `cetcdctl lock` / `elect` / `txn` leftover-safe-parse
+  field 2. Accepting leftover payload as succeeded is rejected.
 - **AuthStatus / user-role list leftover-safe** — leftover-safe-parses
   AuthStatusResponse and UserList/RoleList so leftover length-delimited
   bytes cannot steal `enabled` or a printed user/role name. A truncated

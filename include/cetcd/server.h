@@ -590,6 +590,14 @@ int cetcd_encode_authenticate_response(const char *token, uint8_t *out,
                                        size_t cap, size_t *n);
 int cetcd_parse_authenticate_response(const uint8_t *req, size_t len,
                                       char *token, size_t token_cap);
+/* leftover-safe TxnResponse.succeeded. omitted / empty / dummy 0x00
+ * = failed. leftover truncated succeeded is INVAL so a truncated
+ * txn cannot look like a successful lock or compare. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal succeeded. unknown wire types are INVAL. */
+int cetcd_encode_txn_succeeded(int succeeded, uint8_t *out, size_t cap,
+                               size_t *n);
+int cetcd_parse_txn_succeeded(const uint8_t *req, size_t len, int *succeeded);
 /* leftover-safe DowngradeRequest. omitted / empty / dummy 0x00 =
  * action VALIDATE (0) / empty version. leftover truncated action /
  * version is INVAL so a truncated validate cannot look like ENABLE

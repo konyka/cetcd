@@ -2604,22 +2604,12 @@ static int cmd_txn(int argc, char **argv) {
 
         int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        /* Parse TxnResponse: field 1 (header), field 2 (succeeded) = bool, tag = 0x10 */
-        bool succeeded = false;
-        size_t rpos = 0;
-        while (rpos < (size_t)rlen) {
-            uint8_t tag = resp[rpos++];
-            if (tag == 0x10) {
-                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
-                succeeded = (v != 0);
-                break;
-            } else if (tag == 0x0a) {
-                /* Skip header (length-delimited) */
-                uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
-            } else {
-                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
-            }
-        }
+        /* leftover-safe: leftover cannot steal succeeded */
+        int succeeded_i = 0;
+        if (cetcd_parse_txn_succeeded(resp, (size_t)rlen, &succeeded_i)
+            != CETCD_OK)
+            succeeded_i = 0;
+        bool succeeded = succeeded_i != 0;
         if (want_json) {
             fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs(",\"succeeded\":", stdout); printf("%s}\n", succeeded ? "true" : "false");
             return succeeded ? 0 : 1;
@@ -2943,13 +2933,18 @@ static int cmd_txn(int argc, char **argv) {
         if (pos == 0) { fprintf(stderr, "empty transaction\n"); return 1; }
         int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        bool succeeded = false;
+        int succeeded_i = 0;
+        if (cetcd_parse_txn_succeeded(resp, (size_t)rlen, &succeeded_i)
+            != CETCD_OK)
+            succeeded_i = 0;
+        bool succeeded = succeeded_i != 0;
         size_t rpos = 0;
         while (rpos < (size_t)rlen) {
             uint8_t tag = resp[rpos++];
             if (tag == 0x10) {
-                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
-                succeeded = (v != 0);
+                if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen, &rpos,
+                                                   tag) != CETCD_OK)
+                    break;
             } else if (tag == 0x0a) {
                 uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
                 rpos += (size_t)l;
@@ -3902,21 +3897,12 @@ static int cmd_lock(int argc, char **argv) {
     int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "txn request failed\n"); return 1; }
 
-    /* Parse TxnResponse: field 1 (header), field 2 (succeeded) = bool, tag = 0x10 */
-    bool succeeded = false;
-    rp = 0;
-    while (rp < (size_t)rlen) {
-        uint8_t tag = resp[rp++];
-        if (tag == 0x10) {
-            uint64_t v = 0; read_varint(resp, rlen, &rp, &v);
-            succeeded = (v != 0);
-            break;
-        } else if (tag == 0x0a) {
-            uint64_t l = 0; read_varint(resp, rlen, &rp, &l); rp += l;
-        } else {
-            uint64_t v = 0; read_varint(resp, rlen, &rp, &v);
-        }
-    }
+    /* leftover-safe: leftover cannot steal succeeded (false lock) */
+    int succeeded_i = 0;
+    if (cetcd_parse_txn_succeeded(resp, (size_t)rlen, &succeeded_i)
+        != CETCD_OK)
+        succeeded_i = 0;
+    bool succeeded = succeeded_i != 0;
 
     if (!succeeded) {
         fprintf(stderr, "lock '%s' is held by another client\n", lockname);
@@ -4148,20 +4134,11 @@ static int cmd_elect(int argc, char **argv) {
     int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "txn request failed\n"); return 1; }
 
-    bool succeeded = false;
-    rp = 0;
-    while (rp < (size_t)rlen) {
-        uint8_t tag = resp[rp++];
-        if (tag == 0x10) {
-            uint64_t v = 0; read_varint(resp, rlen, &rp, &v);
-            succeeded = (v != 0);
-            break;
-        } else if (tag == 0x0a) {
-            uint64_t l = 0; read_varint(resp, rlen, &rp, &l); rp += l;
-        } else {
-            uint64_t v = 0; read_varint(resp, rlen, &rp, &v);
-        }
-    }
+    int succeeded_i = 0;
+    if (cetcd_parse_txn_succeeded(resp, (size_t)rlen, &succeeded_i)
+        != CETCD_OK)
+        succeeded_i = 0;
+    bool succeeded = succeeded_i != 0;
 
     if (!succeeded) {
         fprintf(stderr, "election '%s' is held by another client\n", election_name);

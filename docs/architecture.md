@@ -727,7 +727,7 @@ IPv6 zone UniqueURLs leftover-safe-split `addr%zone` (`[fe80::1%1]:2379`; empty 
 `watch` streaming mode (keeps the TCP connection open after the initial WatchCreate request and continuously reads WatchResponses from the server, printing events as they arrive; supports SIGINT/Ctrl+C for clean exit),
 `watch -i` (interactive watch mode: uses `poll()` to multiplex stdin and the socket, allowing the user to create and cancel watches at runtime; commands: `watch KEY [opts]` to create a watch, `cancel ID` to cancel a watch, Ctrl+D to exit),
 `lease keepalive` SIGINT handling (Ctrl+C gracefully stops the keepalive loop and exits cleanly, restoring the previous signal handler),
-`lock` lease keepalive (forks a child process that periodically sends LeaseKeepAlive RPCs every ttl/2 seconds while the lock is held, preventing the lease from expiring; the child is killed on lock release or signal),
+`lock` lease keepalive (forks a child process that periodically sends LeaseKeepAlive RPCs every ttl/2 seconds while the lock is held, preventing the lease from expiring; the child is killed on lock release or signal); Txn leftover-safe-parses `succeeded` so leftover length-delimited bytes cannot steal a successful lock, elect, or compare,
 `elect` lease keepalive (same fork-based keepalive mechanism as `lock`, ensuring the leader's lease does not expire while holding the election),
 `watch --progress-notify` (sets WatchCreateRequest field 4, tag 0x20 to request periodic progress notifications from the server, matching etcdctl behavior),
 `--endpoints` comma-separated multi-endpoint support (accepts `host1:port1,host2:port2` format, uses first endpoint; also accepts `http://host:port` URL format; port must be `1..65535`; a typo fail-closes),

@@ -506,6 +506,7 @@ to cancel the watch and close the stream.
 # A keepalive child process is automatically forked to renew the lease
 # while the lock is held, preventing it from expiring.
 ./build/bin/cetcdctl lock mylock               # Prints lock key, waits for signal
+# leftover cannot steal Txn succeeded (false lock / elect)
 ./build/bin/cetcdctl lock --ttl 30 mylock     # Lock with 30s lease TTL
 # --ttl must be > 0; leftover text is not a silent truncated TTL
 # leftover lock --foo name / elect --foo name fail-close (not a lock/election named --foo)
