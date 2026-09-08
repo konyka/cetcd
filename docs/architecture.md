@@ -497,7 +497,11 @@ The `Lease.LeaseLeases` RPC returns the actual list of active lease IDs via
 correct renewal behavior for leases with non-default TTLs.
 All Lease RPC responses (`LeaseGrant`, `LeaseKeepAlive`, `LeaseTimeToLive`,
 `LeaseLeases`, `LeaseRevoke`) include a `ResponseHeader` as field 1, matching the
-etcd v3.5 proto wire format. The `LeaseTimeToLive` handler also parses the `keys`
+etcd v3.5 proto wire format. `LeaseRevoke`/`LeaseKeepAlive`/`LeaseTimeToLive`
+leftover-safe-parse field 1 so a truncated varint cannot look like a successful
+keepalive or steal a revoke; leftover length-delimited bytes cannot inject a
+fake id. Dummy `0x00` / `0` fail-closes KeepAlive (no ID=0 TTL=0 success
+frame). Truncated TimeToLive fail-closes (cannot look like TTL=-1). The `LeaseTimeToLive` handler also parses the `keys`
 boolean field from the request and returns attached keys (field 5) when requested,
 using the new `cetcd_lease_keys()` API; a missing lease returns `TTL=-1` (etcd)
 instead of omitting the field (proto3 default 0). The `LeaseGrant` response also attaches keys
@@ -676,7 +680,7 @@ IPv6 zone UniqueURLs leftover-safe-split `addr%zone` (`[fe80::1%1]:2379`; empty 
 `auth enable/disable/status -w fields` (fields output showing ResponseHeader and enabled status),
 `user list -w fields` (fields output listing each user with label),
 `role list -w fields` (fields output listing each role with label),
-`lease grant --lease-id ID` (custom lease ID in hex format, matching etcdctl behavior; a non-hex id fail-closes; grant TTL must be `> 0`; a typo fail-closes); LeaseGrant leftover-safe-parses field 1 so a truncated TTL cannot grant a 60s lease (dummy `0x00` / `TTL<=0` fail-closes),
+`lease grant --lease-id ID` (custom lease ID in hex format, matching etcdctl behavior; a non-hex id fail-closes; grant TTL must be `> 0`; a typo fail-closes); LeaseGrant leftover-safe-parses field 1 so a truncated TTL cannot grant a 60s lease (dummy `0x00` / `TTL<=0` fail-closes); LeaseRevoke/KeepAlive/TimeToLive leftover-safe-parses field 1 so a truncated id cannot look like a successful keepalive or steal a revoke (dummy `0x00` / `0` fail-closes KeepAlive),
 `lease grant/revoke/timetolive/keepalive -w fields` (fields output showing ID, TTL, grantedTTL, and keys with --keys),
 `version -w fields` (fields output showing client, server, version, etcd compatibility),
 `endpoint health -w fields` (fields output showing endpoint, ResponseHeader, status, took time),

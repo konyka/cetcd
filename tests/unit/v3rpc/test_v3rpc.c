@@ -574,6 +574,20 @@ CETCD_TEST_CASE(v3rpc_auth_user_add_authenticate) {
 CETCD_TEST_CASE(v3rpc_lease_revoke) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
+    uint8_t dummy[] = {0x00};
+    cetcd_rpc_bytes bad = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseRevoke", dummy, 1);
+    /* leftover dummy / omitted id cannot look like a successful revoke */
+    CETCD_ASSERT_TRUE(bad.data == NULL);
+    uint8_t trunc[] = {0x08};
+    bad = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseRevoke", trunc, 1);
+    CETCD_ASSERT_TRUE(bad.data == NULL);
+    uint8_t steal[] = {0x12, 0x02, 0x08, 0x01};
+    bad = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseRevoke", steal, 4);
+    CETCD_ASSERT_TRUE(bad.data == NULL);
+
     /* Grant a lease first */
     uint8_t grant_buf[8];
     size_t pos = 0;
@@ -620,6 +634,17 @@ CETCD_TEST_CASE(v3rpc_lease_revoke_nonexistent) {
 CETCD_TEST_CASE(v3rpc_lease_keep_alive) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
+    uint8_t dummy[] = {0x00};
+    cetcd_rpc_bytes bad = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseKeepAlive", dummy, 1);
+    /* leftover dummy / omitted id cannot look like a successful keepalive */
+    CETCD_ASSERT_TRUE(bad.data == NULL);
+    CETCD_ASSERT_TRUE(bad.len == 0);
+    uint8_t trunc[] = {0x08};
+    bad = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseKeepAlive", trunc, 1);
+    CETCD_ASSERT_TRUE(bad.data == NULL);
+
     /* Grant a lease first */
     uint8_t grant_buf[8];
     size_t pos = 0;
@@ -646,6 +671,12 @@ CETCD_TEST_CASE(v3rpc_lease_keep_alive) {
 
 CETCD_TEST_CASE(v3rpc_lease_time_to_live) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    uint8_t trunc[] = {0x08};
+    cetcd_rpc_bytes bad = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Lease/LeaseTimeToLive", trunc, 1);
+    /* leftover truncated id cannot look like a missing lease (TTL=-1) */
+    CETCD_ASSERT_TRUE(bad.data == NULL);
 
     /* Grant a lease first */
     uint8_t grant_buf[8];

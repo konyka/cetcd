@@ -16,18 +16,6 @@ cetcd_rpc_bytes lease_handle_keep_alive(cetcd_v3rpc *rpc, const uint8_t *req, si
 cetcd_rpc_bytes lease_handle_time_to_live(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes lease_handle_leases(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 
-/* Helper to read a simple varint from req starting at pos */
-static int read_varint_local(const uint8_t *buf, size_t len, size_t *pos, int64_t *out) {
-    uint64_t val = 0; int shift = 0;
-    while (*pos < len) {
-        uint8_t b = buf[*pos]; (*pos)++;
-        val |= (uint64_t)(b & 0x7F) << shift;
-        if ((b & 0x80) == 0) { *out = (int64_t)val; return 0; }
-        shift += 7; if (shift > 63) break;
-    }
-    return -1;
-}
-
 static int write_varint(uint8_t *buf, size_t cap, size_t *pos, uint64_t val) {
     while (*pos < cap) {
         uint8_t b = val & 0x7F;
@@ -145,6 +133,76 @@ static int parse_lease_grant_request_(const uint8_t *req, size_t len,
     return 0;
 }
 
+/* leftover-safe LeaseRevoke/KeepAlive/TimeToLive ID. v3rpc cannot link server. */
+static int parse_lease_id_request_(const uint8_t *req, size_t len,
+                                   int64_t *id, int *keys) {
+    size_t p = 0;
+    if (!id) return -1;
+    *id = 0;
+    if (keys) *keys = 0;
+    if (!req || len == 0) return 0;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x08 || tag == 0x10) {
+            uint64_t v = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got) return -1;
+            if (v > (uint64_t)INT64_MAX) return -1;
+            if (tag == 0x08) *id = (int64_t)v;
+            else if (keys) *keys = v != 0;
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got) return -1;
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got || p + skip > len) return -1;
+            p += (size_t)skip;
+            continue;
+        }
+        return -1;
+    }
+    return 0;
+}
+
 cetcd_rpc_bytes lease_handle_grant(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
     int64_t ttl = 0;
@@ -178,16 +236,10 @@ cetcd_rpc_bytes lease_handle_grant(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
 
 cetcd_rpc_bytes lease_handle_revoke(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
-    size_t pos = 0; int64_t id = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x08) { /* field 1 = ID varint */
-            if (read_varint_local(req, req_len, &pos, &id) != 0) break;
-        } else {
-            if (pos < req_len) pos++;
-        }
-    }
-    if (id <= 0 || !g_rpc_lease_mgr)
+    int64_t id = 0;
+    if (parse_lease_id_request_(req, req_len, &id, NULL) != 0 || id <= 0)
+        return (cetcd_rpc_bytes){NULL, 0};
+    if (!g_rpc_lease_mgr)
         return (cetcd_rpc_bytes){NULL, 0};
     if (!cetcd_lease_exists(g_rpc_lease_mgr, (cetcd_lease_id)id))
         return (cetcd_rpc_bytes){NULL, 0};
@@ -223,15 +275,9 @@ cetcd_rpc_bytes lease_handle_revoke(cetcd_v3rpc *rpc, const uint8_t *req, size_t
 
 cetcd_rpc_bytes lease_handle_keep_alive(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
-    size_t pos = 0; int64_t id = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x08) { /* field 1 = ID varint */
-            if (read_varint_local(req, req_len, &pos, &id) != 0) break;
-        } else {
-            if (pos < req_len) pos++;
-        }
-    }
+    int64_t id = 0;
+    if (parse_lease_id_request_(req, req_len, &id, NULL) != 0 || id <= 0)
+        return (cetcd_rpc_bytes){NULL, 0};
     int64_t remaining_ttl = 0;
     if (id > 0 && g_rpc_lease_mgr &&
         cetcd_lease_exists(g_rpc_lease_mgr, (cetcd_lease_id)id)) {
@@ -279,17 +325,10 @@ cetcd_rpc_bytes lease_handle_keep_alive(cetcd_v3rpc *rpc, const uint8_t *req, si
 
 cetcd_rpc_bytes lease_handle_time_to_live(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
-    size_t pos = 0; int64_t id = 0; int want_keys = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x08) { /* field 1 = ID varint */
-            if (read_varint_local(req, req_len, &pos, &id) != 0) break;
-        } else if (tag == 0x10) { /* field 2 = keys (bool) */
-            int64_t tmp = 0; if (read_varint_local(req, req_len, &pos, &tmp) != 0) break; want_keys = (int)tmp;
-        } else {
-            if (pos < req_len) pos++;
-        }
-    }
+    int64_t id = 0;
+    int want_keys = 0;
+    if (parse_lease_id_request_(req, req_len, &id, &want_keys) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
     int64_t ttl = 0;
     int64_t granted_ttl = 0;
     int exists = (id > 0 && g_rpc_lease_mgr &&

@@ -208,6 +208,17 @@ int cetcd_parse_move_leader_request(const uint8_t *req, size_t len,
  * bytes cannot steal the TTL or id. unknown wire types are INVAL. */
 int cetcd_parse_lease_grant_request(const uint8_t *req, size_t len,
                                     int64_t *ttl, int64_t *id);
+/* LeaseRevoke/KeepAlive/TimeToLive field 1 (ID). 0 is INVAL. */
+int cetcd_encode_lease_id_request(int64_t id, uint8_t *out, size_t cap,
+                                  size_t *n);
+/* leftover-safe LeaseRevoke/KeepAlive/TimeToLive ID. omitted / empty /
+ * dummy 0x00 = 0. leftover truncated varint is INVAL so a truncated
+ * id cannot look like a successful keepalive or steal a revoke.
+ * leftover length-delimited fields are skipped by payload so leftover
+ * bytes cannot inject a fake id. unknown wire types are INVAL.
+ * field 2 keys is read when keys is non-NULL. */
+int cetcd_parse_lease_id_request(const uint8_t *req, size_t len,
+                                 int64_t *id, int *keys);
 /* MemberRemove/Promote field 1 (ID). 0 is INVAL. */
 int cetcd_encode_member_id_request(uint64_t id, uint8_t *out, size_t cap,
                                    size_t *n);

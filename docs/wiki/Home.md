@@ -884,7 +884,7 @@ Subcommand `--flag=value` (`put --lease=1`, `get --rev=5`, `--write-out=json`, `
 `cetcdctl lease keepalive --interval` must be `> 0`; leftover text fail-closes instead of becoming a truncated interval.
 `cetcdctl lease grant TTL` must be `> 0`; a typo fail-closes instead of granting TTL `0`. LeaseGrant leftover-safe-parses field 1 so a truncated TTL cannot grant a 60s lease (dummy `0x00` / `TTL<=0` fail-closes).
 `cetcdctl lease grant --lease-id` must be hex; leftover text fail-closes instead of becoming id `0`.
-`cetcdctl lease revoke` / `timetolive` / `keepalive` ID must be `> 0`; a typo fail-closes instead of lease id `0`.
+`cetcdctl lease revoke` / `timetolive` / `keepalive` ID must be `> 0`; a typo fail-closes instead of lease id `0`. LeaseRevoke/KeepAlive/TimeToLive leftover-safe-parses field 1 so a truncated id cannot look like a successful keepalive or steal a revoke (dummy `0x00` / `0` fail-closes KeepAlive; leftover length-delimited bytes cannot inject a fake id).
 `cetcdctl member remove` / `update` / `promote` ID must be hex `> 0`; leftover text fail-closes instead of a truncated decimal id. MemberRemove/Promote leftover-safe-parses field 1 so a truncated id cannot look like a successful remove or promote (dummy `0x00` / `0` fail-closes). MemberUpdate leftover-safe-parses field 1/2 so a truncated id or leftover peerURL length cannot look like a successful update.
 MemberAdd/Update peer URL ports are leftover-safe (`1..65535`; missing → 2380); `2380foo` fail-closes instead of joining on truncated port 2380.
 `cetcdctl endpoint --cluster` leftover-safe-parses member client URLs (missing port → 2379). `--cluster` leftover-safe-sends linearizable MemberList (field 1 = true; a follower fail-closes).
@@ -1006,9 +1006,9 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 | KV | `/etcdserverpb.KV/Txn` | `kv_handler.c` | 事务：解析 compare/success/failure，评估 Compare 条件（VALUE/VERSION/CREATE/MOD/LEASE），执行 success 或 failure 操作，返回含 ResponseHeader + succeeded + ResponseOps 的完整响应 |
 | KV | `/etcdserverpb.KV/Compact` | `kv_handler.c` | 经 Raft 压缩 MVCC 历史；field 1 leftover-safe（leftover 长度域不能改写修订号） |
 | Lease | `/etcdserverpb.Lease/LeaseGrant` | `lease_handler.c` | 经 Raft 授予租约；field 1 leftover-safe（截断 TTL 不能授予 60s） |
-| Lease | `/etcdserverpb.Lease/LeaseRevoke` | `lease_handler.c` | 撤销租约，返回含 revision 的 ResponseHeader |
-| Lease | `/etcdserverpb.Lease/LeaseKeepAlive` | `lease_handler.c` | 经 Raft 续约（原始授予 TTL），返回剩余 TTL |
-| Lease | `/etcdserverpb.Lease/LeaseTimeToLive` | `lease_handler.c` | 查询租约剩余时间和授予 TTL |
+| Lease | `/etcdserverpb.Lease/LeaseRevoke` | `lease_handler.c` | 撤销租约；field 1 leftover-safe（截断 / leftover 长度域不能偷 id） |
+| Lease | `/etcdserverpb.Lease/LeaseKeepAlive` | `lease_handler.c` | 经 Raft 续约；field 1 leftover-safe（截断 / 0 不能假装续约成功） |
+| Lease | `/etcdserverpb.Lease/LeaseTimeToLive` | `lease_handler.c` | 查询剩余 TTL；field 1 leftover-safe（截断不能假装 TTL=-1） |
 | Lease | `/etcdserverpb.Lease/LeaseLeases` | `lease_handler.c` | 列出所有活跃租约（返回实际租约 ID 列表） |
 | Watch | `/etcdserverpb.Watch/Watch` | `watch_handler.c` | 创建/取消观察者，返回 watch_id（field 2）+ created（field 3）+ events（field 11, tag 0x5a），事件包含完整的 KeyValue |
 | Auth | `/etcdserverpb.Auth/AuthEnable` | `auth_handler.c` | 经 Raft 启用认证（apply tag 15=1，需已有 `root`） |
@@ -1135,10 +1135,10 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `del [--prefix] [--prev-kv] KEY` | 删除键（支持前缀删除、返回旧值、删除计数；未知 leftover `--` 旗标 fail-close） |
 | `watch [--prefix] [--prev-kv] [--start-rev] KEY` | 观察键变更（双向流，实时推送事件；未知 leftover `--` 旗标 fail-close） |
 | `lease grant TTL` | 授予租约（TTL `> 0`；截断 proto 不能授予默认 60s） |
-| `lease revoke ID` | 撤销租约 |
-| `lease timetolive ID` | 查询租约剩余时间和授予 TTL |
+| `lease revoke ID` | 撤销租约（`> 0`；截断 proto / leftover 长度域不能偷 id） |
+| `lease timetolive ID` | 查询租约剩余时间和授予 TTL（截断 proto 不能假装 TTL=-1） |
 | `lease list` | 列出所有活跃租约 |
-| `lease keepalive ID` | 续约指定租约 |
+| `lease keepalive ID` | 续约指定租约（`> 0`；截断 proto / 0 不能假装续约成功） |
 | `txn put KEY VALUE` | 事务写入（未知 leftover `--` 旗标 fail-close） |
 | `txn cas KEY EXPECTED NEW` | 条件事务（CAS）：当 KEY 的值等于 EXPECTED 时设为 NEW |
 | `compact REV` | 压缩 MVCC 历史（未知 leftover 旗标 fail-close；截断 / leftover proto 不能改写修订号） |

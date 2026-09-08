@@ -666,6 +666,13 @@ Performance-first, fail-closed design:
   successful update. Leftover peerURL length cannot walk off the
   buffer or steal the id. Dummy `0x00` / omitted / `0` fail-closes.
   Accepting a truncated id as OK is rejected.
+- **LeaseRevoke leftover-safe id** — leftover-safe-parses
+  LeaseRevoke/KeepAlive/TimeToLive field 1 so a truncated varint
+  cannot look like a successful keepalive or steal a revoke. Leftover
+  length-delimited bytes cannot inject a fake id. Dummy `0x00` /
+  omitted / `0` fail-closes KeepAlive (no ID=0 TTL=0 success frame).
+  Truncated TimeToLive fail-closes (cannot look like TTL=-1).
+  Accepting a leftover payload as the id is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`
