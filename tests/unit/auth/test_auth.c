@@ -307,6 +307,51 @@ CETCD_TEST_CASE(auth_admin_and_key_perm) {
     cetcd_auth_store_free(s);
 }
 
+CETCD_TEST_CASE(auth_perm_covers_range_and_from_key) {
+    const uint8_t *a = (const uint8_t *)"a";
+    const uint8_t *c = (const uint8_t *)"c";
+    const uint8_t *z = (const uint8_t *)"z";
+    uint8_t from[1] = { 0 };
+
+    /* leftover prefix-only (empty range_end) */
+    CETCD_ASSERT_TRUE(cetcd_auth_perm_covers((const uint8_t *)"app/k", 5,
+                                             (const uint8_t *)"app", 3, NULL, 0));
+    CETCD_ASSERT_FALSE(cetcd_auth_perm_covers((const uint8_t *)"other", 5,
+                                              (const uint8_t *)"app", 3, NULL, 0));
+
+    /* [a, c) */
+    CETCD_ASSERT_TRUE(cetcd_auth_perm_covers(a, 1, a, 1, c, 1));
+    CETCD_ASSERT_FALSE(cetcd_auth_perm_covers(c, 1, a, 1, c, 1));
+    CETCD_ASSERT_FALSE(cetcd_auth_perm_covers(z, 1, a, 1, c, 1));
+
+    /* FromKey: all keys >= a */
+    CETCD_ASSERT_TRUE(cetcd_auth_perm_covers(a, 1, a, 1, from, 1));
+    CETCD_ASSERT_TRUE(cetcd_auth_perm_covers(z, 1, a, 1, from, 1));
+    CETCD_ASSERT_FALSE(cetcd_auth_perm_covers((const uint8_t *)"0", 1, a, 1,
+                                              from, 1));
+}
+
+CETCD_TEST_CASE(auth_grant_range_from_key_check_perm) {
+    cetcd_auth_store *s = cetcd_auth_store_new();
+    uint8_t from[1] = { 0 };
+    CETCD_ASSERT_EQ_INT(cetcd_auth_add_user(s, "u", "p"), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_auth_add_role(s, "rr", 1, 0, NULL, 0), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_auth_grant_role(s, "u", "rr"), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_auth_grant_permission_range(s, "rr", 1, 0,
+        "m", 1, from, 1), CETCD_OK);
+    cetcd_auth_set_enabled(s, true);
+    CETCD_ASSERT_TRUE(cetcd_auth_check_perm(s, "u", (const uint8_t *)"m", 1, 0));
+    CETCD_ASSERT_TRUE(cetcd_auth_check_perm(s, "u", (const uint8_t *)"z", 1, 0));
+    CETCD_ASSERT_FALSE(cetcd_auth_check_perm(s, "u", (const uint8_t *)"a", 1, 0));
+    CETCD_ASSERT_EQ_INT(cetcd_auth_grant_permission_range(s, "rr", 1, 0,
+        "a", 1, (const uint8_t *)"c", 1), CETCD_OK);
+    CETCD_ASSERT_TRUE(cetcd_auth_check_perm(s, "u", (const uint8_t *)"a", 1, 0));
+    CETCD_ASSERT_TRUE(cetcd_auth_check_perm(s, "u", (const uint8_t *)"b", 1, 0));
+    CETCD_ASSERT_FALSE(cetcd_auth_check_perm(s, "u", (const uint8_t *)"c", 1, 0));
+    CETCD_ASSERT_FALSE(cetcd_auth_check_perm(s, "u", (const uint8_t *)"z", 1, 0));
+    cetcd_auth_store_free(s);
+}
+
 CETCD_TEST_CASE(auth_persist_roundtrip) {
     char path_template[] = "/tmp/cetcd-test-auth-XXXXXX";
     char *path = mkdtemp(path_template);
@@ -408,6 +453,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auth_jwt_rs256_es256_roundtrip),
     CETCD_TEST_ENTRY(auth_jwt_expiry_and_stateless_password_change),
     CETCD_TEST_ENTRY(auth_admin_and_key_perm),
+    CETCD_TEST_ENTRY(auth_perm_covers_range_and_from_key),
+    CETCD_TEST_ENTRY(auth_grant_range_from_key_check_perm),
     CETCD_TEST_ENTRY(auth_persist_roundtrip),
     CETCD_TEST_ENTRY(auth_bcrypt_cost_rejects_out_of_range),
     CETCD_TEST_ENTRY(auth_bcrypt_hash_and_verify),

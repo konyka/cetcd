@@ -1704,6 +1704,81 @@ CETCD_TEST_CASE(auto_compact_encode_member_list_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_role_perm_argv) {
+    const char *role = NULL, *type = NULL, *key = NULL, *rend = NULL;
+    int prefix = 99, from_key = 99;
+
+    char *grant[] = { "cetcdctl", "role", "grant-permission", "r", "read",
+                      "/foo" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_role_perm_argv(6, grant, 3, 1, &role,
+                                                       &type, &key, &rend,
+                                                       &prefix, &from_key),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(role, "r");
+    CETCD_ASSERT_EQ_STR(type, "read");
+    CETCD_ASSERT_EQ_STR(key, "/foo");
+    CETCD_ASSERT_TRUE(rend == NULL);
+    CETCD_ASSERT_EQ_INT(prefix, 0);
+    CETCD_ASSERT_EQ_INT(from_key, 0);
+
+    char *end[] = { "cetcdctl", "role", "grant-permission", "r", "write", "a",
+                    "b" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_role_perm_argv(7, end, 3, 1, &role,
+                                                       &type, &key, &rend,
+                                                       &prefix, &from_key),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(rend, "b");
+
+    char *fk[] = { "cetcdctl", "role", "grant-permission", "r", "read", "/foo",
+                   "--from-key" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_role_perm_argv(7, fk, 3, 1, &role,
+                                                       &type, &key, &rend,
+                                                       &prefix, &from_key),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(from_key, 1);
+    CETCD_ASSERT_TRUE(rend == NULL);
+
+    char *eat[] = { "cetcdctl", "role", "grant-permission", "r", "read", "/foo",
+                    "--range-end", "--from-key" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_role_perm_argv(8, eat, 3, 1, &role,
+                                                       &type, &key, &rend,
+                                                       &prefix, &from_key),
+                        CETCD_ERR_INVAL);
+
+    char *mix[] = { "cetcdctl", "role", "grant-permission", "r", "read", "/foo",
+                    "--prefix", "--from-key" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_role_perm_argv(8, mix, 3, 1, &role,
+                                                       &type, &key, &rend,
+                                                       &prefix, &from_key),
+                        CETCD_ERR_INVAL);
+
+    char *foo[] = { "cetcdctl", "role", "grant-permission", "r", "read", "/foo",
+                    "--foo" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_role_perm_argv(7, foo, 3, 1, &role,
+                                                       &type, &key, &rend,
+                                                       &prefix, &from_key),
+                        CETCD_ERR_INVAL);
+
+    char *rev[] = { "cetcdctl", "role", "revoke-permission", "r", "read",
+                    "/foo" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_role_perm_argv(6, rev, 3, 0, &role,
+                                                       &type, &key, &rend,
+                                                       &prefix, &from_key),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(role, "r");
+    CETCD_ASSERT_EQ_STR(key, "/foo");
+    CETCD_ASSERT_TRUE(rend == NULL);
+
+    char *revk[] = { "cetcdctl", "role", "revoke-permission", "r", "/foo",
+                     "/bar" };
+    CETCD_ASSERT_EQ_INT(cetcd_ctl_parse_role_perm_argv(6, revk, 3, 0, &role,
+                                                       &type, &key, &rend,
+                                                       &prefix, &from_key),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "/foo");
+    CETCD_ASSERT_EQ_STR(rend, "/bar");
+}
+
 CETCD_TEST_CASE(auto_compact_parse_one_name_argv) {
     const char *name = NULL;
     const char *a = NULL, *b = NULL;
@@ -1952,6 +2027,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_defrag_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_member_list_argv),
     CETCD_TEST_ENTRY(auto_compact_encode_member_list_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_role_perm_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_one_name_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_check_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_completion_argv),

@@ -627,6 +627,12 @@ Performance-first, fail-closed design:
   no-op or swallowing leftover `--` is rejected. `defrag --cluster` /
   `endpoint --cluster` leftover-safe-send the same field 1 = true so a
   follower cannot walk a stale member list.
+- **`role grant-permission --from-key` / `range_end`** — leftover-safe so
+  `--range-end --from-key` cannot eat a flag as the range. Encodes
+  Permission.range_end; the server leftover-safe-persists and checks
+  `[key, range_end)` (single 0 = FromKey). A swallowed range_end would
+  grant a prefix instead of a range. Accepting `--from-key` as a no-op
+  is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

@@ -183,11 +183,27 @@ CETCD_API int cetcd_apply_encode_auth_role_grant_perm(uint8_t **out, size_t *out
                                                       const uint8_t *key,
                                                       size_t key_len,
                                                       int perm_type);
+/* leftover-safe grant: omitted range_end matches old WAL (prefix-only). */
+CETCD_API int cetcd_apply_encode_auth_role_grant_perm_range(uint8_t **out, size_t *out_len,
+                                                            const uint8_t *role,
+                                                            size_t role_len,
+                                                            const uint8_t *key,
+                                                            size_t key_len,
+                                                            int perm_type,
+                                                            const uint8_t *range_end,
+                                                            size_t range_end_len);
 CETCD_API int cetcd_apply_encode_auth_role_revoke_perm(uint8_t **out, size_t *out_len,
                                                        const uint8_t *role,
                                                        size_t role_len,
                                                        const uint8_t *key,
                                                        size_t key_len);
+CETCD_API int cetcd_apply_encode_auth_role_revoke_perm_range(uint8_t **out, size_t *out_len,
+                                                             const uint8_t *role,
+                                                             size_t role_len,
+                                                             const uint8_t *key,
+                                                             size_t key_len,
+                                                             const uint8_t *range_end,
+                                                             size_t range_end_len);
 CETCD_API int cetcd_apply_encode_auth_user_change_pass(uint8_t **out, size_t *out_len,
                                                        const uint8_t *name,
                                                        size_t name_len,

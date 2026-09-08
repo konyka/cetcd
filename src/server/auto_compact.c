@@ -1629,6 +1629,91 @@ int cetcd_ctl_parse_member_list_argv(int argc, char *const *argv, int start,
     return CETCD_OK;
 }
 
+static int is_perm_type_word_(const char *s) {
+    return s && (strcmp(s, "read") == 0 || strcmp(s, "write") == 0 ||
+                 strcmp(s, "readwrite") == 0);
+}
+
+int cetcd_ctl_parse_role_perm_argv(int argc, char *const *argv, int start,
+                                   int need_type, const char **role,
+                                   const char **type, const char **key,
+                                   const char **range_end, int *prefix,
+                                   int *from_key) {
+    int i, npos = 0, saw_ddash = 0;
+    const char *pos[4];
+    if (!argv || !role || !key || !range_end || !prefix || !from_key ||
+        start < 0 || start > argc)
+        return CETCD_ERR_INVAL;
+    if (need_type && !type) return CETCD_ERR_INVAL;
+    *role = NULL;
+    if (type) *type = NULL;
+    *key = NULL;
+    *range_end = NULL;
+    *prefix = 0;
+    *from_key = 0;
+    for (i = start; i < argc; i++) {
+        int wr;
+        int on = 1;
+        if (!argv[i]) return CETCD_ERR_INVAL;
+        if (!saw_ddash) {
+            wr = skip_write_out_arg_(&i, argc, argv);
+            if (wr < 0) return CETCD_ERR_INVAL;
+            if (wr > 0) continue;
+            if (strcmp(argv[i], "--") == 0) {
+                saw_ddash = 1;
+                continue;
+            }
+            if (cetcd_cli_flag_is(argv[i], "--prefix")) {
+                if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+                *prefix = on;
+                continue;
+            }
+            if (cetcd_cli_flag_is(argv[i], "--from-key")) {
+                if (cetcd_take_cli_bool_flag(&i, argc, argv, &on) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+                *from_key = on;
+                continue;
+            }
+            if (cetcd_cli_flag_is(argv[i], "--range-end")) {
+                if (cetcd_take_cli_flag_value(&i, argc, argv, range_end) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+                continue;
+            }
+            if (argv[i][0] == '-') return CETCD_ERR_INVAL;
+        }
+        if (npos >= 4) return CETCD_ERR_INVAL;
+        pos[npos++] = argv[i];
+    }
+    if (need_type) {
+        if (npos < 3) return CETCD_ERR_INVAL;
+        *role = pos[0];
+        *type = pos[1];
+        *key = pos[2];
+        if (npos == 4) {
+            if (*range_end) return CETCD_ERR_INVAL;
+            *range_end = pos[3];
+        }
+        if (!is_perm_type_word_(*type)) return CETCD_ERR_INVAL;
+    } else {
+        int p = 1;
+        if (npos < 1) return CETCD_ERR_INVAL;
+        *role = pos[0];
+        if (p < npos && is_perm_type_word_(pos[p]) && p + 1 < npos)
+            p++;
+        if (p < npos) *key = pos[p++];
+        if (p < npos) {
+            if (*range_end) return CETCD_ERR_INVAL;
+            *range_end = pos[p++];
+        }
+        if (p < npos) return CETCD_ERR_INVAL;
+    }
+    if (*prefix && *from_key) return CETCD_ERR_INVAL;
+    if (*prefix && *range_end) return CETCD_ERR_INVAL;
+    if (*from_key && *range_end) return CETCD_ERR_INVAL;
+    return CETCD_OK;
+}
+
 static int parse_n_names_argv_(int argc, char *const *argv, int start,
                                const char **names, int n) {
     int i, got = 0, saw_ddash = 0;

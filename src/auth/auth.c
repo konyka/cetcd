@@ -620,7 +620,17 @@ const cetcd_role *cetcd_auth_get_role(const cetcd_auth_store *s, const char *nam
 int cetcd_auth_grant_permission(cetcd_auth_store *s, const char *role,
                                   int perm_read, int perm_write,
                                   const char *key, size_t key_len) {
+    return cetcd_auth_grant_permission_range(s, role, perm_read, perm_write,
+                                             key, key_len, NULL, 0);
+}
+
+int cetcd_auth_grant_permission_range(cetcd_auth_store *s, const char *role,
+                                      int perm_read, int perm_write,
+                                      const char *key, size_t key_len,
+                                      const uint8_t *range_end,
+                                      size_t range_end_len) {
     if (!s || !role) return CETCD_ERR_INVAL;
+    if (range_end_len > 0 && !range_end) return CETCD_ERR_INVAL;
     cetcd_role *r = cetcd_find_role(s, role);
     if (!r) return CETCD_ERR_NOTFOUND;
     r->perm_read = perm_read ? 1 : 0;
@@ -634,6 +644,16 @@ int cetcd_auth_grant_permission(cetcd_auth_store *s, const char *role,
         r->key_prefix[0] = '\0';
         r->key_prefix_len = 0;
     }
+    if (range_end_len > 0) {
+        size_t lr = range_end_len < sizeof(r->range_end) ? range_end_len
+                                                        : sizeof(r->range_end) - 1;
+        memcpy(r->range_end, range_end, lr);
+        r->range_end[lr] = '\0';
+        r->range_end_len = lr;
+    } else {
+        r->range_end[0] = '\0';
+        r->range_end_len = 0;
+    }
     return CETCD_OK;
 }
 
@@ -643,18 +663,33 @@ int cetcd_auth_revoke_permission(cetcd_auth_store *s, const char *role) {
 
 int cetcd_auth_revoke_permission_key(cetcd_auth_store *s, const char *role,
                                      const uint8_t *key, size_t key_len) {
+    return cetcd_auth_revoke_permission_key_range(s, role, key, key_len, NULL, 0);
+}
+
+int cetcd_auth_revoke_permission_key_range(cetcd_auth_store *s, const char *role,
+                                           const uint8_t *key, size_t key_len,
+                                           const uint8_t *range_end,
+                                           size_t range_end_len) {
     if (!s || !role) return CETCD_ERR_INVAL;
     if (key_len > 0 && !key) return CETCD_ERR_INVAL;
+    if (range_end_len > 0 && !range_end) return CETCD_ERR_INVAL;
     cetcd_role *r = cetcd_find_role(s, role);
     if (!r) return CETCD_ERR_NOTFOUND;
     if (key_len > 0) {
         if (r->key_prefix_len != key_len || memcmp(r->key_prefix, key, key_len) != 0)
             return CETCD_ERR_NOTFOUND;
     }
+    if (range_end_len > 0) {
+        if (r->range_end_len != range_end_len ||
+            memcmp(r->range_end, range_end, range_end_len) != 0)
+            return CETCD_ERR_NOTFOUND;
+    }
     r->perm_read = 0;
     r->perm_write = 0;
     r->key_prefix[0] = '\0';
     r->key_prefix_len = 0;
+    r->range_end[0] = '\0';
+    r->range_end_len = 0;
     return CETCD_OK;
 }
 
@@ -1305,6 +1340,27 @@ static int auth_prefix_match_(const char *prefix, size_t plen,
     return memcmp(key, prefix, plen) == 0;
 }
 
+int cetcd_auth_perm_covers(const uint8_t *key, size_t key_len,
+                           const uint8_t *lo, size_t lo_len,
+                           const uint8_t *hi, size_t hi_len) {
+    if (!key && key_len > 0) return 0;
+    if (hi_len == 0)
+        return auth_prefix_match_(lo ? (const char *)lo : "", lo_len, key, key_len);
+    /* FromKey: range_end of a single 0 means all keys >= lo. */
+    if (!(hi_len == 1 && hi && hi[0] == 0)) {
+        if (!hi) return 0;
+        size_t n = key_len < hi_len ? key_len : hi_len;
+        int c = memcmp(key ? key : (const uint8_t *)"", hi, n);
+        if (c > 0 || (c == 0 && key_len >= hi_len)) return 0;
+    }
+    if (lo && lo_len > 0) {
+        size_t n = key_len < lo_len ? key_len : lo_len;
+        int c = memcmp(key ? key : (const uint8_t *)"", lo, n);
+        if (c < 0 || (c == 0 && key_len < lo_len)) return 0;
+    }
+    return 1;
+}
+
 bool cetcd_auth_check_perm(const cetcd_auth_store *s, const char *username,
                            const uint8_t *key, size_t key_len, int want_write) {
     if (!s) return false;
@@ -1324,7 +1380,9 @@ bool cetcd_auth_check_perm(const cetcd_auth_store *s, const char *username,
         } else {
             if (!r->perm_read && !r->perm_write) continue;
         }
-        if (auth_prefix_match_(r->key_prefix, r->key_prefix_len, key, key_len))
+        if (cetcd_auth_perm_covers(key, key_len,
+                                   (const uint8_t *)r->key_prefix, r->key_prefix_len,
+                                   (const uint8_t *)r->range_end, r->range_end_len))
             return true;
     }
     return false;
@@ -1336,6 +1394,10 @@ bool cetcd_auth_check_perm(const cetcd_auth_store *s, const char *username,
 #define AUTH_KEY_ENABLED "enabled"
 #define AUTH_KEY_USERS   "users"
 #define AUTH_KEY_ROLES   "roles"
+/* leftover-safe roles v2: old blobs start with name-len, never FF 52 01. */
+#define AUTH_ROLES_V2_M0 0xFFu
+#define AUTH_ROLES_V2_M1 0x52u
+#define AUTH_ROLES_V2_VER 0x01u
 
 struct auth_save_ctx {
     uint8_t *buf;
@@ -1408,6 +1470,11 @@ static bool auth_save_role_cb_(cetcd_slice key, void *value, void *udata) {
     auth_save_u8_(c, (uint8_t)r->perm_write);
     auth_save_u16_(c, (uint16_t)plen);
     auth_save_bytes_(c, r->key_prefix, plen);
+    {
+        size_t rlen = r->range_end_len < 0xFFFF ? r->range_end_len : 0xFFFF;
+        auth_save_u16_(c, (uint16_t)rlen);
+        auth_save_bytes_(c, r->range_end, rlen);
+    }
     return c->err == 0;
 }
 
@@ -1419,6 +1486,9 @@ int cetcd_auth_save(const cetcd_auth_store *s, struct cetcd_backend *be) {
     memset(&users, 0, sizeof(users));
     memset(&roles, 0, sizeof(roles));
     cetcd_hashmap_iter(s->users, auth_save_user_cb_, &users);
+    auth_save_u8_(&roles, (uint8_t)AUTH_ROLES_V2_M0);
+    auth_save_u8_(&roles, (uint8_t)AUTH_ROLES_V2_M1);
+    auth_save_u8_(&roles, (uint8_t)AUTH_ROLES_V2_VER);
     cetcd_hashmap_iter(s->roles, auth_save_role_cb_, &roles);
     if (users.err || roles.err) {
         free(users.buf);
@@ -1524,6 +1594,12 @@ int cetcd_auth_load(cetcd_auth_store *s, struct cetcd_backend *be) {
                            strlen(AUTH_KEY_ROLES), &val, &vlen);
     if (rc == CETCD_OK && val) {
         size_t pos = 0;
+        int v2 = 0;
+        if (vlen >= 3 && val[0] == AUTH_ROLES_V2_M0 &&
+            val[1] == AUTH_ROLES_V2_M1 && val[2] == AUTH_ROLES_V2_VER) {
+            v2 = 1;
+            pos = 3;
+        }
         while (pos + 2 <= vlen) {
             uint16_t nlen = auth_load_u16_(val + pos); pos += 2;
             if (pos + nlen + 1 + 1 + 2 > vlen) break;
@@ -1545,6 +1621,16 @@ int cetcd_auth_load(cetcd_auth_store *s, struct cetcd_backend *be) {
             if (r->key_prefix_len)
                 memcpy(r->key_prefix, val + pos, r->key_prefix_len);
             pos += plen;
+            if (v2) {
+                if (pos + 2 > vlen) { free(r); break; }
+                uint16_t rlen = auth_load_u16_(val + pos); pos += 2;
+                if (pos + rlen > vlen) { free(r); break; }
+                r->range_end_len = rlen < sizeof(r->range_end) ? rlen
+                                                               : sizeof(r->range_end) - 1;
+                if (r->range_end_len)
+                    memcpy(r->range_end, val + pos, r->range_end_len);
+                pos += rlen;
+            }
             if (cetcd_hashmap_put(s->roles, auth_key_(r->name), r) != 0) {
                 free(r);
                 free(val);

@@ -25,6 +25,10 @@ typedef struct {
     int  perm_write;
     char key_prefix[256];
     size_t key_prefix_len;
+    /* Permission.range_end. empty = leftover prefix-match on key_prefix.
+     * a single 0 = FromKey (all keys >= key_prefix). */
+    char range_end[256];
+    size_t range_end_len;
 } cetcd_role;
 
 cetcd_auth_store *cetcd_auth_store_new(void);
@@ -87,6 +91,13 @@ const cetcd_role *cetcd_auth_get_role(const cetcd_auth_store *s, const char *nam
 int cetcd_auth_grant_permission(cetcd_auth_store *s, const char *role,
                                   int perm_read, int perm_write,
                                   const char *key, size_t key_len);
+/* leftover-safe range grant. omitted range_end keeps prefix-match.
+ * range_end of a single 0 is FromKey. */
+int cetcd_auth_grant_permission_range(cetcd_auth_store *s, const char *role,
+                                      int perm_read, int perm_write,
+                                      const char *key, size_t key_len,
+                                      const uint8_t *range_end,
+                                      size_t range_end_len);
 
 /* Revoke all permissions from a role.
  * Returns CETCD_OK on success, CETCD_ERR_NOTFOUND if role doesn't exist. */
@@ -95,6 +106,11 @@ int cetcd_auth_revoke_permission(cetcd_auth_store *s, const char *role);
  * Mismatch returns CETCD_ERR_NOTFOUND without clearing. */
 int cetcd_auth_revoke_permission_key(cetcd_auth_store *s, const char *role,
                                      const uint8_t *key, size_t key_len);
+/* leftover-safe revoke: key + range_end must both match when range_end_len > 0. */
+int cetcd_auth_revoke_permission_key_range(cetcd_auth_store *s, const char *role,
+                                           const uint8_t *key, size_t key_len,
+                                           const uint8_t *range_end,
+                                           size_t range_end_len);
 
 /* ── Data-plane tokens (simple opaque tokens, O(1) hashmap lookup) ── */
 
@@ -125,10 +141,16 @@ void        cetcd_auth_revoke_all_tokens(cetcd_auth_store *s);
 bool        cetcd_auth_is_admin(const cetcd_auth_store *s, const char *username);
 
 /* Key permission: empty role prefix matches all keys; otherwise the key
- * must start with the role prefix. `want_write` 0 = read, non-zero = write.
+ * must start with the role prefix. A stored range_end leftover-safe-matches
+ * [key, range_end) (single 0 = FromKey). `want_write` 0 = read, non-zero = write.
  * Superuser (admin) always succeeds. When auth is disabled, always true. */
 bool        cetcd_auth_check_perm(const cetcd_auth_store *s, const char *username,
                                   const uint8_t *key, size_t key_len, int want_write);
+/* leftover-safe Permission range. empty hi = prefix match on lo.
+ * hi of a single 0 = FromKey. */
+int cetcd_auth_perm_covers(const uint8_t *key, size_t key_len,
+                           const uint8_t *lo, size_t lo_len,
+                           const uint8_t *hi, size_t hi_len);
 
 /* ── Password hashing ──
  * Default is SHA-256 (hot-path cheap, existing LMDB records).

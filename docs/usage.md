@@ -530,9 +530,12 @@ to cancel the watch and close the stream.
 # Permission management
 ./build/bin/cetcdctl role grant-permission admin readwrite /foo    # Grant via Raft (followers share the perm)
 ./build/bin/cetcdctl role grant-permission admin read /foo --prefix  # Grant permission on a key prefix
-./build/bin/cetcdctl role grant-permission admin read /foo --range-end /bar  # Grant permission on a key range
+./build/bin/cetcdctl role grant-permission admin read /foo --from-key  # FromKey: all keys >= /foo
+./build/bin/cetcdctl role grant-permission admin read /foo --range-end /bar  # Grant [ /foo, /bar )
+# leftover --range-end --from-key cannot eat a flag as the range; extra leftover --foo fail-closes
 ./build/bin/cetcdctl role revoke-permission admin                  # Revoke all perms via Raft
 ./build/bin/cetcdctl role revoke-permission admin readwrite /foo  # Revoke matching prefix only
+./build/bin/cetcdctl role revoke-permission admin /foo --from-key  # Revoke FromKey [ /foo, +inf )
 ./build/bin/cetcdctl role revoke-permission admin read /foo --prefix  # Revoke prefix permission
 
 # Disable authentication

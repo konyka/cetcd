@@ -5472,8 +5472,8 @@ static int cmd_role(int argc, char **argv) {
         fprintf(stderr, "       cetcdctl role delete NAME [-w json|fields]\n");
         fprintf(stderr, "       cetcdctl role get NAME [-w json|fields]\n");
         fprintf(stderr, "       cetcdctl role list [-w json|table|fields]\n");
-        fprintf(stderr, "       cetcdctl role grant-permission ROLE TYPE KEY [-w json|fields]\n");
-        fprintf(stderr, "       cetcdctl role revoke-permission ROLE [-w json|fields]\n");
+        fprintf(stderr, "       cetcdctl role grant-permission ROLE TYPE KEY [--prefix|--from-key|--range-end KEY] [ENDKEY] [-w json|fields]\n");
+        fprintf(stderr, "       cetcdctl role revoke-permission ROLE [KEY] [--prefix|--from-key|--range-end KEY] [ENDKEY] [-w json|fields]\n");
         return 1;
     }
     /* Parse -w json/fields for all subcommands */
@@ -5640,37 +5640,13 @@ static int cmd_role(int argc, char **argv) {
     } else if (strcmp(argv[2], "grant-permission") == 0) {
         const char *role_name = NULL, *perm_type_str = NULL, *key_str = NULL;
         const char *range_end_arg = NULL;
-        bool prefix = false;
-        for (int i = 3; i < argc; i++) {
-        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
-            int on = 1;
-            if (cmd_flag_is_(argv[i], "--prefix")) {
-                if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
-                    fprintf(stderr, "--prefix must be true or false\n");
-                    return 1;
-                }
-                prefix = on != 0;
-            } else if (cmd_flag_is_(argv[i], "--range-end")) {
-                if (take_cmd_value_(&i, argc, argv, &range_end_arg) != 0) {
-                    fprintf(stderr, "--range-end requires a key\n");
-                    return 1;
-                }
-            } else if ((sk = skip_write_out_(&i, argc, argv)) != 0) {
-                if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
-            } else if (argv[i][0] == '-') {
-                fprintf(stderr, "unknown flag: %s\n", argv[i]);
-                return 1;
-            } else if (!role_name) {
-                role_name = argv[i];
-            } else if (!perm_type_str) {
-                perm_type_str = argv[i];
-            } else if (!key_str) {
-                key_str = argv[i];
-            }
-        }
-        if (!role_name || !perm_type_str || !key_str) {
-            fprintf(stderr, "usage: cetcdctl role grant-permission ROLE TYPE KEY [--prefix] [--range-end KEY] [-w json|fields]\n");
-            fprintf(stderr, "  TYPE: read | write | readwrite\n");
+        int prefix = 0, from_key = 0;
+        if (cetcd_ctl_parse_role_perm_argv(argc, argv, 3, 1, &role_name,
+                                           &perm_type_str, &key_str,
+                                           &range_end_arg, &prefix,
+                                           &from_key) != CETCD_OK) {
+            fprintf(stderr,
+                    "unknown leftover flag (role grant-permission --range-end --from-key cannot grant a range)\n");
             return 1;
         }
         int perm_type = 2; /* default readwrite */
@@ -5690,8 +5666,13 @@ static int cmd_role(int argc, char **argv) {
         while (l >= 0x80) { perm[ppos++] = (uint8_t)(l | 0x80); l >>= 7; }
         perm[ppos++] = (uint8_t)l;
         memcpy(perm + ppos, key_str, klen); ppos += klen;
-        /* field 3 = range_end (optional, for --prefix or --range-end) */
-        if (prefix) {
+        /* field 3 = range_end (--prefix / --from-key / --range-end / ENDKEY) */
+        if (from_key) {
+            uint8_t z = 0;
+            perm[ppos++] = 0x12;
+            perm[ppos++] = 0x01;
+            perm[ppos++] = z;
+        } else if (prefix) {
             uint8_t prefix_end[256];
             size_t pe_len = cetcd_key_prefix_end(prefix_end, sizeof(prefix_end),
                                                  cetcd_slice_make(key_str, klen));
@@ -5728,35 +5709,15 @@ static int cmd_role(int argc, char **argv) {
     } else if (strcmp(argv[2], "revoke-permission") == 0) {
         const char *role_name = NULL, *perm_type_str = NULL, *key_str = NULL;
         const char *range_end_arg = NULL;
-        bool prefix = false;
-        for (int i = 3; i < argc; i++) {
-        int wr = 0, sk = 0, wj = 0, wt = 0, wf = 0;
-            int on = 1;
-            if (cmd_flag_is_(argv[i], "--prefix")) {
-                if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
-                    fprintf(stderr, "--prefix must be true or false\n");
-                    return 1;
-                }
-                prefix = on != 0;
-            } else if (cmd_flag_is_(argv[i], "--range-end")) {
-                if (take_cmd_value_(&i, argc, argv, &range_end_arg) != 0) {
-                    fprintf(stderr, "--range-end requires a key\n");
-                    return 1;
-                }
-            } else if ((sk = skip_write_out_(&i, argc, argv)) != 0) {
-                if (sk < 0) { fprintf(stderr, "--write-out requires a format\n"); return 1; }
-            } else if (argv[i][0] == '-') {
-                fprintf(stderr, "unknown flag: %s\n", argv[i]);
-                return 1;
-            } else if (!role_name) {
-                role_name = argv[i];
-            } else if (!perm_type_str) {
-                perm_type_str = argv[i];
-            } else if (!key_str) {
-                key_str = argv[i];
-            }
+        int prefix = 0, from_key = 0;
+        if (cetcd_ctl_parse_role_perm_argv(argc, argv, 3, 0, &role_name,
+                                           &perm_type_str, &key_str,
+                                           &range_end_arg, &prefix,
+                                           &from_key) != CETCD_OK) {
+            fprintf(stderr,
+                    "unknown leftover flag (role revoke-permission --range-end --from-key cannot revoke a range)\n");
+            return 1;
         }
-        if (!role_name) { fprintf(stderr, "usage: cetcdctl role revoke-permission ROLE [TYPE KEY] [--prefix] [--range-end KEY] [-w json|fields]\n"); return 1; }
 
         uint8_t req[512], resp[256];
         size_t pos = 0;
@@ -5766,8 +5727,11 @@ static int cmd_role(int argc, char **argv) {
             size_t klen = strlen(key_str);
             pos = encode_bytes_field(req, sizeof(req), pos, 0x12,
                                      (const uint8_t *)key_str, klen);
-            /* field 3 (range_end, tag 0x1a) — optional */
-            if (prefix) {
+            /* field 3 (range_end, tag 0x1a) — leftover-safe --from-key / --prefix / ENDKEY */
+            if (from_key) {
+                uint8_t z = 0;
+                pos = encode_bytes_field(req, sizeof(req), pos, 0x1a, &z, 1);
+            } else if (prefix) {
                 uint8_t prefix_end[256];
                 size_t pe_len = cetcd_key_prefix_end(prefix_end, sizeof(prefix_end),
                                                      cetcd_slice_make(key_str, klen));

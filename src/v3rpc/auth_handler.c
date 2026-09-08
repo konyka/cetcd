@@ -665,6 +665,15 @@ cetcd_rpc_bytes auth_handle_role_get(cetcd_v3rpc *rpc, const uint8_t *req, size_
         memcpy(perm_buf + ppos, r->key_prefix, r->key_prefix_len);
         ppos += r->key_prefix_len;
     }
+    /* field 3 = range_end (omitted = leftover prefix-only) */
+    if (r->range_end_len > 0 && ppos + 6 + r->range_end_len < sizeof(perm_buf)) {
+        perm_buf[ppos++] = 0x12;
+        uint64_t l = r->range_end_len;
+        while (l >= 0x80) { perm_buf[ppos++] = (uint8_t)(l | 0x80); l >>= 7; }
+        perm_buf[ppos++] = (uint8_t)l;
+        memcpy(perm_buf + ppos, r->range_end, r->range_end_len);
+        ppos += r->range_end_len;
+    }
 
     /* Wrap in field 2 (perm) of RoleGetResponse, with header prefix */
     uint8_t *out = (uint8_t *)malloc(ppos + 16);
@@ -694,54 +703,67 @@ cetcd_rpc_bytes auth_handle_role_grant_permission(cetcd_v3rpc *rpc, const uint8_
     (void)rpc;
     uint8_t *role_name = NULL; size_t role_name_len = 0;
     uint8_t *perm_key = NULL; size_t perm_key_len = 0;
+    uint8_t *range_end = NULL; size_t range_end_len = 0;
     int perm_type = 0;
+    int bad = 0;
     size_t pos = 0;
 
     while (pos < req_len) {
         uint8_t tag = req[pos++];
         if (tag == 0x0a) {
-            if (read_bytes_field(req, req_len, &pos, &role_name, &role_name_len) != 0) break;
+            if (read_bytes_field(req, req_len, &pos, &role_name, &role_name_len) != 0) {
+                bad = 1; break;
+            }
         } else if (tag == 0x12) {
             /* field 2 = Permission (length-delimited) */
             uint64_t plen = 0;
-            if (read_varint(req, req_len, &pos, &plen) != 0) break;
+            if (read_varint(req, req_len, &pos, &plen) != 0) { bad = 1; break; }
+            if (pos + (size_t)plen > req_len) { bad = 1; break; }
             size_t perm_end = pos + (size_t)plen;
             while (pos < perm_end) {
                 uint8_t ptag = req[pos++];
                 if (ptag == 0x08) {
-                    uint64_t v = 0; read_varint(req, perm_end, &pos, &v);
+                    uint64_t v = 0;
+                    if (read_varint(req, perm_end, &pos, &v) != 0) { bad = 1; break; }
                     perm_type = (int)v;
                 } else if (ptag == 0x0a) {
-                    if (read_bytes_field(req, perm_end, &pos, &perm_key, &perm_key_len) != 0) break;
+                    if (read_bytes_field(req, perm_end, &pos, &perm_key, &perm_key_len) != 0) {
+                        bad = 1; break;
+                    }
                 } else if (ptag == 0x12) {
-                    uint64_t l = 0; read_varint(req, perm_end, &pos, &l);
-                    pos += (size_t)l;
+                    if (read_bytes_field(req, perm_end, &pos, &range_end, &range_end_len) != 0) {
+                        bad = 1; break;
+                    }
                 } else {
-                    uint64_t skip = 0; read_varint(req, perm_end, &pos, &skip);
+                    uint64_t skip = 0;
+                    if (read_varint(req, perm_end, &pos, &skip) != 0) { bad = 1; break; }
                 }
             }
+            if (bad) break;
             pos = perm_end;
         } else {
-            uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
+            uint64_t skip = 0;
+            if (read_varint(req, req_len, &pos, &skip) != 0) { bad = 1; break; }
         }
     }
 
-    if (!g_rpc_auth || !role_name || role_name_len == 0 ||
+    if (bad || !g_rpc_auth || !role_name || role_name_len == 0 ||
         !cetcd_auth_get_role(g_rpc_auth, (const char *)role_name)) {
-        free(role_name); free(perm_key);
+        free(role_name); free(perm_key); free(range_end);
         return (cetcd_rpc_bytes){NULL, 0};
     }
     uint8_t *entry = NULL;
     size_t elen = 0;
-    if (cetcd_apply_encode_auth_role_grant_perm(&entry, &elen,
+    if (cetcd_apply_encode_auth_role_grant_perm_range(&entry, &elen,
             role_name, role_name_len,
-            perm_key, perm_key_len, perm_type) != 0) {
-        free(role_name); free(perm_key);
+            perm_key, perm_key_len, perm_type,
+            range_end, range_end_len) != 0) {
+        free(role_name); free(perm_key); free(range_end);
         return (cetcd_rpc_bytes){NULL, 0};
     }
     int rc = cetcd_v3rpc_propose_or_apply(entry, elen);
     free(entry);
-    free(role_name); free(perm_key);
+    free(role_name); free(perm_key); free(range_end);
     if (rc < 0) return (cetcd_rpc_bytes){NULL, 0};
     return simple_ok_response();
 }
@@ -758,45 +780,60 @@ cetcd_rpc_bytes auth_handle_role_revoke_permission(cetcd_v3rpc *rpc, const uint8
     (void)rpc;
     uint8_t *role_name = NULL; size_t role_name_len = 0;
     uint8_t *perm_key = NULL; size_t perm_key_len = 0;
+    uint8_t *range_end = NULL; size_t range_end_len = 0;
+    int bad = 0;
     size_t pos = 0;
     while (pos < req_len) {
         uint8_t tag = req[pos++];
         if (tag == 0x0a) {
-            if (read_bytes_field(req, req_len, &pos, &role_name, &role_name_len) != 0) break;
+            if (read_bytes_field(req, req_len, &pos, &role_name, &role_name_len) != 0) {
+                bad = 1; break;
+            }
         } else if (tag == 0x12) {
-            if (read_bytes_field(req, req_len, &pos, &perm_key, &perm_key_len) != 0) break;
+            if (read_bytes_field(req, req_len, &pos, &perm_key, &perm_key_len) != 0) {
+                bad = 1; break;
+            }
         } else if (tag == 0x1a) {
-            uint64_t l = 0; read_varint(req, req_len, &pos, &l);
-            pos += (size_t)l;
+            if (read_bytes_field(req, req_len, &pos, &range_end, &range_end_len) != 0) {
+                bad = 1; break;
+            }
         } else {
-            uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
+            uint64_t skip = 0;
+            if (read_varint(req, req_len, &pos, &skip) != 0) { bad = 1; break; }
         }
     }
-    if (!g_rpc_auth || !role_name || role_name_len == 0) {
-        free(role_name); free(perm_key);
+    if (bad || !g_rpc_auth || !role_name || role_name_len == 0) {
+        free(role_name); free(perm_key); free(range_end);
         return (cetcd_rpc_bytes){NULL, 0};
     }
     const cetcd_role *r = cetcd_auth_get_role(g_rpc_auth, (const char *)role_name);
     if (!r) {
-        free(role_name); free(perm_key);
+        free(role_name); free(perm_key); free(range_end);
         return (cetcd_rpc_bytes){NULL, 0};
     }
     if (perm_key_len > 0 &&
         (r->key_prefix_len != perm_key_len ||
          memcmp(r->key_prefix, perm_key, perm_key_len) != 0)) {
-        free(role_name); free(perm_key);
+        free(role_name); free(perm_key); free(range_end);
+        return (cetcd_rpc_bytes){NULL, 0};
+    }
+    if (range_end_len > 0 &&
+        (r->range_end_len != range_end_len ||
+         memcmp(r->range_end, range_end, range_end_len) != 0)) {
+        free(role_name); free(perm_key); free(range_end);
         return (cetcd_rpc_bytes){NULL, 0};
     }
     uint8_t *entry = NULL;
     size_t elen = 0;
-    if (cetcd_apply_encode_auth_role_revoke_perm(&entry, &elen,
-            role_name, role_name_len, perm_key, perm_key_len) != 0) {
-        free(role_name); free(perm_key);
+    if (cetcd_apply_encode_auth_role_revoke_perm_range(&entry, &elen,
+            role_name, role_name_len, perm_key, perm_key_len,
+            range_end, range_end_len) != 0) {
+        free(role_name); free(perm_key); free(range_end);
         return (cetcd_rpc_bytes){NULL, 0};
     }
     int rc = cetcd_v3rpc_propose_or_apply(entry, elen);
     free(entry);
-    free(role_name); free(perm_key);
+    free(role_name); free(perm_key); free(range_end);
     if (rc < 0) return (cetcd_rpc_bytes){NULL, 0};
     return simple_ok_response();
 }

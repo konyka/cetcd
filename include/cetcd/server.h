@@ -210,6 +210,19 @@ int cetcd_ctl_parse_defrag_argv(int argc, char *const *argv, int start,
  * flags (`member list --foo`) are INVAL. Extra positionals are INVAL. */
 int cetcd_ctl_parse_member_list_argv(int argc, char *const *argv, int start,
                                      int *linearizable);
+/* leftover-safe role grant/revoke-permission argv from `start`.
+ * Skips -w/--write-out. Honors --prefix[=bool], leftover-safe
+ * --from-key[=bool], leftover-safe --range-end VALUE so
+ * `--range-end --from-key` cannot eat a flag as the range.
+ * need_type: grant needs ROLE TYPE KEY [ENDKEY]; revoke is ROLE
+ * [TYPE] KEY [ENDKEY] (a leftover TYPE word is skipped when KEY
+ * follows). --prefix/--from-key/--range-end are mutually exclusive.
+ * Unknown leftover flags or extra positionals are INVAL. */
+int cetcd_ctl_parse_role_perm_argv(int argc, char *const *argv, int start,
+                                   int need_type, const char **role,
+                                   const char **type, const char **key,
+                                   const char **range_end, int *prefix,
+                                   int *from_key);
 /* leftover-safe one NAME from `start`. Skips -w/--write-out. `--` starts
  * positionals so `-- --foo` is NAME `--foo`. Unknown leftover flags
  * (`member remove --force`, `user add --foo`) are INVAL so they cannot
