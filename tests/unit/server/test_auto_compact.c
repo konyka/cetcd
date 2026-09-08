@@ -2455,6 +2455,53 @@ CETCD_TEST_CASE(auto_compact_parse_snapshot_response) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_lease_keepalive_response) {
+    uint8_t buf[16];
+    size_t n = 0;
+    int64_t id = 9, ttl = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_lease_keepalive_response(0, 60, buf,
+                                                             sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_lease_keepalive_response(5, 60, buf,
+                                                             sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_keepalive_response(buf, n, &id, &ttl),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(id == 5);
+    CETCD_ASSERT_TRUE(ttl == 60);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_keepalive_response(NULL, 0, &id, &ttl),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ttl == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_keepalive_response(dummy, 1, &id,
+                                                             &ttl),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ttl == 0);
+
+    /* leftover truncated TTL cannot steal a lock interval */
+    uint8_t trunc[] = { 0x18 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_keepalive_response(trunc, 1, &id,
+                                                             &ttl),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a lock-used TTL */
+    uint8_t steal[] = { 0x1a, 0x02, 0x18, 0x3c };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_keepalive_response(steal,
+                                                             sizeof(steal),
+                                                             &id, &ttl),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ttl == 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_keepalive_response(fixed64, 1, &id,
+                                                             &ttl),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_keepalive_response(buf, n, NULL, &ttl),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_downgrade_request) {
     uint8_t buf[64];
     size_t n = 0;
@@ -4121,6 +4168,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_lease_list_response),
     CETCD_TEST_ENTRY(auto_compact_parse_response_header),
     CETCD_TEST_ENTRY(auto_compact_parse_snapshot_response),
+    CETCD_TEST_ENTRY(auto_compact_parse_lease_keepalive_response),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_request),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_op_key),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),

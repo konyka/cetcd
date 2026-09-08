@@ -2397,26 +2397,17 @@ static int cmd_lease(int argc, char **argv) {
             pos = encode_varint_field(req, sizeof(req), pos, 0x08, lease_id);
             int rlen = do_rpc("/etcdserverpb.Lease/LeaseKeepAlive", req, pos, resp, sizeof(resp));
             if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-            /* Parse KeepAliveResponse: field 1 (header), field 2 (ID), field 3 (TTL) */
-            size_t rpos = 0;
-            uint64_t ttl = 0, kid = 0;
-            while (rpos < (size_t)rlen) {
-                uint8_t tag = resp[rpos++];
-                if (tag == 0x10) {
-                    uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
-                    kid = v;
-                    if (!want_json && !want_fields) printf("lease ID: %llu\n", (unsigned long long)v);
-                } else if (tag == 0x18) {
-                    uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
-                    ttl = v;
-                    if (!want_json && !want_fields) printf("TTL: %llu seconds\n", (unsigned long long)v);
-                } else if (tag == 0x0a) {
-                    /* Skip header (length-delimited) */
-                    uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
-                    rpos += l;
-                } else {
-                    uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
-                }
+            int64_t kid_i = 0, ttl_i = 0;
+            if (cetcd_parse_lease_keepalive_response(resp, (size_t)rlen,
+                                                     &kid_i, &ttl_i)
+                != CETCD_OK) {
+                fprintf(stderr, "request failed\n");
+                return 1;
+            }
+            uint64_t kid = (uint64_t)kid_i, ttl = (uint64_t)ttl_i;
+            if (!want_json && !want_fields) {
+                printf("lease ID: %llu\n", (unsigned long long)kid);
+                printf("TTL: %llu seconds\n", (unsigned long long)ttl);
             }
             if (want_json) {
                 fputs("{", stdout);
@@ -3931,20 +3922,12 @@ static int cmd_lock(int argc, char **argv) {
                             ka_resp, sizeof(ka_resp));
             if (kl < 0) _exit(1); /* server unreachable, exit */
             /* Parse TTL from response (field 3, tag 0x18) */
-            unsigned new_ttl = 0;
-            size_t krp = 0;
-            while (krp < (size_t)kl) {
-                uint8_t tag = ka_resp[krp++];
-                if (tag == 0x18) {
-                    uint64_t v = 0; read_varint(ka_resp, kl, &krp, &v);
-                    new_ttl = (unsigned)v;
-                    break;
-                } else if (tag == 0x0a) {
-                    uint64_t l = 0; read_varint(ka_resp, kl, &krp, &l); krp += l;
-                } else {
-                    uint64_t v = 0; read_varint(ka_resp, kl, &krp, &v);
-                }
-            }
+            int64_t ka_id = 0, ka_ttl = 0;
+            if (cetcd_parse_lease_keepalive_response(ka_resp, (size_t)kl,
+                                                     &ka_id, &ka_ttl)
+                != CETCD_OK)
+                _exit(0);
+            unsigned new_ttl = ka_ttl > 0 ? (unsigned)ka_ttl : 0;
             if (new_ttl == 0) _exit(0); /* lease expired or revoked */
             unsigned sleep_sec = new_ttl / 2;
             if (sleep_sec == 0) sleep_sec = 1;
@@ -4163,20 +4146,12 @@ static int cmd_elect(int argc, char **argv) {
             int kl = do_rpc("/etcdserverpb.Lease/LeaseKeepAlive", ka_req, kp,
                             ka_resp, sizeof(ka_resp));
             if (kl < 0) _exit(1);
-            unsigned new_ttl = 0;
-            size_t krp = 0;
-            while (krp < (size_t)kl) {
-                uint8_t tag = ka_resp[krp++];
-                if (tag == 0x18) {
-                    uint64_t v = 0; read_varint(ka_resp, kl, &krp, &v);
-                    new_ttl = (unsigned)v;
-                    break;
-                } else if (tag == 0x0a) {
-                    uint64_t l = 0; read_varint(ka_resp, kl, &krp, &l); krp += l;
-                } else {
-                    uint64_t v = 0; read_varint(ka_resp, kl, &krp, &v);
-                }
-            }
+            int64_t ka_id = 0, ka_ttl = 0;
+            if (cetcd_parse_lease_keepalive_response(ka_resp, (size_t)kl,
+                                                     &ka_id, &ka_ttl)
+                != CETCD_OK)
+                _exit(0);
+            unsigned new_ttl = ka_ttl > 0 ? (unsigned)ka_ttl : 0;
             if (new_ttl == 0) _exit(0);
             unsigned sleep_sec = new_ttl / 2;
             if (sleep_sec == 0) sleep_sec = 1;

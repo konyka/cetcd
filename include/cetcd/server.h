@@ -568,6 +568,16 @@ int cetcd_encode_lease_grant_response(int64_t id, int64_t ttl, uint8_t *out,
                                       size_t cap, size_t *n);
 int cetcd_parse_lease_grant_response(const uint8_t *req, size_t len,
                                      int64_t *id, int64_t *ttl);
+/* leftover-safe LeaseKeepAliveResponse ID / TTL (same wire as Grant).
+ * omitted / empty / dummy 0x00 = id 0 / ttl 0. leftover truncated
+ * TTL is INVAL so a truncated keepalive cannot steal a lock interval.
+ * leftover length-delimited fields are skipped by payload so leftover
+ * bytes cannot steal a printed or lock-used TTL. unknown wire types
+ * are INVAL. */
+int cetcd_encode_lease_keepalive_response(int64_t id, int64_t ttl,
+                                          uint8_t *out, size_t cap, size_t *n);
+int cetcd_parse_lease_keepalive_response(const uint8_t *req, size_t len,
+                                         int64_t *id, int64_t *ttl);
 /* leftover-safe LeaseTimeToLiveResponse. omitted / empty / dummy
  * 0x00 = id 0 / ttl 0 / granted 0 / empty key. leftover truncated
  * ID / key is INVAL so a truncated TTL cannot print a leftover key.

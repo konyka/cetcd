@@ -820,6 +820,12 @@ Performance-first, fail-closed design:
   write leftover bytes as a snapshot). Dummy `0x00` is not a skip
   length. `cetcdctl snapshot save` leftover-safe-parses field 3.
   Accepting leftover payload as the snapshot is rejected.
+- **KeepAlive leftover-safe TTL** — leftover-safe-parses
+  LeaseKeepAliveResponse so leftover length-delimited bytes cannot
+  steal a printed or lock-used TTL. A truncated TTL fail-closes
+  (cannot steal a lock interval). Dummy `0x00` is not a skip length.
+  `cetcdctl lease keepalive` / `lock` / `elect` leftover-safe-parse
+  field 3. Accepting leftover payload as the TTL is rejected.
 - **AuthStatus / user-role list leftover-safe** — leftover-safe-parses
   AuthStatusResponse and UserList/RoleList so leftover length-delimited
   bytes cannot steal `enabled` or a printed user/role name. A truncated

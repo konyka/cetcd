@@ -4507,6 +4507,16 @@ int cetcd_parse_lease_grant_response(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+int cetcd_encode_lease_keepalive_response(int64_t id, int64_t ttl,
+                                          uint8_t *out, size_t cap, size_t *n) {
+    return cetcd_encode_lease_grant_response(id, ttl, out, cap, n);
+}
+
+int cetcd_parse_lease_keepalive_response(const uint8_t *req, size_t len,
+                                         int64_t *id, int64_t *ttl) {
+    return cetcd_parse_lease_grant_response(req, len, id, ttl);
+}
+
 int cetcd_encode_lease_ttl_response(int64_t id, int64_t ttl, int64_t granted,
                                     const char *key, uint8_t *out, size_t cap,
                                     size_t *n) {

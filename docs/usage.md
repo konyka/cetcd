@@ -440,6 +440,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl lease timetolive 1                    # Check remaining TTL
 ./build/bin/cetcdctl lease timetolive --keys 1 -w fields   # Include keys with fields output
 ./build/bin/cetcdctl lease keepalive 1                     # Keepalive via Raft (followers share deadline)
+# leftover cannot steal a printed or lock-used KeepAlive TTL
 ./build/bin/cetcdctl lease keepalive --once 1 -w fields   # Single keepalive with fields output
 ./build/bin/cetcdctl lease keepalive --interval 5 1        # Keep alive with custom 5-second interval
 # --interval must be > 0; leftover text is not a silent truncated interval
