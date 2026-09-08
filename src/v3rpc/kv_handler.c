@@ -914,24 +914,164 @@ cetcd_rpc_bytes kv_handle_range_stream(cetcd_v3rpc *rpc, const uint8_t *req, siz
     return out;
 }
 
+/* leftover-safe DeleteRangeRequest. v3rpc cannot link server. */
+static void del_req_clear_(uint8_t **key, uint8_t **range_end) {
+    free(*key);
+    free(*range_end);
+    *key = NULL;
+    *range_end = NULL;
+}
+
+static int parse_delete_range_request_(const uint8_t *req, size_t len,
+                                       uint8_t **key, size_t *key_len,
+                                       uint8_t **range_end, size_t *range_end_len,
+                                       int *prev_kv) {
+    size_t p = 0;
+    if (!key || !key_len || !range_end || !range_end_len || !prev_kv)
+        return -1;
+    *key = NULL; *key_len = 0;
+    *range_end = NULL; *range_end_len = 0;
+    *prev_kv = 0;
+    if (!req || len == 0) return 0;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x0a || tag == 0x12) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    del_req_clear_(key, range_end);
+                    return -1;
+                }
+            }
+            if (!got || p + skip > len) {
+                del_req_clear_(key, range_end);
+                return -1;
+            }
+            if (skip == 0) {
+                if (tag == 0x0a) {
+                    free(*key);
+                    *key = NULL;
+                    *key_len = 0;
+                } else {
+                    free(*range_end);
+                    *range_end = NULL;
+                    *range_end_len = 0;
+                }
+                continue;
+            }
+            uint8_t *copy = (uint8_t *)malloc((size_t)skip);
+            if (!copy) {
+                del_req_clear_(key, range_end);
+                return -1;
+            }
+            memcpy(copy, req + p, (size_t)skip);
+            p += (size_t)skip;
+            if (tag == 0x0a) {
+                free(*key);
+                *key = copy;
+                *key_len = (size_t)skip;
+            } else {
+                free(*range_end);
+                *range_end = copy;
+                *range_end_len = (size_t)skip;
+            }
+            continue;
+        }
+        if (tag == 0x18) {
+            uint64_t v = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    del_req_clear_(key, range_end);
+                    return -1;
+                }
+            }
+            if (!got) {
+                del_req_clear_(key, range_end);
+                return -1;
+            }
+            *prev_kv = v != 0;
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    del_req_clear_(key, range_end);
+                    return -1;
+                }
+            }
+            if (!got) {
+                del_req_clear_(key, range_end);
+                return -1;
+            }
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    del_req_clear_(key, range_end);
+                    return -1;
+                }
+            }
+            if (!got || p + skip > len) {
+                del_req_clear_(key, range_end);
+                return -1;
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        del_req_clear_(key, range_end);
+        return -1;
+    }
+    return 0;
+}
+
 cetcd_rpc_bytes kv_handle_delete_range(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
-    size_t pos = 0;
     uint8_t *key = NULL; size_t key_len = 0;
     uint8_t *range_end = NULL; size_t range_end_len = 0;
     int prev_kv_flag = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x0a) { /* key */
-            if (read_bytes(req, req_len, &pos, &key, &key_len) != 0) break;
-        } else if (tag == 0x12) { /* range_end */
-            if (read_bytes(req, req_len, &pos, &range_end, &range_end_len) != 0) break;
-        } else if (tag == 0x18) { /* prev_kv (bool) */
-            uint64_t tmp = 0; if (read_varint(req, req_len, &pos, &tmp) != 0) break; prev_kv_flag = (int)tmp;
-        } else {
-            uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
-        }
-    }
+    if (parse_delete_range_request_(req, req_len, &key, &key_len,
+                                    &range_end, &range_end_len,
+                                    &prev_kv_flag) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
 
     /* etcd ErrEmptyKey: key must be provided (len > 0). */
     if (!key || key_len == 0) {

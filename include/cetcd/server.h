@@ -278,6 +278,25 @@ int cetcd_encode_put_request(const uint8_t *key, size_t key_len,
                              size_t *n);
 int cetcd_parse_put_request(const uint8_t *req, size_t len,
                             cetcd_put_request *out);
+/* leftover-safe DeleteRangeRequest. omitted / empty / dummy 0x00 =
+ * empty key. leftover truncated varint/bytes is INVAL so a truncated
+ * range_end cannot look like a point delete. leftover length-delimited
+ * fields are skipped by payload so leftover bytes cannot steal
+ * range_end. unknown wire types are INVAL. key / range_end are malloced. */
+typedef struct cetcd_delete_range_request {
+    uint8_t *key;
+    size_t key_len;
+    uint8_t *range_end;
+    size_t range_end_len;
+    int prev_kv;
+} cetcd_delete_range_request;
+void cetcd_delete_range_request_clear(cetcd_delete_range_request *r);
+int cetcd_encode_delete_range_request(const uint8_t *key, size_t key_len,
+                                      const uint8_t *range_end,
+                                      size_t range_end_len, int prev_kv,
+                                      uint8_t *out, size_t cap, size_t *n);
+int cetcd_parse_delete_range_request(const uint8_t *req, size_t len,
+                                     cetcd_delete_range_request *out);
 /* MemberRemove/Promote field 1 (ID). 0 is INVAL. */
 int cetcd_encode_member_id_request(uint64_t id, uint8_t *out, size_t cap,
                                    size_t *n);

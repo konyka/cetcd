@@ -688,6 +688,12 @@ Performance-first, fail-closed design:
   field-3 varint fail-closes (cannot look like a no-lease put). Dummy
   `0x00` / omitted is lease 0. Accepting leftover payload as the
   lease is rejected.
+- **DeleteRange leftover-safe range_end** — leftover-safe-parses
+  DeleteRangeRequest so leftover length-delimited bytes cannot steal
+  `range_end` and turn a point delete into a range delete. A
+  truncated field-2 / field-3 fail-closes (cannot look like a point
+  delete or a no-prev-kv delete). Dummy `0x00` / omitted is empty
+  range_end. Accepting leftover payload as the range is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

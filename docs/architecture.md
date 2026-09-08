@@ -559,7 +559,7 @@ requires this node to be leader (same fail-closed empty body as a follower Range
 The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/keepalive`,
 `member add/remove/update/promote`, `user delete/change-password/grant-role/revoke-role`,
 `role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix/--keys-only/--rev` (`--rev`/`--limit`/`--*-mod-rev`/`--*-create-rev` must be integers `>= 0`; leftover text fail-closes); Range leftover-safe-parses so leftover length-delimited bytes cannot steal `rev` / `limit` (truncated `--rev` fail-closes),
-`del --prefix/--prev-kv`, `put --prev-kv`, `watch --prefix/--prev-kv/--start-rev` (`--start-rev` must be an integer `>= 0`; leftover text fail-closes), `txn cas` (compare-and-swap),
+`del --prefix/--prev-kv` (DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal `range_end` and turn a point delete into a range delete; truncated `range_end` fail-closes), `put --prev-kv`, `watch --prefix/--prev-kv/--start-rev` (`--start-rev` must be an integer `>= 0`; leftover text fail-closes), `txn cas` (compare-and-swap),
 `auth login` (token-based authentication), `get --count-only/--limit N/--sort-by/--sort-order/--print-value-only`,
 `put --ignore-value/--ignore-lease`, `get/del KEY RANGE_END` (positional range_end argument),
 `get/del --from-key` (unbounded range queries), `put --lease ID` (attach lease to key; leftover `10foo` fail-closes; `--lease=1` accepted),
@@ -749,6 +749,10 @@ non-empty `value` fails (`ErrValueProvided`); `ignore_lease` with a non-zero `le
 fails (`ErrLeaseProvided`). A Put (or Txn `RequestPut`) with a non-existent positive
 `lease` fails at the RPC layer instead of returning a successful no-op write. `DeleteRange`
 supports `range_end` for range deletes and `prev_kv` for returning deleted key-values.
+DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal
+`range_end` and turn a point delete into a range delete; a truncated `range_end` /
+`prev_kv` fail-closes (cannot look like a point delete). Dummy `0x00` / omitted is
+empty range_end.
 The `Range` handler leftover-safe-parses RangeRequest so leftover length-delimited
 bytes cannot steal `rev` / `limit`; a truncated `--rev` fail-closes (cannot range
 the live tree). Dummy `0x00` / omitted is rev 0 (current). The `Range` handler also supports `limit` (truncating results and setting the `more` flag as

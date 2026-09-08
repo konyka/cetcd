@@ -895,6 +895,7 @@ Alarm leftover-safe-parses field 1/2/3 so leftover length-delimited bytes cannot
 `cetcdctl defrag --cluster` leftover-safe-sends linearizable MemberList and defragments every client URL; a swallowed `--cluster` would defrag only the connected member; a follower cannot walk a stale list. `defrag --data-dir` leftover-safe-opens the local LMDB and compact-copies (`--data-dir --cluster` cannot eat a flag as the path; `--cluster` + `--data-dir` fail-close). Other leftover flags fail-close.
 `cetcdctl get --rev` / `--limit` / `--min-mod-rev` and related flags must be integers `>= 0`; leftover text fail-closes instead of a truncated revision. Range leftover-safe-parses field 4 so leftover length-delimited bytes cannot steal `rev` / `limit` (truncated `--rev` fail-closes; dummy `0x00` / omitted = current).
 Put leftover-safe-parses field 3 so leftover length-delimited bytes cannot steal the lease (truncated `--lease` fail-closes; dummy `0x00` / omitted = lease 0).
+DeleteRange leftover-safe-parses field 2 so leftover length-delimited bytes cannot steal `range_end` and turn a point delete into a range delete (truncated `range_end` fail-closes; dummy `0x00` / omitted = empty range_end).
 `cetcdctl watch --start-rev` must be an integer `>= 0`; leftover text fail-closes instead of starting at a truncated revision.
 `--help` does not pre-empt an earlier invalid flag. `--config-file` is skipped when `--help` is present.
 A `cert-file` enables client TLS even without an https listen URL. A data-dir join does not campaign as a singleton before persisted peers load.

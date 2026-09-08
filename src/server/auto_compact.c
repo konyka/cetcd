@@ -2310,6 +2310,192 @@ int cetcd_parse_put_request(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+void cetcd_delete_range_request_clear(cetcd_delete_range_request *r) {
+    if (!r) return;
+    free(r->key);
+    free(r->range_end);
+    memset(r, 0, sizeof(*r));
+}
+
+int cetcd_encode_delete_range_request(const uint8_t *key, size_t key_len,
+                                      const uint8_t *range_end,
+                                      size_t range_end_len, int prev_kv,
+                                      uint8_t *out, size_t cap, size_t *n) {
+    if (!out || !n || !key || key_len == 0) return CETCD_ERR_INVAL;
+    size_t pos = 0;
+    if (pos + 2 + key_len > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x0a;
+    uint64_t lv = key_len;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(lv & 0x7fu);
+        lv >>= 7;
+        if (lv) b |= 0x80u;
+        out[pos++] = b;
+    } while (lv);
+    if (pos + key_len > cap) return CETCD_ERR_OVERFLOW;
+    memcpy(out + pos, key, key_len);
+    pos += key_len;
+    if (range_end && range_end_len) {
+        if (pos + 2 + range_end_len > cap) return CETCD_ERR_OVERFLOW;
+        out[pos++] = 0x12;
+        lv = range_end_len;
+        do {
+            if (pos >= cap) return CETCD_ERR_OVERFLOW;
+            uint8_t b = (uint8_t)(lv & 0x7fu);
+            lv >>= 7;
+            if (lv) b |= 0x80u;
+            out[pos++] = b;
+        } while (lv);
+        if (pos + range_end_len > cap) return CETCD_ERR_OVERFLOW;
+        memcpy(out + pos, range_end, range_end_len);
+        pos += range_end_len;
+    }
+    if (prev_kv) {
+        if (pos + 2 > cap) return CETCD_ERR_OVERFLOW;
+        out[pos++] = 0x18;
+        out[pos++] = 0x01;
+    }
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_delete_range_request(const uint8_t *req, size_t len,
+                                     cetcd_delete_range_request *out) {
+    size_t p = 0;
+    if (!out) return CETCD_ERR_INVAL;
+    memset(out, 0, sizeof(*out));
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x0a || tag == 0x12) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    cetcd_delete_range_request_clear(out);
+                    return CETCD_ERR_INVAL;
+                }
+            }
+            if (!got || p + skip > len) {
+                cetcd_delete_range_request_clear(out);
+                return CETCD_ERR_INVAL;
+            }
+            if (skip == 0) {
+                if (tag == 0x0a) {
+                    free(out->key);
+                    out->key = NULL;
+                    out->key_len = 0;
+                } else {
+                    free(out->range_end);
+                    out->range_end = NULL;
+                    out->range_end_len = 0;
+                }
+                continue;
+            }
+            uint8_t *copy = (uint8_t *)malloc((size_t)skip);
+            if (!copy) {
+                cetcd_delete_range_request_clear(out);
+                return CETCD_ERR_NOMEM;
+            }
+            memcpy(copy, req + p, (size_t)skip);
+            p += (size_t)skip;
+            if (tag == 0x0a) {
+                free(out->key);
+                out->key = copy;
+                out->key_len = (size_t)skip;
+            } else {
+                free(out->range_end);
+                out->range_end = copy;
+                out->range_end_len = (size_t)skip;
+            }
+            continue;
+        }
+        if (tag == 0x18) {
+            uint64_t v = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    cetcd_delete_range_request_clear(out);
+                    return CETCD_ERR_INVAL;
+                }
+            }
+            if (!got) {
+                cetcd_delete_range_request_clear(out);
+                return CETCD_ERR_INVAL;
+            }
+            out->prev_kv = v != 0;
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    cetcd_delete_range_request_clear(out);
+                    return CETCD_ERR_INVAL;
+                }
+            }
+            if (!got) {
+                cetcd_delete_range_request_clear(out);
+                return CETCD_ERR_INVAL;
+            }
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    cetcd_delete_range_request_clear(out);
+                    return CETCD_ERR_INVAL;
+                }
+            }
+            if (!got || p + skip > len) {
+                cetcd_delete_range_request_clear(out);
+                return CETCD_ERR_INVAL;
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        cetcd_delete_range_request_clear(out);
+        return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_member_id_request(uint64_t id, uint8_t *out, size_t cap,
                                    size_t *n) {
     if (!out || !n || cap == 0) return CETCD_ERR_INVAL;

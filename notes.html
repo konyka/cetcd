@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 129 — leftover-safe Put lease</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 130 — leftover-safe DeleteRange range_end</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 129 leftover-safe-parses
-     PutRequest so leftover length-delimited bytes cannot steal the
-    lease and a truncated --lease cannot look like a no-lease put.</p>
+  <p><strong>v0.3.0</strong>. Phase 130 leftover-safe-parses
+     DeleteRangeRequest so leftover length-delimited bytes cannot steal
+     range_end and turn a point delete into a range delete.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -182,6 +182,7 @@
       <tr><td>127</td><td>leftover-safe Alarm action</td><td>Alarm leftover-safe-parses field 1/2/3 so leftover length-delimited bytes cannot steal ACTIVATE; truncated action fail-closes (cannot look like GET) — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>128</td><td>leftover-safe Range revision</td><td>Range leftover-safe-parses so leftover length-delimited bytes cannot steal rev/limit; truncated --rev fail-closes (cannot range the live tree); dummy 0x00 / omitted is current — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>129</td><td>leftover-safe Put lease</td><td>Put leftover-safe-parses so leftover length-delimited bytes cannot steal the lease; truncated --lease fail-closes (cannot look like a no-lease put); dummy 0x00 / omitted is lease 0 — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>130</td><td>leftover-safe DeleteRange range_end</td><td>DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal range_end and turn a point delete into a range delete; truncated range_end fail-closes (cannot look like a point delete); dummy 0x00 / omitted is empty range_end — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

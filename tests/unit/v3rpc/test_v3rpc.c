@@ -525,6 +525,39 @@ CETCD_TEST_CASE(v3rpc_delete_range) {
     CETCD_ASSERT_TRUE(resp.len > 0);
     cetcd_rpc_bytes_free(&resp);
 
+    uint8_t trunc[] = { 0x0a, 0x03, 'k', 'e', 'y', 0x12 };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/DeleteRange", trunc, 6);
+    /* leftover truncated range_end cannot look like a point delete */
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover length-delimited payload cannot steal range_end */
+    uint8_t put_a[16]; pos = 0;
+    put_a[pos++] = 0x0a; put_a[pos++] = 0x01; put_a[pos++] = 'a';
+    put_a[pos++] = 0x12; put_a[pos++] = 0x01; put_a[pos++] = '1';
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_a, pos);
+    cetcd_rpc_bytes_free(&resp);
+    uint8_t put_b[16]; pos = 0;
+    put_b[pos++] = 0x0a; put_b[pos++] = 0x01; put_b[pos++] = 'b';
+    put_b[pos++] = 0x12; put_b[pos++] = 0x01; put_b[pos++] = '2';
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_b, pos);
+    cetcd_rpc_bytes_free(&resp);
+    uint8_t steal[] = { 0x0a, 0x01, 'a', 0x22, 0x03, 0x12, 0x01, 'c' };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/DeleteRange", steal,
+                                sizeof(steal));
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+    uint8_t range_b[8]; pos = 0;
+    range_b[pos++] = 0x0a; range_b[pos++] = 0x01; range_b[pos++] = 'b';
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_b, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found_b = 0;
+    for (size_t i = 0; i < resp.len; i++) {
+        if (resp.data[i] == 'b') { found_b = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(found_b);
+    cetcd_rpc_bytes_free(&resp);
+
     cetcd_v3rpc_free(rpc);
 }
 

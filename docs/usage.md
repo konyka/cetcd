@@ -363,6 +363,8 @@ fail-close. `--prefix=false` does not eat the key.
 ./build/bin/cetcdctl del --range-end zzz foo     # Delete keys from foo to zzz
 ./build/bin/cetcdctl del --prev-kv foo           # Return deleted key-values
 ./build/bin/cetcdctl del --prev-kv --print-value-only foo  # Output only deleted values
+# leftover truncated DeleteRange range_end fail-closes (cannot look like a point delete)
+# leftover length-delimited bytes cannot steal range_end and turn a point delete into a range delete
 ```
 
 ### Watch streaming
