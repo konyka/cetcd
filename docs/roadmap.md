@@ -861,6 +861,13 @@ Performance-first, fail-closed design:
   fail-closes. Dummy `0x00` is not a skip length. `cetcdctl lease
   grant` / `timetolive` leftover-safe-parse field 2. Accepting leftover
   payload as the printed ID is rejected.
+- **LeaseGrant leftover-safe error** — leftover-safe-parses
+  LeaseGrantResponse.error so leftover length-delimited bytes cannot
+  steal a printed grant error. A truncated error fail-closes (cannot
+  print leftover text). Dummy `0x00` is not a skip length.
+  `cetcdctl lease grant` leftover-safe-parses field 4. Interop-only:
+  cetcd omits field 4 on success (grant failures stay empty frames).
+  Accepting leftover payload as the printed error is rejected.
 - **RoleGet leftover-safe key / permType** — leftover-safe-parses
   AuthRoleGetResponse so leftover length-delimited bytes cannot steal
   a printed Permission key or permType. A truncated perm / key

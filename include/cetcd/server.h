@@ -610,6 +610,17 @@ int cetcd_encode_lease_grant_response(int64_t id, int64_t ttl, uint8_t *out,
                                       size_t cap, size_t *n);
 int cetcd_parse_lease_grant_response(const uint8_t *req, size_t len,
                                      int64_t *id, int64_t *ttl);
+/* leftover-safe LeaseGrantResponse.error (field 4, tag 0x22). omitted /
+ * empty / dummy 0x00 = empty. leftover truncated error is INVAL so a
+ * truncated grant cannot print leftover text. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed grant error. unknown wire types are INVAL.
+ * last error is copied when error/error_cap are set. interop-only:
+ * cetcd omits field 4 on success (grant failures stay empty frames). */
+int cetcd_encode_lease_grant_error(const char *error, uint8_t *out,
+                                   size_t cap, size_t *n);
+int cetcd_parse_lease_grant_error(const uint8_t *req, size_t len, char *error,
+                                  size_t error_cap);
 /* leftover-safe LeaseKeepAliveResponse ID / TTL (same wire as Grant).
  * omitted / empty / dummy 0x00 = id 0 / ttl 0. leftover truncated
  * TTL is INVAL so a truncated keepalive cannot steal a lock interval.

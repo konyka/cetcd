@@ -2231,6 +2231,63 @@ CETCD_TEST_CASE(auto_compact_parse_lease_grant_response) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_lease_grant_error) {
+    uint8_t buf[32];
+    size_t n = 0;
+    char error[16];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_lease_grant_error(NULL, buf, sizeof(buf),
+                                                      &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_lease_grant_error("", buf, sizeof(buf),
+                                                      &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_lease_grant_error("exists", buf,
+                                                      sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_error(buf, n, error,
+                                                     sizeof(error)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(error, "exists");
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_error(NULL, 0, error,
+                                                     sizeof(error)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(error, "");
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_error(dummy, 1, error,
+                                                     sizeof(error)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(error, "");
+
+    /* leftover truncated error cannot print leftover text */
+    uint8_t trunc[] = { 0x22 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_error(trunc, 1, error,
+                                                     sizeof(error)),
+                        CETCD_ERR_INVAL);
+    uint8_t trunc_len[] = { 0x22, 0x0a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_error(trunc_len,
+                                                     sizeof(trunc_len), error,
+                                                     sizeof(error)),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed grant error */
+    uint8_t steal[] = { 0x1a, 0x08, 0x22, 0x06, 'e', 'x', 'i', 's', 't', 's' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_error(steal, sizeof(steal),
+                                                     error, sizeof(error)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(error, "");
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_error(fixed64, 1, error,
+                                                     sizeof(error)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_error(buf, n, NULL, 0),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_lease_ttl_response) {
     uint8_t buf[32];
     size_t n = 0;
@@ -4876,6 +4933,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_status_response),
     CETCD_TEST_ENTRY(auto_compact_parse_status_errors),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_response),
+    CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_error),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_ttl_response),
     CETCD_TEST_ENTRY(auto_compact_parse_authenticate_response),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_succeeded),

@@ -820,6 +820,12 @@ static void parse_status_response(const uint8_t *data, size_t len) {
 }
 
 static void parse_lease_grant_response(const uint8_t *data, size_t len) {
+    char leftover_err[32];
+    leftover_err[0] = '\0';
+    /* leftover-safe: leftover cannot steal a printed grant error */
+    if (cetcd_parse_lease_grant_error(data, len, leftover_err,
+                                      sizeof(leftover_err)) != CETCD_OK)
+        return;
     size_t pos = 0;
     while (pos < len) {
         uint8_t tag = data[pos++];
@@ -833,6 +839,11 @@ static void parse_lease_grant_response(const uint8_t *data, size_t len) {
             /* Skip header (length-delimited) */
             uint64_t l = 0; read_varint(data, len, &pos, &l);
             pos += l;
+        } else if (tag == 0x22) {
+            /* leftover-safe-skip field 4; leftover-safe error is printed */
+            if (cetcd_leftover_safe_skip_field(data, len, &pos, tag)
+                != CETCD_OK)
+                break;
         } else if (tag == 0x00) {
             continue;
         } else if (cetcd_leftover_safe_skip_field(data, len, &pos, tag)
@@ -840,6 +851,8 @@ static void parse_lease_grant_response(const uint8_t *data, size_t len) {
             break;
         }
     }
+    if (leftover_err[0])
+        printf("error: %s\n", leftover_err);
 }
 
 static void parse_lease_ttl_response(const uint8_t *data, size_t len) {
@@ -2197,20 +2210,44 @@ static int cmd_lease(int argc, char **argv) {
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) {
             int64_t lid = 0, ttl = 0;
+            char leftover_err[32];
+            leftover_err[0] = '\0';
             /* leftover-safe: leftover cannot steal a printed grant ID */
             if (cetcd_parse_lease_grant_response(resp, (size_t)rlen, &lid, &ttl)
                 != CETCD_OK) {
                 fprintf(stderr, "request failed\n");
                 return 1;
             }
+            /* leftover-safe: leftover cannot steal a printed grant error */
+            if (cetcd_parse_lease_grant_error(resp, (size_t)rlen, leftover_err,
+                                              sizeof(leftover_err))
+                != CETCD_OK) {
+                fprintf(stderr, "request failed\n");
+                return 1;
+            }
             fputs("{", stdout);
             parse_and_print_header_json(resp, (size_t)rlen);
-            printf(",\"ID\":%llu,\"TTL\":%llu}\n",
+            printf(",\"ID\":%llu,\"TTL\":%llu",
                    (unsigned long long)lid, (unsigned long long)ttl);
+            if (leftover_err[0]) {
+                fputs(",\"error\":", stdout);
+                print_json_string((const uint8_t *)leftover_err,
+                                  strlen(leftover_err));
+            }
+            fputs("}\n", stdout);
         } else if (want_fields) {
             int64_t lid = 0, ttl = 0;
+            char leftover_err[32];
+            leftover_err[0] = '\0';
             /* leftover-safe: leftover cannot steal a printed grant ID */
             if (cetcd_parse_lease_grant_response(resp, (size_t)rlen, &lid, &ttl)
+                != CETCD_OK) {
+                fprintf(stderr, "request failed\n");
+                return 1;
+            }
+            /* leftover-safe: leftover cannot steal a printed grant error */
+            if (cetcd_parse_lease_grant_error(resp, (size_t)rlen, leftover_err,
+                                              sizeof(leftover_err))
                 != CETCD_OK) {
                 fprintf(stderr, "request failed\n");
                 return 1;
@@ -2218,6 +2255,8 @@ static int cmd_lease(int argc, char **argv) {
             parse_and_print_header_json(resp, (size_t)rlen);
             printf("ID: %llu\n", (unsigned long long)lid);
             printf("TTL: %llu\n", (unsigned long long)ttl);
+            if (leftover_err[0])
+                printf("error: %s\n", leftover_err);
             fputs("\n", stdout);
         } else {
             parse_lease_grant_response(resp, rlen);
@@ -4066,15 +4105,20 @@ static int cmd_lock(int argc, char **argv) {
     if (glen < 0) { fprintf(stderr, "lease grant failed\n"); return 1; }
 
     /* leftover-safe: leftover cannot steal a grant ID (field 2 0x10).
-     * tag 0x08 is not the grant ID. */
+     * tag 0x08 is not the grant ID. leftover truncated error fail-closes. */
     int64_t lease_id = 0, grant_ttl = 0;
+    char leftover_err[32];
+    leftover_err[0] = '\0';
     if (cetcd_parse_lease_grant_response(grant_resp, (size_t)glen,
                                          &lease_id, &grant_ttl) != CETCD_OK
+        || cetcd_parse_lease_grant_error(grant_resp, (size_t)glen, leftover_err,
+                                         sizeof(leftover_err)) != CETCD_OK
         || lease_id == 0) {
         fprintf(stderr, "failed to get lease ID\n");
         return 1;
     }
     (void)grant_ttl;
+    (void)leftover_err;
 
     /* Step 2: Txn: Compare(key, CREATE, EQUAL, 0) → success: Put(key, "", lease) */
     /* Build Compare message:
@@ -4302,13 +4346,18 @@ static int cmd_elect(int argc, char **argv) {
     if (glen < 0) { fprintf(stderr, "lease grant failed\n"); return 1; }
 
     int64_t lease_id = 0, grant_ttl = 0;
+    char leftover_err[32];
+    leftover_err[0] = '\0';
     if (cetcd_parse_lease_grant_response(grant_resp, (size_t)glen,
                                          &lease_id, &grant_ttl) != CETCD_OK
+        || cetcd_parse_lease_grant_error(grant_resp, (size_t)glen, leftover_err,
+                                         sizeof(leftover_err)) != CETCD_OK
         || lease_id == 0) {
         fprintf(stderr, "failed to get lease ID\n");
         return 1;
     }
     (void)grant_ttl;
+    (void)leftover_err;
 
     /* Step 2: Txn: Compare(key, CREATE, EQUAL, 0) -> success: Put(key, proposal, lease) */
     uint8_t cmp_buf[512];
