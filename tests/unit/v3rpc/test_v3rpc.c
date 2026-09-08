@@ -980,6 +980,30 @@ CETCD_TEST_CASE(v3rpc_txn) {
     CETCD_ASSERT_TRUE(resp.data == NULL);
     cetcd_rpc_bytes_free(&resp);
 
+    /* leftover truncated success op cannot look like an empty txn */
+    uint8_t trunc_txn_op[] = { 0x12 };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", trunc_txn_op, 1);
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover cannot inject an extra success Put */
+    uint8_t steal_txn[] = { 0x22, 0x08, 0x12, 0x06, 0x0a, 0x01, 'x',
+                            0x12, 0x01, '1' };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", steal_txn,
+                                sizeof(steal_txn));
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+    uint8_t range_x[8]; size_t rx = 0;
+    range_x[rx++] = 0x0a; range_x[rx++] = 0x01; range_x[rx++] = 'x';
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_x, rx);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found_x = 0;
+    for (size_t i = 0; i < resp.len; i++) {
+        if (resp.data[i] == 'x') { found_x = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(!found_x);
+    cetcd_rpc_bytes_free(&resp);
+
     cetcd_v3rpc_free(rpc);
 }
 

@@ -2186,6 +2186,44 @@ CETCD_TEST_CASE(auto_compact_parse_txn_compare) {
     CETCD_ASSERT_EQ_INT(cetcd_parse_txn_compare(buf, n, NULL), CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_txn_request) {
+    size_t nc = 9, ns = 9, nf = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_request(NULL, 0, NULL, &ns, &nf),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_request(NULL, 0, &nc, &ns, &nf),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(nc == 0 && ns == 0 && nf == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_request(dummy, 1, &nc, &ns, &nf),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ns == 0);
+
+    uint8_t one_ok[] = { 0x12, 0x08, 0x12, 0x06, 0x0a, 0x01, 'k',
+                         0x12, 0x01, 'v' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_request(one_ok, sizeof(one_ok),
+                                               &nc, &ns, &nf),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ns == 1 && nc == 0 && nf == 0);
+
+    /* leftover truncated success op cannot look like an empty txn */
+    uint8_t trunc[] = { 0x12 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_request(trunc, 1, &nc, &ns, &nf),
+                        CETCD_ERR_INVAL);
+
+    /* leftover length-delimited payload cannot inject a success op */
+    uint8_t steal[] = { 0x22, 0x08, 0x12, 0x06, 0x0a, 0x01, 'x',
+                        0x12, 0x01, '1' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_request(steal, sizeof(steal),
+                                               &nc, &ns, &nf),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ns == 0 && nc == 0 && nf == 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_request(fixed64, 1, &nc, &ns, &nf),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_compact_argv) {
     int physical = 0;
     int64_t rev = 0;
@@ -2803,6 +2841,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_auth_name_pass_request),
     CETCD_TEST_ENTRY(auto_compact_parse_user_add_request),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_compare),
+    CETCD_TEST_ENTRY(auto_compact_parse_txn_request),
     CETCD_TEST_ENTRY(auto_compact_parse_compact_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_defrag_argv),

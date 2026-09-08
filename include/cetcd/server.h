@@ -362,6 +362,15 @@ int cetcd_encode_txn_compare(const uint8_t *key, size_t key_len, int result,
                              size_t cap, size_t *n);
 int cetcd_parse_txn_compare(const uint8_t *req, size_t len,
                             cetcd_txn_compare *out);
+/* leftover-safe TxnRequest field counts. omitted / empty / dummy
+ * 0x00 = 0 ops. leftover truncated varint/bytes is INVAL so a
+ * truncated success op cannot look like an empty txn. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot inject an extra success/failure op. unknown wire types
+ * are INVAL. */
+int cetcd_parse_txn_request(const uint8_t *req, size_t len,
+                            size_t *n_compare, size_t *n_success,
+                            size_t *n_failure);
 /* MemberRemove/Promote field 1 (ID). 0 is INVAL. */
 int cetcd_encode_member_id_request(uint64_t id, uint8_t *out, size_t cap,
                                    size_t *n);

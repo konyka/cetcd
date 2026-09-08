@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 134 — leftover-safe Txn Compare</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 135 — leftover-safe TxnRequest ops</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 134 leftover-safe-parses
-     Txn Compare so leftover length-delimited bytes cannot steal result
-     and flip a CAS.</p>
+  <p><strong>v0.3.0</strong>. Phase 135 leftover-safe-parses
+     TxnRequest so leftover length-delimited bytes cannot inject an extra
+     success or failure op.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -187,6 +187,7 @@
       <tr><td>132</td><td>leftover-safe Authenticate</td><td>Authenticate leftover-safe-parses so leftover length-delimited bytes cannot steal a name or password; truncated password fail-closes (cannot look like a name-only authenticate); dummy 0x00 / omitted is empty — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>133</td><td>leftover-safe UserAdd password</td><td>UserAdd leftover-safe-parses so leftover length-delimited bytes cannot steal a password or no_password; UserChangePassword leftover-safe-parses the same name/password; truncated password/options fail-closes — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>134</td><td>leftover-safe Txn Compare</td><td>Txn Compare leftover-safe-parses so leftover length-delimited bytes cannot steal result and flip a CAS; truncated result fail-closes the whole Txn (cannot look like EQUAL); dummy 0x00 / omitted is EQUAL — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>135</td><td>leftover-safe TxnRequest ops</td><td>TxnRequest leftover-safe-parses so leftover length-delimited bytes cannot inject an extra success/failure op; truncated success-op length fail-closes (cannot look like an empty txn); dummy 0x00 / omitted is 0 ops — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

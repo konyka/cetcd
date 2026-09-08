@@ -1570,32 +1570,44 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
                 }
                 n_compares++;
             }
-        } else if (tag == 0x12) {
-            /* Success op */
-            uint64_t olen = 0;
-            if (read_varint(req, req_len, &pos, &olen) != 0) break;
-            if (pos + olen > req_len) break;
-            n_success_raw++;
-            if (n_success < TXN_MAX_OPS) {
-                success_ops[n_success].data = req + pos;
-                success_ops[n_success].len  = (size_t)olen;
-                n_success++;
+        } else if (tag == 0x12 || tag == 0x1a) {
+            /* Success / failure op — leftover-safe so leftover cannot inject */
+            const uint8_t *op_bytes = NULL;
+            size_t op_len = 0;
+            if (leftover_safe_ldelim_(req, req_len, &pos, &op_bytes, &op_len) != 0) {
+                cmp_bad = 1;
+                break;
             }
-            pos += (size_t)olen;
-        } else if (tag == 0x1a) {
-            /* Failure op */
-            uint64_t flen = 0;
-            if (read_varint(req, req_len, &pos, &flen) != 0) break;
-            if (pos + flen > req_len) break;
-            n_failure_raw++;
-            if (n_failure < TXN_MAX_OPS) {
-                failure_ops[n_failure].data = req + pos;
-                failure_ops[n_failure].len  = (size_t)flen;
-                n_failure++;
+            if (tag == 0x12) {
+                n_success_raw++;
+                if (n_success < TXN_MAX_OPS) {
+                    success_ops[n_success].data = op_bytes;
+                    success_ops[n_success].len = op_len;
+                    n_success++;
+                }
+            } else {
+                n_failure_raw++;
+                if (n_failure < TXN_MAX_OPS) {
+                    failure_ops[n_failure].data = op_bytes;
+                    failure_ops[n_failure].len = op_len;
+                    n_failure++;
+                }
             }
-            pos += (size_t)flen;
+        } else if ((tag & 7) == 0) {
+            if (leftover_safe_varint_(req, req_len, &pos, NULL) != 0) {
+                cmp_bad = 1;
+                break;
+            }
+        } else if ((tag & 7) == 2) {
+            const uint8_t *pl = NULL;
+            size_t pln = 0;
+            if (leftover_safe_ldelim_(req, req_len, &pos, &pl, &pln) != 0) {
+                cmp_bad = 1;
+                break;
+            }
         } else {
-            uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
+            cmp_bad = 1;
+            break;
         }
     }
     if (cmp_bad)

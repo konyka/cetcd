@@ -898,6 +898,7 @@ Put leftover-safe-parses field 3 so leftover length-delimited bytes cannot steal
 DeleteRange leftover-safe-parses field 2 so leftover length-delimited bytes cannot steal `range_end` and turn a point delete into a range delete (truncated `range_end` fail-closes; dummy `0x00` / omitted = empty range_end).
 Txn leftover-safe-parses embedded Put/Range/DeleteRange so leftover length-delimited bytes cannot steal `lease` / `rev` / `range_end` (truncated inner field fail-closes the whole Txn).
 Txn Compare leftover-safe-parses so leftover length-delimited bytes cannot steal `result` and flip a CAS (truncated result fail-closes; dummy `0x00` / omitted is EQUAL).
+TxnRequest leftover-safe-parses so leftover length-delimited bytes cannot inject an extra success/failure op (truncated success-op length fail-closes).
 Authenticate leftover-safe-parses field 1/2 so leftover length-delimited bytes cannot steal a name or password (truncated password fail-closes; dummy `0x00` / omitted = empty).
 UserAdd leftover-safe-parses so leftover length-delimited bytes cannot steal a password or `no_password` (truncated password / options fail-closes). UserChangePassword leftover-safe-parses the same name/password fields.
 `cetcdctl watch --start-rev` must be an integer `>= 0`; leftover text fail-closes instead of starting at a truncated revision.

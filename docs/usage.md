@@ -367,6 +367,7 @@ fail-close. `--prefix=false` does not eat the key.
 # leftover length-delimited bytes cannot steal range_end and turn a point delete into a range delete
 # leftover Txn-embedded Put/Range/DeleteRange cannot steal lease/rev/range_end (truncated inner field fail-closes the txn)
 # leftover Txn Compare cannot steal result and flip a CAS (truncated result fail-closes)
+# leftover TxnRequest cannot inject an extra success Put (truncated success-op length fail-closes)
 ```
 
 ### Watch streaming

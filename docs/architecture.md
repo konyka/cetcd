@@ -774,7 +774,9 @@ top-level handlers so leftover length-delimited bytes cannot steal `lease` /
 `rev` / `range_end`; a truncated inner field fail-closes the whole Txn.
 Txn Compare leftover-safe-parses so leftover length-delimited bytes cannot steal
 `result` and flip a CAS; a truncated result fail-closes the whole Txn. Dummy
-`0x00` / omitted is EQUAL.
+`0x00` / omitted is EQUAL. TxnRequest leftover-safe-parses so leftover
+length-delimited bytes cannot inject an extra success/failure op; a truncated
+success-op length fail-closes (cannot look like an empty txn).
 The `Txn` handler now evaluates `Compare` clauses against the MVCC store — supporting
 `EQUAL`/`GREATER`/`LESS`/`NOT_EQUAL` operators on `VERSION`, `CREATE`, `MOD`, `VALUE`, and
 `LEASE` targets — and executes success or failure ops accordingly, returning a complete

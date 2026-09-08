@@ -716,6 +716,11 @@ Performance-first, fail-closed design:
   a CAS. A truncated result varint fail-closes the whole Txn (cannot
   look like EQUAL). Dummy `0x00` / omitted is EQUAL. Accepting leftover
   payload as the result is rejected.
+- **TxnRequest leftover-safe ops** — leftover-safe-parses TxnRequest
+  so leftover length-delimited bytes cannot inject an extra
+  success/failure op. A truncated success-op length fail-closes
+  (cannot look like an empty txn). Dummy `0x00` / omitted is 0 ops.
+  Accepting leftover payload as a success Put is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`
