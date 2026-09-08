@@ -1028,6 +1028,13 @@ Performance-first, fail-closed design:
   UserList / RoleList leftover-safe-parse first so a truncated name
   fail-closes. Accepting leftover payload as the printed permType or
   name is rejected.
+- **RoleGet leftover-safe perm key** — leftover-safe-parses
+  AuthRoleGetResponse Permission.key so leftover length-delimited
+  bytes cannot steal a printed perm key. A truncated perm key
+  fail-closes (cannot print leftover text). Dummy `0x00` is not a
+  skip length. Tag `0x0a` header is not perm key. `cetcdctl role
+  get` leftover-safe-parses field 2 inside Permission. Accepting
+  leftover payload as the printed key is rejected.
 - **Watch leftover-safe event key** — leftover-safe-parses
   WatchResponse so leftover length-delimited bytes cannot steal a
   printed Event key or type. A truncated event / kv / key fail-closes

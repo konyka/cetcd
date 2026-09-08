@@ -6523,6 +6523,16 @@ static int cmd_role(int argc, char **argv) {
                 return 1;
             }
             (void)leftover_pt;
+            char leftover_pk[256];
+            leftover_pk[0] = '\0';
+            /* leftover-safe: leftover cannot steal a printed perm key */
+            if (cetcd_parse_role_get_perm_key(resp, (size_t)rlen, leftover_pk,
+                                              sizeof(leftover_pk))
+                != CETCD_OK) {
+                fprintf(stderr, "request failed\n");
+                return 1;
+            }
+            (void)leftover_pk;
         }
         if (want_fields) {
             parse_and_print_header_json(resp, (size_t)rlen);

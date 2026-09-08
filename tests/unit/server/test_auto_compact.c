@@ -3664,6 +3664,67 @@ CETCD_TEST_CASE(auto_compact_parse_role_get_perm_type) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_role_get_perm_key) {
+    uint8_t buf[32];
+    size_t n = 0;
+    char key[16];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_role_get_perm_key("", buf, sizeof(buf),
+                                                      &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_role_get_perm_key("ok", buf, sizeof(buf),
+                                                      &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_perm_key(buf, n, key, sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "ok");
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_perm_key(NULL, 0, key,
+                                                      sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "");
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_perm_key(dummy, 1, key,
+                                                      sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "");
+
+    /* leftover truncated perm key cannot print leftover text */
+    uint8_t trunc[] = { 0x12, 0x01, 0x12 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_perm_key(trunc, sizeof(trunc),
+                                                      key, sizeof(key)),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed perm key */
+    uint8_t steal[] = { 0x12, 0x06, 0x32, 0x04, 0x12, 0x02, 'o', 'k' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_perm_key(steal, sizeof(steal),
+                                                      key, sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "");
+
+    /* leftover header is not perm key */
+    uint8_t header[] = { 0x0a, 0x04, 0x12, 0x02, 'x', 'y' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_perm_key(header, sizeof(header),
+                                                      key, sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "");
+
+    uint8_t last[] = { 0x12, 0x04, 0x12, 0x02, 'a', 'a',
+                       0x12, 0x04, 0x12, 0x02, 'b', 'b' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_perm_key(last, sizeof(last), key,
+                                                      sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "bb");
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_perm_key(fixed64, 1, key,
+                                                      sizeof(key)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_perm_key(buf, n, NULL, 0),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_watch_response) {
     uint8_t buf[32];
     size_t n = 0, got = 9;
@@ -7253,6 +7314,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_role_get_response),
     CETCD_TEST_ENTRY(auto_compact_parse_role_get_range_end),
     CETCD_TEST_ENTRY(auto_compact_parse_role_get_perm_type),
+    CETCD_TEST_ENTRY(auto_compact_parse_role_get_perm_key),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_response),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_event_kv_lease),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_event_kv_version),

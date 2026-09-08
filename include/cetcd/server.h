@@ -959,6 +959,18 @@ int cetcd_encode_role_get_perm_type(int perm_type, uint8_t *out, size_t cap,
                                     size_t *n);
 int cetcd_parse_role_get_perm_type(const uint8_t *req, size_t len,
                                    int *perm_type);
+/* leftover-safe RoleGet Permission.key (field 2, tag 0x12 inside
+ * field 2, tag 0x12). omitted / empty / dummy 0x00 = empty key.
+ * leftover truncated perm key is INVAL so a truncated get cannot
+ * print leftover text as the key. leftover length-delimited fields
+ * are skipped by payload so leftover bytes cannot steal a printed
+ * key (tag 0x0a header is not perm key). unknown wire types are
+ * INVAL. last key is copied when key/key_cap are set. proto3
+ * omitted key is empty. */
+int cetcd_encode_role_get_perm_key(const char *key, uint8_t *out, size_t cap,
+                                   size_t *n);
+int cetcd_parse_role_get_perm_key(const uint8_t *req, size_t len, char *key,
+                                  size_t key_cap);
 /* leftover-safe WatchResponse last Event key. omitted / empty /
  * dummy 0x00 = 0 events / PUT / empty key. leftover truncated
  * event / kv / key is INVAL so a truncated watch cannot print a
