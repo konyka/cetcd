@@ -336,6 +336,32 @@ int cetcd_encode_user_add_request(const uint8_t *name, size_t name_len,
                                   size_t *n);
 int cetcd_parse_user_add_request(const uint8_t *req, size_t len,
                                  cetcd_user_add_request *out);
+/* leftover-safe Txn Compare. omitted / empty / dummy 0x00 = result
+ * EQUAL / target VERSION / empty key. leftover truncated varint/bytes
+ * is INVAL so a truncated result cannot look like EQUAL. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal result and flip a CAS. unknown wire types are INVAL.
+ * key / value / range_end are malloced. */
+typedef struct cetcd_txn_compare {
+    int result;
+    int target;
+    uint8_t *key;
+    size_t key_len;
+    int64_t version;
+    int64_t create_revision;
+    int64_t mod_revision;
+    uint8_t *value;
+    size_t value_len;
+    int64_t lease;
+    uint8_t *range_end;
+    size_t range_end_len;
+} cetcd_txn_compare;
+void cetcd_txn_compare_clear(cetcd_txn_compare *c);
+int cetcd_encode_txn_compare(const uint8_t *key, size_t key_len, int result,
+                             int target, int64_t version, uint8_t *out,
+                             size_t cap, size_t *n);
+int cetcd_parse_txn_compare(const uint8_t *req, size_t len,
+                            cetcd_txn_compare *out);
 /* MemberRemove/Promote field 1 (ID). 0 is INVAL. */
 int cetcd_encode_member_id_request(uint64_t id, uint8_t *out, size_t cap,
                                    size_t *n);

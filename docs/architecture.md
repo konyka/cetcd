@@ -559,7 +559,7 @@ requires this node to be leader (same fail-closed empty body as a follower Range
 The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/keepalive`,
 `member add/remove/update/promote`, `user delete/change-password/grant-role/revoke-role`,
 `role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix/--keys-only/--rev` (`--rev`/`--limit`/`--*-mod-rev`/`--*-create-rev` must be integers `>= 0`; leftover text fail-closes); Range leftover-safe-parses so leftover length-delimited bytes cannot steal `rev` / `limit` (truncated `--rev` fail-closes),
-`del --prefix/--prev-kv` (DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal `range_end` and turn a point delete into a range delete; truncated `range_end` fail-closes), `put --prev-kv`, `watch --prefix/--prev-kv/--start-rev` (`--start-rev` must be an integer `>= 0`; leftover text fail-closes), `txn cas` (compare-and-swap),
+`del --prefix/--prev-kv` (DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal `range_end` and turn a point delete into a range delete; truncated `range_end` fail-closes), `put --prev-kv`, `watch --prefix/--prev-kv/--start-rev` (`--start-rev` must be an integer `>= 0`; leftover text fail-closes), `txn cas` (compare-and-swap; leftover-safe so leftover cannot steal Compare result and flip a CAS),
 `auth login` (token-based authentication; Authenticate leftover-safe-parses so leftover length-delimited bytes cannot steal a name or password; truncated password fail-closes), `user add` / `user passwd` leftover-safe-parses so leftover cannot steal a password or `no_password`, `get --count-only/--limit N/--sort-by/--sort-order/--print-value-only`,
 `put --ignore-value/--ignore-lease`, `get/del KEY RANGE_END` (positional range_end argument),
 `get/del --from-key` (unbounded range queries), `put --lease ID` (attach lease to key; leftover `10foo` fail-closes; `--lease=1` accepted),
@@ -772,6 +772,9 @@ result — matching etcd ErrCompacted; `revision == compacted_rev` remains reada
 Txn-embedded Put/Range/DeleteRange leftover-safe-parses the same way as the
 top-level handlers so leftover length-delimited bytes cannot steal `lease` /
 `rev` / `range_end`; a truncated inner field fail-closes the whole Txn.
+Txn Compare leftover-safe-parses so leftover length-delimited bytes cannot steal
+`result` and flip a CAS; a truncated result fail-closes the whole Txn. Dummy
+`0x00` / omitted is EQUAL.
 The `Txn` handler now evaluates `Compare` clauses against the MVCC store — supporting
 `EQUAL`/`GREATER`/`LESS`/`NOT_EQUAL` operators on `VERSION`, `CREATE`, `MOD`, `VALUE`, and
 `LEASE` targets — and executes success or failure ops accordingly, returning a complete

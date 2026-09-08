@@ -2785,6 +2785,66 @@ CETCD_TEST_CASE(v3rpc_txn_cas_match) {
     CETCD_ASSERT_TRUE(succeeded_val);
 
     cetcd_rpc_bytes_free(&resp);
+
+    /* leftover truncated Compare result cannot look like EQUAL */
+    uint8_t trunc_cmp[] = { 0x1a, 0x01, 'k', 0x08 };
+    uint8_t trunc_txn[16]; size_t tt = 0;
+    trunc_txn[tt++] = 0x0a;
+    trunc_txn[tt++] = (uint8_t)sizeof(trunc_cmp);
+    memcpy(trunc_txn + tt, trunc_cmp, sizeof(trunc_cmp)); tt += sizeof(trunc_cmp);
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", trunc_txn, tt);
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover cannot steal Compare result and flip a CAS.
+     * missing key version==0 EQUAL succeeds; leftover-unsafe NOT_EQUAL fails. */
+    uint8_t steal_cmp[] = { 0x1a, 0x01, 'k', 0x20, 0x00, 0x52, 0x02, 0x08, 0x03 };
+    uint8_t sput[8]; size_t sp = 0;
+    sput[sp++] = 0x0a; sput[sp++] = 0x01; sput[sp++] = 's';
+    sput[sp++] = 0x12; sput[sp++] = 0x01; sput[sp++] = '1';
+    uint8_t sop[12]; size_t so = 0;
+    sop[so++] = 0x12; sop[so++] = (uint8_t)sp;
+    memcpy(sop + so, sput, sp); so += sp;
+    uint8_t fput[8]; size_t fp = 0;
+    fput[fp++] = 0x0a; fput[fp++] = 0x01; fput[fp++] = 'f';
+    fput[fp++] = 0x12; fput[fp++] = 0x01; fput[fp++] = '2';
+    uint8_t fop[12]; size_t fo = 0;
+    fop[fo++] = 0x12; fop[fo++] = (uint8_t)fp;
+    memcpy(fop + fo, fput, fp); fo += fp;
+    uint8_t steal_txn[48]; size_t st = 0;
+    steal_txn[st++] = 0x0a;
+    steal_txn[st++] = (uint8_t)sizeof(steal_cmp);
+    memcpy(steal_txn + st, steal_cmp, sizeof(steal_cmp)); st += sizeof(steal_cmp);
+    steal_txn[st++] = 0x12;
+    steal_txn[st++] = (uint8_t)so;
+    memcpy(steal_txn + st, sop, so); st += so;
+    steal_txn[st++] = 0x1a;
+    steal_txn[st++] = (uint8_t)fo;
+    memcpy(steal_txn + st, fop, fo); st += fo;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", steal_txn, st);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+    uint8_t range_s[8]; size_t rs = 0;
+    range_s[rs++] = 0x0a; range_s[rs++] = 0x01; range_s[rs++] = 's';
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_s, rs);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found_s = 0;
+    for (size_t i = 0; i < resp.len; i++) {
+        if (resp.data[i] == 's') { found_s = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(found_s);
+    cetcd_rpc_bytes_free(&resp);
+    uint8_t range_f[8]; size_t rf = 0;
+    range_f[rf++] = 0x0a; range_f[rf++] = 0x01; range_f[rf++] = 'f';
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_f, rf);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found_f = 0;
+    for (size_t i = 0; i < resp.len; i++) {
+        if (resp.data[i] == 'f') { found_f = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(!found_f);
+    cetcd_rpc_bytes_free(&resp);
+
     cetcd_v3rpc_free(rpc);
 }
 

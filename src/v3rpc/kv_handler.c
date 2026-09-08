@@ -84,6 +84,27 @@ static int leftover_safe_ldelim_(const uint8_t *buf, size_t len, size_t *pos,
     return 0;
 }
 
+static int leftover_safe_varint_(const uint8_t *buf, size_t len, size_t *pos,
+                                 uint64_t *out) {
+    uint64_t v = 0;
+    int shift = 0;
+    int got = 0;
+    if (!buf || !pos) return -1;
+    while (*pos < len) {
+        uint8_t b = buf[(*pos)++];
+        v |= (uint64_t)(b & 0x7F) << shift;
+        if ((b & 0x80) == 0) {
+            got = 1;
+            break;
+        }
+        shift += 7;
+        if (shift > 63) return -1;
+    }
+    if (!got) return -1;
+    if (out) *out = v;
+    return 0;
+}
+
 static int write_varint_local(uint8_t *buf, size_t cap, size_t *pos, uint64_t val) {
     while (*pos < cap) {
         uint8_t b = val & 0x7F;
@@ -1328,6 +1349,95 @@ typedef struct {
     int64_t  lease;
 } txn_compare_t;
 
+static void txn_compare_clear_(txn_compare_t *c) {
+    if (!c) return;
+    free(c->key);
+    free(c->value);
+    free(c->range_end);
+    memset(c, 0, sizeof(*c));
+}
+
+/* leftover-safe Compare. v3rpc cannot link server. */
+static int parse_txn_compare_(const uint8_t *req, size_t len, txn_compare_t *out) {
+    size_t p = 0;
+    if (!out) return -1;
+    memset(out, 0, sizeof(*out));
+    if (!req || len == 0) return 0;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x08 || tag == 0x10 || tag == 0x20 || tag == 0x28 ||
+            tag == 0x30 || tag == 0x40) {
+            uint64_t v = 0;
+            if (leftover_safe_varint_(req, len, &p, &v) != 0) {
+                txn_compare_clear_(out);
+                return -1;
+            }
+            if (tag == 0x08) out->result = (int)v;
+            else if (tag == 0x10) out->target = (int)v;
+            else if (tag == 0x20) out->version = (int64_t)v;
+            else if (tag == 0x28) out->create_revision = (int64_t)v;
+            else if (tag == 0x30) out->mod_revision = (int64_t)v;
+            else out->lease = (int64_t)v;
+            continue;
+        }
+        if (tag == 0x1a || tag == 0x3a || tag == 0x4a) {
+            const uint8_t *pl = NULL;
+            size_t pln = 0;
+            if (leftover_safe_ldelim_(req, len, &p, &pl, &pln) != 0) {
+                txn_compare_clear_(out);
+                return -1;
+            }
+            if (pln == 0) {
+                if (tag == 0x1a) {
+                    free(out->key); out->key = NULL; out->key_len = 0;
+                } else if (tag == 0x3a) {
+                    free(out->value); out->value = NULL; out->value_len = 0;
+                } else {
+                    free(out->range_end); out->range_end = NULL;
+                    out->range_end_len = 0;
+                }
+                continue;
+            }
+            uint8_t *copy = (uint8_t *)malloc(pln);
+            if (!copy) {
+                txn_compare_clear_(out);
+                return -1;
+            }
+            memcpy(copy, pl, pln);
+            if (tag == 0x1a) {
+                free(out->key); out->key = copy; out->key_len = pln;
+            } else if (tag == 0x3a) {
+                free(out->value); out->value = copy; out->value_len = pln;
+            } else {
+                free(out->range_end); out->range_end = copy;
+                out->range_end_len = pln;
+            }
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            if (leftover_safe_varint_(req, len, &p, NULL) != 0) {
+                txn_compare_clear_(out);
+                return -1;
+            }
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            const uint8_t *pl = NULL;
+            size_t pln = 0;
+            if (leftover_safe_ldelim_(req, len, &p, &pl, &pln) != 0) {
+                txn_compare_clear_(out);
+                return -1;
+            }
+            continue;
+        }
+        txn_compare_clear_(out);
+        return -1;
+    }
+    return 0;
+}
+
 typedef struct {
     const uint8_t *data;
     size_t         len;
@@ -1440,45 +1550,26 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
     memset(compares, 0, sizeof(compares));
 
     /* --- Phase 1: Parse the request into compares, success ops, failure ops --- */
+    int cmp_bad = 0;
     size_t pos = 0;
     while (pos < req_len) {
         uint8_t tag = req[pos++];
         if (tag == 0x0a) {
-            /* Compare clause */
-            uint64_t clen = 0;
-            if (read_varint(req, req_len, &pos, &clen) != 0) break;
-            size_t cend = pos + (size_t)clen;
-            if (cend > req_len) cend = req_len;
+            /* Compare — leftover-safe so leftover cannot steal result */
+            const uint8_t *cmp_bytes = NULL;
+            size_t cmp_len = 0;
+            if (leftover_safe_ldelim_(req, req_len, &pos, &cmp_bytes, &cmp_len) != 0) {
+                cmp_bad = 1;
+                break;
+            }
             n_compares_raw++;
             if (n_compares < TXN_MAX_OPS) {
-                txn_compare_t *c = &compares[n_compares];
-                while (pos < cend) {
-                    uint8_t ctag = req[pos++];
-                    if (ctag == 0x08) {
-                        uint64_t v = 0; read_varint(req, cend, &pos, &v); c->result = (int)v;
-                    } else if (ctag == 0x10) {
-                        uint64_t v = 0; read_varint(req, cend, &pos, &v); c->target = (int)v;
-                    } else if (ctag == 0x1a) {
-                        read_bytes(req, cend, &pos, &c->key, &c->key_len);
-                    } else if (ctag == 0x20) {
-                        uint64_t v = 0; read_varint(req, cend, &pos, &v); c->version = (int64_t)v;
-                    } else if (ctag == 0x28) {
-                        uint64_t v = 0; read_varint(req, cend, &pos, &v); c->create_revision = (int64_t)v;
-                    } else if (ctag == 0x30) {
-                        uint64_t v = 0; read_varint(req, cend, &pos, &v); c->mod_revision = (int64_t)v;
-                    } else if (ctag == 0x3a) {
-                        read_bytes(req, cend, &pos, &c->value, &c->value_len);
-                    } else if (ctag == 0x40) {
-                        uint64_t v = 0; read_varint(req, cend, &pos, &v); c->lease = (int64_t)v;
-                    } else if (ctag == 0x4a) {
-                        read_bytes(req, cend, &pos, &c->range_end, &c->range_end_len);
-                    } else {
-                        uint64_t skip = 0; read_varint(req, cend, &pos, &skip);
-                    }
+                if (parse_txn_compare_(cmp_bytes, cmp_len, &compares[n_compares]) != 0) {
+                    cmp_bad = 1;
+                    break;
                 }
                 n_compares++;
             }
-            pos = cend;
         } else if (tag == 0x12) {
             /* Success op */
             uint64_t olen = 0;
@@ -1507,6 +1598,8 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
             uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
         }
     }
+    if (cmp_bad)
+        goto txn_cleanup;
 
     /* etcd ErrTooManyOps: max(compare, success, failure) > MaxTxnOps */
     {

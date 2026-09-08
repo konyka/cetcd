@@ -711,6 +711,11 @@ Performance-first, fail-closed design:
   the same name/password fields. A truncated password / options
   fail-closes (cannot look like a name-only add). Accepting leftover
   payload as the password is rejected.
+- **Txn Compare leftover-safe result** — leftover-safe-parses Compare
+  so leftover length-delimited bytes cannot steal `result` and flip
+  a CAS. A truncated result varint fail-closes the whole Txn (cannot
+  look like EQUAL). Dummy `0x00` / omitted is EQUAL. Accepting leftover
+  payload as the result is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

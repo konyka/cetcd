@@ -2144,6 +2144,48 @@ CETCD_TEST_CASE(auto_compact_parse_user_add_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_txn_compare) {
+    uint8_t buf[32];
+    size_t n = 0;
+    cetcd_txn_compare c;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_txn_compare(
+                            NULL, 0, 0, 0, 0, buf, sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_txn_compare(
+                            (const uint8_t *)"k", 1, 3, 0, 0, buf, sizeof(buf),
+                            &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_compare(buf, n, &c), CETCD_OK);
+    CETCD_ASSERT_TRUE(c.key_len == 1 && c.key && c.key[0] == 'k');
+    CETCD_ASSERT_EQ_INT(c.result, 3);
+    cetcd_txn_compare_clear(&c);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_compare(NULL, 0, &c), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(c.result, 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_compare(dummy, 1, &c), CETCD_OK);
+    CETCD_ASSERT_EQ_INT(c.result, 0);
+
+    /* leftover truncated result cannot look like EQUAL */
+    uint8_t trunc[] = { 0x1a, 0x01, 'k', 0x08 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_compare(trunc, 4, &c), CETCD_ERR_INVAL);
+    CETCD_ASSERT_TRUE(c.key == NULL);
+
+    /* leftover length-delimited payload cannot steal result */
+    uint8_t steal[] = { 0x1a, 0x01, 'k', 0x52, 0x02, 0x08, 0x03 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_compare(steal, sizeof(steal), &c),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(c.result, 0);
+    CETCD_ASSERT_TRUE(c.key_len == 1 && c.key && c.key[0] == 'k');
+    cetcd_txn_compare_clear(&c);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_compare(fixed64, 1, &c),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_compare(buf, n, NULL), CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_compact_argv) {
     int physical = 0;
     int64_t rev = 0;
@@ -2760,6 +2802,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_delete_range_request),
     CETCD_TEST_ENTRY(auto_compact_parse_auth_name_pass_request),
     CETCD_TEST_ENTRY(auto_compact_parse_user_add_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_txn_compare),
     CETCD_TEST_ENTRY(auto_compact_parse_compact_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_defrag_argv),

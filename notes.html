@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 133 — leftover-safe UserAdd password</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 134 — leftover-safe Txn Compare</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 133 leftover-safe-parses
-     UserAdd / UserChangePassword so leftover length-delimited bytes
-     cannot steal a password or no_password.</p>
+  <p><strong>v0.3.0</strong>. Phase 134 leftover-safe-parses
+     Txn Compare so leftover length-delimited bytes cannot steal result
+     and flip a CAS.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -186,6 +186,7 @@
       <tr><td>131</td><td>leftover-safe Txn embedded ops</td><td>Txn leftover-safe-parses embedded Put/Range/DeleteRange so leftover length-delimited bytes cannot steal lease/rev/range_end; truncated inner field fail-closes the whole Txn — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>132</td><td>leftover-safe Authenticate</td><td>Authenticate leftover-safe-parses so leftover length-delimited bytes cannot steal a name or password; truncated password fail-closes (cannot look like a name-only authenticate); dummy 0x00 / omitted is empty — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>133</td><td>leftover-safe UserAdd password</td><td>UserAdd leftover-safe-parses so leftover length-delimited bytes cannot steal a password or no_password; UserChangePassword leftover-safe-parses the same name/password; truncated password/options fail-closes — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>134</td><td>leftover-safe Txn Compare</td><td>Txn Compare leftover-safe-parses so leftover length-delimited bytes cannot steal result and flip a CAS; truncated result fail-closes the whole Txn (cannot look like EQUAL); dummy 0x00 / omitted is EQUAL — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>
