@@ -1146,6 +1146,13 @@ Performance-first, fail-closed design:
   length. Tag `0x0a` header is not prev lease. `cetcdctl del --prev-kv`
   leftover-safe-parses field 6 inside prev_kv. Accepting leftover
   payload as the printed prev lease is rejected.
+- **DeleteRange leftover-safe prev_kv version** — leftover-safe-parses
+  DeleteRangeResponse prev_kv version so leftover length-delimited
+  bytes cannot steal a printed prev version. A truncated prev_kv
+  version fail-closes (cannot look like version 0). Dummy `0x00` is
+  not a skip length. Tag `0x0a` header raft_term is not prev version.
+  `cetcdctl del --prev-kv` leftover-safe-parses field 4 inside prev_kv.
+  Accepting leftover payload as the printed prev version is rejected.
 - **auth login leftover-safe printed token** — leftover-safe-parses
   AuthenticateResponse so leftover length-delimited bytes cannot steal
   a printed login token. AuthStatus leftover-safe-parses so leftover

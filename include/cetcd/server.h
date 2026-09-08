@@ -1150,6 +1150,18 @@ int cetcd_encode_delete_range_prev_kv_lease(int64_t lease, uint8_t *out,
                                             size_t cap, size_t *n);
 int cetcd_parse_delete_range_prev_kv_lease(const uint8_t *req, size_t len,
                                            int64_t *lease);
+/* leftover-safe DeleteRangeResponse prev_kv version (field 4, tag 0x20
+ * inside field 3, tag 0x1a). omitted / empty / dummy 0x00 = 0.
+ * leftover truncated prev_kv version is INVAL so a truncated del
+ * cannot look like version 0. leftover length-delimited fields are
+ * skipped by payload so leftover bytes cannot steal a printed prev
+ * version (tag 0x0a header raft_term is not prev version). unknown
+ * wire types are INVAL. last prev version is copied when version is
+ * set. */
+int cetcd_encode_delete_range_prev_kv_version(int64_t version, uint8_t *out,
+                                              size_t cap, size_t *n);
+int cetcd_parse_delete_range_prev_kv_version(const uint8_t *req, size_t len,
+                                             int64_t *version);
 /* leftover-safe DowngradeRequest. omitted / empty / dummy 0x00 =
  * action VALIDATE (0) / empty version. leftover truncated action /
  * version is INVAL so a truncated validate cannot look like ENABLE

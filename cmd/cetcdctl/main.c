@@ -2145,6 +2145,15 @@ static int cmd_del(int argc, char **argv) {
         return 1;
     }
     (void)leftover_prev_lease;
+    int64_t leftover_prev_version = 0;
+    /* leftover-safe: leftover cannot steal a printed prev version */
+    if (cetcd_parse_delete_range_prev_kv_version(resp, (size_t)rlen,
+                                                 &leftover_prev_version)
+        != CETCD_OK) {
+        fprintf(stderr, "request failed\n");
+        return 1;
+    }
+    (void)leftover_prev_version;
     if (want_fields) {
         size_t rpos = 0;
         uint64_t deleted = (uint64_t)leftover_deleted;

@@ -370,6 +370,7 @@ fail-close. `--prefix=false` does not eat the key.
 # leftover-safe: leftover proto bytes cannot steal a printed put/del prev key
 # leftover-safe: leftover proto bytes cannot steal a printed del prev value
 # leftover-safe: leftover proto bytes cannot steal a printed del prev lease
+# leftover-safe: leftover proto bytes cannot steal a printed del prev version
 # leftover-safe: leftover proto bytes cannot steal a printed del count
 # leftover Txn-embedded Put/Range/DeleteRange cannot steal lease/rev/range_end (truncated inner field fail-closes the txn)
 # leftover Txn Compare cannot steal result and flip a CAS (truncated result fail-closes)
