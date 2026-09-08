@@ -986,6 +986,18 @@ int cetcd_encode_watch_event_kv_value(const char *value, uint8_t *out,
                                       size_t cap, size_t *n);
 int cetcd_parse_watch_event_kv_value(const uint8_t *req, size_t len,
                                      char *value, size_t value_cap);
+/* leftover-safe WatchResponse Event KV key (field 1, tag 0x0a inside
+ * Event field 2 / Watch field 11). omitted / empty / dummy 0x00 =
+ * empty key. leftover truncated Event-nested key is INVAL so a
+ * truncated watch cannot print leftover text as the Event key.
+ * leftover length-delimited fields are skipped by payload so leftover
+ * bytes cannot steal a printed Event key (tag 0x0a header is not
+ * Event key). unknown wire types are INVAL. last Event key is
+ * copied when key/key_cap are set. */
+int cetcd_encode_watch_event_kv_key(const char *key, uint8_t *out, size_t cap,
+                                    size_t *n);
+int cetcd_parse_watch_event_kv_key(const uint8_t *req, size_t len, char *key,
+                                   size_t key_cap);
 /* leftover-safe WatchResponse Event prev_kv create_revision (field 2,
  * tag 0x10 inside Event field 3 / Watch field 11). omitted / empty /
  * dummy 0x00 = 0. leftover truncated Event-nested prev_kv

@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 196 — leftover-safe Watch Event KV value</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 197 — leftover-safe Watch Event KV key</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 196 leftover-safe-parses
-     Watch Event KV value so leftover length-delimited bytes cannot
-     steal a printed Event value.</p>
+  <p><strong>v0.3.0</strong>. Phase 197 leftover-safe-parses
+     Watch Event KV key so leftover length-delimited bytes cannot
+     steal a printed Event key.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -249,6 +249,7 @@
       <tr><td>194</td><td>leftover-safe Watch Event prev_kv value</td><td>Watch leftover-safe-parses so leftover length-delimited bytes cannot steal a printed Event prev value; truncated Event-nested prev value fail-closes; header is not prev value; cetcdctl leftover-safe-parses field 5 inside Event prev_kv — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>195</td><td>leftover-safe Range KV value</td><td>Range leftover-safe-parses so leftover length-delimited bytes cannot steal a printed KV value; truncated value fail-closes; header is not value; cetcdctl leftover-safe-parses field 5 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>196</td><td>leftover-safe Watch Event KV value</td><td>Watch leftover-safe-parses so leftover length-delimited bytes cannot steal a printed Event value; truncated Event-nested value fail-closes; header is not Event value; cetcdctl leftover-safe-parses field 5 inside Event — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>197</td><td>leftover-safe Watch Event KV key</td><td>Watch leftover-safe-parses so leftover length-delimited bytes cannot steal a printed Event key; truncated Event-nested key fail-closes; header is not Event key; cetcdctl leftover-safe-parses field 1 inside Event — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

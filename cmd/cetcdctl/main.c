@@ -6761,6 +6761,14 @@ static int print_watch_response(const uint8_t *resp, size_t rlen,
         != CETCD_OK)
         return 0;
     (void)leftover_event_value;
+    char leftover_event_key[128];
+    leftover_event_key[0] = '\0';
+    /* leftover-safe: leftover cannot steal a printed Event key */
+    if (cetcd_parse_watch_event_kv_key(resp, rlen, leftover_event_key,
+                                      sizeof(leftover_event_key))
+        != CETCD_OK)
+        return 0;
+    (void)leftover_event_key;
     int64_t leftover_event_prev_create = 0;
     /* leftover-safe: leftover cannot steal a printed Event prev create_revision */
     if (cetcd_parse_watch_event_prev_kv_create_rev(resp, rlen,

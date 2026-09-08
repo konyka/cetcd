@@ -3873,6 +3873,68 @@ CETCD_TEST_CASE(auto_compact_parse_watch_event_kv_value) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_watch_event_kv_key) {
+    uint8_t buf[32];
+    size_t n = 0;
+    char key[16];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_watch_event_kv_key("", buf, sizeof(buf),
+                                                       &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_watch_event_kv_key("/k", buf, sizeof(buf),
+                                                       &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_kv_key(buf, n, key, sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "/k");
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_kv_key(NULL, 0, key,
+                                                      sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "");
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_kv_key(dummy, 1, key,
+                                                      sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "");
+
+    /* leftover truncated Event-nested key cannot print leftover text */
+    uint8_t trunc[] = { 0x5a, 0x03, 0x12, 0x01, 0x0a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_kv_key(trunc, sizeof(trunc),
+                                                      key, sizeof(key)),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed Event key */
+    uint8_t steal[] = { 0x5a, 0x08, 0x12, 0x06, 0x32, 0x04, 0x0a, 0x02, '/',
+                        'k' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_kv_key(steal, sizeof(steal),
+                                                      key, sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "");
+
+    /* leftover header is not Event key */
+    uint8_t header[] = { 0x0a, 0x04, 0x0a, 0x02, '/', 'h' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_kv_key(header, sizeof(header),
+                                                      key, sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "");
+
+    uint8_t last[] = { 0x5a, 0x06, 0x12, 0x04, 0x0a, 0x02, '/', 'a',
+                       0x5a, 0x06, 0x12, 0x04, 0x0a, 0x02, '/', 'b' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_kv_key(last, sizeof(last), key,
+                                                      sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "/b");
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_kv_key(fixed64, 1, key,
+                                                      sizeof(key)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_kv_key(buf, n, NULL, 0),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_watch_event_prev_kv_create_rev) {
     uint8_t buf[16];
     size_t n = 0;
@@ -6554,6 +6616,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_watch_event_kv_create_rev),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_event_kv_mod_rev),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_event_kv_value),
+    CETCD_TEST_ENTRY(auto_compact_parse_watch_event_kv_key),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_event_prev_kv_create_rev),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_event_prev_kv_mod_rev),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_event_prev_kv_version),
