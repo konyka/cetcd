@@ -2383,6 +2383,56 @@ CETCD_TEST_CASE(v3rpc_downgrade_cancel_fail_closed) {
     cetcd_v3rpc_free(rpc);
 }
 
+CETCD_TEST_CASE(v3rpc_downgrade_leftover_safe) {
+    cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+    const char *ver = cetcd_version();
+    size_t vn = strlen(ver);
+    uint8_t dg_buf[64];
+    size_t pos;
+    cetcd_rpc_bytes resp;
+
+    /* dummy 0x00 is not a length: leftover-unsafe skip ate VALIDATE */
+    pos = 0;
+    dg_buf[pos++] = 0x00;
+    pos += encode_downgrade_(dg_buf + pos, CETCD_DOWNGRADE_VALIDATE, ver);
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Maintenance/Downgrade",
+                                dg_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 2);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover cannot steal ENABLE */
+    dg_buf[0] = 0x1a; dg_buf[1] = 0x02; dg_buf[2] = 0x08; dg_buf[3] = 0x01;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Maintenance/Downgrade",
+                                dg_buf, 4);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover cannot steal version and look like VALIDATE */
+    pos = 0;
+    dg_buf[pos++] = 0x08;
+    dg_buf[pos++] = 0x00;
+    dg_buf[pos++] = 0x22;
+    dg_buf[pos++] = (uint8_t)(vn + 2);
+    dg_buf[pos++] = 0x12;
+    dg_buf[pos++] = (uint8_t)vn;
+    memcpy(dg_buf + pos, ver, vn);
+    pos += vn;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Maintenance/Downgrade",
+                                dg_buf, pos);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover truncated action cannot look like VALIDATE */
+    dg_buf[0] = 0x08;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Maintenance/Downgrade",
+                                dg_buf, 1);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    cetcd_v3rpc_free(rpc);
+}
+
 CETCD_TEST_CASE(v3rpc_auth_user_revoke_role) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
@@ -7010,6 +7060,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(v3rpc_maintenance_downgrade),
     CETCD_TEST_ENTRY(v3rpc_downgrade_validate_current),
     CETCD_TEST_ENTRY(v3rpc_downgrade_cancel_fail_closed),
+    CETCD_TEST_ENTRY(v3rpc_downgrade_leftover_safe),
     CETCD_TEST_ENTRY(v3rpc_auth_user_get),
     CETCD_TEST_ENTRY(v3rpc_auth_role_get),
     CETCD_TEST_ENTRY(v3rpc_auth_role_grant_permission),

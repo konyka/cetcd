@@ -891,6 +891,7 @@ MemberAdd/Update peer URL ports are leftover-safe (`1..65535`; missing → 2380)
 `cetcdctl move-leader TARGET_ID` must be hex `> 0`; leftover text fail-closes instead of transferring to a truncated id. MoveLeader leftover-safe-parses field 1 so a truncated target cannot look like a successful transfer (dummy `0x00` / `0` fail-closes).
 `cetcdctl compact REV` must be `> 0`; leftover text fail-closes instead of compacting to a truncated revision. Unknown leftover flags (`compact 10 --rev 5`) fail-close. Compact leftover-safe-parses field 1 so leftover length-delimited bytes cannot compact a different rev (truncated varint fail-closes; `--physical` is already sync).
 Alarm leftover-safe-parses field 1/2/3 so leftover length-delimited bytes cannot steal ACTIVATE (truncated action fail-closes; dummy `0x00` / omitted is GET).
+Downgrade leftover-safe-parses field 1/2 so leftover length-delimited bytes cannot steal ENABLE or a VALIDATE version (truncated action / version fail-closes; dummy `0x00` is not a skip length).
 `cetcdctl hash` / `status` unknown leftover flags fail-close (`hash --rev` cannot hash the live tree; `status --cluster` cannot report one node).
 `cetcdctl defrag --cluster` leftover-safe-sends linearizable MemberList and defragments every client URL; a swallowed `--cluster` would defrag only the connected member; a follower cannot walk a stale list. `defrag --data-dir` leftover-safe-opens the local LMDB and compact-copies (`--data-dir --cluster` cannot eat a flag as the path; `--cluster` + `--data-dir` fail-close). Other leftover flags fail-close.
 `cetcdctl get --rev` / `--limit` / `--min-mod-rev` and related flags must be integers `>= 0`; leftover text fail-closes instead of a truncated revision. Range leftover-safe-parses field 4 so leftover length-delimited bytes cannot steal `rev` / `limit` (truncated `--rev` fail-closes; dummy `0x00` / omitted = current).
@@ -1176,7 +1177,7 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `role revoke-permission ROLE [TYPE] KEY [ENDKEY]` | 撤销权限（`--from-key` / `--range-end` leftover-safe；未知 leftover `--` fail-close） |
 | `snapshot save [FILE]` | 保存快照到文件 |
 | `snapshot restore FILE --data-dir DIR` | leftover-safe 恢复（`--wal-dir` / `--bump-revision` / `--mark-compacted`；`--data-dir --wal-dir` 不能把 flag 当成路径） |
-| `downgrade enable/cancel/validate` | 仅 `validate <cetcd_version>` 成功；enable/cancel fail-closed |
+| `downgrade enable/cancel/validate` | 仅 `validate <cetcd_version>` 成功；enable/cancel fail-closed。leftover-safe-parses action/version，leftover 不能偷 ENABLE 或 VALIDATE 版本；截断 fail-closes |
 
 ---
 

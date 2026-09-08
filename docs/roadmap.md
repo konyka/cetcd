@@ -747,6 +747,13 @@ Performance-first, fail-closed design:
   (cannot look like a successful add or a voter). Dummy `0x00` /
   omitted is empty / voter. Accepting leftover payload as the peerURL
   is rejected.
+- **Downgrade leftover-safe action/version** — leftover-safe-parses
+  DowngradeRequest so leftover length-delimited bytes cannot steal
+  ENABLE or a VALIDATE version. A truncated action / version
+  fail-closes (cannot look like VALIDATE of `cetcd_version()`). Dummy
+  `0x00` is not a skip length (cannot eat VALIDATE). Omitted / dummy
+  is VALIDATE / empty version. Accepting leftover payload as the
+  action or version is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

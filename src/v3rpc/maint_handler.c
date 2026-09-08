@@ -10,6 +10,8 @@
  *   - MoveLeader: leader transfer request
  *   - Snapshot: returns a snapshot of the KV store
  *   - Downgrade: VALIDATE of cetcd_version() only; ENABLE/CANCEL fail-closed
+ *     leftover-safe: leftover cannot steal action / version;
+ *     truncated action / version fail-closes
  */
 
 #include <stdint.h>
@@ -147,17 +149,6 @@ cetcd_rpc_bytes maint_handle_alarm(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
 cetcd_rpc_bytes maint_handle_move_leader(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes maint_handle_snapshot(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
 cetcd_rpc_bytes maint_handle_downgrade(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
-
-static int read_varint_m(const uint8_t *buf, size_t len, size_t *pos, uint64_t *out) {
-    uint64_t val = 0; int shift = 0;
-    while (*pos < len) {
-        uint8_t b = buf[*pos]; (*pos)++;
-        val |= (uint64_t)(b & 0x7F) << shift;
-        if ((b & 0x80) == 0) { *out = val; return 0; }
-        shift += 7; if (shift > 63) break;
-    }
-    return -1;
-}
 
 static int write_varint_m(uint8_t *buf, size_t cap, size_t *pos, uint64_t val) {
     while (*pos < cap) {
@@ -798,12 +789,84 @@ cetcd_rpc_bytes maint_handle_snapshot(cetcd_v3rpc *rpc, const uint8_t *req, size
     return out;
 }
 
+/* leftover-safe helpers. v3rpc cannot link server. */
+static int leftover_safe_varint_m(const uint8_t *buf, size_t len, size_t *pos,
+                                  uint64_t *out) {
+    uint64_t v = 0;
+    int shift = 0;
+    int got = 0;
+    if (!buf || !pos) return -1;
+    while (*pos < len) {
+        uint8_t b = buf[(*pos)++];
+        v |= (uint64_t)(b & 0x7F) << shift;
+        if ((b & 0x80) == 0) {
+            got = 1;
+            break;
+        }
+        shift += 7;
+        if (shift > 63) return -1;
+    }
+    if (!got) return -1;
+    if (out) *out = v;
+    return 0;
+}
+
+static int leftover_safe_skip_unknown_m(const uint8_t *buf, size_t len,
+                                        size_t *pos, uint8_t tag) {
+    if ((tag & 7) == 0)
+        return leftover_safe_varint_m(buf, len, pos, NULL);
+    if ((tag & 7) == 2) {
+        uint64_t skip = 0;
+        if (leftover_safe_varint_m(buf, len, pos, &skip) != 0) return -1;
+        if (*pos + skip > len) return -1;
+        *pos += (size_t)skip;
+        return 0;
+    }
+    return -1;
+}
+
+/* leftover-safe DowngradeRequest. dummy 0x00 is not a length. */
+static int parse_downgrade_request_(const uint8_t *req, size_t len,
+                                    int *action, char *ver, size_t ver_cap) {
+    size_t p = 0;
+    if (!action || !ver || ver_cap == 0) return -1;
+    *action = 0;
+    ver[0] = '\0';
+    if (!req || len == 0) return 0;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x08) {
+            uint64_t v = 0;
+            if (leftover_safe_varint_m(req, len, &p, &v) != 0) return -1;
+            if (v > 2147483647u) return -1;
+            *action = (int)v;
+            continue;
+        }
+        if (tag == 0x12) {
+            uint64_t skip = 0;
+            if (leftover_safe_varint_m(req, len, &p, &skip) != 0) return -1;
+            if (p + skip > len || skip >= ver_cap) return -1;
+            memcpy(ver, req + p, (size_t)skip);
+            ver[(size_t)skip] = '\0';
+            p += (size_t)skip;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_m(req, len, &p, tag) != 0)
+            return -1;
+    }
+    return 0;
+}
+
 /*
  * Downgrade RPC.
  *
  * DowngradeRequest:
  *   field 1 (action)  = enum (VALIDATE/ENABLE/CANCEL), tag = 0x08
  *   field 2 (version) = string, tag = 0x12
+ *   leftover-safe: leftover cannot steal action / version;
+ *   truncated action / version fail-closes
  * DowngradeResponse:
  *   field 1 (header)  = ResponseHeader, tag = 0x0a
  *
@@ -815,34 +878,8 @@ cetcd_rpc_bytes maint_handle_downgrade(cetcd_v3rpc *rpc, const uint8_t *req, siz
 
     int action = 0;
     char ver[32];
-    ver[0] = '\0';
-    size_t pos = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x08) {
-            uint64_t v = 0;
-            if (read_varint_m(req, req_len, &pos, &v) < 0)
-                return (cetcd_rpc_bytes){NULL, 0};
-            if (v > 2147483647u) return (cetcd_rpc_bytes){NULL, 0};
-            action = (int)v;
-        } else if (tag == 0x12) {
-            uint64_t l = 0;
-            if (read_varint_m(req, req_len, &pos, &l) < 0)
-                return (cetcd_rpc_bytes){NULL, 0};
-            if (l >= sizeof(ver) || pos + (size_t)l > req_len)
-                return (cetcd_rpc_bytes){NULL, 0};
-            memcpy(ver, req + pos, (size_t)l);
-            ver[(size_t)l] = '\0';
-            pos += (size_t)l;
-        } else {
-            uint64_t skip = 0;
-            if (read_varint_m(req, req_len, &pos, &skip) < 0)
-                return (cetcd_rpc_bytes){NULL, 0};
-            if (pos + (size_t)skip > req_len)
-                return (cetcd_rpc_bytes){NULL, 0};
-            pos += (size_t)skip;
-        }
-    }
+    if (parse_downgrade_request_(req, req_len, &action, ver, sizeof(ver)) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
     if (!cetcd_v3rpc_downgrade_ok(action, ver))
         return (cetcd_rpc_bytes){NULL, 0};
 

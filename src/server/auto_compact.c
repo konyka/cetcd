@@ -3865,6 +3865,70 @@ int cetcd_parse_member_add_request(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+int cetcd_encode_downgrade_request(int action, const char *version,
+                                   uint8_t *out, size_t cap, size_t *n) {
+    size_t pos = 0;
+    uint64_t v;
+    if (!out || !n) return CETCD_ERR_INVAL;
+    if (action < 0) return CETCD_ERR_INVAL;
+    if (pos + 2 > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x08;
+    v = (uint64_t)action;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    if (version && version[0]) {
+        int rc = write_bytes_field_(out, cap, &pos, 0x12,
+                                    (const uint8_t *)version, strlen(version));
+        if (rc != CETCD_OK) return rc;
+    }
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_downgrade_request(const uint8_t *req, size_t len,
+                                  int *action, char *version,
+                                  size_t version_cap) {
+    size_t p = 0;
+    if (action) *action = 0;
+    if (version && version_cap)
+        version[0] = '\0';
+    if (!action && !version) return CETCD_ERR_INVAL;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x08) {
+            uint64_t v = 0;
+            if (leftover_safe_varint_at_(req, len, &p, &v) != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            if (v > (uint64_t)INT32_MAX) return CETCD_ERR_INVAL;
+            if (action) *action = (int)v;
+            continue;
+        }
+        if (tag == 0x12) {
+            uint64_t skip = 0;
+            int rc = leftover_safe_varint_at_(req, len, &p, &skip);
+            if (rc != CETCD_OK || p + skip > len) return CETCD_ERR_INVAL;
+            if (version && version_cap) {
+                if (skip >= version_cap) return CETCD_ERR_INVAL;
+                memcpy(version, req + p, (size_t)skip);
+                version[skip] = '\0';
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n) {
     if (!out || !n || cap < 2) return CETCD_ERR_INVAL;

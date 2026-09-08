@@ -481,6 +481,18 @@ int cetcd_encode_member_add_request(const char *url, int is_learner,
                                     uint8_t *out, size_t cap, size_t *n);
 int cetcd_parse_member_add_request(const uint8_t *req, size_t len,
                                    char *url, size_t url_cap, int *is_learner);
+/* leftover-safe DowngradeRequest. omitted / empty / dummy 0x00 =
+ * action VALIDATE (0) / empty version. leftover truncated action /
+ * version is INVAL so a truncated validate cannot look like ENABLE
+ * or a successful VALIDATE. leftover length-delimited fields are
+ * skipped by payload so leftover bytes cannot steal action or
+ * version. unknown wire types are INVAL. last version is copied
+ * when version/version_cap are set. */
+int cetcd_encode_downgrade_request(int action, const char *version,
+                                   uint8_t *out, size_t cap, size_t *n);
+int cetcd_parse_downgrade_request(const uint8_t *req, size_t len,
+                                  int *action, char *version,
+                                  size_t version_cap);
 /* MemberListRequest field 1 (linearizable). proto3 omitted = 0. */
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n);

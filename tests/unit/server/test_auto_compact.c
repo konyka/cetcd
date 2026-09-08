@@ -1766,6 +1766,86 @@ CETCD_TEST_CASE(auto_compact_parse_member_add_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_downgrade_request) {
+    uint8_t buf[64];
+    size_t n = 0;
+    char ver[32];
+    int action = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_downgrade_request(-1, "0.3.0", buf,
+                                                      sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_downgrade_request(0, "0.3.0", buf,
+                                                      sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_downgrade_request(buf, n, &action, ver,
+                                                     sizeof(ver)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(action, 0);
+    CETCD_ASSERT_EQ_STR(ver, "0.3.0");
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_downgrade_request(1, NULL, buf,
+                                                      sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_downgrade_request(buf, n, &action, ver,
+                                                     sizeof(ver)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(action, 1);
+    CETCD_ASSERT_EQ_STR(ver, "");
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_downgrade_request(NULL, 0, &action, ver,
+                                                     sizeof(ver)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(action, 0);
+    CETCD_ASSERT_EQ_STR(ver, "");
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_downgrade_request(dummy, 1, &action, ver,
+                                                     sizeof(ver)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(action, 0);
+    CETCD_ASSERT_EQ_STR(ver, "");
+
+    /* leftover truncated action cannot look like VALIDATE */
+    uint8_t trunc[] = { 0x08 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_downgrade_request(trunc, 1, &action, ver,
+                                                     sizeof(ver)),
+                        CETCD_ERR_INVAL);
+    uint8_t trunc_ver[] = { 0x08, 0x00, 0x12 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_downgrade_request(trunc_ver,
+                                                     sizeof(trunc_ver),
+                                                     &action, ver,
+                                                     sizeof(ver)),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal ENABLE */
+    uint8_t steal_act[] = { 0x1a, 0x02, 0x08, 0x01 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_downgrade_request(steal_act,
+                                                     sizeof(steal_act),
+                                                     &action, ver,
+                                                     sizeof(ver)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(action, 0);
+
+    /* leftover cannot steal version */
+    uint8_t steal_ver[] = {
+        0x08, 0x00, 0x22, 0x07, 0x12, 0x05, '0', '.', '3', '.', '0'
+    };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_downgrade_request(steal_ver,
+                                                     sizeof(steal_ver),
+                                                     &action, ver,
+                                                     sizeof(ver)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(action, 0);
+    CETCD_ASSERT_EQ_STR(ver, "");
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_downgrade_request(fixed64, 1, &action, ver,
+                                                     sizeof(ver)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_downgrade_request(buf, n, NULL, NULL, 0),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_lease_grant_request) {
     int64_t ttl = 99, id = 99;
 
@@ -3156,6 +3236,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_member_id_request),
     CETCD_TEST_ENTRY(auto_compact_parse_member_update_request),
     CETCD_TEST_ENTRY(auto_compact_parse_member_add_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_downgrade_request),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_id_request),
     CETCD_TEST_ENTRY(auto_compact_parse_alarm_request),
