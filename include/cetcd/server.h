@@ -660,6 +660,17 @@ int cetcd_encode_role_get_perm(int perm_type, const char *key, uint8_t *out,
 int cetcd_parse_role_get_response(const uint8_t *req, size_t len,
                                   int *perm_type, char *key, size_t key_cap,
                                   size_t *n);
+/* leftover-safe WatchResponse last Event key. omitted / empty /
+ * dummy 0x00 = 0 events / PUT / empty key. leftover truncated
+ * event / kv / key is INVAL so a truncated watch cannot print a
+ * leftover key. leftover length-delimited fields are skipped by
+ * payload so leftover bytes cannot steal a printed key or type.
+ * unknown wire types are INVAL. last key is copied when
+ * key/key_cap are set. */
+int cetcd_encode_watch_event_kv(int type, const char *key, uint8_t *out,
+                                size_t cap, size_t *n);
+int cetcd_parse_watch_response(const uint8_t *req, size_t len, int *type,
+                               char *key, size_t key_cap, size_t *n);
 /* leftover-safe DowngradeRequest. omitted / empty / dummy 0x00 =
  * action VALIDATE (0) / empty version. leftover truncated action /
  * version is INVAL so a truncated validate cannot look like ENABLE

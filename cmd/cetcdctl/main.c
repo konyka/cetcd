@@ -5840,7 +5840,12 @@ static int print_watch_response(const uint8_t *resp, size_t rlen,
                         else if (ktag == 0x18) { read_varint(resp, kend, &rpos, &emr); evt_mod_rev = emr; }
                         else if (ktag == 0x20) read_varint(resp, kend, &rpos, &ever);
                         else if (ktag == 0x30) read_varint(resp, kend, &rpos, &elease);
-                        else { uint64_t v = 0; read_varint(resp, kend, &rpos, &v); }
+                        else if (ktag == 0x00) continue;
+                        else if (cetcd_leftover_safe_skip_field(resp, kend,
+                                                                &rpos, ktag)
+                                 != CETCD_OK) {
+                            break;
+                        }
                     }
                     rpos = kend;
                     if (want_fields) {
@@ -5883,7 +5888,12 @@ static int print_watch_response(const uint8_t *resp, size_t rlen,
                         else if (ktag == 0x10) read_varint(resp, kend, &rpos, &pcr);
                         else if (ktag == 0x18) read_varint(resp, kend, &rpos, &pmr);
                         else if (ktag == 0x20) read_varint(resp, kend, &rpos, &pver);
-                        else { uint64_t v = 0; read_varint(resp, kend, &rpos, &v); }
+                        else if (ktag == 0x00) continue;
+                        else if (cetcd_leftover_safe_skip_field(resp, kend,
+                                                                &rpos, ktag)
+                                 != CETCD_OK) {
+                            break;
+                        }
                     }
                     rpos = kend;
                     if (want_json) {
@@ -5905,7 +5915,12 @@ static int print_watch_response(const uint8_t *resp, size_t rlen,
                             printf(")");
                         }
                     }
-                } else { uint64_t v = 0; read_varint(resp, eend, &rpos, &v); }
+                } else if (etag == 0x00) {
+                    continue;
+                } else if (cetcd_leftover_safe_skip_field(resp, eend, &rpos,
+                                                          etag) != CETCD_OK) {
+                    break;
+                }
             }
             if (want_json) fputs("}", stdout);
             rpos = eend;
@@ -5922,7 +5937,11 @@ static int print_watch_response(const uint8_t *resp, size_t rlen,
                 if (exec_ret == -1) { perror("system"); }
             }
         } else if (tag == 0x0a) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
-        else { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
+        else if (tag == 0x00) continue;
+        else if (cetcd_leftover_safe_skip_field(resp, rlen, &rpos, tag)
+                 != CETCD_OK) {
+            break;
+        }
     }
     if (want_json) fputs("]}\n", stdout);
     return event_count;
