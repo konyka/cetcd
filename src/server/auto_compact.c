@@ -2681,6 +2681,288 @@ int cetcd_parse_auth_name_request(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+void cetcd_auth_role_perm_request_clear(cetcd_auth_role_perm_request *r) {
+    if (!r) return;
+    free(r->name);
+    free(r->key);
+    free(r->range_end);
+    memset(r, 0, sizeof(*r));
+}
+
+static int leftover_safe_varint_at_(const uint8_t *req, size_t len, size_t *p,
+                                    uint64_t *out) {
+    uint64_t v = 0;
+    int shift = 0;
+    int got = 0;
+    if (!req || !p) return CETCD_ERR_INVAL;
+    while (*p < len) {
+        uint8_t b = req[(*p)++];
+        v |= (uint64_t)(b & 0x7F) << shift;
+        if ((b & 0x80) == 0) {
+            got = 1;
+            break;
+        }
+        shift += 7;
+        if (shift > 63) return CETCD_ERR_INVAL;
+    }
+    if (!got) return CETCD_ERR_INVAL;
+    if (out) *out = v;
+    return CETCD_OK;
+}
+
+static int leftover_safe_copy_bytes_at_(const uint8_t *req, size_t len,
+                                        size_t *p, uint8_t **out,
+                                        size_t *out_len) {
+    uint64_t skip = 0;
+    int rc = leftover_safe_varint_at_(req, len, p, &skip);
+    if (rc != CETCD_OK) return rc;
+    if (*p + skip > len) return CETCD_ERR_INVAL;
+    free(*out);
+    if (skip == 0) {
+        *out = NULL;
+        *out_len = 0;
+        return CETCD_OK;
+    }
+    uint8_t *copy = (uint8_t *)malloc((size_t)skip + 1);
+    if (!copy) {
+        *out = NULL;
+        *out_len = 0;
+        return CETCD_ERR_NOMEM;
+    }
+    memcpy(copy, req + *p, (size_t)skip);
+    copy[skip] = 0;
+    *p += (size_t)skip;
+    *out = copy;
+    *out_len = (size_t)skip;
+    return CETCD_OK;
+}
+
+static int leftover_safe_skip_unknown_at_(const uint8_t *req, size_t len,
+                                          size_t *p, uint8_t tag) {
+    if ((tag & 7) == 0)
+        return leftover_safe_varint_at_(req, len, p, NULL);
+    if ((tag & 7) == 2) {
+        uint64_t skip = 0;
+        int rc = leftover_safe_varint_at_(req, len, p, &skip);
+        if (rc != CETCD_OK) return rc;
+        if (*p + skip > len) return CETCD_ERR_INVAL;
+        *p += (size_t)skip;
+        return CETCD_OK;
+    }
+    return CETCD_ERR_INVAL;
+}
+
+static int write_bytes_field_(uint8_t *out, size_t cap, size_t *pos,
+                              uint8_t tag, const uint8_t *s, size_t n) {
+    uint64_t lv;
+    if (!s || n == 0) return CETCD_OK;
+    if (*pos + 2 + n > cap) return CETCD_ERR_OVERFLOW;
+    out[(*pos)++] = tag;
+    lv = n;
+    do {
+        if (*pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(lv & 0x7fu);
+        lv >>= 7;
+        if (lv) b |= 0x80u;
+        out[(*pos)++] = b;
+    } while (lv);
+    if (*pos + n > cap) return CETCD_ERR_OVERFLOW;
+    memcpy(out + *pos, s, n);
+    *pos += n;
+    return CETCD_OK;
+}
+
+int cetcd_encode_auth_role_grant_perm_request(const uint8_t *name,
+                                              size_t name_len, int perm_type,
+                                              const uint8_t *key,
+                                              size_t key_len,
+                                              const uint8_t *range_end,
+                                              size_t range_end_len,
+                                              uint8_t *out, size_t cap,
+                                              size_t *n) {
+    uint8_t perm[256];
+    size_t ppos = 0;
+    size_t pos = 0;
+    uint64_t lv;
+    int rc;
+    if (!out || !n || !name || name_len == 0) return CETCD_ERR_INVAL;
+    perm[ppos++] = 0x08;
+    lv = (uint64_t)(uint32_t)perm_type;
+    do {
+        if (ppos >= sizeof(perm)) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(lv & 0x7fu);
+        lv >>= 7;
+        if (lv) b |= 0x80u;
+        perm[ppos++] = b;
+    } while (lv);
+    rc = write_bytes_field_(perm, sizeof(perm), &ppos, 0x0a, key, key_len);
+    if (rc != CETCD_OK) return rc;
+    rc = write_bytes_field_(perm, sizeof(perm), &ppos, 0x12, range_end,
+                            range_end_len);
+    if (rc != CETCD_OK) return rc;
+    rc = write_bytes_field_(out, cap, &pos, 0x0a, name, name_len);
+    if (rc != CETCD_OK) return rc;
+    if (pos + 2 + ppos > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x12;
+    lv = ppos;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(lv & 0x7fu);
+        lv >>= 7;
+        if (lv) b |= 0x80u;
+        out[pos++] = b;
+    } while (lv);
+    if (pos + ppos > cap) return CETCD_ERR_OVERFLOW;
+    memcpy(out + pos, perm, ppos);
+    pos += ppos;
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_auth_role_grant_perm_request(const uint8_t *req, size_t len,
+                                             cetcd_auth_role_perm_request *out) {
+    size_t p = 0;
+    if (!out) return CETCD_ERR_INVAL;
+    memset(out, 0, sizeof(*out));
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x0a) {
+            int rc = leftover_safe_copy_bytes_at_(req, len, &p, &out->name,
+                                                  &out->name_len);
+            if (rc != CETCD_OK) {
+                cetcd_auth_role_perm_request_clear(out);
+                return rc;
+            }
+            continue;
+        }
+        if (tag == 0x12) {
+            uint64_t skip = 0;
+            size_t ip = 0;
+            int rc = leftover_safe_varint_at_(req, len, &p, &skip);
+            if (rc != CETCD_OK || p + skip > len) {
+                cetcd_auth_role_perm_request_clear(out);
+                return CETCD_ERR_INVAL;
+            }
+            const uint8_t *pl = req + p;
+            p += (size_t)skip;
+            while (ip < (size_t)skip) {
+                uint8_t ptag = pl[ip++];
+                if (ptag == 0x00)
+                    continue;
+                if (ptag == 0x08) {
+                    uint64_t v = 0;
+                    if (leftover_safe_varint_at_(pl, (size_t)skip, &ip, &v)
+                        != CETCD_OK) {
+                        cetcd_auth_role_perm_request_clear(out);
+                        return CETCD_ERR_INVAL;
+                    }
+                    out->perm_type = (int)v;
+                    continue;
+                }
+                if (ptag == 0x0a) {
+                    if (leftover_safe_copy_bytes_at_(pl, (size_t)skip, &ip,
+                                                     &out->key, &out->key_len)
+                        != CETCD_OK) {
+                        cetcd_auth_role_perm_request_clear(out);
+                        return CETCD_ERR_INVAL;
+                    }
+                    continue;
+                }
+                if (ptag == 0x12) {
+                    if (leftover_safe_copy_bytes_at_(pl, (size_t)skip, &ip,
+                                                     &out->range_end,
+                                                     &out->range_end_len)
+                        != CETCD_OK) {
+                        cetcd_auth_role_perm_request_clear(out);
+                        return CETCD_ERR_INVAL;
+                    }
+                    continue;
+                }
+                if (leftover_safe_skip_unknown_at_(pl, (size_t)skip, &ip, ptag)
+                    != CETCD_OK) {
+                    cetcd_auth_role_perm_request_clear(out);
+                    return CETCD_ERR_INVAL;
+                }
+            }
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK) {
+            cetcd_auth_role_perm_request_clear(out);
+            return CETCD_ERR_INVAL;
+        }
+    }
+    return CETCD_OK;
+}
+
+int cetcd_encode_auth_role_revoke_perm_request(const uint8_t *name,
+                                               size_t name_len,
+                                               const uint8_t *key,
+                                               size_t key_len,
+                                               const uint8_t *range_end,
+                                               size_t range_end_len,
+                                               uint8_t *out, size_t cap,
+                                               size_t *n) {
+    size_t pos = 0;
+    int rc;
+    if (!out || !n || !name || name_len == 0) return CETCD_ERR_INVAL;
+    rc = write_bytes_field_(out, cap, &pos, 0x0a, name, name_len);
+    if (rc != CETCD_OK) return rc;
+    rc = write_bytes_field_(out, cap, &pos, 0x12, key, key_len);
+    if (rc != CETCD_OK) return rc;
+    rc = write_bytes_field_(out, cap, &pos, 0x1a, range_end, range_end_len);
+    if (rc != CETCD_OK) return rc;
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_auth_role_revoke_perm_request(const uint8_t *req, size_t len,
+                                              cetcd_auth_role_perm_request *out) {
+    size_t p = 0;
+    if (!out) return CETCD_ERR_INVAL;
+    memset(out, 0, sizeof(*out));
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x0a) {
+            int rc = leftover_safe_copy_bytes_at_(req, len, &p, &out->name,
+                                                  &out->name_len);
+            if (rc != CETCD_OK) {
+                cetcd_auth_role_perm_request_clear(out);
+                return rc;
+            }
+            continue;
+        }
+        if (tag == 0x12) {
+            int rc = leftover_safe_copy_bytes_at_(req, len, &p, &out->key,
+                                                  &out->key_len);
+            if (rc != CETCD_OK) {
+                cetcd_auth_role_perm_request_clear(out);
+                return rc;
+            }
+            continue;
+        }
+        if (tag == 0x1a) {
+            int rc = leftover_safe_copy_bytes_at_(req, len, &p, &out->range_end,
+                                                  &out->range_end_len);
+            if (rc != CETCD_OK) {
+                cetcd_auth_role_perm_request_clear(out);
+                return rc;
+            }
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK) {
+            cetcd_auth_role_perm_request_clear(out);
+            return CETCD_ERR_INVAL;
+        }
+    }
+    return CETCD_OK;
+}
+
 void cetcd_user_add_request_clear(cetcd_user_add_request *r) {
     if (!r) return;
     free(r->name);

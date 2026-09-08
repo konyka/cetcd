@@ -552,6 +552,7 @@ to cancel the watch and close the stream.
 
 # Permission management
 ./build/bin/cetcdctl role grant-permission admin readwrite /foo    # Grant via Raft (followers share the perm)
+# leftover-safe: leftover proto bytes cannot steal the role, key, range_end, or permType
 ./build/bin/cetcdctl role grant-permission admin read /foo --prefix  # Grant permission on a key prefix
 ./build/bin/cetcdctl role grant-permission admin read /foo --from-key  # FromKey: all keys >= /foo
 ./build/bin/cetcdctl role grant-permission admin read /foo --range-end /bar  # Grant [ /foo, /bar )

@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 136 — leftover-safe Auth name</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 137 — leftover-safe Auth RoleGrantPermission</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 136 leftover-safe-parses
-     Auth name-only and user/role RPCs so leftover length-delimited bytes
-     cannot delete or grant the wrong principal.</p>
+  <p><strong>v0.3.0</strong>. Phase 137 leftover-safe-parses
+     RoleGrantPermission / RoleRevokePermission so leftover length-delimited
+     bytes cannot steal a role, key, range_end, or permType.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -189,6 +189,7 @@
       <tr><td>134</td><td>leftover-safe Txn Compare</td><td>Txn Compare leftover-safe-parses so leftover length-delimited bytes cannot steal result and flip a CAS; truncated result fail-closes the whole Txn (cannot look like EQUAL); dummy 0x00 / omitted is EQUAL — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>135</td><td>leftover-safe TxnRequest ops</td><td>TxnRequest leftover-safe-parses so leftover length-delimited bytes cannot inject an extra success/failure op; truncated success-op length fail-closes (cannot look like an empty txn); dummy 0x00 / omitted is 0 ops — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>136</td><td>leftover-safe Auth name</td><td>UserDelete / RoleAdd / RoleDelete / UserGet / RoleGet leftover-safe-parses so leftover length-delimited bytes cannot steal the name and delete or look up the wrong principal; UserGrantRole / UserRevokeRole leftover-safe-parses so leftover cannot steal the user or role; truncated name fail-closes (cannot look like a successful delete); dummy 0x00 / omitted is empty — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>137</td><td>leftover-safe Auth RoleGrantPermission</td><td>RoleGrantPermission / RoleRevokePermission leftover-safe-parses so leftover length-delimited bytes cannot steal the role, Permission key, range_end, or permType; truncated name / Permission / key fail-closes (cannot look like a successful grant); dummy 0x00 / omitted is empty — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

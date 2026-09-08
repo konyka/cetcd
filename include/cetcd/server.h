@@ -331,6 +331,44 @@ int cetcd_encode_auth_name_request(const uint8_t *name, size_t name_len,
                                    uint8_t *out, size_t cap, size_t *n);
 int cetcd_parse_auth_name_request(const uint8_t *req, size_t len,
                                   cetcd_auth_name_request *out);
+/* leftover-safe AuthRoleGrantPermission / AuthRoleRevokePermission.
+ * omitted / empty / dummy 0x00 = empty name/key/range_end and
+ * perm_type 0. leftover truncated name / Permission / key is INVAL
+ * so a truncated grant cannot look like a successful grant. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal the role, key, range_end, or permType. unknown wire
+ * types are INVAL. name / key / range_end are malloced and
+ * NUL-terminated. */
+typedef struct cetcd_auth_role_perm_request {
+    uint8_t *name;
+    size_t name_len;
+    int perm_type;
+    uint8_t *key;
+    size_t key_len;
+    uint8_t *range_end;
+    size_t range_end_len;
+} cetcd_auth_role_perm_request;
+void cetcd_auth_role_perm_request_clear(cetcd_auth_role_perm_request *r);
+int cetcd_encode_auth_role_grant_perm_request(const uint8_t *name,
+                                              size_t name_len, int perm_type,
+                                              const uint8_t *key,
+                                              size_t key_len,
+                                              const uint8_t *range_end,
+                                              size_t range_end_len,
+                                              uint8_t *out, size_t cap,
+                                              size_t *n);
+int cetcd_parse_auth_role_grant_perm_request(const uint8_t *req, size_t len,
+                                             cetcd_auth_role_perm_request *out);
+int cetcd_encode_auth_role_revoke_perm_request(const uint8_t *name,
+                                               size_t name_len,
+                                               const uint8_t *key,
+                                               size_t key_len,
+                                               const uint8_t *range_end,
+                                               size_t range_end_len,
+                                               uint8_t *out, size_t cap,
+                                               size_t *n);
+int cetcd_parse_auth_role_revoke_perm_request(const uint8_t *req, size_t len,
+                                              cetcd_auth_role_perm_request *out);
 /* leftover-safe AuthUserAddRequest. omitted / empty / dummy 0x00 =
  * empty name/password. leftover truncated password / options is INVAL
  * so a truncated password cannot look like a name-only add. leftover

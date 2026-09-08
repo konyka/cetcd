@@ -728,6 +728,12 @@ Performance-first, fail-closed design:
   strings. A truncated name fail-closes (cannot look like a successful
   delete). Dummy `0x00` / omitted is empty. Accepting leftover payload
   as the name is rejected.
+- **Auth RoleGrant/RevokePermission leftover-safe** — leftover-safe-parses
+  AuthRoleGrantPermissionRequest / AuthRoleRevokePermissionRequest so
+  leftover length-delimited bytes cannot steal the role, Permission key,
+  range_end, or permType. A truncated name / Permission / key fail-closes
+  (cannot look like a successful grant). Dummy `0x00` / omitted is empty.
+  Accepting leftover payload as the key is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

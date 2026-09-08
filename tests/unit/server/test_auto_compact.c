@@ -2268,6 +2268,153 @@ CETCD_TEST_CASE(auto_compact_parse_auth_name_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_auth_role_grant_perm_request) {
+    uint8_t buf[64];
+    size_t n = 0;
+    cetcd_auth_role_perm_request rp;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_auth_role_grant_perm_request(
+                            NULL, 0, 2, NULL, 0, NULL, 0, buf, sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_auth_role_grant_perm_request(
+                            (const uint8_t *)"root", 4, 2,
+                            (const uint8_t *)"/foo", 4, NULL, 0,
+                            buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_grant_perm_request(buf, n, &rp),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rp.name_len == 4 && rp.name &&
+                      memcmp(rp.name, "root", 4) == 0);
+    CETCD_ASSERT_EQ_INT(rp.perm_type, 2);
+    CETCD_ASSERT_TRUE(rp.key_len == 4 && rp.key &&
+                      memcmp(rp.key, "/foo", 4) == 0);
+    CETCD_ASSERT_TRUE(rp.range_end == NULL);
+    cetcd_auth_role_perm_request_clear(&rp);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_grant_perm_request(NULL, 0, &rp),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rp.name == NULL && rp.perm_type == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_grant_perm_request(dummy, 1, &rp),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rp.name == NULL);
+
+    /* leftover truncated name cannot look like a successful grant */
+    uint8_t trunc[] = { 0x0a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_grant_perm_request(trunc, 1, &rp),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_TRUE(rp.name == NULL);
+    uint8_t trunc_perm[] = { 0x0a, 0x04, 'r', 'o', 'o', 't', 0x12 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_grant_perm_request(
+                            trunc_perm, sizeof(trunc_perm), &rp),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal the role name */
+    uint8_t steal_name[] = { 0x1a, 0x06, 0x0a, 0x04, 'r', 'o', 'o', 't' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_grant_perm_request(
+                            steal_name, sizeof(steal_name), &rp),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rp.name == NULL);
+
+    /* leftover cannot steal Permission.key */
+    uint8_t steal_key[] = { 0x0a, 0x04, 'r', 'o', 'o', 't',
+                            0x12, 0x08, 0x22, 0x06, 0x0a, 0x04, '/', 'f', 'o', 'o' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_grant_perm_request(
+                            steal_key, sizeof(steal_key), &rp),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rp.name_len == 4);
+    CETCD_ASSERT_TRUE(rp.key == NULL);
+    CETCD_ASSERT_EQ_INT(rp.perm_type, 0);
+    cetcd_auth_role_perm_request_clear(&rp);
+
+    /* leftover cannot steal Permission.permType */
+    uint8_t steal_pt[] = { 0x0a, 0x04, 'r', 'o', 'o', 't',
+                           0x12, 0x04, 0x22, 0x02, 0x08, 0x02 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_grant_perm_request(
+                            steal_pt, sizeof(steal_pt), &rp),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(rp.perm_type, 0);
+    cetcd_auth_role_perm_request_clear(&rp);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_grant_perm_request(fixed64, 1, &rp),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_grant_perm_request(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
+CETCD_TEST_CASE(auto_compact_parse_auth_role_revoke_perm_request) {
+    uint8_t buf[64];
+    size_t n = 0;
+    cetcd_auth_role_perm_request rp;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_auth_role_revoke_perm_request(
+                            NULL, 0, NULL, 0, NULL, 0, buf, sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_auth_role_revoke_perm_request(
+                            (const uint8_t *)"root", 4,
+                            (const uint8_t *)"/foo", 4,
+                            (const uint8_t *)"/bar", 4,
+                            buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_revoke_perm_request(buf, n, &rp),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rp.name_len == 4 && rp.name &&
+                      memcmp(rp.name, "root", 4) == 0);
+    CETCD_ASSERT_TRUE(rp.key_len == 4 && rp.key &&
+                      memcmp(rp.key, "/foo", 4) == 0);
+    CETCD_ASSERT_TRUE(rp.range_end_len == 4 && rp.range_end &&
+                      memcmp(rp.range_end, "/bar", 4) == 0);
+    cetcd_auth_role_perm_request_clear(&rp);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_revoke_perm_request(NULL, 0, &rp),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rp.name == NULL);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_revoke_perm_request(dummy, 1, &rp),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rp.key == NULL);
+
+    uint8_t trunc[] = { 0x0a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_revoke_perm_request(trunc, 1, &rp),
+                        CETCD_ERR_INVAL);
+    uint8_t trunc_key[] = { 0x0a, 0x04, 'r', 'o', 'o', 't', 0x12 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_revoke_perm_request(
+                            trunc_key, sizeof(trunc_key), &rp),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal the role name */
+    uint8_t steal_name[] = { 0x22, 0x06, 0x0a, 0x04, 'r', 'o', 'o', 't' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_revoke_perm_request(
+                            steal_name, sizeof(steal_name), &rp),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rp.name == NULL);
+
+    /* leftover cannot steal key / range_end */
+    uint8_t steal_key[] = { 0x0a, 0x04, 'r', 'o', 'o', 't',
+                            0x22, 0x06, 0x12, 0x04, '/', 'f', 'o', 'o' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_revoke_perm_request(
+                            steal_key, sizeof(steal_key), &rp),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rp.name_len == 4);
+    CETCD_ASSERT_TRUE(rp.key == NULL);
+    cetcd_auth_role_perm_request_clear(&rp);
+    uint8_t steal_re[] = { 0x0a, 0x04, 'r', 'o', 'o', 't',
+                           0x22, 0x06, 0x1a, 0x04, '/', 'b', 'a', 'r' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_revoke_perm_request(
+                            steal_re, sizeof(steal_re), &rp),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(rp.range_end == NULL);
+    cetcd_auth_role_perm_request_clear(&rp);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_revoke_perm_request(fixed64, 1,
+                                                                 &rp),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_role_revoke_perm_request(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_compact_argv) {
     int physical = 0;
     int64_t rev = 0;
@@ -2887,6 +3034,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_txn_compare),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_request),
     CETCD_TEST_ENTRY(auto_compact_parse_auth_name_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_auth_role_grant_perm_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_auth_role_revoke_perm_request),
     CETCD_TEST_ENTRY(auto_compact_parse_compact_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_defrag_argv),

@@ -2545,6 +2545,41 @@ CETCD_TEST_CASE(v3rpc_auth_role_grant_permission) {
     CETCD_ASSERT_TRUE(resp.len > 0);
     cetcd_rpc_bytes_free(&resp);
 
+    /* leftover truncated Permission cannot look like a successful grant */
+    uint8_t trunc[] = { 0x0a, 0x04, 'r', 'o', 'o', 't', 0x12 };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleGrantPermission",
+                                trunc, sizeof(trunc));
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover cannot steal a RoleGrantPermission name */
+    uint8_t steal_name[] = { 0x1a, 0x06, 0x0a, 0x04, 'r', 'o', 'o', 't' };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleGrantPermission",
+                                steal_name, sizeof(steal_name));
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover cannot steal Permission.key */
+    uint8_t steal_key[] = {
+        0x0a, 0x04, 'r', 'o', 'o', 't',
+        0x12, 0x08, 0x22, 0x06, 0x0a, 0x04, '/', 's', 'e', 'c'
+    };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleGrantPermission",
+                                steal_key, sizeof(steal_key));
+    cetcd_rpc_bytes_free(&resp);
+    uint8_t get_buf[16];
+    pos = 0;
+    get_buf[pos++] = 0x0a; get_buf[pos++] = 0x04;
+    memcpy(get_buf + pos, "root", 4); pos += 4;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleGet", get_buf, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int stolen = 0;
+    for (size_t i = 0; i + 4 <= resp.len; i++) {
+        if (memcmp(resp.data + i, "/sec", 4) == 0) { stolen = 1; break; }
+    }
+    CETCD_ASSERT_EQ_INT(stolen, 0);
+    cetcd_rpc_bytes_free(&resp);
+
     cetcd_v3rpc_free(rpc);
 }
 
@@ -2564,6 +2599,14 @@ CETCD_TEST_CASE(v3rpc_auth_role_revoke_permission) {
     pos = 0;
     req[pos++] = 0x0a; req[pos++] = 0x04;
     memcpy(req + pos, "root", 4); pos += 4;
+    /* leftover cannot steal a RoleRevokePermission name */
+    uint8_t steal_name[] = { 0x22, 0x06, 0x0a, 0x04, 'r', 'o', 'o', 't' };
+    cetcd_rpc_bytes steal_resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Auth/RoleRevokePermission", steal_name,
+        sizeof(steal_name));
+    CETCD_ASSERT_TRUE(steal_resp.data == NULL);
+    cetcd_rpc_bytes_free(&steal_resp);
+
     resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleRevokePermission", req, pos);
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 0);
