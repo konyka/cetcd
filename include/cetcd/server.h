@@ -915,6 +915,17 @@ int cetcd_encode_watch_event_kv(int type, const char *key, uint8_t *out,
                                 size_t cap, size_t *n);
 int cetcd_parse_watch_response(const uint8_t *req, size_t len, int *type,
                                char *key, size_t key_cap, size_t *n);
+/* leftover-safe WatchResponse Event KV lease (field 6, tag 0x30 inside
+ * Event field 2 / Watch field 11). omitted / empty / dummy 0x00 = 0.
+ * leftover truncated Event-nested lease is INVAL so a truncated watch
+ * cannot look like lease 0. leftover length-delimited fields are
+ * skipped by payload so leftover bytes cannot steal a printed lease
+ * (tag 0x0a header raft_term is not Event lease). unknown wire types
+ * are INVAL. last Event lease is copied when lease is set. */
+int cetcd_encode_watch_event_kv_lease(int64_t lease, uint8_t *out, size_t cap,
+                                      size_t *n);
+int cetcd_parse_watch_event_kv_lease(const uint8_t *req, size_t len,
+                                     int64_t *lease);
 /* leftover-safe WatchResponse.fragment (field 7, tag 0x38). omitted /
  * empty / dummy 0x00 = not a fragment. leftover truncated fragment
  * is INVAL so a truncated watch cannot look like more frames.

@@ -1005,6 +1005,13 @@ Performance-first, fail-closed design:
   (cannot print leftover text or set `ETCD_WATCH_KEY`). Dummy `0x00`
   is not a skip length. `cetcdctl watch` leftover-safe-skips unknown
   fields. Accepting leftover payload as the printed key is rejected.
+- **Watch leftover-safe Event KV lease** — leftover-safe-parses
+  WatchResponse Event KV lease so leftover length-delimited bytes
+  cannot steal a printed Event lease. A truncated Event-nested lease
+  fail-closes (cannot look like lease 0). Dummy `0x00` is not a skip
+  length. Tag `0x0a` header raft_term is not Event lease. `cetcdctl
+  watch` leftover-safe-parses field 6 inside Event. Accepting leftover
+  payload as the printed Event lease is rejected.
 - **Watch leftover-safe fragment** — leftover-safe-parses
   WatchResponse.fragment so leftover length-delimited bytes cannot
   steal `fragment=true`. A truncated fragment fail-closes (cannot

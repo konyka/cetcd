@@ -395,6 +395,7 @@ so many concurrent watchers can share a single TCP connection.
 # --start-rev must be >= 0; leftover text is not a silent truncated revision
 # leftover-safe: leftover proto bytes cannot steal start_rev / range_end
 # leftover-safe: leftover proto bytes cannot steal a printed Event key
+# leftover-safe: leftover proto bytes cannot steal a printed Event lease
 # leftover-safe: leftover proto bytes cannot steal fragment=true
 # leftover-safe: leftover proto bytes cannot steal a printed compact cancel_reason
 # leftover watch --foo key fail-closes (not a watch on key --foo)
