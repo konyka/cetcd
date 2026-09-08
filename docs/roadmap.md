@@ -775,6 +775,15 @@ Performance-first, fail-closed design:
   voter). Dummy `0x00` is not a skip length. `cetcdctl endpoint
   status` leftover-safe-skips unknown fields. Accepting leftover
   payload as the printed version is rejected.
+- **LeaseGrant / TimeToLive leftover-safe ID** — leftover-safe-parses
+  LeaseGrantResponse and LeaseTimeToLiveResponse so leftover
+  length-delimited bytes cannot steal a printed or lock-used ID, TTL,
+  or key. A truncated ID / key fail-closes (cannot look like a missing
+  grant or print a leftover key). Dummy `0x00` is not a skip length.
+  Tag `0x08` is not the grant ID (`lock` / `elect` leftover-unsafe
+  treated wrap `0x08` as the ID). `cetcdctl lease grant` /
+  `timetolive` leftover-safe-skip unknown fields. Accepting leftover
+  payload as the printed ID is rejected.
 - **AuthStatus / user-role list leftover-safe** — leftover-safe-parses
   AuthStatusResponse and UserList/RoleList so leftover length-delimited
   bytes cannot steal `enabled` or a printed user/role name. A truncated

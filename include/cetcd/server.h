@@ -558,6 +558,28 @@ int cetcd_encode_status_response(const char *version, uint64_t db_size,
 int cetcd_parse_status_response(const uint8_t *req, size_t len,
                                 char *version, size_t version_cap,
                                 uint64_t *db_size, int *is_learner);
+/* leftover-safe LeaseGrantResponse ID / TTL. omitted / empty / dummy
+ * 0x00 = id 0 / ttl 0. leftover truncated ID / TTL is INVAL so a
+ * truncated grant cannot look like id 0. leftover length-delimited
+ * fields are skipped by payload so leftover bytes cannot steal a
+ * printed or lock-used ID (tag 0x08 is not the grant ID). unknown
+ * wire types are INVAL. */
+int cetcd_encode_lease_grant_response(int64_t id, int64_t ttl, uint8_t *out,
+                                      size_t cap, size_t *n);
+int cetcd_parse_lease_grant_response(const uint8_t *req, size_t len,
+                                     int64_t *id, int64_t *ttl);
+/* leftover-safe LeaseTimeToLiveResponse. omitted / empty / dummy
+ * 0x00 = id 0 / ttl 0 / granted 0 / empty key. leftover truncated
+ * ID / key is INVAL so a truncated TTL cannot print a leftover key.
+ * leftover length-delimited fields are skipped by payload so leftover
+ * bytes cannot steal a printed ID or key. unknown wire types are
+ * INVAL. last key is copied when key/key_cap are set. */
+int cetcd_encode_lease_ttl_response(int64_t id, int64_t ttl, int64_t granted,
+                                    const char *key, uint8_t *out, size_t cap,
+                                    size_t *n);
+int cetcd_parse_lease_ttl_response(const uint8_t *req, size_t len,
+                                   int64_t *id, int64_t *ttl, int64_t *granted,
+                                   char *key, size_t key_cap);
 /* leftover-safe DowngradeRequest. omitted / empty / dummy 0x00 =
  * action VALIDATE (0) / empty version. leftover truncated action /
  * version is INVAL so a truncated validate cannot look like ENABLE

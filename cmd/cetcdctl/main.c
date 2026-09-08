@@ -824,8 +824,11 @@ static void parse_lease_grant_response(const uint8_t *data, size_t len) {
             /* Skip header (length-delimited) */
             uint64_t l = 0; read_varint(data, len, &pos, &l);
             pos += l;
-        } else {
-            uint64_t v = 0; read_varint(data, len, &pos, &v);
+        } else if (tag == 0x00) {
+            continue;
+        } else if (cetcd_leftover_safe_skip_field(data, len, &pos, tag)
+                   != CETCD_OK) {
+            break;
         }
     }
 }
@@ -852,8 +855,11 @@ static void parse_lease_ttl_response(const uint8_t *data, size_t len) {
             /* Skip header (length-delimited) */
             uint64_t l = 0; read_varint(data, len, &pos, &l);
             pos += l;
-        } else {
-            uint64_t v = 0; read_varint(data, len, &pos, &v);
+        } else if (tag == 0x00) {
+            continue;
+        } else if (cetcd_leftover_safe_skip_field(data, len, &pos, tag)
+                   != CETCD_OK) {
+            break;
         }
     }
 }
@@ -3848,21 +3854,16 @@ static int cmd_lock(int argc, char **argv) {
     int glen = do_rpc("/etcdserverpb.Lease/LeaseGrant", grant_req, gpos, grant_resp, sizeof(grant_resp));
     if (glen < 0) { fprintf(stderr, "lease grant failed\n"); return 1; }
 
-    /* Parse LeaseGrantResponse: field 1 (ID) = int64, tag = 0x08 */
-    uint64_t lease_id = 0;
-    size_t rp = 0;
-    while (rp < (size_t)glen) {
-        uint8_t tag = grant_resp[rp++];
-        if (tag == 0x08) {
-            read_varint(grant_resp, glen, &rp, &lease_id);
-            break;
-        } else if (tag == 0x0a) {
-            uint64_t l = 0; read_varint(grant_resp, glen, &rp, &l); rp += l;
-        } else {
-            uint64_t v = 0; read_varint(grant_resp, glen, &rp, &v);
-        }
+    /* leftover-safe: leftover cannot steal a grant ID (field 2 0x10).
+     * tag 0x08 is not the grant ID. */
+    int64_t lease_id = 0, grant_ttl = 0;
+    if (cetcd_parse_lease_grant_response(grant_resp, (size_t)glen,
+                                         &lease_id, &grant_ttl) != CETCD_OK
+        || lease_id == 0) {
+        fprintf(stderr, "failed to get lease ID\n");
+        return 1;
     }
-    if (lease_id == 0) { fprintf(stderr, "failed to get lease ID\n"); return 1; }
+    (void)grant_ttl;
 
     /* Step 2: Txn: Compare(key, CREATE, EQUAL, 0) → success: Put(key, "", lease) */
     /* Build Compare message:
@@ -4106,20 +4107,14 @@ static int cmd_elect(int argc, char **argv) {
     int glen = do_rpc("/etcdserverpb.Lease/LeaseGrant", grant_req, gpos, grant_resp, sizeof(grant_resp));
     if (glen < 0) { fprintf(stderr, "lease grant failed\n"); return 1; }
 
-    uint64_t lease_id = 0;
-    size_t rp = 0;
-    while (rp < (size_t)glen) {
-        uint8_t tag = grant_resp[rp++];
-        if (tag == 0x08) {
-            read_varint(grant_resp, glen, &rp, &lease_id);
-            break;
-        } else if (tag == 0x0a) {
-            uint64_t l = 0; read_varint(grant_resp, glen, &rp, &l); rp += l;
-        } else {
-            uint64_t v = 0; read_varint(grant_resp, glen, &rp, &v);
-        }
+    int64_t lease_id = 0, grant_ttl = 0;
+    if (cetcd_parse_lease_grant_response(grant_resp, (size_t)glen,
+                                         &lease_id, &grant_ttl) != CETCD_OK
+        || lease_id == 0) {
+        fprintf(stderr, "failed to get lease ID\n");
+        return 1;
     }
-    if (lease_id == 0) { fprintf(stderr, "failed to get lease ID\n"); return 1; }
+    (void)grant_ttl;
 
     /* Step 2: Txn: Compare(key, CREATE, EQUAL, 0) -> success: Put(key, proposal, lease) */
     uint8_t cmp_buf[512];

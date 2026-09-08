@@ -4453,6 +4453,148 @@ int cetcd_parse_status_response(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+int cetcd_encode_lease_grant_response(int64_t id, int64_t ttl, uint8_t *out,
+                                      size_t cap, size_t *n) {
+    size_t pos = 0;
+    uint64_t v;
+    if (!out || !n || id <= 0) return CETCD_ERR_INVAL;
+    if (pos + 2 > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x10; /* field 2 ID */
+    v = (uint64_t)id;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    if (pos + 2 > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x18; /* field 3 TTL */
+    v = ttl > 0 ? (uint64_t)ttl : 0;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_lease_grant_response(const uint8_t *req, size_t len,
+                                     int64_t *id, int64_t *ttl) {
+    size_t p = 0;
+    if (!id || !ttl) return CETCD_ERR_INVAL;
+    *id = 0;
+    *ttl = 0;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x10 || tag == 0x18) {
+            uint64_t v = 0;
+            if (leftover_safe_varint_at_(req, len, &p, &v) != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            if (tag == 0x10) *id = (int64_t)v;
+            else *ttl = (int64_t)v;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
+int cetcd_encode_lease_ttl_response(int64_t id, int64_t ttl, int64_t granted,
+                                    const char *key, uint8_t *out, size_t cap,
+                                    size_t *n) {
+    size_t pos = 0;
+    uint64_t v;
+    int rc;
+    if (!out || !n || id <= 0) return CETCD_ERR_INVAL;
+    if (pos + 2 > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x10;
+    v = (uint64_t)id;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    if (pos + 2 > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x18;
+    v = ttl > 0 ? (uint64_t)ttl : 0;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    if (pos + 2 > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x20;
+    v = granted > 0 ? (uint64_t)granted : 0;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    if (key && key[0]) {
+        rc = write_bytes_field_(out, cap, &pos, 0x2a, (const uint8_t *)key,
+                                strlen(key));
+        if (rc != CETCD_OK) return rc;
+    }
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_lease_ttl_response(const uint8_t *req, size_t len,
+                                   int64_t *id, int64_t *ttl, int64_t *granted,
+                                   char *key, size_t key_cap) {
+    size_t p = 0;
+    if (!id || !ttl || !granted) return CETCD_ERR_INVAL;
+    *id = 0;
+    *ttl = 0;
+    *granted = 0;
+    if (key && key_cap)
+        key[0] = '\0';
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x10 || tag == 0x18 || tag == 0x20) {
+            uint64_t v = 0;
+            if (leftover_safe_varint_at_(req, len, &p, &v) != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            if (tag == 0x10) *id = (int64_t)v;
+            else if (tag == 0x18) *ttl = (int64_t)v;
+            else *granted = (int64_t)v;
+            continue;
+        }
+        if (tag == 0x2a) {
+            uint64_t skip = 0;
+            int rc = leftover_safe_varint_at_(req, len, &p, &skip);
+            if (rc != CETCD_OK || p + skip > len) return CETCD_ERR_INVAL;
+            if (key && key_cap) {
+                if (skip >= key_cap) return CETCD_ERR_INVAL;
+                memcpy(key, req + p, (size_t)skip);
+                key[skip] = '\0';
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n) {
     if (!out || !n || cap < 2) return CETCD_ERR_INVAL;
