@@ -782,6 +782,13 @@ Performance-first, fail-closed design:
   voter). Dummy `0x00` is not a skip length. `cetcdctl endpoint
   status` leftover-safe-skips unknown fields. Accepting leftover
   payload as the printed version is rejected.
+- **Status leftover-safe errors** — leftover-safe-parses
+  StatusResponse.errors so leftover length-delimited bytes cannot
+  steal a printed alarm error. A truncated error fail-closes (cannot
+  print leftover text). Dummy `0x00` is not a skip length.
+  `cetcdctl status` / `endpoint status` leftover-safe-parse field 8.
+  Accepting leftover payload as the printed `NOSPACE` / `CORRUPT` is
+  rejected.
 - **LeaseGrant / TimeToLive leftover-safe ID** — leftover-safe-parses
   LeaseGrantResponse and LeaseTimeToLiveResponse so leftover
   length-delimited bytes cannot steal a printed or lock-used ID, TTL,

@@ -568,6 +568,16 @@ int cetcd_encode_status_response(const char *version, uint64_t db_size,
 int cetcd_parse_status_response(const uint8_t *req, size_t len,
                                 char *version, size_t version_cap,
                                 uint64_t *db_size, int *is_learner);
+/* leftover-safe StatusResponse.errors (field 8, tag 0x42). omitted /
+ * empty / dummy 0x00 = empty. leftover truncated error is INVAL so a
+ * truncated status cannot print leftover text. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed alarm error. unknown wire types are INVAL.
+ * last error is copied when error/error_cap are set. */
+int cetcd_encode_status_errors(const char *error, uint8_t *out, size_t cap,
+                               size_t *n);
+int cetcd_parse_status_errors(const uint8_t *req, size_t len, char *error,
+                              size_t error_cap);
 /* leftover-safe LeaseGrantResponse ID / TTL. omitted / empty / dummy
  * 0x00 = id 0 / ttl 0. leftover truncated ID / TTL is INVAL so a
  * truncated grant cannot look like id 0. leftover length-delimited

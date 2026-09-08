@@ -759,6 +759,12 @@ static void parse_range_response(const uint8_t *data, size_t len) {
 }
 
 static void parse_status_response(const uint8_t *data, size_t len) {
+    char leftover_err[32];
+    leftover_err[0] = '\0';
+    /* leftover-safe: leftover cannot steal a printed alarm error */
+    if (cetcd_parse_status_errors(data, len, leftover_err, sizeof(leftover_err))
+        != CETCD_OK)
+        return;
     size_t pos = 0;
     while (pos < len) {
         uint8_t tag = data[pos++];
@@ -787,9 +793,11 @@ static void parse_status_response(const uint8_t *data, size_t len) {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
             printf("raftAppliedIndex: %llu\n", (unsigned long long)v);
         } else if (tag == 0x42) {
-            uint64_t l = 0; read_varint(data, len, &pos, &l);
-            printf("error: %.*s\n", (int)l, data + pos);
-            pos += l;
+            /* leftover-safe: leftover cannot steal a printed alarm error */
+            if (cetcd_leftover_safe_skip_field(data, len, &pos, tag)
+                != CETCD_OK) {
+                break;
+            }
         } else if (tag == 0x48) {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
             printf("dbSizeInUse: %llu\n", (unsigned long long)v);
@@ -807,6 +815,8 @@ static void parse_status_response(const uint8_t *data, size_t len) {
             break;
         }
     }
+    if (leftover_err[0])
+        printf("error: %s\n", leftover_err);
 }
 
 static void parse_lease_grant_response(const uint8_t *data, size_t len) {
@@ -3103,6 +3113,14 @@ static int cmd_status(int argc, char **argv) {
     uint8_t req[] = {0x00}, resp[1024];
     int rlen = do_rpc("/etcdserverpb.Maintenance/Status", req, 1, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+    char leftover_err[32];
+    leftover_err[0] = '\0';
+    /* leftover-safe: leftover cannot steal a printed alarm error */
+    if (cetcd_parse_status_errors(resp, (size_t)rlen, leftover_err,
+                                  sizeof(leftover_err)) != CETCD_OK) {
+        fprintf(stderr, "request failed\n");
+        return 1;
+    }
     /* Parse StatusResponse */
     size_t pos = 0;
     const uint8_t *version = NULL; size_t version_len = 0;
@@ -3124,8 +3142,11 @@ static int cmd_status(int argc, char **argv) {
         } else if (tag == 0x38) {
             read_varint(resp, rlen, &pos, &raft_applied);
         } else if (tag == 0x42) {
-            uint64_t l = 0; read_varint(resp, rlen, &pos, &l);
-            pos += l;
+            /* leftover-safe: leftover cannot steal a printed alarm error */
+            if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen, &pos, tag)
+                != CETCD_OK) {
+                break;
+            }
         } else if (tag == 0x48) {
             read_varint(resp, rlen, &pos, &db_inuse);
         } else if (tag == 0x50) {
@@ -3162,6 +3183,7 @@ static int cmd_status(int argc, char **argv) {
         printf("raftAppliedIndex: %llu\n", (unsigned long long)raft_applied);
         printf("revision: %llu\n", (unsigned long long)revision);
         if (is_learner) printf("isLearner: true\n");
+        if (leftover_err[0]) printf("errors: %s\n", leftover_err);
     } else if (want_json) {
         fputs("{", stdout);
         parse_and_print_header_json(resp, (size_t)rlen);
@@ -3176,6 +3198,11 @@ static int cmd_status(int argc, char **argv) {
         printf("\"raftAppliedIndex\":%llu,", (unsigned long long)raft_applied);
         printf("\"revision\":%llu", (unsigned long long)revision);
         if (is_learner) fputs(",\"isLearner\":true", stdout);
+        if (leftover_err[0]) {
+            fputs(",\"errors\":[", stdout);
+            print_json_string((const uint8_t *)leftover_err, strlen(leftover_err));
+            fputs("]", stdout);
+        }
         fputs("}\n", stdout);
     } else {
         parse_status_response(resp, rlen);
@@ -3393,6 +3420,12 @@ static int cmd_endpoint(int argc, char **argv) {
                 uint8_t sreq[] = {0x00}, sresp[1024];
                 int srlen = do_rpc("/etcdserverpb.Maintenance/Status", sreq, 1, sresp, sizeof(sresp));
                 if (srlen < 0) continue;
+                char leftover_err[32];
+                leftover_err[0] = '\0';
+                /* leftover-safe: leftover cannot steal a printed alarm error */
+                if (cetcd_parse_status_errors(sresp, (size_t)srlen, leftover_err,
+                                              sizeof(leftover_err)) != CETCD_OK)
+                    continue;
                 size_t pos = 0;
                 const uint8_t *ver = NULL; size_t ver_len = 0;
                 uint64_t db_size = 0, leader = 0, raft_index = 0, raft_term = 0, revision = 0;
@@ -3411,8 +3444,12 @@ static int cmd_endpoint(int argc, char **argv) {
                     } else if (tag == 0x30) {
                         read_varint(sresp, srlen, &pos, &raft_term);
                     } else if (tag == 0x42) {
-                        uint64_t l = 0; read_varint(sresp, srlen, &pos, &l);
-                        pos += l;
+                        /* leftover-safe: leftover cannot steal a printed alarm error */
+                        if (cetcd_leftover_safe_skip_field(sresp, (size_t)srlen,
+                                                            &pos, tag)
+                            != CETCD_OK) {
+                            break;
+                        }
                     } else if (tag == 0x48) {
                         read_varint(sresp, srlen, &pos, &db_inuse);
                     } else if (tag == 0x0a) {
@@ -3443,11 +3480,18 @@ static int cmd_endpoint(int argc, char **argv) {
                     fputs(",\"version\":", stdout);
                     if (ver) print_json_string(ver, ver_len); else fputs("\"\"", stdout);
                     fputs(",", stdout);
-                    printf("\"dbSize\":%llu,\"dbSizeInUse\":%llu,\"leader\":%llu,\"raftIndex\":%llu,\"raftTerm\":%llu,\"revision\":%llu}\n",
+                    printf("\"dbSize\":%llu,\"dbSizeInUse\":%llu,\"leader\":%llu,\"raftIndex\":%llu,\"raftTerm\":%llu,\"revision\":%llu",
                            (unsigned long long)db_size, (unsigned long long)db_inuse,
                            (unsigned long long)leader,
                            (unsigned long long)raft_index, (unsigned long long)raft_term,
                            (unsigned long long)revision);
+                    if (leftover_err[0]) {
+                        fputs(",\"errors\":[", stdout);
+                        print_json_string((const uint8_t *)leftover_err,
+                                          strlen(leftover_err));
+                        fputs("]", stdout);
+                    }
+                    fputs("}\n", stdout);
                 } else if (want_table) {
                     printf("| %-24s | %14llu | %9llu | %9llu |\n",
                            ep_str_(), (unsigned long long)leader, (unsigned long long)revision,
@@ -3461,10 +3505,14 @@ static int cmd_endpoint(int argc, char **argv) {
                     printf("raftIndex: %llu\n", (unsigned long long)raft_index);
                     printf("raftTerm: %llu\n", (unsigned long long)raft_term);
                     if (ver) printf("version: %.*s\n", (int)ver_len, ver);
+                    if (leftover_err[0]) printf("errors: %s\n", leftover_err);
                     printf("\n");
                 } else {
-                    printf("endpoint: %s  revision: %llu  db_size: %llu\n",
+                    printf("endpoint: %s  revision: %llu  db_size: %llu",
                            ep_str_(), (unsigned long long)revision, (unsigned long long)db_size);
+                    if (leftover_err[0])
+                        printf("  error: %s", leftover_err);
+                    printf("\n");
                 }
             }
             if (want_table) {
@@ -3478,6 +3526,14 @@ static int cmd_endpoint(int argc, char **argv) {
         uint8_t req[] = {0x00}, resp[1024];
         int rlen = do_rpc("/etcdserverpb.Maintenance/Status", req, 1, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        char leftover_err[32];
+        leftover_err[0] = '\0';
+        /* leftover-safe: leftover cannot steal a printed alarm error */
+        if (cetcd_parse_status_errors(resp, (size_t)rlen, leftover_err,
+                                      sizeof(leftover_err)) != CETCD_OK) {
+            fprintf(stderr, "request failed\n");
+            return 1;
+        }
         size_t pos = 0;
         const uint8_t *ver = NULL; size_t ver_len = 0;
         uint64_t db_size = 0, leader = 0, raft_index = 0, raft_term = 0, revision = 0;
@@ -3496,8 +3552,11 @@ static int cmd_endpoint(int argc, char **argv) {
             } else if (tag == 0x30) {
                 read_varint(resp, rlen, &pos, &raft_term);
             } else if (tag == 0x42) {
-                uint64_t l = 0; read_varint(resp, rlen, &pos, &l);
-                pos += l;
+                /* leftover-safe: leftover cannot steal a printed alarm error */
+                if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen, &pos, tag)
+                    != CETCD_OK) {
+                    break;
+                }
             } else if (tag == 0x48) {
                 read_varint(resp, rlen, &pos, &db_inuse);
             } else if (tag == 0x0a) {
@@ -3526,11 +3585,17 @@ static int cmd_endpoint(int argc, char **argv) {
             fputs(",\"version\":", stdout);
             if (ver) print_json_string(ver, ver_len); else fputs("\"\"", stdout);
             fputs(",", stdout);
-            printf("\"dbSize\":%llu,\"dbSizeInUse\":%llu,\"leader\":%llu,\"raftIndex\":%llu,\"raftTerm\":%llu,\"revision\":%llu}\n",
+            printf("\"dbSize\":%llu,\"dbSizeInUse\":%llu,\"leader\":%llu,\"raftIndex\":%llu,\"raftTerm\":%llu,\"revision\":%llu",
                    (unsigned long long)db_size, (unsigned long long)db_inuse,
                    (unsigned long long)leader,
                    (unsigned long long)raft_index, (unsigned long long)raft_term,
                    (unsigned long long)revision);
+            if (leftover_err[0]) {
+                fputs(",\"errors\":[", stdout);
+                print_json_string((const uint8_t *)leftover_err, strlen(leftover_err));
+                fputs("]", stdout);
+            }
+            fputs("}\n", stdout);
         } else if (want_table) {
             printf("+--------------------------+----------------+-----------+-----------+\n");
             printf("|         ENDPOINT         |      ID        |  REVISION | DB SIZE   |\n");
@@ -3548,6 +3613,7 @@ static int cmd_endpoint(int argc, char **argv) {
             printf("raftIndex: %llu\n", (unsigned long long)raft_index);
             printf("raftTerm: %llu\n", (unsigned long long)raft_term);
             if (ver) printf("version: %.*s\n", (int)ver_len, ver);
+            if (leftover_err[0]) printf("errors: %s\n", leftover_err);
             printf("\n");
         } else {
             parse_status_response(resp, rlen);
@@ -3825,7 +3891,7 @@ static int cmd_check(int argc, char **argv) {
             while (sp < (size_t)st_rlen) {
                 uint8_t t = st_resp[sp++];
                 if (t == 0x18) { read_varint(st_resp, st_rlen, &sp, &db_size); }
-                else if (t == 0x0a || t == 0x12 || t == 0x42) { uint64_t l = 0; read_varint(st_resp, st_rlen, &sp, &l); sp += l; }
+                else if (t == 0x0a || t == 0x12) { uint64_t l = 0; read_varint(st_resp, st_rlen, &sp, &l); sp += l; }
                 else if (t == 0x00) { continue; }
                 else if (cetcd_leftover_safe_skip_field(st_resp, (size_t)st_rlen,
                                                         &sp, t) != CETCD_OK) {

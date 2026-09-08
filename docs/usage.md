@@ -490,6 +490,7 @@ to cancel the watch and close the stream.
 
 ```sh
 ./build/bin/cetcdctl status                # Status: version, dbSize, dbSizeInUse, raft index/applied, alarms
+# leftover cannot steal a printed NOSPACE / CORRUPT error
 ./build/bin/cetcdctl alarm list                       # List alarms (persisted across restart)
 # leftover truncated Alarm action fail-closes (cannot look like GET)
 # leftover length-delimited bytes cannot steal ACTIVATE
