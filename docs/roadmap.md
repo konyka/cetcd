@@ -1146,6 +1146,13 @@ Performance-first, fail-closed design:
   fail-closes. Dummy `0x00` is not a skip length. `cetcdctl auth login`
   / `auth status` leftover-safe-parse field 2. Accepting leftover
   payload as the printed token is rejected.
+- **AuthStatus leftover-safe authRevision** — leftover-safe-parses
+  AuthStatusResponse.authRevision so leftover length-delimited bytes
+  cannot steal a printed authRevision. A truncated authRevision
+  fail-closes (cannot look like authRevision 0). Dummy `0x00` is not
+  a skip length. Tag `0x0a` header revision is not authRevision.
+  `cetcdctl auth status` leftover-safe-parses field 3. Accepting
+  leftover payload as the printed authRevision is rejected.
 - **AuthStatus / user-role list leftover-safe** — leftover-safe-parses
   AuthStatusResponse and UserList/RoleList so leftover length-delimited
   bytes cannot steal `enabled` or a printed user/role name. A truncated

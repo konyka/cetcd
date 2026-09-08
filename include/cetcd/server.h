@@ -645,6 +645,17 @@ int cetcd_encode_auth_status_response(int enabled, uint8_t *out, size_t cap,
                                       size_t *n);
 int cetcd_parse_auth_status_response(const uint8_t *req, size_t len,
                                      int *enabled);
+/* leftover-safe AuthStatusResponse.authRevision (field 3, tag 0x18).
+ * omitted / empty / dummy 0x00 = 0. leftover truncated authRevision
+ * is INVAL so a truncated status cannot look like authRevision 0.
+ * leftover length-delimited fields are skipped by payload so leftover
+ * bytes cannot steal a printed authRevision (tag 0x0a header revision
+ * is not authRevision). unknown wire types are INVAL. last
+ * authRevision is copied when auth_rev is set. */
+int cetcd_encode_auth_status_auth_revision(uint64_t auth_rev, uint8_t *out,
+                                           size_t cap, size_t *n);
+int cetcd_parse_auth_status_auth_revision(const uint8_t *req, size_t len,
+                                          uint64_t *auth_rev);
 /* leftover-safe UserList/RoleList last name. omitted / empty / dummy
  * 0x00 = 0 names. leftover truncated name is INVAL so a truncated
  * list cannot print a leftover principal. leftover length-delimited

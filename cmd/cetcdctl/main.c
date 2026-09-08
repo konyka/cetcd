@@ -6166,16 +6166,30 @@ static int cmd_auth(int argc, char **argv) {
             fprintf(stderr, "request failed\n");
             return 1;
         }
+        uint64_t leftover_auth_rev = 0;
+        /* leftover-safe: leftover cannot steal a printed authRevision */
+        if (cetcd_parse_auth_status_auth_revision(resp, (size_t)rlen,
+                                                  &leftover_auth_rev)
+            != CETCD_OK) {
+            fprintf(stderr, "request failed\n");
+            return 1;
+        }
         if (want_json) {
             fputs("{", stdout);
             parse_and_print_header_json(resp, (size_t)rlen);
-            printf(",\"enabled\":%s}\n", enabled ? "true" : "false");
+            printf(",\"enabled\":%s,\"authRevision\":%llu}\n",
+                   enabled ? "true" : "false",
+                   (unsigned long long)leftover_auth_rev);
         } else if (want_fields) {
             parse_and_print_header_json(resp, (size_t)rlen);
             printf("enabled: %s\n", enabled ? "true" : "false");
+            printf("authRevision: %llu\n",
+                   (unsigned long long)leftover_auth_rev);
             fputs("\n", stdout);
         } else {
-            parse_auth_status_response(resp, rlen);
+            printf("auth enabled: %s\n", enabled ? "true" : "false");
+            printf("authRevision: %llu\n",
+                   (unsigned long long)leftover_auth_rev);
         }
     } else {
         if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs("}\n", stdout); }

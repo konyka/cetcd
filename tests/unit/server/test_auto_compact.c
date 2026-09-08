@@ -2060,6 +2060,72 @@ CETCD_TEST_CASE(auto_compact_parse_auth_status_response) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_auth_status_auth_revision) {
+    uint8_t buf[16];
+    size_t n = 0;
+    uint64_t auth_rev = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_auth_status_auth_revision(0, buf,
+                                                              sizeof(buf),
+                                                              &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_auth_status_auth_revision(4, buf,
+                                                              sizeof(buf),
+                                                              &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_status_auth_revision(buf, n,
+                                                             &auth_rev),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(auth_rev == 4);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_status_auth_revision(NULL, 0,
+                                                             &auth_rev),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(auth_rev == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_status_auth_revision(dummy, 1,
+                                                             &auth_rev),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(auth_rev == 0);
+
+    /* leftover truncated authRevision cannot look like 0 */
+    uint8_t trunc[] = { 0x18 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_status_auth_revision(trunc, 1,
+                                                             &auth_rev),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed authRevision */
+    uint8_t steal[] = { 0x1a, 0x02, 0x18, 0x01 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_status_auth_revision(steal,
+                                                             sizeof(steal),
+                                                             &auth_rev),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(auth_rev == 0);
+
+    /* leftover header revision is not authRevision */
+    uint8_t header[] = { 0x0a, 0x02, 0x18, 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_status_auth_revision(header,
+                                                             sizeof(header),
+                                                             &auth_rev),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(auth_rev == 0);
+
+    uint8_t last[] = { 0x18, 0x01, 0x18, 0x02 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_status_auth_revision(last,
+                                                             sizeof(last),
+                                                             &auth_rev),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(auth_rev == 2);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_status_auth_revision(fixed64, 1,
+                                                             &auth_rev),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_status_auth_revision(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_string_list_response) {
     uint8_t buf[32];
     size_t n = 0, got = 9;
@@ -6718,6 +6784,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_member_list_name),
     CETCD_TEST_ENTRY(auto_compact_parse_member_list_is_learner),
     CETCD_TEST_ENTRY(auto_compact_parse_auth_status_response),
+    CETCD_TEST_ENTRY(auto_compact_parse_auth_status_auth_revision),
     CETCD_TEST_ENTRY(auto_compact_parse_string_list_response),
     CETCD_TEST_ENTRY(auto_compact_parse_status_response),
     CETCD_TEST_ENTRY(auto_compact_parse_status_errors),
