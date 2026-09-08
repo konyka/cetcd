@@ -6570,6 +6570,79 @@ int cetcd_parse_role_get_range_end(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+int cetcd_encode_role_get_perm_type(int perm_type, uint8_t *out, size_t cap,
+                                    size_t *n) {
+    uint8_t perm[8];
+    size_t pn = 0;
+    uint64_t v;
+    size_t pos = 0;
+    if (!out || !n) return CETCD_ERR_INVAL;
+    *n = 0;
+    if (perm_type < 0 || perm_type > 2) return CETCD_ERR_INVAL;
+    if (perm_type == 0) return CETCD_OK;
+    if (pn + 2 > sizeof(perm)) return CETCD_ERR_OVERFLOW;
+    perm[pn++] = 0x08;
+    perm[pn++] = (uint8_t)perm_type;
+    if (pos + 2 + pn > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x12; /* field 2 perm */
+    v = pn;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    memcpy(out + pos, perm, pn);
+    pos += pn;
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_role_get_perm_type(const uint8_t *req, size_t len,
+                                   int *perm_type) {
+    size_t p = 0;
+    if (!perm_type) return CETCD_ERR_INVAL;
+    *perm_type = 0;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x12) {
+            uint64_t skip = 0;
+            size_t ip = 0;
+            int rc = leftover_safe_varint_at_(req, len, &p, &skip);
+            if (rc != CETCD_OK || p + skip > len) return CETCD_ERR_INVAL;
+            *perm_type = 0;
+            while (ip < (size_t)skip) {
+                uint8_t mt = req[p + ip];
+                ip++;
+                if (mt == 0x00)
+                    continue;
+                if (mt == 0x08) {
+                    uint64_t v = 0;
+                    size_t qp = ip;
+                    if (leftover_safe_varint_at_(req + p, (size_t)skip, &qp, &v)
+                        != CETCD_OK)
+                        return CETCD_ERR_INVAL;
+                    *perm_type = (int)v;
+                    ip = qp;
+                    continue;
+                }
+                if (leftover_safe_skip_unknown_at_(req + p, (size_t)skip, &ip,
+                                                   mt) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_watch_event_kv(int type, const char *key, uint8_t *out,
                                 size_t cap, size_t *n) {
     uint8_t kv[64];

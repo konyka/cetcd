@@ -1013,6 +1013,15 @@ Performance-first, fail-closed design:
   (cannot print leftover text). Dummy `0x00` is not a skip length.
   `cetcdctl role get` leftover-safe-parses field 3. Accepting leftover
   payload as the printed range is rejected.
+- **RoleGet leftover-safe permType** — leftover-safe-parses
+  AuthRoleGetResponse Permission.permType so leftover length-delimited
+  bytes cannot steal a printed permType. A truncated permType
+  fail-closes (cannot look like READ). Dummy `0x00` is not a skip
+  length. Tag `0x0a` header cluster_id is not permType. `cetcdctl
+  role get` leftover-safe-parses field 1 inside Permission. UserGet /
+  UserList / RoleList leftover-safe-parse first so a truncated name
+  fail-closes. Accepting leftover payload as the printed permType or
+  name is rejected.
 - **Watch leftover-safe event key** — leftover-safe-parses
   WatchResponse so leftover length-delimited bytes cannot steal a
   printed Event key or type. A truncated event / kv / key fail-closes

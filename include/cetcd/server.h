@@ -937,6 +937,18 @@ int cetcd_encode_role_get_range_end(const char *range_end, uint8_t *out,
                                     size_t cap, size_t *n);
 int cetcd_parse_role_get_range_end(const uint8_t *req, size_t len,
                                    char *range_end, size_t range_end_cap);
+/* leftover-safe RoleGet Permission.permType (field 1, tag 0x08 inside
+ * field 2, tag 0x12). omitted / empty / dummy 0x00 = READ (0).
+ * leftover truncated permType is INVAL so a truncated get cannot
+ * look like READ. leftover length-delimited fields are skipped by
+ * payload so leftover bytes cannot steal a printed permType (tag
+ * 0x0a header cluster_id is not permType). unknown wire types are
+ * INVAL. last permType is copied when perm_type is set. proto3
+ * omitted permType is READ. */
+int cetcd_encode_role_get_perm_type(int perm_type, uint8_t *out, size_t cap,
+                                    size_t *n);
+int cetcd_parse_role_get_perm_type(const uint8_t *req, size_t len,
+                                   int *perm_type);
 /* leftover-safe WatchResponse last Event key. omitted / empty /
  * dummy 0x00 = 0 events / PUT / empty key. leftover truncated
  * event / kv / key is INVAL so a truncated watch cannot print a

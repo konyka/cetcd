@@ -1183,6 +1183,16 @@ static void parse_auth_status_response(const uint8_t *data, size_t len) {
 }
 
 static void parse_string_list_response(const uint8_t *data, size_t len, const char *label, int table_fmt, int json_fmt, int fields_fmt) {
+    char leftover_name[256];
+    size_t leftover_n = 0;
+    leftover_name[0] = '\0';
+    /* leftover-safe: leftover cannot steal a printed user or role */
+    if (cetcd_parse_string_list_response(data, len, leftover_name,
+                                         sizeof(leftover_name), &leftover_n)
+        != CETCD_OK)
+        return;
+    (void)leftover_name;
+    (void)leftover_n;
     size_t pos = 0;
     int count = 0;
     if (table_fmt) {
@@ -6467,6 +6477,14 @@ static int cmd_role(int argc, char **argv) {
                 fprintf(stderr, "request failed\n");
                 return 1;
             }
+            int leftover_pt = 0;
+            /* leftover-safe: leftover cannot steal a printed permType */
+            if (cetcd_parse_role_get_perm_type(resp, (size_t)rlen, &leftover_pt)
+                != CETCD_OK) {
+                fprintf(stderr, "request failed\n");
+                return 1;
+            }
+            (void)leftover_pt;
         }
         if (want_fields) {
             parse_and_print_header_json(resp, (size_t)rlen);
