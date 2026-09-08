@@ -546,6 +546,12 @@ static void parse_range_response(const uint8_t *data, size_t len) {
         != CETCD_OK)
         return;
     (void)leftover_version;
+    int64_t leftover_create = 0;
+    /* leftover-safe: leftover cannot steal a printed create_revision */
+    if (cetcd_parse_range_response_kv_create_rev(data, len, &leftover_create)
+        != CETCD_OK)
+        return;
+    (void)leftover_create;
     int count_rc = cetcd_parse_range_response_count(data, len, &leftover_count,
                                                     &leftover_more);
     /* leftover-safe: leftover cannot steal a printed count or more=true */
@@ -1434,6 +1440,15 @@ static int cmd_put(int argc, char **argv) {
         return 1;
     }
     (void)leftover_version;
+    int64_t leftover_create = 0;
+    /* leftover-safe: leftover cannot steal a printed create_revision */
+    if (cetcd_parse_range_response_kv_create_rev(resp, (size_t)rlen,
+                                                 &leftover_create) != CETCD_OK) {
+        fprintf(stderr, "request failed\n");
+        if (stdin_val) free(stdin_val);
+        return 1;
+    }
+    (void)leftover_create;
     if (want_fields) {
         if (prev_kv) {
             size_t rpos = 0;
@@ -2027,6 +2042,14 @@ static int cmd_del(int argc, char **argv) {
         return 1;
     }
     (void)leftover_version;
+    int64_t leftover_create = 0;
+    /* leftover-safe: leftover cannot steal a printed create_revision */
+    if (cetcd_parse_range_response_kv_create_rev(resp, (size_t)rlen,
+                                                 &leftover_create) != CETCD_OK) {
+        fprintf(stderr, "request failed\n");
+        return 1;
+    }
+    (void)leftover_create;
     if (want_fields) {
         size_t rpos = 0;
         uint64_t deleted = (uint64_t)leftover_deleted;
@@ -6663,6 +6686,12 @@ static int print_watch_response(const uint8_t *resp, size_t rlen,
         != CETCD_OK)
         leftover_version = 0;
     (void)leftover_version;
+    int64_t leftover_create = 0;
+    /* leftover-safe: leftover cannot steal a printed create_revision */
+    if (cetcd_parse_range_response_kv_create_rev(resp, rlen, &leftover_create)
+        != CETCD_OK)
+        leftover_create = 0;
+    (void)leftover_create;
 
     if (want_json) {
         fputs("{", stdout);

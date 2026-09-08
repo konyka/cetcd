@@ -735,6 +735,14 @@ Performance-first, fail-closed design:
   header raft_term is not version. `cetcdctl get` / `put --prev-kv` /
   `del --prev-kv` / `watch` leftover-safe-parse field 5. Accepting
   leftover payload as the printed version is rejected.
+- **Range leftover-safe KV create_revision** — leftover-safe-parses
+  RangeResponse KV create_revision so leftover length-delimited bytes
+  cannot steal a printed create_revision. A truncated create_revision
+  fail-closes (cannot look like create_revision 0). Dummy `0x00` is not
+  a skip length. Tag `0x0a` header member_id is not create_revision.
+  `cetcdctl get` / `put --prev-kv` / `del --prev-kv` / `watch`
+  leftover-safe-parse field 3. Accepting leftover payload as the printed
+  create_revision is rejected.
 - **Authenticate leftover-safe name/password** — leftover-safe-parses
   AuthenticateRequest so leftover length-delimited bytes cannot steal
   a name or password. A truncated password fail-closes (cannot look

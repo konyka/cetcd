@@ -282,6 +282,18 @@ int cetcd_encode_range_response_kv_version(int64_t version, uint8_t *out,
                                            size_t cap, size_t *n);
 int cetcd_parse_range_response_kv_version(const uint8_t *req, size_t len,
                                           int64_t *version);
+/* leftover-safe RangeResponse KV create_revision (field 3, tag 0x10).
+ * omitted / empty / dummy 0x00 = 0. leftover truncated
+ * create_revision is INVAL so a truncated get cannot look like
+ * create_revision 0. leftover length-delimited fields are skipped by
+ * payload so leftover bytes cannot steal a printed create_revision
+ * (tag 0x0a header member_id is not create_revision). unknown wire
+ * types are INVAL. last create_revision is copied when create_rev is
+ * set. */
+int cetcd_encode_range_response_kv_create_rev(int64_t create_rev, uint8_t *out,
+                                              size_t cap, size_t *n);
+int cetcd_parse_range_response_kv_create_rev(const uint8_t *req, size_t len,
+                                             int64_t *create_rev);
 /* leftover-safe RangeResponse.count / more. omitted / empty / dummy
  * 0x00 = count 0 / more false. leftover truncated count / more is
  * INVAL so a truncated get --count-only cannot print 0. leftover
