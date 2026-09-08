@@ -2224,6 +2224,50 @@ CETCD_TEST_CASE(auto_compact_parse_txn_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_auth_name_request) {
+    uint8_t buf[32];
+    size_t n = 0;
+    cetcd_auth_name_request an;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_auth_name_request(NULL, 0, buf, sizeof(buf),
+                                                       &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_auth_name_request(
+                            (const uint8_t *)"alice", 5, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_name_request(buf, n, &an), CETCD_OK);
+    CETCD_ASSERT_TRUE(an.name_len == 5 && an.name &&
+                      memcmp(an.name, "alice", 5) == 0);
+    cetcd_auth_name_request_clear(&an);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_name_request(NULL, 0, &an), CETCD_OK);
+    CETCD_ASSERT_TRUE(an.name == NULL);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_name_request(dummy, 1, &an), CETCD_OK);
+    CETCD_ASSERT_TRUE(an.name == NULL);
+
+    /* leftover truncated name cannot look like a successful delete */
+    uint8_t trunc[] = { 0x0a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_name_request(trunc, 1, &an),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_TRUE(an.name == NULL);
+
+    /* leftover length-delimited payload cannot steal the name */
+    uint8_t steal[] = { 0x1a, 0x07, 0x0a, 0x05, 'a', 'l', 'i', 'c', 'e' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_name_request(steal, sizeof(steal), &an),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(an.name == NULL);
+
+    uint8_t badskip[] = { 0x1a, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_name_request(badskip, 2, &an),
+                        CETCD_ERR_INVAL);
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_name_request(fixed64, 1, &an),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_name_request(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_compact_argv) {
     int physical = 0;
     int64_t rev = 0;
@@ -2842,6 +2886,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_user_add_request),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_compare),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_auth_name_request),
     CETCD_TEST_ENTRY(auto_compact_parse_compact_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_defrag_argv),

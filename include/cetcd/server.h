@@ -316,6 +316,21 @@ int cetcd_encode_auth_name_pass_request(const uint8_t *name, size_t name_len,
                                         size_t cap, size_t *n);
 int cetcd_parse_auth_name_pass_request(const uint8_t *req, size_t len,
                                        cetcd_auth_name_pass_request *out);
+/* leftover-safe Auth name-only (UserDelete / RoleAdd / RoleDelete /
+ * UserGet / RoleGet). omitted / empty / dummy 0x00 = empty name.
+ * leftover truncated name is INVAL so a truncated name cannot look
+ * like a successful delete. leftover length-delimited fields are
+ * skipped by payload so leftover bytes cannot steal the name.
+ * unknown wire types are INVAL. name is malloced and NUL-terminated. */
+typedef struct cetcd_auth_name_request {
+    uint8_t *name;
+    size_t name_len;
+} cetcd_auth_name_request;
+void cetcd_auth_name_request_clear(cetcd_auth_name_request *r);
+int cetcd_encode_auth_name_request(const uint8_t *name, size_t name_len,
+                                   uint8_t *out, size_t cap, size_t *n);
+int cetcd_parse_auth_name_request(const uint8_t *req, size_t len,
+                                  cetcd_auth_name_request *out);
 /* leftover-safe AuthUserAddRequest. omitted / empty / dummy 0x00 =
  * empty name/password. leftover truncated password / options is INVAL
  * so a truncated password cannot look like a name-only add. leftover

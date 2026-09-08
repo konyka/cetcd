@@ -721,6 +721,13 @@ Performance-first, fail-closed design:
   success/failure op. A truncated success-op length fail-closes
   (cannot look like an empty txn). Dummy `0x00` / omitted is 0 ops.
   Accepting leftover payload as a success Put is rejected.
+- **Auth name leftover-safe** — leftover-safe-parses AuthUserDelete /
+  RoleAdd / RoleDelete / UserGet / RoleGet so leftover length-delimited
+  bytes cannot steal the name and delete or look up the wrong principal.
+  UserGrantRole / UserRevokeRole leftover-safe-parses the same user/role
+  strings. A truncated name fail-closes (cannot look like a successful
+  delete). Dummy `0x00` / omitted is empty. Accepting leftover payload
+  as the name is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

@@ -356,6 +356,16 @@ static int parse_auth_name_pass_request_(const uint8_t *req, size_t len,
     return 0;
 }
 
+static int parse_auth_name_request_(const uint8_t *req, size_t len,
+                                    uint8_t **name, size_t *name_len) {
+    uint8_t *pass = NULL;
+    size_t pass_len = 0;
+    int rc = parse_auth_name_pass_request_(req, len, name, name_len,
+                                           &pass, &pass_len, NULL);
+    free(pass);
+    return rc;
+}
+
 cetcd_rpc_bytes auth_handle_authenticate(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
     uint8_t *name = NULL; size_t name_len = 0;
@@ -428,15 +438,8 @@ cetcd_rpc_bytes auth_handle_user_add(cetcd_v3rpc *rpc, const uint8_t *req, size_
 cetcd_rpc_bytes auth_handle_user_delete(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
     uint8_t *name = NULL; size_t name_len = 0;
-    size_t pos = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x0a) {
-            if (read_bytes_field(req, req_len, &pos, &name, &name_len) != 0) break;
-        } else {
-            uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
-        }
-    }
+    if (parse_auth_name_request_(req, req_len, &name, &name_len) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
     if (!g_rpc_auth || !name || name_len == 0 ||
         !cetcd_auth_has_user(g_rpc_auth, (const char *)name)) {
         free(name);
@@ -458,15 +461,8 @@ cetcd_rpc_bytes auth_handle_user_delete(cetcd_v3rpc *rpc, const uint8_t *req, si
 cetcd_rpc_bytes auth_handle_role_add(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
     uint8_t *name = NULL; size_t name_len = 0;
-    size_t pos = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x0a) {
-            if (read_bytes_field(req, req_len, &pos, &name, &name_len) != 0) break;
-        } else {
-            uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
-        }
-    }
+    if (parse_auth_name_request_(req, req_len, &name, &name_len) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
     if (!g_rpc_auth || !name || name_len == 0 ||
         cetcd_auth_get_role(g_rpc_auth, (const char *)name)) {
         free(name);
@@ -489,17 +485,9 @@ cetcd_rpc_bytes auth_handle_role_grant(cetcd_v3rpc *rpc, const uint8_t *req, siz
     (void)rpc;
     uint8_t *user = NULL; size_t user_len = 0;
     uint8_t *role = NULL; size_t role_len = 0;
-    size_t pos = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x0a) {
-            if (read_bytes_field(req, req_len, &pos, &user, &user_len) != 0) break;
-        } else if (tag == 0x12) {
-            if (read_bytes_field(req, req_len, &pos, &role, &role_len) != 0) break;
-        } else {
-            uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
-        }
-    }
+    if (parse_auth_name_pass_request_(req, req_len, &user, &user_len,
+                                      &role, &role_len, NULL) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
     if (!g_rpc_auth || !user || user_len == 0 || !role || role_len == 0 ||
         !cetcd_auth_has_user(g_rpc_auth, (const char *)user) ||
         !cetcd_auth_get_role(g_rpc_auth, (const char *)role)) {
@@ -672,15 +660,8 @@ cetcd_rpc_bytes auth_handle_role_list(cetcd_v3rpc *rpc, const uint8_t *req, size
 cetcd_rpc_bytes auth_handle_role_delete(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
     uint8_t *name = NULL; size_t name_len = 0;
-    size_t pos = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x0a) {
-            if (read_bytes_field(req, req_len, &pos, &name, &name_len) != 0) break;
-        } else {
-            uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
-        }
-    }
+    if (parse_auth_name_request_(req, req_len, &name, &name_len) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
     if (!g_rpc_auth || !name || name_len == 0 ||
         !cetcd_auth_get_role(g_rpc_auth, (const char *)name)) {
         free(name);
@@ -709,17 +690,9 @@ cetcd_rpc_bytes auth_handle_user_revoke_role(cetcd_v3rpc *rpc, const uint8_t *re
     (void)rpc;
     uint8_t *user = NULL; size_t user_len = 0;
     uint8_t *role = NULL; size_t role_len = 0;
-    size_t pos = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x0a) {
-            if (read_bytes_field(req, req_len, &pos, &user, &user_len) != 0) break;
-        } else if (tag == 0x12) {
-            if (read_bytes_field(req, req_len, &pos, &role, &role_len) != 0) break;
-        } else {
-            uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
-        }
-    }
+    if (parse_auth_name_pass_request_(req, req_len, &user, &user_len,
+                                      &role, &role_len, NULL) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
     if (!g_rpc_auth || !user || user_len == 0 || !role || role_len == 0) {
         free(user); free(role);
         return (cetcd_rpc_bytes){NULL, 0};
@@ -761,15 +734,8 @@ cetcd_rpc_bytes auth_handle_user_revoke_role(cetcd_v3rpc *rpc, const uint8_t *re
 cetcd_rpc_bytes auth_handle_user_get(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
     uint8_t *name = NULL; size_t name_len = 0;
-    size_t pos = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x0a) {
-            if (read_bytes_field(req, req_len, &pos, &name, &name_len) != 0) break;
-        } else {
-            uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
-        }
-    }
+    if (parse_auth_name_request_(req, req_len, &name, &name_len) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
     if (!g_rpc_auth || !name) { free(name); return (cetcd_rpc_bytes){NULL, 0}; }
 
     const cetcd_user *u = cetcd_auth_get_user(g_rpc_auth, (const char *)name);
@@ -816,15 +782,8 @@ cetcd_rpc_bytes auth_handle_user_get(cetcd_v3rpc *rpc, const uint8_t *req, size_
 cetcd_rpc_bytes auth_handle_role_get(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
     uint8_t *name = NULL; size_t name_len = 0;
-    size_t pos = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x0a) {
-            if (read_bytes_field(req, req_len, &pos, &name, &name_len) != 0) break;
-        } else {
-            uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
-        }
-    }
+    if (parse_auth_name_request_(req, req_len, &name, &name_len) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
     if (!g_rpc_auth || !name) { free(name); return (cetcd_rpc_bytes){NULL, 0}; }
 
     const cetcd_role *r = cetcd_auth_get_role(g_rpc_auth, (const char *)name);

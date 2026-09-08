@@ -533,17 +533,22 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl user add root         # Create user
 ./build/bin/cetcdctl user add root --no-password  # Create user without password (cert-based auth)
 ./build/bin/cetcdctl user get root         # View user details (roles)
+# leftover-safe: leftover proto bytes cannot steal the name and look up the wrong user
 ./build/bin/cetcdctl user list             # List all users
 ./build/bin/cetcdctl user change-password root NEWPASS  # Change via Raft (followers share the hash)
 ./build/bin/cetcdctl user grant-role root admin         # Grant via Raft (followers share the binding)
 ./build/bin/cetcdctl user revoke-role root admin        # Revoke via Raft (followers drop the binding)
+# leftover-safe: leftover proto bytes cannot steal the user/role and grant or revoke the wrong binding
 ./build/bin/cetcdctl user delete root                   # Delete via Raft (followers drop the user)
+# leftover-safe: leftover proto bytes cannot steal the name and delete the wrong user
 
 # Role management
 ./build/bin/cetcdctl role add admin        # Create via Raft (followers share the role)
 ./build/bin/cetcdctl role get admin        # View role permissions
+# leftover-safe: leftover proto bytes cannot steal the role name
 ./build/bin/cetcdctl role list             # List all roles
 ./build/bin/cetcdctl role delete admin     # Delete via Raft (followers drop the role)
+# leftover-safe: leftover proto bytes cannot steal the name and delete the wrong role
 
 # Permission management
 ./build/bin/cetcdctl role grant-permission admin readwrite /foo    # Grant via Raft (followers share the perm)

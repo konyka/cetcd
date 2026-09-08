@@ -662,6 +662,25 @@ CETCD_TEST_CASE(v3rpc_auth_user_add_authenticate) {
     CETCD_ASSERT_TRUE(resp.data == NULL);
     cetcd_rpc_bytes_free(&resp);
 
+    /* leftover truncated name cannot look like a successful UserDelete */
+    uint8_t trunc_del[] = { 0x0a };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/UserDelete",
+                                trunc_del, sizeof(trunc_del));
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover length-delimited payload cannot steal a UserDelete name */
+    uint8_t steal_del[] = { 0x1a, 0x07, 0x0a, 0x05, 'a', 'l', 'i', 'c', 'e' };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/UserDelete",
+                                steal_del, sizeof(steal_del));
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/Authenticate",
+                                auth_buf, 16);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_rpc_bytes_free(&resp);
+
     cetcd_v3rpc_free(rpc);
 }
 
@@ -2057,6 +2076,13 @@ CETCD_TEST_CASE(v3rpc_auth_role_delete) {
     pos = 0;
     del_buf[pos++] = 0x0a; del_buf[pos++] = 0x04;
     memcpy(del_buf + pos, "root", 4); pos += 4;
+    /* leftover length-delimited payload cannot steal a RoleDelete name */
+    uint8_t steal_del[] = { 0x1a, 0x06, 0x0a, 0x04, 'r', 'o', 'o', 't' };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleDelete",
+                                steal_del, sizeof(steal_del));
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
     resp = cetcd_v3rpc_dispatch(rpc,
         "/etcdserverpb.Auth/RoleDelete", del_buf, pos);
     CETCD_ASSERT_NOT_NULL(resp.data);
@@ -2361,6 +2387,17 @@ CETCD_TEST_CASE(v3rpc_auth_user_revoke_role) {
         "/etcdserverpb.Auth/RoleAdd", role_buf, pos);
     cetcd_rpc_bytes_free(&resp);
 
+    /* leftover length-delimited payload cannot steal a GrantRole user/role */
+    uint8_t steal_grant[] = {
+        0x1a, 0x0e,
+        0x0a, 0x05, 'c', 'a', 'r', 'o', 'l',
+        0x12, 0x05, 'g', 'u', 'e', 's', 't'
+    };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/UserGrantRole",
+                                steal_grant, sizeof(steal_grant));
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
     /* Grant role */
     uint8_t grant_buf[32];
     pos = 0;
@@ -2370,6 +2407,17 @@ CETCD_TEST_CASE(v3rpc_auth_user_revoke_role) {
     memcpy(grant_buf + pos, "guest", 5); pos += 5;
     resp = cetcd_v3rpc_dispatch(rpc,
         "/etcdserverpb.Auth/UserGrantRole", grant_buf, pos);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover cannot steal a RevokeRole user/role before the real revoke */
+    uint8_t steal_rev[] = {
+        0x1a, 0x0e,
+        0x0a, 0x05, 'c', 'a', 'r', 'o', 'l',
+        0x12, 0x05, 'g', 'u', 'e', 's', 't'
+    };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/UserRevokeRole",
+                                steal_rev, sizeof(steal_rev));
+    CETCD_ASSERT_TRUE(resp.data == NULL);
     cetcd_rpc_bytes_free(&resp);
 
     /* Revoke role */
@@ -2417,6 +2465,13 @@ CETCD_TEST_CASE(v3rpc_auth_user_get) {
     pos = 0;
     get_buf[pos++] = 0x0a; get_buf[pos++] = 0x04;
     memcpy(get_buf + pos, "dave", 4); pos += 4;
+    /* leftover length-delimited payload cannot steal a UserGet name */
+    uint8_t steal_get[] = { 0x1a, 0x06, 0x0a, 0x04, 'd', 'a', 'v', 'e' };
+    cetcd_rpc_bytes steal_resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Auth/UserGet", steal_get, sizeof(steal_get));
+    CETCD_ASSERT_TRUE(steal_resp.data == NULL);
+    cetcd_rpc_bytes_free(&steal_resp);
+
     resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/UserGet", get_buf, pos);
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 0);
@@ -2441,6 +2496,13 @@ CETCD_TEST_CASE(v3rpc_auth_role_get) {
     pos = 0;
     get_buf[pos++] = 0x0a; get_buf[pos++] = 0x04;
     memcpy(get_buf + pos, "root", 4); pos += 4;
+    /* leftover length-delimited payload cannot steal a RoleGet name */
+    uint8_t steal_get[] = { 0x1a, 0x06, 0x0a, 0x04, 'r', 'o', 'o', 't' };
+    cetcd_rpc_bytes steal_resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Auth/RoleGet", steal_get, sizeof(steal_get));
+    CETCD_ASSERT_TRUE(steal_resp.data == NULL);
+    cetcd_rpc_bytes_free(&steal_resp);
+
     resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/RoleGet", get_buf, pos);
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 0);

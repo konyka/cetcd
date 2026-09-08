@@ -2654,6 +2654,33 @@ int cetcd_parse_auth_name_pass_request(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+void cetcd_auth_name_request_clear(cetcd_auth_name_request *r) {
+    if (!r) return;
+    free(r->name);
+    memset(r, 0, sizeof(*r));
+}
+
+int cetcd_encode_auth_name_request(const uint8_t *name, size_t name_len,
+                                   uint8_t *out, size_t cap, size_t *n) {
+    return cetcd_encode_auth_name_pass_request(name, name_len, NULL, 0,
+                                               out, cap, n);
+}
+
+int cetcd_parse_auth_name_request(const uint8_t *req, size_t len,
+                                  cetcd_auth_name_request *out) {
+    cetcd_auth_name_pass_request ap;
+    int rc;
+    if (!out) return CETCD_ERR_INVAL;
+    memset(out, 0, sizeof(*out));
+    rc = cetcd_parse_auth_name_pass_request(req, len, &ap);
+    if (rc != CETCD_OK) return rc;
+    out->name = ap.name;
+    out->name_len = ap.name_len;
+    ap.name = NULL;
+    cetcd_auth_name_pass_request_clear(&ap);
+    return CETCD_OK;
+}
+
 void cetcd_user_add_request_clear(cetcd_user_add_request *r) {
     if (!r) return;
     free(r->name);
