@@ -470,6 +470,17 @@ int cetcd_encode_member_update_request(uint64_t id, const char *url,
  * copied when url/url_cap are set. */
 int cetcd_parse_member_update_request(const uint8_t *req, size_t len,
                                       uint64_t *id, char *url, size_t url_cap);
+/* leftover-safe MemberAdd. omitted / empty / dummy 0x00 = empty
+ * peerURL / isLearner 0. leftover truncated peerURL / isLearner is
+ * INVAL so a truncated URL cannot look like a successful add and a
+ * truncated isLearner cannot look like a voter. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal the peerURL or isLearner. unknown wire types are
+ * INVAL. last peerURL is copied when url/url_cap are set. */
+int cetcd_encode_member_add_request(const char *url, int is_learner,
+                                    uint8_t *out, size_t cap, size_t *n);
+int cetcd_parse_member_add_request(const uint8_t *req, size_t len,
+                                   char *url, size_t url_cap, int *is_learner);
 /* MemberListRequest field 1 (linearizable). proto3 omitted = 0. */
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n);

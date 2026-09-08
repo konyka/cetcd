@@ -741,6 +741,12 @@ Performance-first, fail-closed design:
   omitted is from-now. Accepting leftover payload as the start revision
   is rejected. `fragment` is leftover-safe-parsed; splitting large
   WatchResponses is a separate land (a no-op fragment flag is rejected).
+- **MemberAdd leftover-safe peerURL** — leftover-safe-parses
+  MemberAddRequest so leftover length-delimited bytes cannot steal a
+  peerURL or `isLearner`. A truncated peerURL / isLearner fail-closes
+  (cannot look like a successful add or a voter). Dummy `0x00` /
+  omitted is empty / voter. Accepting leftover payload as the peerURL
+  is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

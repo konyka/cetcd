@@ -20,6 +20,8 @@
  *   MemberAddRequest:
  *     field 1 (peerURLs)    = repeated string, tag = 0x0a
  *     field 2 (isLearner)   = bool, tag = 0x10
+ *     leftover-safe: leftover cannot steal peerURL / isLearner;
+ *     truncated peerURL / isLearner fail-closes
  *   MemberAddResponse:
  *     field 1 (header)      = ResponseHeader
  *     field 2 (member)      = Member
@@ -118,20 +120,6 @@ static int append_csv_strings_(uint8_t *buf, size_t cap, size_t *pos,
     return 0;
 }
 
-static int read_bytes_c(const uint8_t *buf, size_t len, size_t *pos,
-                         uint8_t **out, size_t *out_len) {
-    uint64_t l = 0;
-    if (read_varint_c(buf, len, pos, &l) != 0) return -1;
-    if (*pos + l > len) return -1;
-    uint8_t *p = (uint8_t *)malloc((size_t)l + 1);
-    if (!p) return -1;
-    memcpy(p, buf + *pos, (size_t)l);
-    p[(size_t)l] = '\0';
-    *pos += (size_t)l;
-    *out = p;
-    *out_len = (size_t)l;
-    return 0;
-}
 
 static cetcd_rpc_bytes make_simple_cluster_response(void) {
     /* Return a ResponseHeader (field 1) with current revision */
@@ -385,6 +373,144 @@ static int parse_member_update_request_(const uint8_t *req, size_t len,
     return 0;
 }
 
+/* leftover-safe MemberAdd. v3rpc cannot link server. */
+static int parse_member_add_request_(const uint8_t *req, size_t len,
+                                     uint8_t **url, size_t *url_len,
+                                     int *is_learner) {
+    size_t p = 0;
+    if (!url || !url_len || !is_learner) return -1;
+    *url = NULL;
+    *url_len = 0;
+    *is_learner = 0;
+    if (!req || len == 0) return 0;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x0a) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    free(*url);
+                    *url = NULL;
+                    return -1;
+                }
+            }
+            if (!got || p + skip > len) {
+                free(*url);
+                *url = NULL;
+                return -1;
+            }
+            free(*url);
+            if (skip == 0) {
+                *url = NULL;
+                *url_len = 0;
+                continue;
+            }
+            uint8_t *copy = (uint8_t *)malloc((size_t)skip + 1);
+            if (!copy) {
+                *url = NULL;
+                *url_len = 0;
+                return -1;
+            }
+            memcpy(copy, req + p, (size_t)skip);
+            copy[skip] = 0;
+            *url = copy;
+            *url_len = (size_t)skip;
+            p += (size_t)skip;
+            continue;
+        }
+        if (tag == 0x10) {
+            uint64_t v = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    free(*url);
+                    *url = NULL;
+                    return -1;
+                }
+            }
+            if (!got) {
+                free(*url);
+                *url = NULL;
+                return -1;
+            }
+            *is_learner = v != 0;
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    free(*url);
+                    *url = NULL;
+                    return -1;
+                }
+            }
+            if (!got) {
+                free(*url);
+                *url = NULL;
+                return -1;
+            }
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    free(*url);
+                    *url = NULL;
+                    return -1;
+                }
+            }
+            if (!got || p + skip > len) {
+                free(*url);
+                *url = NULL;
+                return -1;
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        free(*url);
+        *url = NULL;
+        return -1;
+    }
+    return 0;
+}
+
 cetcd_rpc_bytes cluster_handle_member_list(cetcd_v3rpc *rpc,
                                             const uint8_t *req, size_t req_len) {
     int linearizable = 0;
@@ -466,23 +592,11 @@ static int parse_peer_url_(const char *url, size_t url_len,
 cetcd_rpc_bytes cluster_handle_member_add(cetcd_v3rpc *rpc,
                                            const uint8_t *req, size_t req_len) {
     (void)rpc;
-    size_t pos = 0;
     uint8_t *peer_url = NULL; size_t peer_url_len = 0;
     int is_learner = 0;
-
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x0a) {
-            /* peerURLs: repeated string */
-            if (read_bytes_c(req, req_len, &pos, &peer_url, &peer_url_len) != 0) break;
-        } else if (tag == 0x10) {
-            /* isLearner: bool */
-            uint64_t v = 0; read_varint_c(req, req_len, &pos, &v);
-            is_learner = v ? 1 : 0;
-        } else {
-            uint64_t skip = 0; read_varint_c(req, req_len, &pos, &skip);
-        }
-    }
+    if (parse_member_add_request_(req, req_len, &peer_url, &peer_url_len,
+                                  &is_learner) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
 
     /* If we have a cluster, add the peer through Raft (or locally). */
     uint64_t new_id = 0;

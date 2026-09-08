@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 138 — leftover-safe WatchCreate start_rev</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 139 — leftover-safe MemberAdd</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 138 leftover-safe-parses
-     WatchCreateRequest so leftover length-delimited bytes cannot steal
-     start_rev, range_end, watch_id, or fragment.</p>
+  <p><strong>v0.3.0</strong>. Phase 139 leftover-safe-parses
+     MemberAddRequest so leftover length-delimited bytes cannot steal a
+     peerURL or isLearner.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -191,6 +191,7 @@
       <tr><td>136</td><td>leftover-safe Auth name</td><td>UserDelete / RoleAdd / RoleDelete / UserGet / RoleGet leftover-safe-parses so leftover length-delimited bytes cannot steal the name and delete or look up the wrong principal; UserGrantRole / UserRevokeRole leftover-safe-parses so leftover cannot steal the user or role; truncated name fail-closes (cannot look like a successful delete); dummy 0x00 / omitted is empty — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>137</td><td>leftover-safe Auth RoleGrantPermission</td><td>RoleGrantPermission / RoleRevokePermission leftover-safe-parses so leftover length-delimited bytes cannot steal the role, Permission key, range_end, or permType; truncated name / Permission / key fail-closes (cannot look like a successful grant); dummy 0x00 / omitted is empty — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>138</td><td>leftover-safe WatchCreate start_rev</td><td>WatchCreate leftover-safe-parses so leftover length-delimited bytes cannot steal start_rev / range_end / watch_id / fragment; truncated --start-rev fail-closes (cannot watch the live tree); dummy 0x00 / omitted is from-now — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>139</td><td>leftover-safe MemberAdd</td><td>MemberAdd leftover-safe-parses so leftover length-delimited bytes cannot steal a peerURL or isLearner; truncated peerURL / isLearner fail-closes (cannot look like a successful add or a voter); dummy 0x00 / omitted is empty / voter — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

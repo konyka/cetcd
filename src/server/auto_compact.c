@@ -3809,6 +3809,62 @@ int cetcd_parse_member_update_request(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+int cetcd_encode_member_add_request(const char *url, int is_learner,
+                                    uint8_t *out, size_t cap, size_t *n) {
+    size_t pos = 0;
+    size_t ulen;
+    int rc;
+    if (!out || !n || !url || !url[0]) return CETCD_ERR_INVAL;
+    ulen = strlen(url);
+    rc = write_bytes_field_(out, cap, &pos, 0x0a, (const uint8_t *)url, ulen);
+    if (rc != CETCD_OK) return rc;
+    if (is_learner) {
+        if (pos + 2 > cap) return CETCD_ERR_OVERFLOW;
+        out[pos++] = 0x10;
+        out[pos++] = 0x01;
+    }
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_member_add_request(const uint8_t *req, size_t len,
+                                   char *url, size_t url_cap, int *is_learner) {
+    size_t p = 0;
+    if (url && url_cap)
+        url[0] = '\0';
+    if (is_learner)
+        *is_learner = 0;
+    if (!url && !is_learner) return CETCD_ERR_INVAL;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x0a) {
+            uint64_t skip = 0;
+            int rc = leftover_safe_varint_at_(req, len, &p, &skip);
+            if (rc != CETCD_OK || p + skip > len) return CETCD_ERR_INVAL;
+            if (url && url_cap) {
+                size_t copy = (size_t)skip < url_cap - 1 ? (size_t)skip : url_cap - 1;
+                memcpy(url, req + p, copy);
+                url[copy] = '\0';
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        if (tag == 0x10) {
+            uint64_t v = 0;
+            if (leftover_safe_varint_at_(req, len, &p, &v) != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            if (is_learner) *is_learner = v != 0;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n) {
     if (!out || !n || cap < 2) return CETCD_ERR_INVAL;

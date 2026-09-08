@@ -484,6 +484,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl member list --linearizable=false # Serializable MemberList (ok on a follower)
 # leftover member list --linearizable --foo fail-closes (cannot list members)
 ./build/bin/cetcdctl member add --peer-urls http://localhost:2380 --name node2  # Add member with name
+# leftover-safe: leftover proto bytes cannot steal the peerURL or isLearner
 # peer URL port must be 1..65535; leftover 2380foo is not truncated port 2380
 ./build/bin/cetcdctl member remove 1234567890         # Remove member (refused if it would lose quorum)
 # member ID is hex > 0; leftover text is not a truncated decimal id

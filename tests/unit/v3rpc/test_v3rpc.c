@@ -1806,6 +1806,25 @@ CETCD_TEST_CASE(v3rpc_cluster_member_add) {
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 0);
     cetcd_rpc_bytes_free(&resp);
+
+    /* leftover truncated peerURL cannot look like a successful add */
+    uint8_t trunc[] = { 0x0a };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Cluster/MemberAdd",
+                                trunc, sizeof(trunc));
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover truncated isLearner cannot look like a voter add */
+    uint8_t trunc_learn[] = {
+        0x0a, 0x0e,
+        '1', '2', '7', '.', '0', '.', '0', '.', '1', ':', '2', '3', '8', '0',
+        0x10
+    };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Cluster/MemberAdd",
+                                trunc_learn, sizeof(trunc_learn));
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
     cetcd_v3rpc_free(rpc);
 }
 

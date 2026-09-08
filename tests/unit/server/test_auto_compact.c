@@ -1689,6 +1689,83 @@ CETCD_TEST_CASE(auto_compact_parse_member_update_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_member_add_request) {
+    uint8_t buf[64];
+    size_t n = 0;
+    char url[64];
+    int learner = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_add_request(NULL, 0, buf,
+                                                       sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_add_request("", 0, buf,
+                                                       sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_add_request(
+                            "127.0.0.1:2380", 1, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_add_request(buf, n, url,
+                                                      sizeof(url), &learner),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(url, "127.0.0.1:2380");
+    CETCD_ASSERT_EQ_INT(learner, 1);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_add_request(NULL, 0, url,
+                                                      sizeof(url), &learner),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(url, "");
+    CETCD_ASSERT_EQ_INT(learner, 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_add_request(dummy, 1, url,
+                                                      sizeof(url), &learner),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(url, "");
+    CETCD_ASSERT_EQ_INT(learner, 0);
+
+    /* leftover truncated peerURL cannot look like a successful add */
+    uint8_t trunc[] = { 0x0a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_add_request(trunc, 1, url,
+                                                      sizeof(url), &learner),
+                        CETCD_ERR_INVAL);
+    uint8_t trunc_learn[] = { 0x0a, 0x0e, '1', '2', '7', '.', '0', '.', '0',
+                              '.', '1', ':', '2', '3', '8', '0', 0x10 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_add_request(
+                            trunc_learn, sizeof(trunc_learn), url, sizeof(url),
+                            &learner),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal the peerURL */
+    uint8_t steal_url[] = {
+        0x1a, 0x10, 0x0a, 0x0e,
+        '1', '2', '7', '.', '0', '.', '0', '.', '1', ':', '2', '3', '8', '0'
+    };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_add_request(
+                            steal_url, sizeof(steal_url), url, sizeof(url),
+                            &learner),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(url, "");
+
+    /* leftover cannot steal isLearner */
+    uint8_t steal_learn[] = {
+        0x0a, 0x0e,
+        '1', '2', '7', '.', '0', '.', '0', '.', '1', ':', '2', '3', '8', '0',
+        0x22, 0x02, 0x10, 0x01
+    };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_add_request(
+                            steal_learn, sizeof(steal_learn), url, sizeof(url),
+                            &learner),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(url, "127.0.0.1:2380");
+    CETCD_ASSERT_EQ_INT(learner, 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_add_request(fixed64, 1, url,
+                                                      sizeof(url), &learner),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_add_request(buf, n, NULL, 0, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_lease_grant_request) {
     int64_t ttl = 99, id = 99;
 
@@ -3078,6 +3155,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_move_leader_request),
     CETCD_TEST_ENTRY(auto_compact_parse_member_id_request),
     CETCD_TEST_ENTRY(auto_compact_parse_member_update_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_member_add_request),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_id_request),
     CETCD_TEST_ENTRY(auto_compact_parse_alarm_request),
