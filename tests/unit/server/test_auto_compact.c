@@ -4078,6 +4078,78 @@ CETCD_TEST_CASE(auto_compact_parse_watch_event_prev_kv_key) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_watch_event_prev_kv_value) {
+    uint8_t buf[32];
+    size_t n = 0;
+    char value[16];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_watch_event_prev_kv_value("", buf,
+                                                              sizeof(buf),
+                                                              &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_watch_event_prev_kv_value("ok", buf,
+                                                              sizeof(buf),
+                                                              &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_prev_kv_value(buf, n, value,
+                                                             sizeof(value)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(value, "ok");
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_prev_kv_value(NULL, 0, value,
+                                                             sizeof(value)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(value, "");
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_prev_kv_value(dummy, 1, value,
+                                                             sizeof(value)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(value, "");
+
+    /* leftover truncated Event-nested prev value cannot print leftover text */
+    uint8_t trunc[] = { 0x5a, 0x03, 0x1a, 0x01, 0x2a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_prev_kv_value(trunc,
+                                                             sizeof(trunc),
+                                                             value,
+                                                             sizeof(value)),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed Event prev value */
+    uint8_t steal[] = { 0x5a, 0x08, 0x1a, 0x06, 0x32, 0x04, 0x2a, 0x02, 'o',
+                        'k' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_prev_kv_value(steal,
+                                                             sizeof(steal),
+                                                             value,
+                                                             sizeof(value)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(value, "");
+
+    /* leftover header is not Event prev value */
+    uint8_t header[] = { 0x0a, 0x04, 0x2a, 0x02, 'x', 'y' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_prev_kv_value(header,
+                                                             sizeof(header),
+                                                             value,
+                                                             sizeof(value)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(value, "");
+
+    uint8_t last[] = { 0x5a, 0x06, 0x1a, 0x04, 0x2a, 0x02, 'a', 'a',
+                       0x5a, 0x06, 0x1a, 0x04, 0x2a, 0x02, 'b', 'b' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_prev_kv_value(last, sizeof(last),
+                                                             value,
+                                                             sizeof(value)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(value, "bb");
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_prev_kv_value(fixed64, 1, value,
+                                                             sizeof(value)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_prev_kv_value(buf, n, NULL, 0),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_watch_fragment) {
     uint8_t buf[8];
     size_t n = 0;
@@ -6359,6 +6431,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_watch_event_prev_kv_mod_rev),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_event_prev_kv_version),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_event_prev_kv_key),
+    CETCD_TEST_ENTRY(auto_compact_parse_watch_event_prev_kv_value),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_fragment),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_cancel_reason),
     CETCD_TEST_ENTRY(auto_compact_parse_delete_range_response),
