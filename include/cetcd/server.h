@@ -557,6 +557,17 @@ int cetcd_encode_member_list_name(const char *name, uint8_t *out, size_t cap,
                                   size_t *n);
 int cetcd_parse_member_list_name(const uint8_t *req, size_t len, char *name,
                                  size_t name_cap);
+/* leftover-safe Member.isLearner (field 5, tag 0x28). omitted / empty /
+ * dummy 0x00 = voter. leftover truncated isLearner is INVAL so a
+ * truncated list cannot look like a voter. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed isLearner (tag 0x0a header is not
+ * isLearner). unknown wire types are INVAL. last isLearner is
+ * copied when is_learner is set. */
+int cetcd_encode_member_list_is_learner(int is_learner, uint8_t *out,
+                                        size_t cap, size_t *n);
+int cetcd_parse_member_list_is_learner(const uint8_t *req, size_t len,
+                                       int *is_learner);
 /* leftover-safe AuthStatusResponse.enabled. omitted / empty / dummy
  * 0x00 = disabled. leftover truncated enabled is INVAL so a truncated
  * status cannot look like disabled. leftover length-delimited fields

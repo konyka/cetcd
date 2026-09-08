@@ -969,6 +969,12 @@ static void parse_member_list_response(const uint8_t *data, size_t len, int tabl
     if (cetcd_parse_member_list_name(data, len, leftover_name,
                                      sizeof(leftover_name)) != CETCD_OK)
         return;
+    int leftover_learner = 0;
+    /* leftover-safe: leftover cannot steal a printed isLearner */
+    if (cetcd_parse_member_list_is_learner(data, len, &leftover_learner)
+        != CETCD_OK)
+        return;
+    (void)leftover_learner;
     size_t pos = 0;
     int first = 1;
     if (table_format) {
@@ -3457,6 +3463,12 @@ static int collect_cluster_endpoints(struct cluster_endpoint *eps, int max_eps) 
         if (cetcd_parse_member_list_name(mresp, (size_t)mrlen, leftover_name,
                                          sizeof(leftover_name)) != CETCD_OK)
             return -1;
+        int leftover_learner = 0;
+        /* leftover-safe: leftover cannot steal a used --cluster isLearner */
+        if (cetcd_parse_member_list_is_learner(mresp, (size_t)mrlen,
+                                               &leftover_learner) != CETCD_OK)
+            return -1;
+        (void)leftover_learner;
     }
     size_t mpos = 0;
     int count = 0;
@@ -5645,6 +5657,15 @@ static int cmd_member(int argc, char **argv) {
                 fprintf(stderr, "request failed\n");
                 return 1;
             }
+            int leftover_learner = 0;
+            /* leftover-safe: leftover cannot steal a printed isLearner */
+            if (cetcd_parse_member_list_is_learner(resp, (size_t)rlen,
+                                                   &leftover_learner)
+                != CETCD_OK) {
+                fprintf(stderr, "request failed\n");
+                return 1;
+            }
+            (void)leftover_learner;
         }
         parse_member_list_response(resp, rlen, table_fmt, json_fmt, fields_fmt);
     } else if (strcmp(argv[2], "add") == 0) {
@@ -5713,6 +5734,15 @@ static int cmd_member(int argc, char **argv) {
                 fprintf(stderr, "request failed\n");
                 return 1;
             }
+            int leftover_learner = 0;
+            /* leftover-safe: leftover cannot steal a printed isLearner */
+            if (cetcd_parse_member_list_is_learner(resp, (size_t)rlen,
+                                                   &leftover_learner)
+                != CETCD_OK) {
+                fprintf(stderr, "request failed\n");
+                return 1;
+            }
+            (void)leftover_learner;
         }
         if (want_json) {
             parse_member_list_response(resp, rlen, 0, 1, 0);

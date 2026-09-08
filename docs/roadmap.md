@@ -789,6 +789,13 @@ Performance-first, fail-closed design:
   leftover text). Dummy `0x00` is not a skip length. `cetcdctl
   member list` leftover-safe-parses field 2. Accepting leftover
   payload as the printed name is rejected.
+- **MemberList leftover-safe isLearner** — leftover-safe-parses
+  Member.isLearner so leftover length-delimited bytes cannot steal a
+  printed learner. A truncated isLearner fail-closes (cannot look
+  like a voter). Dummy `0x00` is not a skip length. Tag `0x0a`
+  header is not isLearner. `cetcdctl member list` leftover-safe-parses
+  field 5. Accepting leftover payload as the printed isLearner is
+  rejected.
 - **Status leftover-safe version / isLearner** — leftover-safe-parses
   StatusResponse so leftover length-delimited bytes cannot steal a
   printed version, dbSize, or `isLearner`. A truncated version /

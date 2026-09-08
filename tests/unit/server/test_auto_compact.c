@@ -1961,6 +1961,63 @@ CETCD_TEST_CASE(auto_compact_parse_member_list_name) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_member_list_is_learner) {
+    uint8_t buf[16];
+    size_t n = 0;
+    int learner = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_is_learner(0, buf, sizeof(buf),
+                                                           &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_is_learner(1, buf, sizeof(buf),
+                                                           &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_is_learner(buf, n, &learner),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(learner == 1);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_is_learner(NULL, 0, &learner),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(learner == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_is_learner(dummy, 1, &learner),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(learner == 0);
+
+    /* leftover truncated isLearner cannot look like a voter */
+    uint8_t trunc[] = { 0x12, 0x01, 0x28 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_is_learner(trunc, sizeof(trunc),
+                                                          &learner),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed isLearner */
+    uint8_t steal[] = { 0x12, 0x04, 0x32, 0x02, 0x28, 0x01 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_is_learner(steal, sizeof(steal),
+                                                          &learner),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(learner == 0);
+
+    /* leftover header is not isLearner */
+    uint8_t header[] = { 0x0a, 0x02, 0x28, 0x01 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_is_learner(header, sizeof(header),
+                                                          &learner),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(learner == 0);
+
+    uint8_t last[] = { 0x12, 0x02, 0x28, 0x01, 0x12, 0x02, 0x28, 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_is_learner(last, sizeof(last),
+                                                          &learner),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(learner == 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_is_learner(fixed64, 1, &learner),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_is_learner(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_auth_status_response) {
     uint8_t buf[8];
     size_t n = 0;
@@ -5340,6 +5397,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_member_list_response),
     CETCD_TEST_ENTRY(auto_compact_parse_member_list_client_url),
     CETCD_TEST_ENTRY(auto_compact_parse_member_list_name),
+    CETCD_TEST_ENTRY(auto_compact_parse_member_list_is_learner),
     CETCD_TEST_ENTRY(auto_compact_parse_auth_status_response),
     CETCD_TEST_ENTRY(auto_compact_parse_string_list_response),
     CETCD_TEST_ENTRY(auto_compact_parse_status_response),
