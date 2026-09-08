@@ -4240,6 +4240,58 @@ int cetcd_parse_range_response_kv(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+int cetcd_encode_range_response_count(int64_t count, int more, uint8_t *out,
+                                      size_t cap, size_t *n) {
+    size_t pos = 0;
+    uint64_t v;
+    if (!out || !n || count < 0) return CETCD_ERR_INVAL;
+    if (more) {
+        if (pos + 2 > cap) return CETCD_ERR_OVERFLOW;
+        out[pos++] = 0x18; /* field 3 more */
+        out[pos++] = 0x01;
+    }
+    if (pos + 2 > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x20; /* field 4 count */
+    v = (uint64_t)count;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_range_response_count(const uint8_t *req, size_t len,
+                                     int64_t *count, int *more) {
+    size_t p = 0;
+    if (!count && !more) return CETCD_ERR_INVAL;
+    if (count) *count = 0;
+    if (more) *more = 0;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x18 || tag == 0x20) {
+            uint64_t v = 0;
+            if (leftover_safe_varint_at_(req, len, &p, &v) != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            if (tag == 0x18) {
+                if (more) *more = v != 0;
+            } else if (count) {
+                *count = (int64_t)v;
+            }
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_member_list_response_member(uint64_t id, const char *url,
                                              int is_learner, uint8_t *out,
                                              size_t cap, size_t *n) {

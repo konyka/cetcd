@@ -532,6 +532,20 @@ static void parse_range_response(const uint8_t *data, size_t len) {
     uint64_t hdr_cluster_id = 0, hdr_member_id = 0, hdr_revision = 0, hdr_raft_term = 0;
     int have_header = 0;
     int has_more = 0;
+    int64_t leftover_count = 0;
+    int leftover_more = 0;
+    int count_rc = cetcd_parse_range_response_count(data, len, &leftover_count,
+                                                    &leftover_more);
+    /* leftover-safe: leftover cannot steal a printed count or more=true */
+    if (count_rc != CETCD_OK) {
+        if (g_count_only) {
+            fprintf(stderr, "request failed\n");
+            return;
+        }
+    } else {
+        server_count = (int)leftover_count;
+        has_more = leftover_more;
+    }
     if (g_write_json) {
         /* Will output header later, after parsing */
         fputs("{", stdout);
@@ -661,14 +675,11 @@ static void parse_range_response(const uint8_t *data, size_t len) {
                     }
                 }
             }
-        } else if (tag == 0x20) {
-            /* count (varint, field 4) */
-            uint64_t v = 0; read_varint(data, len, &pos, &v);
-            server_count = (int)v;
-        } else if (tag == 0x18) {
-            /* more (bool, field 3) */
-            uint64_t v = 0; read_varint(data, len, &pos, &v);
-            has_more = (int)v;
+        } else if (tag == 0x20 || tag == 0x18) {
+            /* leftover-safe-skip count/more; values already leftover-safe-parsed */
+            if (cetcd_leftover_safe_skip_field(data, len, &pos, tag)
+                != CETCD_OK)
+                break;
         } else if (tag == 0x0a) {
             /* Parse ResponseHeader (length-delimited, field 1) */
             uint64_t l = 0; read_varint(data, len, &pos, &l);

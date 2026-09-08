@@ -3326,6 +3326,68 @@ CETCD_TEST_CASE(auto_compact_parse_range_response_kv) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_range_response_count) {
+    uint8_t buf[16];
+    size_t n = 0;
+    int64_t count = 9;
+    int more = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_range_response_count(-1, 0, buf,
+                                                          sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_range_response_count(3, 1, buf,
+                                                          sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_count(buf, n, &count,
+                                                         &more),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(count == 3);
+    CETCD_ASSERT_EQ_INT(more, 1);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_count(NULL, 0, &count,
+                                                         &more),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(count == 0);
+    CETCD_ASSERT_EQ_INT(more, 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_count(dummy, 1, &count,
+                                                         &more),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(count == 0);
+
+    /* leftover truncated count cannot print 0 */
+    uint8_t trunc[] = { 0x20 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_count(trunc, 1, &count,
+                                                         &more),
+                        CETCD_ERR_INVAL);
+    uint8_t trunc_more[] = { 0x18 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_count(trunc_more, 1,
+                                                         &count, &more),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed count */
+    uint8_t steal[] = { 0x1a, 0x02, 0x20, 0x07 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_count(steal, sizeof(steal),
+                                                         &count, &more),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(count == 0);
+
+    /* leftover cannot steal more=true */
+    uint8_t steal_more[] = { 0x1a, 0x02, 0x18, 0x01 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_count(steal_more,
+                                                         sizeof(steal_more),
+                                                         &count, &more),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(more, 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_count(fixed64, 1, &count,
+                                                         &more),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_count(buf, n, NULL, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_range_request) {
     uint8_t buf[32];
     size_t n = 0;
@@ -4564,6 +4626,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_alarm_request),
     CETCD_TEST_ENTRY(auto_compact_parse_alarm_response),
     CETCD_TEST_ENTRY(auto_compact_parse_range_response_kv),
+    CETCD_TEST_ENTRY(auto_compact_parse_range_response_count),
     CETCD_TEST_ENTRY(auto_compact_parse_range_request),
     CETCD_TEST_ENTRY(auto_compact_parse_put_request),
     CETCD_TEST_ENTRY(auto_compact_parse_delete_range_request),

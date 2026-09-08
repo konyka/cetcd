@@ -260,6 +260,16 @@ int cetcd_encode_range_response_kv(const uint8_t *key, size_t key_len,
 int cetcd_parse_range_response_kv(const uint8_t *req, size_t len,
                                   char *key, size_t key_cap, char *value,
                                   size_t value_cap, size_t *n_kvs);
+/* leftover-safe RangeResponse.count / more. omitted / empty / dummy
+ * 0x00 = count 0 / more false. leftover truncated count / more is
+ * INVAL so a truncated get --count-only cannot print 0. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed count or more=true. unknown wire types
+ * are INVAL. */
+int cetcd_encode_range_response_count(int64_t count, int more, uint8_t *out,
+                                      size_t cap, size_t *n);
+int cetcd_parse_range_response_count(const uint8_t *req, size_t len,
+                                     int64_t *count, int *more);
 /* leftover-safe RangeRequest. omitted / empty / dummy 0x00 = empty key /
  * rev 0 (current). leftover truncated varint is INVAL so a truncated
  * --rev cannot range the live tree. leftover length-delimited fields

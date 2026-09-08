@@ -714,6 +714,13 @@ Performance-first, fail-closed design:
   Dummy `0x00` is not a skip length. `cetcdctl get` / `txn` /
   `alarm list` leftover-safe-skip unknown fields. Accepting
   leftover payload as the printed key is rejected.
+- **Range leftover-safe count / more** — leftover-safe-parses
+  RangeResponse.count / more so leftover length-delimited bytes
+  cannot steal a printed `get --count-only` count or `more=true`.
+  A truncated count / more fail-closes (cannot print 0). Dummy
+  `0x00` is not a skip length. `cetcdctl get` leftover-safe-parses
+  field 3/4. Accepting leftover payload as the printed count is
+  rejected.
 - **Authenticate leftover-safe name/password** — leftover-safe-parses
   AuthenticateRequest so leftover length-delimited bytes cannot steal
   a name or password. A truncated password fail-closes (cannot look

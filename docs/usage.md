@@ -349,6 +349,7 @@ fail-close. `--prefix=false` does not eat the key.
 ./build/bin/cetcdctl get --prefix ""             # Get all keys (empty prefix = all)
 ./build/bin/cetcdctl get --from-key foo          # Get all keys >= foo
 ./build/bin/cetcdctl get --count-only foo        # Count matching keys only
+# leftover-safe: leftover proto bytes cannot steal a printed count or more=true
 ./build/bin/cetcdctl get --keys-only foo         # Get keys without values
 ./build/bin/cetcdctl get --print-value-only foo  # Print only the value
 ./build/bin/cetcdctl get --hex foo               # Output in hex format
