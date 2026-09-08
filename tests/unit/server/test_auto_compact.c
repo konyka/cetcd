@@ -1846,6 +1846,99 @@ CETCD_TEST_CASE(auto_compact_parse_member_list_response) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_auth_status_response) {
+    uint8_t buf[8];
+    size_t n = 0;
+    int enabled = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_auth_status_response(1, NULL, sizeof(buf),
+                                                         &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_auth_status_response(1, buf, sizeof(buf),
+                                                         &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_status_response(buf, n, &enabled),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(enabled, 1);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_status_response(NULL, 0, &enabled),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(enabled, 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_status_response(dummy, 1, &enabled),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(enabled, 0);
+
+    /* leftover truncated enabled cannot look like disabled */
+    uint8_t trunc[] = { 0x10 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_status_response(trunc, 1, &enabled),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal enabled */
+    uint8_t steal[] = { 0x1a, 0x02, 0x10, 0x01 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_status_response(steal, sizeof(steal),
+                                                        &enabled),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(enabled, 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_status_response(fixed64, 1, &enabled),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_auth_status_response(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
+CETCD_TEST_CASE(auto_compact_parse_string_list_response) {
+    uint8_t buf[32];
+    size_t n = 0, got = 9;
+    char name[32];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_string_list_item(NULL, buf, sizeof(buf),
+                                                     &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_string_list_item("root", buf, sizeof(buf),
+                                                     &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_string_list_response(buf, n, name,
+                                                        sizeof(name), &got),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(name, "root");
+    CETCD_ASSERT_TRUE(got == 1);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_string_list_response(NULL, 0, name,
+                                                        sizeof(name), &got),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(name, "");
+    CETCD_ASSERT_TRUE(got == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_string_list_response(dummy, 1, name,
+                                                        sizeof(name), &got),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(got == 0);
+
+    /* leftover truncated name cannot print a leftover principal */
+    uint8_t trunc[] = { 0x12 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_string_list_response(trunc, 1, name,
+                                                        sizeof(name), &got),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed user/role */
+    uint8_t steal[] = { 0x1a, 0x06, 0x12, 0x04, 'r', 'o', 'o', 't' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_string_list_response(steal, sizeof(steal),
+                                                        name, sizeof(name),
+                                                        &got),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(got == 0);
+    CETCD_ASSERT_EQ_STR(name, "");
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_string_list_response(fixed64, 1, name,
+                                                        sizeof(name), &got),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_string_list_response(buf, n, NULL, 0, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_downgrade_request) {
     uint8_t buf[64];
     size_t n = 0;
@@ -3501,6 +3594,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_member_update_request),
     CETCD_TEST_ENTRY(auto_compact_parse_member_add_request),
     CETCD_TEST_ENTRY(auto_compact_parse_member_list_response),
+    CETCD_TEST_ENTRY(auto_compact_parse_auth_status_response),
+    CETCD_TEST_ENTRY(auto_compact_parse_string_list_response),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_request),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_op_key),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),

@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 143 — leftover-safe MemberList response</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 144 — leftover-safe AuthStatus</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 143 leftover-safe-parses
-     MemberListResponse so leftover length-delimited bytes cannot
-     steal a printed peerURL or isLearner.</p>
+  <p><strong>v0.3.0</strong>. Phase 144 leftover-safe-parses
+     AuthStatus / UserList / RoleList so leftover length-delimited
+     bytes cannot steal enabled or a printed principal.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -196,6 +196,7 @@
       <tr><td>141</td><td>leftover-safe Txn perm</td><td>Txn perm leftover-safe-parses the RequestOp key so leftover dummy 0x00 cannot eat the key tag and skip the perm check; leftover cannot steal the key; truncated key fail-closes (cannot look like a missing-key allow) — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>142</td><td>leftover-safe Range/Alarm response</td><td>RangeResponse / AlarmResponse leftover-safe-parses so leftover length-delimited bytes cannot steal a printed get/txn key or CORRUPT type; truncated key / alarm fail-closes; cetcdctl leftover-safe-skips unknown fields — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>143</td><td>leftover-safe MemberList response</td><td>MemberList leftover-safe-parses so leftover length-delimited bytes cannot steal a printed peerURL, id, or isLearner; truncated peerURL / isLearner fail-closes; cetcdctl leftover-safe-skips unknown fields — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>144</td><td>leftover-safe AuthStatus</td><td>AuthStatus / UserList / RoleList leftover-safe-parses so leftover length-delimited bytes cannot steal enabled or a printed user/role; truncated enabled / name fail-closes; cetcdctl leftover-safe-skips unknown fields — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

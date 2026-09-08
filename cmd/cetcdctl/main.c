@@ -991,8 +991,11 @@ static void parse_auth_status_response(const uint8_t *data, size_t len) {
             /* Skip header (length-delimited) */
             uint64_t l = 0; read_varint(data, len, &pos, &l);
             pos += l;
-        } else {
-            uint64_t v = 0; read_varint(data, len, &pos, &v);
+        } else if (tag == 0x00) {
+            continue;
+        } else if (cetcd_leftover_safe_skip_field(data, len, &pos, tag)
+                   != CETCD_OK) {
+            break;
         }
     }
 }
@@ -1030,8 +1033,11 @@ static void parse_string_list_response(const uint8_t *data, size_t len, const ch
             /* Skip header (length-delimited) */
             uint64_t l = 0; read_varint(data, len, &pos, &l);
             pos += l;
-        } else {
-            uint64_t v = 0; read_varint(data, len, &pos, &v);
+        } else if (tag == 0x00) {
+            continue;
+        } else if (cetcd_leftover_safe_skip_field(data, len, &pos, tag)
+                   != CETCD_OK) {
+            break;
         }
     }
     if (json_fmt) {

@@ -4308,6 +4308,81 @@ int cetcd_parse_member_list_response(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+int cetcd_encode_auth_status_response(int enabled, uint8_t *out, size_t cap,
+                                      size_t *n) {
+    if (!out || !n || cap < 2) return CETCD_ERR_INVAL;
+    out[0] = 0x10; /* field 2 enabled */
+    out[1] = enabled ? 1 : 0;
+    *n = 2;
+    return CETCD_OK;
+}
+
+int cetcd_parse_auth_status_response(const uint8_t *req, size_t len,
+                                     int *enabled) {
+    size_t p = 0;
+    if (!enabled) return CETCD_ERR_INVAL;
+    *enabled = 0;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x10 || tag == 0x18) {
+            uint64_t v = 0;
+            if (leftover_safe_varint_at_(req, len, &p, &v) != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            if (tag == 0x10) *enabled = v != 0;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
+int cetcd_encode_string_list_item(const char *s, uint8_t *out, size_t cap,
+                                  size_t *n) {
+    size_t pos = 0;
+    int rc;
+    if (!out || !n || !s || !s[0]) return CETCD_ERR_INVAL;
+    rc = write_bytes_field_(out, cap, &pos, 0x12, (const uint8_t *)s,
+                            strlen(s));
+    if (rc != CETCD_OK) return rc;
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_string_list_response(const uint8_t *req, size_t len,
+                                     char *name, size_t name_cap, size_t *n) {
+    size_t p = 0;
+    if (name && name_cap)
+        name[0] = '\0';
+    if (n) *n = 0;
+    if (!name && !n) return CETCD_ERR_INVAL;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x12) {
+            uint64_t skip = 0;
+            int rc = leftover_safe_varint_at_(req, len, &p, &skip);
+            if (rc != CETCD_OK || p + skip > len) return CETCD_ERR_INVAL;
+            if (n) (*n)++;
+            if (name && name_cap) {
+                if (skip >= name_cap) return CETCD_ERR_INVAL;
+                memcpy(name, req + p, (size_t)skip);
+                name[skip] = '\0';
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n) {
     if (!out || !n || cap < 2) return CETCD_ERR_INVAL;

@@ -525,6 +525,25 @@ int cetcd_encode_member_list_response_member(uint64_t id, const char *url,
 int cetcd_parse_member_list_response(const uint8_t *req, size_t len,
                                      uint64_t *id, char *url, size_t url_cap,
                                      int *is_learner, size_t *n_members);
+/* leftover-safe AuthStatusResponse.enabled. omitted / empty / dummy
+ * 0x00 = disabled. leftover truncated enabled is INVAL so a truncated
+ * status cannot look like disabled. leftover length-delimited fields
+ * are skipped by payload so leftover bytes cannot steal enabled.
+ * unknown wire types are INVAL. */
+int cetcd_encode_auth_status_response(int enabled, uint8_t *out, size_t cap,
+                                      size_t *n);
+int cetcd_parse_auth_status_response(const uint8_t *req, size_t len,
+                                     int *enabled);
+/* leftover-safe UserList/RoleList last name. omitted / empty / dummy
+ * 0x00 = 0 names. leftover truncated name is INVAL so a truncated
+ * list cannot print a leftover principal. leftover length-delimited
+ * fields are skipped by payload so leftover bytes cannot steal a
+ * printed user or role. unknown wire types are INVAL. last name is
+ * copied when name/name_cap are set. */
+int cetcd_encode_string_list_item(const char *s, uint8_t *out, size_t cap,
+                                  size_t *n);
+int cetcd_parse_string_list_response(const uint8_t *req, size_t len,
+                                     char *name, size_t name_cap, size_t *n);
 /* leftover-safe DowngradeRequest. omitted / empty / dummy 0x00 =
  * action VALIDATE (0) / empty version. leftover truncated action /
  * version is INVAL so a truncated validate cannot look like ENABLE
