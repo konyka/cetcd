@@ -2839,6 +2839,19 @@ static int cmd_lease(int argc, char **argv) {
         uint8_t req[] = {0x00}, resp[4096];
         int rlen = do_rpc("/etcdserverpb.Lease/LeaseLeases", req, 1, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        {
+            int64_t leftover_lid = 0;
+            size_t leftover_n = 0;
+            /* leftover-safe: leftover cannot steal a printed lease ID */
+            if (cetcd_parse_lease_list_response(resp, (size_t)rlen,
+                                                &leftover_lid, &leftover_n)
+                != CETCD_OK) {
+                fprintf(stderr, "request failed\n");
+                return 1;
+            }
+            (void)leftover_lid;
+            (void)leftover_n;
+        }
         /* Parse LeaseLeasesResponse: field 1 (header), field 2 (leases) = repeated LeaseStatus */
         size_t rpos = 0;
         int count = 0;

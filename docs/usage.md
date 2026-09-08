@@ -476,6 +476,7 @@ to cancel the watch and close the stream.
 # --interval must be > 0; leftover text is not a silent truncated interval
 ./build/bin/cetcdctl lease list -w fields                  # List all leases in fields format
 # leftover cannot steal a printed lease ID
+# leftover truncated lease list ID fail-closes (cannot print leftover id 0)
 ```
 
 ### Transactions

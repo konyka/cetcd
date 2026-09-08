@@ -608,7 +608,7 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `put -w json` / `del -w json` / `watch -w json` (JSON output for KV operations and watch events),
 `--command-timeout SEC` (global flag for command execution timeout),
 `get -w fields` (fields output format showing create_revision, mod_revision, version, lease, and value),
-`lease list -w table` / `lease list -w json` (table and JSON output for lease list),
+`lease list -w table` / `lease list -w json` (table and JSON output for lease list; leftover-safe-parse first so leftover cannot steal a printed lease ID; truncated ID fail-closes),
 `alarm list -w table` / `alarm list -w json` (table and JSON output for alarm list),
 `member list -w json` (JSON output format for member list),
 `put -w fields` (fields output for put response showing prev_kv metadata),

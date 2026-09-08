@@ -950,8 +950,8 @@ Performance-first, fail-closed design:
   LeaseLeasesResponse so leftover length-delimited bytes cannot steal
   a printed lease ID. A truncated lease / ID fail-closes (cannot print
   leftover text). Dummy `0x00` is not a skip length. `cetcdctl lease
-  list` leftover-safe-skips unknown fields. Accepting leftover payload
-  as the printed ID is rejected.
+  list` leftover-safe-parses field 1 first so a truncated ID fail-closes.
+  Accepting leftover payload as the printed ID is rejected.
 - **ResponseHeader leftover-safe revision** — leftover-safe-parses
   ResponseHeader so leftover length-delimited bytes cannot steal a
   printed JSON revision. A truncated header / revision fail-closes
