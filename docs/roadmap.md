@@ -1061,6 +1061,13 @@ Performance-first, fail-closed design:
   raft_term is not prev version. `cetcdctl watch` leftover-safe-parses
   field 4 inside Event prev_kv. Accepting leftover payload as the
   printed prev version is rejected.
+- **Watch leftover-safe Event prev_kv key** — leftover-safe-parses
+  WatchResponse Event prev_kv key so leftover length-delimited bytes
+  cannot steal a printed prev key. A truncated Event-nested prev key
+  fail-closes (cannot print leftover text). Dummy `0x00` is not a skip
+  length. Tag `0x0a` header is not prev key. `cetcdctl watch`
+  leftover-safe-parses field 1 inside Event prev_kv. Accepting leftover
+  payload as the printed prev key is rejected.
 - **Watch leftover-safe fragment** — leftover-safe-parses
   WatchResponse.fragment so leftover length-delimited bytes cannot
   steal `fragment=true`. A truncated fragment fail-closes (cannot

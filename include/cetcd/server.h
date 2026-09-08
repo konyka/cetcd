@@ -1002,6 +1002,18 @@ int cetcd_encode_watch_event_prev_kv_version(int64_t version, uint8_t *out,
                                              size_t cap, size_t *n);
 int cetcd_parse_watch_event_prev_kv_version(const uint8_t *req, size_t len,
                                             int64_t *version);
+/* leftover-safe WatchResponse Event prev_kv key (field 1, tag 0x0a
+ * inside Event field 3 / Watch field 11). omitted / empty / dummy
+ * 0x00 = empty key. leftover truncated Event-nested prev_kv key is
+ * INVAL so a truncated watch cannot print leftover text as the prev
+ * key. leftover length-delimited fields are skipped by payload so
+ * leftover bytes cannot steal a printed prev key (tag 0x0a header is
+ * not prev key). unknown wire types are INVAL. last prev key is
+ * copied when key/key_cap are set. */
+int cetcd_encode_watch_event_prev_kv_key(const char *key, uint8_t *out,
+                                         size_t cap, size_t *n);
+int cetcd_parse_watch_event_prev_kv_key(const uint8_t *req, size_t len,
+                                        char *key, size_t key_cap);
 /* leftover-safe WatchResponse.fragment (field 7, tag 0x38). omitted /
  * empty / dummy 0x00 = not a fragment. leftover truncated fragment
  * is INVAL so a truncated watch cannot look like more frames.
