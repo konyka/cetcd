@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 168 — leftover-safe LeaseGrant error</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 169 — leftover-safe Status dbSizeInUse</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 168 leftover-safe-parses
-     LeaseGrant error so leftover length-delimited bytes cannot
-     steal a printed grant error.</p>
+  <p><strong>v0.3.0</strong>. Phase 169 leftover-safe-parses
+     Status dbSizeInUse so leftover length-delimited bytes cannot
+     steal a printed used-page size.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -221,6 +221,7 @@
       <tr><td>166</td><td>leftover-safe RoleGet range_end</td><td>RoleGet leftover-safe-parses so leftover length-delimited bytes cannot steal a printed range_end; truncated range_end fail-closes; Permission leftover-safe-encodes etcd key/range_end; cetcdctl leftover-safe-parses field 3 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>167</td><td>leftover-safe Member name</td><td>Member leftover-safe-parses so leftover length-delimited bytes cannot steal a printed member name; truncated name fail-closes; cetcdctl leftover-safe-parses field 2 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>168</td><td>leftover-safe LeaseGrant error</td><td>LeaseGrant leftover-safe-parses so leftover length-delimited bytes cannot steal a printed grant error; truncated error fail-closes; cetcdctl leftover-safe-parses field 4; interop-only (cetcd omits field 4 on success) — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>169</td><td>leftover-safe Status dbSizeInUse</td><td>Status leftover-safe-parses so leftover length-delimited bytes cannot steal a printed dbSizeInUse; truncated dbSizeInUse fail-closes; cetcdctl leftover-safe-parses field 9 — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

@@ -803,6 +803,13 @@ Performance-first, fail-closed design:
   `cetcdctl status` / `endpoint status` leftover-safe-parse field 8.
   Accepting leftover payload as the printed `NOSPACE` / `CORRUPT` is
   rejected.
+- **Status leftover-safe dbSizeInUse** — leftover-safe-parses
+  StatusResponse.dbSizeInUse so leftover length-delimited bytes cannot
+  steal a printed used-page size. A truncated dbSizeInUse fail-closes
+  (cannot look like an empty used size). Dummy `0x00` is not a skip
+  length. `cetcdctl status` / `endpoint status` leftover-safe-parse
+  field 9. Accepting leftover payload as the printed dbSizeInUse is
+  rejected.
 - **LeaseGrant / TimeToLive leftover-safe ID** — leftover-safe-parses
   LeaseGrantResponse and LeaseTimeToLiveResponse so leftover
   length-delimited bytes cannot steal a printed or lock-used ID, TTL,

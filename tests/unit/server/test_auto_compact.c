@@ -2180,6 +2180,49 @@ CETCD_TEST_CASE(auto_compact_parse_status_errors) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_status_db_size_in_use) {
+    uint8_t buf[16];
+    size_t n = 0;
+    uint64_t db = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_status_db_size_in_use(0, buf, sizeof(buf),
+                                                          &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_status_db_size_in_use(4096, buf,
+                                                          sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_db_size_in_use(buf, n, &db),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(db == 4096);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_db_size_in_use(NULL, 0, &db),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(db == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_db_size_in_use(dummy, 1, &db),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(db == 0);
+
+    /* leftover truncated dbSizeInUse cannot look like an empty used size */
+    uint8_t trunc[] = { 0x48 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_db_size_in_use(trunc, 1, &db),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed dbSizeInUse */
+    uint8_t steal[] = { 0x1a, 0x03, 0x48, 0x80, 0x20 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_db_size_in_use(steal, sizeof(steal),
+                                                         &db),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(db == 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_db_size_in_use(fixed64, 1, &db),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_db_size_in_use(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_lease_grant_response) {
     uint8_t buf[16];
     size_t n = 0;
@@ -4932,6 +4975,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_string_list_response),
     CETCD_TEST_ENTRY(auto_compact_parse_status_response),
     CETCD_TEST_ENTRY(auto_compact_parse_status_errors),
+    CETCD_TEST_ENTRY(auto_compact_parse_status_db_size_in_use),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_response),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_error),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_ttl_response),

@@ -760,9 +760,14 @@ static void parse_range_response(const uint8_t *data, size_t len) {
 
 static void parse_status_response(const uint8_t *data, size_t len) {
     char leftover_err[32];
+    uint64_t leftover_inuse = 0;
     leftover_err[0] = '\0';
     /* leftover-safe: leftover cannot steal a printed alarm error */
     if (cetcd_parse_status_errors(data, len, leftover_err, sizeof(leftover_err))
+        != CETCD_OK)
+        return;
+    /* leftover-safe: leftover cannot steal a printed dbSizeInUse */
+    if (cetcd_parse_status_db_size_in_use(data, len, &leftover_inuse)
         != CETCD_OK)
         return;
     size_t pos = 0;
@@ -799,8 +804,12 @@ static void parse_status_response(const uint8_t *data, size_t len) {
                 break;
             }
         } else if (tag == 0x48) {
-            uint64_t v = 0; read_varint(data, len, &pos, &v);
-            printf("dbSizeInUse: %llu\n", (unsigned long long)v);
+            /* leftover-safe-skip field 9; leftover-safe dbSizeInUse is printed */
+            if (cetcd_leftover_safe_skip_field(data, len, &pos, tag)
+                != CETCD_OK) {
+                break;
+            }
+            printf("dbSizeInUse: %llu\n", (unsigned long long)leftover_inuse);
         } else if (tag == 0x50) {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
             if (v) printf("isLearner: true\n");
@@ -3172,11 +3181,18 @@ static int cmd_status(int argc, char **argv) {
         fprintf(stderr, "request failed\n");
         return 1;
     }
+    uint64_t leftover_inuse = 0;
+    /* leftover-safe: leftover cannot steal a printed dbSizeInUse */
+    if (cetcd_parse_status_db_size_in_use(resp, (size_t)rlen, &leftover_inuse)
+        != CETCD_OK) {
+        fprintf(stderr, "request failed\n");
+        return 1;
+    }
     /* Parse StatusResponse */
     size_t pos = 0;
     const uint8_t *version = NULL; size_t version_len = 0;
     uint64_t db_size = 0, leader = 0, raft_index = 0, raft_term = 0, revision = 0;
-    uint64_t raft_applied = 0, db_inuse = 0, is_learner = 0;
+    uint64_t raft_applied = 0, db_inuse = leftover_inuse, is_learner = 0;
     while (pos < (size_t)rlen) {
         uint8_t tag = resp[pos++];
         if (tag == 0x12) {
@@ -3199,7 +3215,11 @@ static int cmd_status(int argc, char **argv) {
                 break;
             }
         } else if (tag == 0x48) {
-            read_varint(resp, rlen, &pos, &db_inuse);
+            /* leftover-safe: leftover cannot steal a printed dbSizeInUse */
+            if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen, &pos, tag)
+                != CETCD_OK) {
+                break;
+            }
         } else if (tag == 0x50) {
             read_varint(resp, rlen, &pos, &is_learner);
         } else if (tag == 0x0a) {
@@ -3498,10 +3518,16 @@ static int cmd_endpoint(int argc, char **argv) {
                 if (cetcd_parse_status_errors(sresp, (size_t)srlen, leftover_err,
                                               sizeof(leftover_err)) != CETCD_OK)
                     continue;
+                uint64_t leftover_inuse = 0;
+                /* leftover-safe: leftover cannot steal a printed dbSizeInUse */
+                if (cetcd_parse_status_db_size_in_use(sresp, (size_t)srlen,
+                                                      &leftover_inuse)
+                    != CETCD_OK)
+                    continue;
                 size_t pos = 0;
                 const uint8_t *ver = NULL; size_t ver_len = 0;
                 uint64_t db_size = 0, leader = 0, raft_index = 0, raft_term = 0, revision = 0;
-                uint64_t db_inuse = 0;
+                uint64_t db_inuse = leftover_inuse;
                 while (pos < (size_t)srlen) {
                     uint8_t tag = sresp[pos++];
                     if (tag == 0x12) {
@@ -3523,7 +3549,12 @@ static int cmd_endpoint(int argc, char **argv) {
                             break;
                         }
                     } else if (tag == 0x48) {
-                        read_varint(sresp, srlen, &pos, &db_inuse);
+                        /* leftover-safe: leftover cannot steal a printed dbSizeInUse */
+                        if (cetcd_leftover_safe_skip_field(sresp, (size_t)srlen,
+                                                            &pos, tag)
+                            != CETCD_OK) {
+                            break;
+                        }
                     } else if (tag == 0x0a) {
                         uint64_t l = 0; read_varint(sresp, srlen, &pos, &l);
                         size_t hdr_end = pos + (size_t)l;
@@ -3606,10 +3637,17 @@ static int cmd_endpoint(int argc, char **argv) {
             fprintf(stderr, "request failed\n");
             return 1;
         }
+        uint64_t leftover_inuse = 0;
+        /* leftover-safe: leftover cannot steal a printed dbSizeInUse */
+        if (cetcd_parse_status_db_size_in_use(resp, (size_t)rlen, &leftover_inuse)
+            != CETCD_OK) {
+            fprintf(stderr, "request failed\n");
+            return 1;
+        }
         size_t pos = 0;
         const uint8_t *ver = NULL; size_t ver_len = 0;
         uint64_t db_size = 0, leader = 0, raft_index = 0, raft_term = 0, revision = 0;
-        uint64_t db_inuse = 0;
+        uint64_t db_inuse = leftover_inuse;
         while (pos < (size_t)rlen) {
             uint8_t tag = resp[pos++];
             if (tag == 0x12) {
@@ -3630,7 +3668,11 @@ static int cmd_endpoint(int argc, char **argv) {
                     break;
                 }
             } else if (tag == 0x48) {
-                read_varint(resp, rlen, &pos, &db_inuse);
+                /* leftover-safe: leftover cannot steal a printed dbSizeInUse */
+                if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen, &pos, tag)
+                    != CETCD_OK) {
+                    break;
+                }
             } else if (tag == 0x0a) {
                 uint64_t l = 0; read_varint(resp, rlen, &pos, &l);
                 size_t hdr_end = pos + (size_t)l;

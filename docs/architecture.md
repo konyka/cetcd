@@ -520,7 +520,9 @@ etcd v3.5 proto wire format. `Status` `dbSize` is physically allocated LMDB page
 the same figure quota compares). `raftAppliedIndex`, `errors` (`NOSPACE` /
 `CORRUPT`), and `isLearner` are also on the wire. Status leftover-safe-parses
 field 8 so leftover length-delimited bytes cannot steal a printed alarm error;
-a truncated error fail-closes. `Hash` / `HashKV` return a CRC32C (Castagnoli) of
+a truncated error fail-closes. Status leftover-safe-parses field 9 so leftover
+length-delimited bytes cannot steal a printed dbSizeInUse; a truncated
+dbSizeInUse fail-closes. `Hash` / `HashKV` return a CRC32C (Castagnoli) of
 key+value pairs in key order at the requested revision (`0` = current). The
 previous `revision * constant` placeholder collided when two stores shared a
 revision but not contents. `revision < compacted_rev` or `revision > current`
@@ -609,7 +611,7 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `--keepalive-time SEC` / `--keepalive-timeout SEC` (TCP `SO_KEEPALIVE` idle/interval; invalid values and timeout without time fail-close),
 `endpoint hashkv [-w json]` (subcommand to call HashKV RPC per endpoint, with JSON output),
 `endpoint health -w json` (JSON output for health check with endpoint/status/error fields),
-`endpoint status -w json|table` (JSON or table output for endpoint status, now parses actual revision from ResponseHeader); Status leftover-safe-parses so leftover length-delimited bytes cannot steal a printed version, dbSize, or isLearner,
+`endpoint status -w json|table` (JSON or table output for endpoint status, now parses actual revision from ResponseHeader); Status leftover-safe-parses so leftover length-delimited bytes cannot steal a printed version, dbSize, dbSizeInUse, or isLearner,
 `snapshot status FILE -w json` (JSON output for snapshot status with hash/revision/size/filename),
 `version -w json` (JSON output with client/version/etcd fields),
 `status -w fields` (fields output format showing version, dbSize, leader, raftIndex, raftTerm, and revision from ResponseHeader),

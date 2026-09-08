@@ -600,6 +600,16 @@ int cetcd_encode_status_errors(const char *error, uint8_t *out, size_t cap,
                                size_t *n);
 int cetcd_parse_status_errors(const uint8_t *req, size_t len, char *error,
                               size_t error_cap);
+/* leftover-safe StatusResponse.dbSizeInUse (field 9, tag 0x48). omitted /
+ * empty / dummy 0x00 = 0. leftover truncated dbSizeInUse is INVAL so
+ * a truncated status cannot look like an empty used-page size.
+ * leftover length-delimited fields are skipped by payload so leftover
+ * bytes cannot steal a printed dbSizeInUse. unknown wire types are
+ * INVAL. last dbSizeInUse is copied when db_inuse is set. */
+int cetcd_encode_status_db_size_in_use(uint64_t db_inuse, uint8_t *out,
+                                       size_t cap, size_t *n);
+int cetcd_parse_status_db_size_in_use(const uint8_t *req, size_t len,
+                                      uint64_t *db_inuse);
 /* leftover-safe LeaseGrantResponse ID / TTL. omitted / empty / dummy
  * 0x00 = id 0 / ttl 0. leftover truncated ID / TTL is INVAL so a
  * truncated grant cannot look like id 0. leftover length-delimited
