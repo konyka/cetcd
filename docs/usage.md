@@ -435,6 +435,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl lease grant --lease-id 0x1234abcd 60  # Grant with custom lease ID (hex)
 # --lease-id must be hex; leftover text is not id 0
 ./build/bin/cetcdctl lease grant 60 -w fields              # Grant with fields output
+# leftover-safe: leftover proto bytes cannot steal a printed grant ID or TTL key
 ./build/bin/cetcdctl lease revoke 1                        # Revoke lease ID 1
 # lease ID must be > 0; a typo is not lease id 0
 # leftover truncated LeaseRevoke/KeepAlive id fail-closes (cannot look like success)

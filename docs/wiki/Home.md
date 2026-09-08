@@ -884,6 +884,7 @@ Subcommand `--flag=value` (`put --lease=1`, `get --rev=5`, `--write-out=json`, `
 `cetcdctl lease keepalive --interval` must be `> 0`; leftover text fail-closes instead of becoming a truncated interval.
 `cetcdctl lease grant TTL` must be `> 0`; a typo fail-closes instead of granting TTL `0`. LeaseGrant leftover-safe-parses field 1 so a truncated TTL cannot grant a 60s lease (dummy `0x00` / `TTL<=0` fail-closes).
 LeaseGrant / TimeToLive leftover-safe-parses so leftover length-delimited bytes cannot steal a printed or lock-used ID or key (tag `0x08` is not the grant ID; truncated ID / key fail-closes).
+`cetcdctl lease grant` / `timetolive` leftover-safe-parse json/fields so leftover cannot steal a printed ID or TTL key.
 KeepAlive leftover-safe-parses so leftover length-delimited bytes cannot steal a printed or lock-used TTL (truncated TTL fail-closes).
 LeaseLeases leftover-safe-parses so leftover length-delimited bytes cannot steal a printed lease ID (truncated lease / ID fail-closes).
 ResponseHeader leftover-safe-parses so leftover length-delimited bytes cannot steal a printed JSON revision (truncated header / revision fail-closes).

@@ -2150,28 +2150,24 @@ static int cmd_lease(int argc, char **argv) {
         int rlen = do_rpc("/etcdserverpb.Lease/LeaseGrant", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
         if (want_json) {
-            size_t rpos = 0;
-            uint64_t lid = 0, ttl = 0;
-            while (rpos < (size_t)rlen) {
-                uint8_t tag = resp[rpos++];
-                if (tag == 0x10) { read_varint(resp, rlen, &rpos, &lid); }
-                else if (tag == 0x18) { read_varint(resp, rlen, &rpos, &ttl); }
-                else if (tag == 0x0a) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
-                else { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
+            int64_t lid = 0, ttl = 0;
+            /* leftover-safe: leftover cannot steal a printed grant ID */
+            if (cetcd_parse_lease_grant_response(resp, (size_t)rlen, &lid, &ttl)
+                != CETCD_OK) {
+                fprintf(stderr, "request failed\n");
+                return 1;
             }
             fputs("{", stdout);
             parse_and_print_header_json(resp, (size_t)rlen);
             printf(",\"ID\":%llu,\"TTL\":%llu}\n",
                    (unsigned long long)lid, (unsigned long long)ttl);
         } else if (want_fields) {
-            size_t rpos = 0;
-            uint64_t lid = 0, ttl = 0;
-            while (rpos < (size_t)rlen) {
-                uint8_t tag = resp[rpos++];
-                if (tag == 0x10) { read_varint(resp, rlen, &rpos, &lid); }
-                else if (tag == 0x18) { read_varint(resp, rlen, &rpos, &ttl); }
-                else if (tag == 0x0a) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
-                else { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
+            int64_t lid = 0, ttl = 0;
+            /* leftover-safe: leftover cannot steal a printed grant ID */
+            if (cetcd_parse_lease_grant_response(resp, (size_t)rlen, &lid, &ttl)
+                != CETCD_OK) {
+                fprintf(stderr, "request failed\n");
+                return 1;
             }
             parse_and_print_header_json(resp, (size_t)rlen);
             printf("ID: %llu\n", (unsigned long long)lid);
@@ -2274,7 +2270,12 @@ static int cmd_lease(int argc, char **argv) {
                     rpos += l;
                     key_count++;
                 } else if (tag == 0x0a) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
-                else { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
+                else if (tag == 0x00) { continue; }
+                else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                        &rpos, tag)
+                         != CETCD_OK) {
+                    break;
+                }
             }
             printf("\"ID\":%llu,\"TTL\":%llu,\"grantedTTL\":%llu",
                    (unsigned long long)lid, (unsigned long long)ttl, (unsigned long long)granted);
@@ -2293,7 +2294,12 @@ static int cmd_lease(int argc, char **argv) {
                         ki++;
                     } else if (tag == 0x0a || tag == 0x12) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
                     else if (tag == 0x10 || tag == 0x18 || tag == 0x20) { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
-                    else { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
+                    else if (tag == 0x00) { continue; }
+                    else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                            &rpos, tag)
+                             != CETCD_OK) {
+                        break;
+                    }
                 }
                 fputs("]", stdout);
             }
@@ -2308,7 +2314,12 @@ static int cmd_lease(int argc, char **argv) {
                 else if (tag == 0x20) { read_varint(resp, rlen, &rpos, &granted); }
                 else if (tag == 0x2a) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
                 else if (tag == 0x0a) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
-                else { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
+                else if (tag == 0x00) { continue; }
+                else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                        &rpos, tag)
+                         != CETCD_OK) {
+                    break;
+                }
             }
             parse_and_print_header_json(resp, (size_t)rlen);
             printf("ID: %llu\n", (unsigned long long)lid);
@@ -2326,7 +2337,12 @@ static int cmd_lease(int argc, char **argv) {
                         ki++;
                     } else if (tag == 0x0a || tag == 0x12) { uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l; }
                     else if (tag == 0x10 || tag == 0x18 || tag == 0x20) { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
-                    else { uint64_t v = 0; read_varint(resp, rlen, &rpos, &v); }
+                    else if (tag == 0x00) { continue; }
+                    else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                            &rpos, tag)
+                             != CETCD_OK) {
+                        break;
+                    }
                 }
             }
             fputs("\n", stdout);
