@@ -3810,6 +3810,74 @@ CETCD_TEST_CASE(auto_compact_parse_watch_event_kv_mod_rev) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_watch_event_prev_kv_create_rev) {
+    uint8_t buf[16];
+    size_t n = 0;
+    int64_t create_rev = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_watch_event_prev_kv_create_rev(0, buf,
+                                                                   sizeof(buf),
+                                                                   &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_watch_event_prev_kv_create_rev(4, buf,
+                                                                   sizeof(buf),
+                                                                   &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_prev_kv_create_rev(buf, n,
+                                                                  &create_rev),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(create_rev == 4);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_prev_kv_create_rev(NULL, 0,
+                                                                  &create_rev),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(create_rev == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_prev_kv_create_rev(dummy, 1,
+                                                                  &create_rev),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(create_rev == 0);
+
+    /* leftover truncated Event-nested prev create_revision cannot look like 0 */
+    uint8_t trunc[] = { 0x5a, 0x03, 0x1a, 0x01, 0x10 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_prev_kv_create_rev(trunc,
+                                                                  sizeof(trunc),
+                                                                  &create_rev),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed Event prev create_revision */
+    uint8_t steal[] = { 0x5a, 0x06, 0x1a, 0x04, 0x32, 0x02, 0x10, 0x04 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_prev_kv_create_rev(steal,
+                                                                  sizeof(steal),
+                                                                  &create_rev),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(create_rev == 0);
+
+    /* leftover header member_id is not Event prev create_revision */
+    uint8_t header[] = { 0x0a, 0x02, 0x10, 0x03 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_prev_kv_create_rev(header,
+                                                                  sizeof(header),
+                                                                  &create_rev),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(create_rev == 0);
+
+    uint8_t last[] = { 0x5a, 0x04, 0x1a, 0x02, 0x10, 0x01,
+                       0x5a, 0x04, 0x1a, 0x02, 0x10, 0x02 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_prev_kv_create_rev(last,
+                                                                  sizeof(last),
+                                                                  &create_rev),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(create_rev == 2);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_prev_kv_create_rev(fixed64, 1,
+                                                                  &create_rev),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_prev_kv_create_rev(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_watch_fragment) {
     uint8_t buf[8];
     size_t n = 0;
@@ -6087,6 +6155,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_watch_event_kv_version),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_event_kv_create_rev),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_event_kv_mod_rev),
+    CETCD_TEST_ENTRY(auto_compact_parse_watch_event_prev_kv_create_rev),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_fragment),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_cancel_reason),
     CETCD_TEST_ENTRY(auto_compact_parse_delete_range_response),
