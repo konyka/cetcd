@@ -1569,6 +1569,57 @@ CETCD_TEST_CASE(auto_compact_parse_move_leader_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_member_id_request) {
+    uint8_t buf[16];
+    size_t n = 0;
+    uint64_t id = 99;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_id_request(0, buf, sizeof(buf),
+                                                      &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_id_request(2, buf, sizeof(buf),
+                                                      &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_id_request(buf, n, &id),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(id == 2);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_id_request(NULL, 0, &id),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(id == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_id_request(dummy, 1, &id),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(id == 0);
+
+    /* leftover truncated field 1 cannot look like a successful remove */
+    uint8_t trunc[] = { 0x08 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_id_request(trunc, 1, &id),
+                        CETCD_ERR_INVAL);
+    uint8_t trunc2[] = { 0x08, 0x80 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_id_request(trunc2, 2, &id),
+                        CETCD_ERR_INVAL);
+
+    /* leftover length-delimited payload cannot steal the id */
+    uint8_t steal[] = { 0x08, 0x02, 0x12, 0x01, 0x07 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_id_request(steal, sizeof(steal),
+                                                     &id),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(id == 2);
+
+    uint8_t badskip[] = { 0x08, 0x02, 0x12, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_id_request(badskip, 4, &id),
+                        CETCD_ERR_INVAL);
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_id_request(fixed64, 1, &id),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_id_request(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_id_request(1, NULL, sizeof(buf),
+                                                      &n),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_lease_grant_request) {
     int64_t ttl = 99, id = 99;
 
@@ -2227,6 +2278,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_hashkv_request),
     CETCD_TEST_ENTRY(auto_compact_parse_compact_request),
     CETCD_TEST_ENTRY(auto_compact_parse_move_leader_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_member_id_request),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),
     CETCD_TEST_ENTRY(auto_compact_parse_compact_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),

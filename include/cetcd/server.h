@@ -208,6 +208,16 @@ int cetcd_parse_move_leader_request(const uint8_t *req, size_t len,
  * bytes cannot steal the TTL or id. unknown wire types are INVAL. */
 int cetcd_parse_lease_grant_request(const uint8_t *req, size_t len,
                                     int64_t *ttl, int64_t *id);
+/* MemberRemove/Promote field 1 (ID). 0 is INVAL. */
+int cetcd_encode_member_id_request(uint64_t id, uint8_t *out, size_t cap,
+                                   size_t *n);
+/* leftover-safe MemberRemove/Promote ID. omitted / empty / dummy
+ * 0x00 = 0. leftover truncated varint is INVAL so a truncated id
+ * cannot look like a successful remove/promote. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal the id. unknown wire types are INVAL. */
+int cetcd_parse_member_id_request(const uint8_t *req, size_t len,
+                                  uint64_t *out);
 /* MemberListRequest field 1 (linearizable). proto3 omitted = 0. */
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n);

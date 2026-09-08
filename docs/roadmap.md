@@ -655,6 +655,12 @@ Performance-first, fail-closed design:
   60s lease. Leftover length-delimited bytes cannot steal the TTL or
   id. Dummy `0x00` / omitted / `TTL<=0` fail-closes. Accepting a
   truncated TTL as the default 60s is rejected.
+- **MemberRemove leftover-safe id** — leftover-safe-parses
+  MemberRemove/Promote field 1 so a truncated varint cannot look like
+  a successful remove or promote. Leftover length-delimited bytes
+  cannot steal the id. Dummy `0x00` / omitted / `0` fail-closes (etcd
+  member 0 is not a remove). Accepting a truncated id as OK is
+  rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

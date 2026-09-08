@@ -472,6 +472,7 @@ to cancel the watch and close the stream.
 # peer URL port must be 1..65535; leftover 2380foo is not truncated port 2380
 ./build/bin/cetcdctl member remove 1234567890         # Remove member (refused if it would lose quorum)
 # member ID is hex > 0; leftover text is not a truncated decimal id
+# leftover truncated MemberRemove/Promote id fail-closes (cannot look like success)
 # leftover member remove --force / member add --foo URL fail-close
 ./build/bin/cetcdctl member update 1234567890 http://localhost:2380  # Update member peer URL
 ./build/bin/cetcdctl member promote 1234567890        # Promote learner to voting member

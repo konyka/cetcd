@@ -1535,13 +1535,25 @@ CETCD_TEST_CASE(v3rpc_cluster_member_add) {
 CETCD_TEST_CASE(v3rpc_cluster_member_remove) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
+    uint8_t dummy[] = {0x00};
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Cluster/MemberRemove", dummy, 1);
+    /* leftover dummy / omitted id cannot look like a successful remove */
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    CETCD_ASSERT_TRUE(resp.len == 0);
+
+    uint8_t trunc[] = {0x08};
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Cluster/MemberRemove", trunc, 1);
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+
     /* MemberRemoveRequest: field 1 (ID) = 1 */
     uint8_t rm_buf[8];
     size_t pos = 0;
     rm_buf[pos++] = 0x08; /* field 1 = ID */
     rm_buf[pos++] = 0x01; /* ID = 1 */
 
-    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+    resp = cetcd_v3rpc_dispatch(rpc,
         "/etcdserverpb.Cluster/MemberRemove", rm_buf, pos);
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 0);
@@ -1572,13 +1584,25 @@ CETCD_TEST_CASE(v3rpc_cluster_member_update) {
 CETCD_TEST_CASE(v3rpc_cluster_member_promote) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
+    uint8_t dummy[] = {0x00};
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Cluster/MemberPromote", dummy, 1);
+    /* leftover dummy / omitted id cannot look like a successful promote */
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    CETCD_ASSERT_TRUE(resp.len == 0);
+
+    uint8_t trunc[] = {0x08};
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Cluster/MemberPromote", trunc, 1);
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+
     /* MemberPromoteRequest: field 1 (ID) = 1 */
     uint8_t prom_buf[8];
     size_t pos = 0;
     prom_buf[pos++] = 0x08;
     prom_buf[pos++] = 0x01;
 
-    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+    resp = cetcd_v3rpc_dispatch(rpc,
         "/etcdserverpb.Cluster/MemberPromote", prom_buf, pos);
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 0);
