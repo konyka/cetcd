@@ -648,6 +648,20 @@ CETCD_TEST_CASE(v3rpc_auth_user_add_authenticate) {
     CETCD_ASSERT_TRUE(resp.data == NULL);
     cetcd_rpc_bytes_free(&resp);
 
+    /* leftover cannot steal a UserAdd password */
+    uint8_t steal_add[] = { 0x0a, 0x03, 'b', 'o', 'b',
+                            0x22, 0x09, 0x12, 0x07, 'p', 'a', 's', 's', '1', '2', '3' };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/UserAdd",
+                                steal_add, sizeof(steal_add));
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+    uint8_t auth_bob[] = { 0x0a, 0x03, 'b', 'o', 'b',
+                           0x12, 0x07, 'p', 'a', 's', 's', '1', '2', '3' };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/Authenticate",
+                                auth_bob, sizeof(auth_bob));
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
     cetcd_v3rpc_free(rpc);
 }
 
@@ -1957,6 +1971,24 @@ CETCD_TEST_CASE(v3rpc_auth_user_change_password) {
         "/etcdserverpb.Auth/Authenticate", auth_buf, pos);
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover cannot steal a ChangePassword password */
+    uint8_t steal_chg[] = { 0x0a, 0x05, 'a', 'l', 'i', 'c', 'e',
+                            0x22, 0x08, 0x12, 0x06, 'x', 'x', 'x', 'x', 'x', 'x' };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/UserChangePassword",
+                                steal_chg, sizeof(steal_chg));
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+    uint8_t auth_old[32];
+    pos = 0;
+    auth_old[pos++] = 0x0a; auth_old[pos++] = 0x05;
+    memcpy(auth_old + pos, "alice", 5); pos += 5;
+    auth_old[pos++] = 0x12; auth_old[pos++] = 0x06;
+    memcpy(auth_old + pos, "newpw1", 6); pos += 6;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.Auth/Authenticate",
+                                auth_old, pos);
+    CETCD_ASSERT_NOT_NULL(resp.data);
     cetcd_rpc_bytes_free(&resp);
 
     cetcd_v3rpc_free(rpc);

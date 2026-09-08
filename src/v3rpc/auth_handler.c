@@ -141,11 +141,13 @@ static void auth_name_pass_clear_(uint8_t **name, uint8_t **pass) {
 
 static int parse_auth_name_pass_request_(const uint8_t *req, size_t len,
                                          uint8_t **name, size_t *name_len,
-                                         uint8_t **pass, size_t *pass_len) {
+                                         uint8_t **pass, size_t *pass_len,
+                                         int *no_password) {
     size_t p = 0;
     if (!name || !name_len || !pass || !pass_len) return -1;
     *name = NULL; *name_len = 0;
     *pass = NULL; *pass_len = 0;
+    if (no_password) *no_password = 0;
     if (!req || len == 0) return 0;
     while (p < len) {
         uint8_t tag = req[p++];
@@ -200,6 +202,106 @@ static int parse_auth_name_pass_request_(const uint8_t *req, size_t len,
                 free(*pass);
                 *pass = copy;
                 *pass_len = (size_t)skip;
+            }
+            continue;
+        }
+        if (tag == 0x1a && no_password) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    auth_name_pass_clear_(name, pass);
+                    return -1;
+                }
+            }
+            if (!got || p + skip > len) {
+                auth_name_pass_clear_(name, pass);
+                return -1;
+            }
+            size_t oend = p + (size_t)skip;
+            while (p < oend) {
+                uint8_t otag = req[p++];
+                if (otag == 0x00)
+                    continue;
+                if (otag == 0x08) {
+                    uint64_t v = 0;
+                    shift = 0;
+                    got = 0;
+                    while (p < oend) {
+                        uint8_t b = req[p++];
+                        v |= (uint64_t)(b & 0x7F) << shift;
+                        if ((b & 0x80) == 0) {
+                            got = 1;
+                            break;
+                        }
+                        shift += 7;
+                        if (shift > 63) {
+                            auth_name_pass_clear_(name, pass);
+                            return -1;
+                        }
+                    }
+                    if (!got) {
+                        auth_name_pass_clear_(name, pass);
+                        return -1;
+                    }
+                    *no_password = v != 0;
+                    continue;
+                }
+                if ((otag & 7) == 0) {
+                    got = 0;
+                    shift = 0;
+                    while (p < oend) {
+                        uint8_t b = req[p++];
+                        if ((b & 0x80) == 0) {
+                            got = 1;
+                            break;
+                        }
+                        shift += 7;
+                        if (shift > 63) {
+                            auth_name_pass_clear_(name, pass);
+                            return -1;
+                        }
+                    }
+                    if (!got) {
+                        auth_name_pass_clear_(name, pass);
+                        return -1;
+                    }
+                    continue;
+                }
+                if ((otag & 7) == 2) {
+                    uint64_t iskip = 0;
+                    shift = 0;
+                    got = 0;
+                    while (p < oend) {
+                        uint8_t b = req[p++];
+                        iskip |= (uint64_t)(b & 0x7F) << shift;
+                        if ((b & 0x80) == 0) {
+                            got = 1;
+                            break;
+                        }
+                        shift += 7;
+                        if (shift > 63) {
+                            auth_name_pass_clear_(name, pass);
+                            return -1;
+                        }
+                    }
+                    if (!got || p + iskip > oend) {
+                        auth_name_pass_clear_(name, pass);
+                        return -1;
+                    }
+                    p += (size_t)iskip;
+                    continue;
+                }
+                auth_name_pass_clear_(name, pass);
+                return -1;
             }
             continue;
         }
@@ -259,7 +361,7 @@ cetcd_rpc_bytes auth_handle_authenticate(cetcd_v3rpc *rpc, const uint8_t *req, s
     uint8_t *name = NULL; size_t name_len = 0;
     uint8_t *pass = NULL; size_t pass_len = 0;
     if (parse_auth_name_pass_request_(req, req_len, &name, &name_len,
-                                      &pass, &pass_len) != 0)
+                                      &pass, &pass_len, NULL) != 0)
         return (cetcd_rpc_bytes){NULL, 0};
     bool ok = false;
     char *tok = NULL;
@@ -288,33 +390,10 @@ cetcd_rpc_bytes auth_handle_user_add(cetcd_v3rpc *rpc, const uint8_t *req, size_
     (void)rpc;
     uint8_t *name = NULL; size_t name_len = 0;
     uint8_t *pass = NULL; size_t pass_len = 0;
-    bool no_password = false;
-    size_t pos = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x0a) {
-            if (read_bytes_field(req, req_len, &pos, &name, &name_len) != 0) break;
-        } else if (tag == 0x12) {
-            if (read_bytes_field(req, req_len, &pos, &pass, &pass_len) != 0) break;
-        } else if (tag == 0x1a) {
-            /* field 3 = UserAddOptions (length-delimited) */
-            uint64_t olen = 0;
-            if (read_varint(req, req_len, &pos, &olen) != 0) break;
-            size_t opt_end = pos + (size_t)olen;
-            while (pos < opt_end) {
-                uint8_t otag = req[pos++];
-                if (otag == 0x08) {
-                    uint64_t v = 0; read_varint(req, opt_end, &pos, &v);
-                    no_password = (v != 0);
-                } else {
-                    uint64_t skip = 0; read_varint(req, opt_end, &pos, &skip);
-                }
-            }
-            pos = opt_end;
-        } else {
-            uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
-        }
-    }
+    int no_password = 0;
+    if (parse_auth_name_pass_request_(req, req_len, &name, &name_len,
+                                      &pass, &pass_len, &no_password) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
     int rc = -1;
     if (g_rpc_auth && name) {
         const char *pw = (pass || no_password) ? (const char *)pass : NULL;
@@ -529,17 +608,9 @@ cetcd_rpc_bytes auth_handle_user_change_password(cetcd_v3rpc *rpc, const uint8_t
     (void)rpc;
     uint8_t *name = NULL; size_t name_len = 0;
     uint8_t *pass = NULL; size_t pass_len = 0;
-    size_t pos = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x0a) {
-            if (read_bytes_field(req, req_len, &pos, &name, &name_len) != 0) break;
-        } else if (tag == 0x12) {
-            if (read_bytes_field(req, req_len, &pos, &pass, &pass_len) != 0) break;
-        } else {
-            uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
-        }
-    }
+    if (parse_auth_name_pass_request_(req, req_len, &name, &name_len,
+                                      &pass, &pass_len, NULL) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
     if (!g_rpc_auth || !name || name_len == 0 || !pass ||
         !cetcd_auth_has_user(g_rpc_auth, (const char *)name)) {
         free(name); free(pass);

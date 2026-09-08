@@ -449,6 +449,7 @@ to cancel the watch and close the stream.
 # leftover txn put --foo k v / txn put -w json as KEY fail-close
 # leftover auth login --foo / downgrade enable --foo fail-close
 # leftover Authenticate proto bytes cannot steal a name or password (truncated password fail-closes)
+# leftover UserAdd / UserChangePassword proto bytes cannot steal a password or no_password
 ./build/bin/cetcdctl txn cas foo old new        # Compare-and-swap
 ./build/bin/cetcdctl txn cas -w fields foo old new  # CAS with fields output
 ./build/bin/cetcdctl txn get foo                # Transactional get

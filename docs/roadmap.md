@@ -705,6 +705,12 @@ Performance-first, fail-closed design:
   a name or password. A truncated password fail-closes (cannot look
   like a name-only authenticate). Dummy `0x00` / omitted is empty.
   Accepting leftover payload as the password is rejected.
+- **UserAdd leftover-safe password** — leftover-safe-parses
+  AuthUserAddRequest so leftover length-delimited bytes cannot steal
+  a password or `no_password`. UserChangePassword leftover-safe-parses
+  the same name/password fields. A truncated password / options
+  fail-closes (cannot look like a name-only add). Accepting leftover
+  payload as the password is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

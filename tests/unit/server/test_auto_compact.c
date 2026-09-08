@@ -2083,6 +2083,67 @@ CETCD_TEST_CASE(auto_compact_parse_auth_name_pass_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_user_add_request) {
+    uint8_t buf[32];
+    size_t n = 0;
+    cetcd_user_add_request ua;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_user_add_request(
+                            NULL, 0, NULL, 0, 0, buf, sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_user_add_request(
+                            (const uint8_t *)"alice", 5,
+                            (const uint8_t *)"pass", 4, 1, buf, sizeof(buf),
+                            &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_user_add_request(buf, n, &ua), CETCD_OK);
+    CETCD_ASSERT_TRUE(ua.name_len == 5 && ua.name &&
+                      memcmp(ua.name, "alice", 5) == 0);
+    CETCD_ASSERT_TRUE(ua.password_len == 4 && ua.password &&
+                      memcmp(ua.password, "pass", 4) == 0);
+    CETCD_ASSERT_EQ_INT(ua.no_password, 1);
+    cetcd_user_add_request_clear(&ua);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_user_add_request(NULL, 0, &ua), CETCD_OK);
+    CETCD_ASSERT_TRUE(ua.name == NULL);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_user_add_request(dummy, 1, &ua), CETCD_OK);
+    CETCD_ASSERT_TRUE(ua.no_password == 0);
+
+    /* leftover truncated password cannot look like a name-only add */
+    uint8_t trunc[] = { 0x0a, 0x05, 'a', 'l', 'i', 'c', 'e', 0x12 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_user_add_request(trunc, 8, &ua),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_TRUE(ua.name == NULL);
+    uint8_t trunc_opt[] = { 0x0a, 0x05, 'a', 'l', 'i', 'c', 'e', 0x1a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_user_add_request(trunc_opt, 8, &ua),
+                        CETCD_ERR_INVAL);
+
+    /* leftover length-delimited payload cannot steal password */
+    uint8_t steal[] = { 0x0a, 0x05, 'a', 'l', 'i', 'c', 'e',
+                        0x22, 0x06, 0x12, 0x04, 'p', 'a', 's', 's' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_user_add_request(steal, sizeof(steal), &ua),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ua.password == NULL);
+    CETCD_ASSERT_TRUE(ua.name_len == 5);
+    cetcd_user_add_request_clear(&ua);
+
+    /* leftover cannot steal no_password */
+    uint8_t steal_np[] = { 0x0a, 0x05, 'a', 'l', 'i', 'c', 'e',
+                           0x22, 0x04, 0x1a, 0x02, 0x08, 0x01 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_user_add_request(steal_np, sizeof(steal_np),
+                                                    &ua),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(ua.no_password, 0);
+    cetcd_user_add_request_clear(&ua);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_user_add_request(fixed64, 1, &ua),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_user_add_request(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_compact_argv) {
     int physical = 0;
     int64_t rev = 0;
@@ -2698,6 +2759,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_put_request),
     CETCD_TEST_ENTRY(auto_compact_parse_delete_range_request),
     CETCD_TEST_ENTRY(auto_compact_parse_auth_name_pass_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_user_add_request),
     CETCD_TEST_ENTRY(auto_compact_parse_compact_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_defrag_argv),

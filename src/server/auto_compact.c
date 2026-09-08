@@ -2654,6 +2654,271 @@ int cetcd_parse_auth_name_pass_request(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+void cetcd_user_add_request_clear(cetcd_user_add_request *r) {
+    if (!r) return;
+    free(r->name);
+    free(r->password);
+    memset(r, 0, sizeof(*r));
+}
+
+int cetcd_encode_user_add_request(const uint8_t *name, size_t name_len,
+                                  const uint8_t *password, size_t password_len,
+                                  int no_password, uint8_t *out, size_t cap,
+                                  size_t *n) {
+    if (!out || !n || !name || name_len == 0) return CETCD_ERR_INVAL;
+    size_t pos = 0;
+    if (pos + 2 + name_len > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x0a;
+    uint64_t lv = name_len;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(lv & 0x7fu);
+        lv >>= 7;
+        if (lv) b |= 0x80u;
+        out[pos++] = b;
+    } while (lv);
+    if (pos + name_len > cap) return CETCD_ERR_OVERFLOW;
+    memcpy(out + pos, name, name_len);
+    pos += name_len;
+    if (password && password_len) {
+        if (pos + 2 + password_len > cap) return CETCD_ERR_OVERFLOW;
+        out[pos++] = 0x12;
+        lv = password_len;
+        do {
+            if (pos >= cap) return CETCD_ERR_OVERFLOW;
+            uint8_t b = (uint8_t)(lv & 0x7fu);
+            lv >>= 7;
+            if (lv) b |= 0x80u;
+            out[pos++] = b;
+        } while (lv);
+        if (pos + password_len > cap) return CETCD_ERR_OVERFLOW;
+        memcpy(out + pos, password, password_len);
+        pos += password_len;
+    }
+    if (no_password) {
+        if (pos + 4 > cap) return CETCD_ERR_OVERFLOW;
+        out[pos++] = 0x1a;
+        out[pos++] = 0x02;
+        out[pos++] = 0x08;
+        out[pos++] = 0x01;
+    }
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_user_add_request(const uint8_t *req, size_t len,
+                                 cetcd_user_add_request *out) {
+    size_t p = 0;
+    if (!out) return CETCD_ERR_INVAL;
+    memset(out, 0, sizeof(*out));
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x0a || tag == 0x12) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    cetcd_user_add_request_clear(out);
+                    return CETCD_ERR_INVAL;
+                }
+            }
+            if (!got || p + skip > len) {
+                cetcd_user_add_request_clear(out);
+                return CETCD_ERR_INVAL;
+            }
+            if (skip == 0) {
+                if (tag == 0x0a) {
+                    free(out->name);
+                    out->name = NULL;
+                    out->name_len = 0;
+                } else {
+                    free(out->password);
+                    out->password = NULL;
+                    out->password_len = 0;
+                }
+                continue;
+            }
+            uint8_t *copy = (uint8_t *)malloc((size_t)skip + 1);
+            if (!copy) {
+                cetcd_user_add_request_clear(out);
+                return CETCD_ERR_NOMEM;
+            }
+            memcpy(copy, req + p, (size_t)skip);
+            copy[skip] = 0;
+            p += (size_t)skip;
+            if (tag == 0x0a) {
+                free(out->name);
+                out->name = copy;
+                out->name_len = (size_t)skip;
+            } else {
+                free(out->password);
+                out->password = copy;
+                out->password_len = (size_t)skip;
+            }
+            continue;
+        }
+        if (tag == 0x1a) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    cetcd_user_add_request_clear(out);
+                    return CETCD_ERR_INVAL;
+                }
+            }
+            if (!got || p + skip > len) {
+                cetcd_user_add_request_clear(out);
+                return CETCD_ERR_INVAL;
+            }
+            size_t oend = p + (size_t)skip;
+            while (p < oend) {
+                uint8_t otag = req[p++];
+                if (otag == 0x00)
+                    continue;
+                if (otag == 0x08) {
+                    uint64_t v = 0;
+                    shift = 0;
+                    got = 0;
+                    while (p < oend) {
+                        uint8_t b = req[p++];
+                        v |= (uint64_t)(b & 0x7F) << shift;
+                        if ((b & 0x80) == 0) {
+                            got = 1;
+                            break;
+                        }
+                        shift += 7;
+                        if (shift > 63) {
+                            cetcd_user_add_request_clear(out);
+                            return CETCD_ERR_INVAL;
+                        }
+                    }
+                    if (!got) {
+                        cetcd_user_add_request_clear(out);
+                        return CETCD_ERR_INVAL;
+                    }
+                    out->no_password = v != 0;
+                    continue;
+                }
+                if ((otag & 7) == 0) {
+                    got = 0;
+                    shift = 0;
+                    while (p < oend) {
+                        uint8_t b = req[p++];
+                        if ((b & 0x80) == 0) {
+                            got = 1;
+                            break;
+                        }
+                        shift += 7;
+                        if (shift > 63) {
+                            cetcd_user_add_request_clear(out);
+                            return CETCD_ERR_INVAL;
+                        }
+                    }
+                    if (!got) {
+                        cetcd_user_add_request_clear(out);
+                        return CETCD_ERR_INVAL;
+                    }
+                    continue;
+                }
+                if ((otag & 7) == 2) {
+                    uint64_t iskip = 0;
+                    shift = 0;
+                    got = 0;
+                    while (p < oend) {
+                        uint8_t b = req[p++];
+                        iskip |= (uint64_t)(b & 0x7F) << shift;
+                        if ((b & 0x80) == 0) {
+                            got = 1;
+                            break;
+                        }
+                        shift += 7;
+                        if (shift > 63) {
+                            cetcd_user_add_request_clear(out);
+                            return CETCD_ERR_INVAL;
+                        }
+                    }
+                    if (!got || p + iskip > oend) {
+                        cetcd_user_add_request_clear(out);
+                        return CETCD_ERR_INVAL;
+                    }
+                    p += (size_t)iskip;
+                    continue;
+                }
+                cetcd_user_add_request_clear(out);
+                return CETCD_ERR_INVAL;
+            }
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    cetcd_user_add_request_clear(out);
+                    return CETCD_ERR_INVAL;
+                }
+            }
+            if (!got) {
+                cetcd_user_add_request_clear(out);
+                return CETCD_ERR_INVAL;
+            }
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    cetcd_user_add_request_clear(out);
+                    return CETCD_ERR_INVAL;
+                }
+            }
+            if (!got || p + skip > len) {
+                cetcd_user_add_request_clear(out);
+                return CETCD_ERR_INVAL;
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        cetcd_user_add_request_clear(out);
+        return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_member_id_request(uint64_t id, uint8_t *out, size_t cap,
                                    size_t *n) {
     if (!out || !n || cap == 0) return CETCD_ERR_INVAL;
