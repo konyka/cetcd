@@ -1053,6 +1053,14 @@ Performance-first, fail-closed design:
   mod_revision. `cetcdctl watch` leftover-safe-parses field 3
   inside Event prev_kv. Accepting leftover payload as the printed prev
   mod_revision is rejected.
+- **Watch leftover-safe Event prev_kv version** —
+  leftover-safe-parses WatchResponse Event prev_kv version so leftover
+  length-delimited bytes cannot steal a printed prev version. A
+  truncated Event-nested prev version fail-closes (cannot look like
+  version 0). Dummy `0x00` is not a skip length. Tag `0x0a` header
+  raft_term is not prev version. `cetcdctl watch` leftover-safe-parses
+  field 4 inside Event prev_kv. Accepting leftover payload as the
+  printed prev version is rejected.
 - **Watch leftover-safe fragment** — leftover-safe-parses
   WatchResponse.fragment so leftover length-delimited bytes cannot
   steal `fragment=true`. A truncated fragment fail-closes (cannot
