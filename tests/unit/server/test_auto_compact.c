@@ -2271,6 +2271,72 @@ CETCD_TEST_CASE(auto_compact_parse_status_db_size) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_status_version) {
+    uint8_t buf[32];
+    size_t n = 0;
+    char version[16];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_status_version("", buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_status_version("3.5.0", buf, sizeof(buf),
+                                                    &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_version(buf, n, version,
+                                                   sizeof(version)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(version, "3.5.0");
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_version(NULL, 0, version,
+                                                   sizeof(version)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(version, "");
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_version(dummy, 1, version,
+                                                   sizeof(version)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(version, "");
+
+    /* leftover truncated version cannot print leftover text */
+    uint8_t trunc[] = { 0x12 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_version(trunc, 1, version,
+                                                   sizeof(version)),
+                        CETCD_ERR_INVAL);
+    uint8_t trunc_len[] = { 0x12, 0x10 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_version(trunc_len, sizeof(trunc_len),
+                                                   version, sizeof(version)),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed version */
+    uint8_t steal[] = { 0x1a, 0x08, 0x12, 0x06, 's', 't', 'o', 'l', 'e',
+                        'n' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_version(steal, sizeof(steal), version,
+                                                   sizeof(version)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(version, "");
+
+    /* leftover header is not version */
+    uint8_t header[] = { 0x0a, 0x08, 0x12, 0x06, 's', 't', 'o', 'l', 'e',
+                         'n' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_version(header, sizeof(header),
+                                                   version, sizeof(version)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(version, "");
+
+    uint8_t last[] = { 0x12, 0x01, 'a', 0x12, 0x01, 'b' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_version(last, sizeof(last), version,
+                                                   sizeof(version)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(version, "b");
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_version(fixed64, 1, version,
+                                                   sizeof(version)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_version(buf, n, NULL, 0),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_status_leader) {
     uint8_t buf[16];
     size_t n = 0;
@@ -5233,6 +5299,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_status_errors),
     CETCD_TEST_ENTRY(auto_compact_parse_status_db_size_in_use),
     CETCD_TEST_ENTRY(auto_compact_parse_status_db_size),
+    CETCD_TEST_ENTRY(auto_compact_parse_status_version),
     CETCD_TEST_ENTRY(auto_compact_parse_status_leader),
     CETCD_TEST_ENTRY(auto_compact_parse_status_raft_index),
     CETCD_TEST_ENTRY(auto_compact_parse_status_raft_term),

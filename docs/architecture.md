@@ -533,7 +533,9 @@ length-delimited bytes cannot steal a printed raftAppliedIndex; a
 truncated raftAppliedIndex fail-closes. Status leftover-safe-parses
 field 3 so leftover length-delimited bytes cannot steal a printed
 dbSize; a truncated dbSize fail-closes (tag `0x0a` header revision is
-not dbSize). `Hash` / `HashKV` return a CRC32C (Castagnoli) of
+not dbSize). Status leftover-safe-parses field 2 so leftover
+length-delimited bytes cannot steal a printed version; a truncated
+version fail-closes (tag `0x0a` header is not version). `Hash` / `HashKV` return a CRC32C (Castagnoli) of
 key+value pairs in key order at the requested revision (`0` = current). The
 previous `revision * constant` placeholder collided when two stores shared a
 revision but not contents. `revision < compacted_rev` or `revision > current`

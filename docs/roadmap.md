@@ -842,6 +842,13 @@ Performance-first, fail-closed design:
   skip length. Tag `0x0a` header revision is not dbSize. `cetcdctl
   status` / `endpoint status` leftover-safe-parse field 3. Accepting
   leftover payload as the printed dbSize is rejected.
+- **Status leftover-safe version** — leftover-safe-parses
+  StatusResponse.version so leftover length-delimited bytes cannot
+  steal a printed version. A truncated version fail-closes (cannot
+  print leftover text). Dummy `0x00` is not a skip length. Tag `0x0a`
+  header is not version. `cetcdctl status` / `endpoint status`
+  leftover-safe-parse field 2. Accepting leftover payload as the
+  printed version is rejected.
 - **LeaseGrant / TimeToLive leftover-safe ID** — leftover-safe-parses
   LeaseGrantResponse and LeaseTimeToLiveResponse so leftover
   length-delimited bytes cannot steal a printed or lock-used ID, TTL,

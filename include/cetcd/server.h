@@ -621,6 +621,17 @@ int cetcd_encode_status_db_size(uint64_t db_size, uint8_t *out, size_t cap,
                                 size_t *n);
 int cetcd_parse_status_db_size(const uint8_t *req, size_t len,
                                uint64_t *db_size);
+/* leftover-safe StatusResponse.version (field 2, tag 0x12). omitted /
+ * empty / dummy 0x00 = empty. leftover truncated version is INVAL so
+ * a truncated status cannot print leftover text. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed version (tag 0x0a header is not version).
+ * unknown wire types are INVAL. last version is copied when
+ * version/version_cap are set. */
+int cetcd_encode_status_version(const char *version, uint8_t *out, size_t cap,
+                                size_t *n);
+int cetcd_parse_status_version(const uint8_t *req, size_t len, char *version,
+                               size_t version_cap);
 /* leftover-safe StatusResponse.leader (field 4, tag 0x20). omitted /
  * empty / dummy 0x00 = 0. leftover truncated leader is INVAL so a
  * truncated status cannot look like leader 0. leftover
