@@ -1766,6 +1766,86 @@ CETCD_TEST_CASE(auto_compact_parse_member_add_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_member_list_response) {
+    uint8_t buf[64];
+    size_t n = 0, nm = 9;
+    char url[64];
+    uint64_t id = 99;
+    int learner = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_response_member(
+                            7, NULL, 0, buf, sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_response_member(
+                            7, "127.0.0.1:2380", 1, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_response(buf, n, &id, url,
+                                                        sizeof(url), &learner,
+                                                        &nm),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(id == 7);
+    CETCD_ASSERT_EQ_STR(url, "127.0.0.1:2380");
+    CETCD_ASSERT_EQ_INT(learner, 1);
+    CETCD_ASSERT_TRUE(nm == 1);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_response(NULL, 0, &id, url,
+                                                        sizeof(url), &learner,
+                                                        &nm),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(id == 0);
+    CETCD_ASSERT_EQ_STR(url, "");
+    CETCD_ASSERT_EQ_INT(learner, 0);
+    CETCD_ASSERT_TRUE(nm == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_response(dummy, 1, &id, url,
+                                                        sizeof(url), &learner,
+                                                        &nm),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(nm == 0);
+
+    /* leftover truncated peerURL cannot print a leftover URL */
+    uint8_t trunc[] = { 0x12, 0x01, 0x12 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_response(trunc, sizeof(trunc),
+                                                        &id, url, sizeof(url),
+                                                        &learner, &nm),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed peerURL */
+    uint8_t steal_url[] = {
+        0x22, 0x12, 0x12, 0x10, 0x12, 0x0e,
+        '1', '2', '7', '.', '0', '.', '0', '.', '1', ':', '2', '3', '8', '0'
+    };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_response(
+                            steal_url, sizeof(steal_url), &id, url,
+                            sizeof(url), &learner, &nm),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(nm == 0);
+    CETCD_ASSERT_EQ_STR(url, "");
+
+    /* leftover cannot steal isLearner */
+    uint8_t steal_learn[] = {
+        0x12, 0x16, 0x08, 0x07, 0x12, 0x0e,
+        '1', '2', '7', '.', '0', '.', '0', '.', '1', ':', '2', '3', '8', '0',
+        0x3a, 0x02, 0x28, 0x01
+    };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_response(
+                            steal_learn, sizeof(steal_learn), &id, url,
+                            sizeof(url), &learner, &nm),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(id == 7);
+    CETCD_ASSERT_EQ_STR(url, "127.0.0.1:2380");
+    CETCD_ASSERT_EQ_INT(learner, 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_response(fixed64, 1, &id, url,
+                                                        sizeof(url), &learner,
+                                                        &nm),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_response(buf, n, NULL, NULL, 0,
+                                                        NULL, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_downgrade_request) {
     uint8_t buf[64];
     size_t n = 0;
@@ -3420,6 +3500,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_member_id_request),
     CETCD_TEST_ENTRY(auto_compact_parse_member_update_request),
     CETCD_TEST_ENTRY(auto_compact_parse_member_add_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_member_list_response),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_request),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_op_key),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),

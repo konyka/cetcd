@@ -512,6 +512,19 @@ int cetcd_encode_member_add_request(const char *url, int is_learner,
                                     uint8_t *out, size_t cap, size_t *n);
 int cetcd_parse_member_add_request(const uint8_t *req, size_t len,
                                    char *url, size_t url_cap, int *is_learner);
+/* leftover-safe MemberListResponse last member. omitted / empty /
+ * dummy 0x00 = 0 members / empty peerURL / voter. leftover truncated
+ * peerURL / isLearner is INVAL so a truncated list cannot print a
+ * leftover URL or look like a voter. leftover length-delimited
+ * fields are skipped by payload so leftover bytes cannot steal a
+ * printed peerURL, id, or isLearner. unknown wire types are INVAL.
+ * last peerURL is copied when url/url_cap are set. */
+int cetcd_encode_member_list_response_member(uint64_t id, const char *url,
+                                             int is_learner, uint8_t *out,
+                                             size_t cap, size_t *n);
+int cetcd_parse_member_list_response(const uint8_t *req, size_t len,
+                                     uint64_t *id, char *url, size_t url_cap,
+                                     int *is_learner, size_t *n_members);
 /* leftover-safe DowngradeRequest. omitted / empty / dummy 0x00 =
  * action VALIDATE (0) / empty version. leftover truncated action /
  * version is INVAL so a truncated validate cannot look like ENABLE

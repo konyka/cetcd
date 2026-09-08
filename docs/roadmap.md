@@ -761,6 +761,13 @@ Performance-first, fail-closed design:
   (cannot look like a successful add or a voter). Dummy `0x00` /
   omitted is empty / voter. Accepting leftover payload as the peerURL
   is rejected.
+- **MemberList leftover-safe response** — leftover-safe-parses
+  MemberListResponse so leftover length-delimited bytes cannot steal
+  a printed peerURL, member id, or `isLearner`. A truncated peerURL /
+  isLearner fail-closes (cannot print a leftover URL or look like a
+  voter). Dummy `0x00` is not a skip length. `cetcdctl member list`
+  leftover-safe-skips unknown fields. Accepting leftover payload as
+  the printed URL is rejected.
 - **Downgrade leftover-safe action/version** — leftover-safe-parses
   DowngradeRequest so leftover length-delimited bytes cannot steal
   ENABLE or a VALIDATE version. A truncated action / version

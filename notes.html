@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 142 — leftover-safe Range/Alarm response</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 143 — leftover-safe MemberList response</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 142 leftover-safe-parses
-     RangeResponse / AlarmResponse so leftover length-delimited
-     bytes cannot steal a printed key or CORRUPT type.</p>
+  <p><strong>v0.3.0</strong>. Phase 143 leftover-safe-parses
+     MemberListResponse so leftover length-delimited bytes cannot
+     steal a printed peerURL or isLearner.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -195,6 +195,7 @@
       <tr><td>140</td><td>leftover-safe Downgrade</td><td>Downgrade leftover-safe-parses so leftover length-delimited bytes cannot steal ENABLE or a VALIDATE version; truncated action / version fail-closes (cannot look like VALIDATE); dummy 0x00 is not a skip length and cannot eat VALIDATE — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>141</td><td>leftover-safe Txn perm</td><td>Txn perm leftover-safe-parses the RequestOp key so leftover dummy 0x00 cannot eat the key tag and skip the perm check; leftover cannot steal the key; truncated key fail-closes (cannot look like a missing-key allow) — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>142</td><td>leftover-safe Range/Alarm response</td><td>RangeResponse / AlarmResponse leftover-safe-parses so leftover length-delimited bytes cannot steal a printed get/txn key or CORRUPT type; truncated key / alarm fail-closes; cetcdctl leftover-safe-skips unknown fields — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>143</td><td>leftover-safe MemberList response</td><td>MemberList leftover-safe-parses so leftover length-delimited bytes cannot steal a printed peerURL, id, or isLearner; truncated peerURL / isLearner fail-closes; cetcdctl leftover-safe-skips unknown fields — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

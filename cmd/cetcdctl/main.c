@@ -909,8 +909,11 @@ static void parse_member_list_response(const uint8_t *data, size_t len, int tabl
                     /* field 5 = isLearner (bool) */
                     uint64_t v = 0; read_varint(data, mend, &pos, &v);
                     is_learner = (int)v;
-                } else {
-                    uint64_t v = 0; read_varint(data, mend, &pos, &v);
+                } else if (mtag == 0x00) {
+                    continue;
+                } else if (cetcd_leftover_safe_skip_field(data, mend, &pos,
+                                                          mtag) != CETCD_OK) {
+                    break;
                 }
             }
             pos = mend;
@@ -962,8 +965,11 @@ static void parse_member_list_response(const uint8_t *data, size_t len, int tabl
             /* Skip header (length-delimited) */
             uint64_t l = 0; read_varint(data, len, &pos, &l);
             pos += l;
-        } else {
-            uint64_t v = 0; read_varint(data, len, &pos, &v);
+        } else if (tag == 0x00) {
+            continue;
+        } else if (cetcd_leftover_safe_skip_field(data, len, &pos, tag)
+                   != CETCD_OK) {
+            break;
         }
     }
     if (json_format) {
