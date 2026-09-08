@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 140 — leftover-safe Downgrade</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 141 — leftover-safe Txn perm</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 140 leftover-safe-parses
-     DowngradeRequest so leftover length-delimited bytes cannot steal
-     ENABLE or a VALIDATE version.</p>
+  <p><strong>v0.3.0</strong>. Phase 141 leftover-safe-parses the
+     Txn RequestOp key so leftover dummy 0x00 cannot eat the key tag
+     and skip the perm check.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -193,6 +193,7 @@
       <tr><td>138</td><td>leftover-safe WatchCreate start_rev</td><td>WatchCreate leftover-safe-parses so leftover length-delimited bytes cannot steal start_rev / range_end / watch_id / fragment; truncated --start-rev fail-closes (cannot watch the live tree); dummy 0x00 / omitted is from-now — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>139</td><td>leftover-safe MemberAdd</td><td>MemberAdd leftover-safe-parses so leftover length-delimited bytes cannot steal a peerURL or isLearner; truncated peerURL / isLearner fail-closes (cannot look like a successful add or a voter); dummy 0x00 / omitted is empty / voter — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>140</td><td>leftover-safe Downgrade</td><td>Downgrade leftover-safe-parses so leftover length-delimited bytes cannot steal ENABLE or a VALIDATE version; truncated action / version fail-closes (cannot look like VALIDATE); dummy 0x00 is not a skip length and cannot eat VALIDATE — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>141</td><td>leftover-safe Txn perm</td><td>Txn perm leftover-safe-parses the RequestOp key so leftover dummy 0x00 cannot eat the key tag and skip the perm check; leftover cannot steal the key; truncated key fail-closes (cannot look like a missing-key allow) — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

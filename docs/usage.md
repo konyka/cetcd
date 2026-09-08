@@ -450,6 +450,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl txn put foo bar       # Transactional put
 ./build/bin/cetcdctl txn put -w fields foo bar  # Transactional put with fields output
 # leftover txn put --foo k v / txn put -w json as KEY fail-close
+# leftover dummy 0x00 cannot eat a Txn Put key tag and skip the perm check
 # leftover auth login --foo / downgrade enable --foo fail-close
 # leftover Authenticate proto bytes cannot steal a name or password (truncated password fail-closes)
 # leftover UserAdd / UserChangePassword proto bytes cannot steal a password or no_password

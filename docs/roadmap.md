@@ -700,6 +700,13 @@ Performance-first, fail-closed design:
   inner field fail-closes the whole Txn (cannot look like a
   no-lease put, a live-tree range, or a point delete). Accepting
   leftover payload as an embedded field is rejected.
+- **Txn leftover-safe perm key** — leftover-safe-parses the
+  RequestOp key used for Txn permission checks so leftover dummy
+  `0x00` cannot eat the key tag and skip the perm check. Leftover
+  length-delimited bytes cannot steal the key. A truncated key
+  fail-closes (cannot look like a missing-key allow). Dummy
+  `0x00` / omitted is empty key. Accepting leftover payload as
+  the key is rejected.
 - **Authenticate leftover-safe name/password** — leftover-safe-parses
   AuthenticateRequest so leftover length-delimited bytes cannot steal
   a name or password. A truncated password fail-closes (cannot look

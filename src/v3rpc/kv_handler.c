@@ -45,19 +45,6 @@ static int read_varint(const uint8_t *buf, size_t len, size_t *pos, uint64_t *ou
     return -1;
 }
 
-static int read_bytes(const uint8_t *buf, size_t len, size_t *pos, uint8_t **out, size_t *out_len) {
-    uint64_t l = 0;
-    if (read_varint(buf, len, pos, &l) != 0) return -1;
-    if (*pos + l > len) return -1;
-    uint8_t *p = (uint8_t *)malloc((size_t)l);
-    if (!p) return -1;
-    memcpy(p, buf + *pos, (size_t)l);
-    *pos += (size_t)l;
-    *out = p;
-    *out_len = (size_t)l;
-    return 0;
-}
-
 /* leftover-safe length-delimited payload. truncated length or a
  * payload that does not fit is INVAL so leftover cannot clamp and
  * keep going (Txn-embedded Put/Range/DeleteRange). */
@@ -1449,44 +1436,61 @@ static _Thread_local int g_txn_depth;
 
 static int txn_request_check_perm_(const uint8_t *req, size_t req_len);
 
+/* leftover-safe skip. dummy 0x00 is not a length. truncated is INVAL. */
+static int leftover_safe_skip_unknown_k(const uint8_t *buf, size_t len,
+                                        size_t *pos, uint8_t tag) {
+    if ((tag & 7) == 0)
+        return leftover_safe_varint_(buf, len, pos, NULL);
+    if ((tag & 7) == 2) {
+        const uint8_t *pl = NULL;
+        size_t n = 0;
+        return leftover_safe_ldelim_(buf, len, pos, &pl, &n);
+    }
+    return -1;
+}
+
+/* leftover-safe RequestOp key. leftover dummy 0x00 cannot eat the key
+ * tag so a leftover Put cannot skip the perm check. */
 static int txn_op_check_perm_(const txn_op_t *op) {
     if (!op || !op->data || op->len == 0) return 0;
     size_t pos = 0;
-    uint8_t tag = op->data[pos++];
-    int want_write = 1;
-    if (tag == 0x0a) want_write = 0;           /* RequestRange */
-    else if (tag == 0x12 || tag == 0x1a) want_write = 1; /* Put / DeleteRange */
-    else if (tag == 0x22) {                    /* RequestTxn */
-        uint64_t nlen = 0;
-        if (read_varint(op->data, op->len, &pos, &nlen) != 0) return -1;
-        if (pos + nlen > op->len) return -1;
-        if (g_txn_depth + 1 >= TXN_MAX_DEPTH) return -1;
-        g_txn_depth++;
-        int rc = txn_request_check_perm_(op->data + pos, (size_t)nlen);
-        g_txn_depth--;
-        return rc;
-    } else return -1; /* unknown */
-    uint64_t ilen = 0;
-    if (read_varint(op->data, op->len, &pos, &ilen) != 0) return -1;
-    size_t end = pos + (size_t)ilen;
-    if (end > op->len) end = op->len;
-    while (pos < end) {
-        uint8_t t = op->data[pos++];
-        if (t == 0x0a) {
-            uint8_t *key = NULL;
-            size_t klen = 0;
-            if (read_bytes(op->data, end, &pos, &key, &klen) != 0) return -1;
-            int rc = cetcd_v3rpc_check_key_perm(want_write, key, klen);
-            free(key);
-            return rc;
+    while (pos < op->len) {
+        uint8_t tag = op->data[pos++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x0a || tag == 0x12 || tag == 0x1a || tag == 0x22) {
+            const uint8_t *pl = NULL;
+            size_t n = 0;
+            size_t ip = 0;
+            int want_write;
+            if (leftover_safe_ldelim_(op->data, op->len, &pos, &pl, &n) != 0)
+                return -1;
+            if (tag == 0x22) {
+                if (g_txn_depth + 1 >= TXN_MAX_DEPTH) return -1;
+                g_txn_depth++;
+                int rc = txn_request_check_perm_(pl, n);
+                g_txn_depth--;
+                return rc;
+            }
+            want_write = (tag != 0x0a);
+            while (ip < n) {
+                uint8_t t = pl[ip++];
+                if (t == 0x00)
+                    continue;
+                if (t == 0x0a) {
+                    const uint8_t *key = NULL;
+                    size_t klen = 0;
+                    if (leftover_safe_ldelim_(pl, n, &ip, &key, &klen) != 0)
+                        return -1;
+                    return cetcd_v3rpc_check_key_perm(want_write, key, klen);
+                }
+                if (leftover_safe_skip_unknown_k(pl, n, &ip, t) != 0)
+                    return -1;
+            }
+            return cetcd_v3rpc_check_key_perm(want_write, NULL, 0);
         }
-        uint64_t skip = 0;
-        if (read_varint(op->data, end, &pos, &skip) != 0) break;
-        int wt = t & 7;
-        if (wt == 2) {
-            if (pos + skip > end) break;
-            pos += (size_t)skip;
-        }
+        if (leftover_safe_skip_unknown_k(op->data, op->len, &pos, tag) != 0)
+            return -1;
     }
     return 0;
 }
@@ -1496,44 +1500,39 @@ static int txn_request_check_perm_(const uint8_t *req, size_t req_len) {
     size_t pos = 0;
     while (pos < req_len) {
         uint8_t tag = req[pos++];
+        if (tag == 0x00)
+            continue;
         if (tag == 0x0a) {
-            uint64_t clen = 0;
-            if (read_varint(req, req_len, &pos, &clen) != 0) return -1;
-            size_t cend = pos + (size_t)clen;
-            if (cend > req_len) cend = req_len;
-            while (pos < cend) {
-                uint8_t ct = req[pos++];
+            const uint8_t *cmp = NULL;
+            size_t clen = 0;
+            size_t ip = 0;
+            if (leftover_safe_ldelim_(req, req_len, &pos, &cmp, &clen) != 0)
+                return -1;
+            while (ip < clen) {
+                uint8_t ct = cmp[ip++];
+                if (ct == 0x00)
+                    continue;
                 if (ct == 0x1a) {
-                    uint8_t *key = NULL;
+                    const uint8_t *key = NULL;
                     size_t klen = 0;
-                    if (read_bytes(req, cend, &pos, &key, &klen) != 0) return -1;
+                    if (leftover_safe_ldelim_(cmp, clen, &ip, &key, &klen) != 0)
+                        return -1;
                     int rc = cetcd_v3rpc_check_key_perm(0, key, klen);
-                    free(key);
                     if (rc != 0) return rc;
-                } else {
-                    uint64_t skip = 0;
-                    if (read_varint(req, cend, &pos, &skip) != 0) break;
-                    if ((ct & 7) == 2) {
-                        if (pos + skip > cend) break;
-                        pos += (size_t)skip;
-                    }
+                    continue;
                 }
+                if (leftover_safe_skip_unknown_k(cmp, clen, &ip, ct) != 0)
+                    return -1;
             }
-            pos = cend;
         } else if (tag == 0x12 || tag == 0x1a) {
-            uint64_t olen = 0;
-            if (read_varint(req, req_len, &pos, &olen) != 0) return -1;
-            if (pos + olen > req_len) return -1;
-            txn_op_t inner = { req + pos, (size_t)olen };
-            if (txn_op_check_perm_(&inner) != 0) return -1;
-            pos += (size_t)olen;
-        } else {
-            uint64_t skip = 0;
-            if (read_varint(req, req_len, &pos, &skip) != 0) break;
-            if ((tag & 7) == 2) {
-                if (pos + skip > req_len) break;
-                pos += (size_t)skip;
-            }
+            const uint8_t *inner = NULL;
+            size_t olen = 0;
+            if (leftover_safe_ldelim_(req, req_len, &pos, &inner, &olen) != 0)
+                return -1;
+            txn_op_t op = { inner, olen };
+            if (txn_op_check_perm_(&op) != 0) return -1;
+        } else if (leftover_safe_skip_unknown_k(req, req_len, &pos, tag) != 0) {
+            return -1;
         }
     }
     return 0;

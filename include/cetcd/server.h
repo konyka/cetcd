@@ -493,6 +493,17 @@ int cetcd_encode_downgrade_request(int action, const char *version,
 int cetcd_parse_downgrade_request(const uint8_t *req, size_t len,
                                   int *action, char *version,
                                   size_t version_cap);
+/* leftover-safe RequestOp key for Txn perm check. omitted / empty /
+ * dummy 0x00 = empty key / want_write 1. leftover dummy 0x00 cannot
+ * eat the key tag so a leftover Put cannot skip the perm check.
+ * leftover length-delimited fields are skipped by payload so leftover
+ * bytes cannot steal the key. leftover truncated key / unknown wire
+ * is INVAL. Range is want_write 0; Put / DeleteRange is 1. last key
+ * is copied when key/key_cap are set. */
+int cetcd_encode_txn_op_put(const uint8_t *key, size_t key_len,
+                            uint8_t *out, size_t cap, size_t *n);
+int cetcd_parse_txn_op_key(const uint8_t *op, size_t len, int *want_write,
+                           char *key, size_t key_cap);
 /* MemberListRequest field 1 (linearizable). proto3 omitted = 0. */
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n);

@@ -6820,6 +6820,27 @@ CETCD_TEST_CASE(v3rpc_auth_key_permission_denied) {
     resp = cetcd_v3rpc_dispatch_ex(rpc, "/etcdserverpb.KV/Put", put_bad, pos, token);
     CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
     cetcd_rpc_bytes_free(&resp);
+
+    /* leftover dummy 0x00 cannot eat the Txn Put key tag and skip perm */
+    uint8_t put_inner[16];
+    size_t ip = 0;
+    put_inner[ip++] = 0x00;
+    put_inner[ip++] = 0x0a; put_inner[ip++] = 0x04;
+    memcpy(put_inner + ip, "/sec", 4); ip += 4;
+    put_inner[ip++] = 0x12; put_inner[ip++] = 0x01; put_inner[ip++] = '1';
+    uint8_t req_put[24];
+    size_t rp = 0;
+    req_put[rp++] = 0x12;
+    req_put[rp++] = (uint8_t)ip;
+    memcpy(req_put + rp, put_inner, ip); rp += ip;
+    uint8_t txn[32];
+    pos = 0;
+    txn[pos++] = 0x12;
+    txn[pos++] = (uint8_t)rp;
+    memcpy(txn + pos, req_put, rp); pos += rp;
+    resp = cetcd_v3rpc_dispatch_ex(rpc, "/etcdserverpb.KV/Txn", txn, pos, token);
+    CETCD_ASSERT_TRUE(resp.data == NULL || resp.len == 0);
+    cetcd_rpc_bytes_free(&resp);
     cetcd_v3rpc_free(rpc);
 }
 

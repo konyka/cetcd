@@ -785,6 +785,10 @@ Txn Compare leftover-safe-parses so leftover length-delimited bytes cannot steal
 `0x00` / omitted is EQUAL. TxnRequest leftover-safe-parses so leftover
 length-delimited bytes cannot inject an extra success/failure op; a truncated
 success-op length fail-closes (cannot look like an empty txn).
+Txn perm leftover-safe-parses the RequestOp key so leftover dummy `0x00`
+cannot eat the key tag and skip the perm check; leftover length-delimited
+bytes cannot steal the key. A truncated key fail-closes (cannot look like
+a missing-key allow).
 The `Txn` handler now evaluates `Compare` clauses against the MVCC store — supporting
 `EQUAL`/`GREATER`/`LESS`/`NOT_EQUAL` operators on `VERSION`, `CREATE`, `MOD`, `VALUE`, and
 `LEASE` targets — and executes success or failure ops accordingly, returning a complete

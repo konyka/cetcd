@@ -1846,6 +1846,74 @@ CETCD_TEST_CASE(auto_compact_parse_downgrade_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_txn_op_key) {
+    uint8_t buf[64];
+    size_t n = 0;
+    char key[32];
+    int want_write = 0;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_txn_op_put(NULL, 0, buf, sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_txn_op_put((const uint8_t *)"foo", 3, buf,
+                                               sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_op_key(buf, n, &want_write, key,
+                                              sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(want_write, 1);
+    CETCD_ASSERT_EQ_STR(key, "foo");
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_op_key(NULL, 0, &want_write, key,
+                                              sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(want_write, 1);
+    CETCD_ASSERT_EQ_STR(key, "");
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_op_key(dummy, 1, &want_write, key,
+                                              sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "");
+
+    /* leftover dummy 0x00 cannot eat the key tag */
+    uint8_t dummy_key[] = {
+        0x12, 0x09, 0x00, 0x0a, 0x03, 'f', 'o', 'o', 0x12, 0x01, 'v'
+    };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_op_key(dummy_key, sizeof(dummy_key),
+                                              &want_write, key, sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(want_write, 1);
+    CETCD_ASSERT_EQ_STR(key, "foo");
+
+    /* leftover truncated key cannot look like a missing-key allow */
+    uint8_t trunc[] = { 0x12, 0x01, 0x0a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_op_key(trunc, sizeof(trunc),
+                                              &want_write, key, sizeof(key)),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal the key */
+    uint8_t steal[] = {
+        0x12, 0x07, 0x22, 0x05, 0x0a, 0x03, 'f', 'o', 'o'
+    };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_op_key(steal, sizeof(steal),
+                                              &want_write, key, sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "");
+
+    uint8_t range[] = { 0x0a, 0x05, 0x0a, 0x03, 'f', 'o', 'o' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_op_key(range, sizeof(range),
+                                              &want_write, key, sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(want_write, 0);
+    CETCD_ASSERT_EQ_STR(key, "foo");
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_op_key(fixed64, 1, &want_write, key,
+                                              sizeof(key)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_txn_op_key(buf, n, NULL, NULL, 0),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_lease_grant_request) {
     int64_t ttl = 99, id = 99;
 
@@ -3237,6 +3305,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_member_update_request),
     CETCD_TEST_ENTRY(auto_compact_parse_member_add_request),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_txn_op_key),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_id_request),
     CETCD_TEST_ENTRY(auto_compact_parse_alarm_request),
