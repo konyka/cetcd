@@ -191,6 +191,16 @@ int cetcd_parse_hashkv_request(const uint8_t *req, size_t len, int64_t *out);
  * are INVAL. physical is parsed (already-sync compact; not defrag). */
 int cetcd_parse_compact_request(const uint8_t *req, size_t len,
                                 int64_t *rev, int *physical);
+/* MoveLeaderRequest field 1 (targetID). 0 is INVAL. */
+int cetcd_encode_move_leader_request(uint64_t target, uint8_t *out, size_t cap,
+                                     size_t *n);
+/* leftover-safe MoveLeaderRequest.targetID. omitted / empty / dummy
+ * 0x00 = 0. leftover truncated varint is INVAL so a truncated target
+ * cannot look like a successful transfer. leftover length-delimited
+ * fields are skipped by payload so leftover bytes cannot transfer to
+ * a leftover id. unknown wire types are INVAL. */
+int cetcd_parse_move_leader_request(const uint8_t *req, size_t len,
+                                    uint64_t *out);
 /* MemberListRequest field 1 (linearizable). proto3 omitted = 0. */
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n);

@@ -548,20 +548,82 @@ cetcd_rpc_bytes maint_handle_alarm(cetcd_v3rpc *rpc, const uint8_t *req, size_t 
  *   field 1 (targetID) = uint64, tag = 0x08
  * MoveLeaderResponse: empty (just header)
  */
+/* leftover-safe MoveLeaderRequest.targetID. truncated varint is INVAL so
+ * a leftover target cannot look like a successful transfer. leftover
+ * length-delimited bytes cannot steal the id. dummy 0x00 / omitted = 0. */
+static int parse_move_leader_request_(const uint8_t *req, size_t len,
+                                      uint64_t *out) {
+    size_t p = 0;
+    if (!out) return -1;
+    *out = 0;
+    if (!req || len == 0) return 0;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x08) {
+            uint64_t v = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got) return -1;
+            *out = v;
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got) return -1;
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got || p + skip > len) return -1;
+            p += (size_t)skip;
+            continue;
+        }
+        return -1;
+    }
+    return 0;
+}
+
 cetcd_rpc_bytes maint_handle_move_leader(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
 
-    /* Parse target ID from request */
-    size_t pos = 0;
     uint64_t target_id = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x08) {
-            if (read_varint_m(req, req_len, &pos, &target_id) != 0) break;
-        } else {
-            uint64_t skip = 0; read_varint_m(req, req_len, &pos, &skip);
-        }
-    }
+    if (parse_move_leader_request_(req, req_len, &target_id) != 0 ||
+        target_id == 0)
+        return (cetcd_rpc_bytes){NULL, 0};
 
     /* Trigger leader transfer via raft if we have a raft instance */
     if (g_rpc_raft && target_id > 0) {

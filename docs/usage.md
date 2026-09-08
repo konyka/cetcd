@@ -620,6 +620,7 @@ to cancel the watch and close the stream.
 # leftover --data-dir --cluster / --cluster --data-dir fail-close
 # leftover hash --rev / status --cluster / compact 10 --rev fail-close
 ./build/bin/cetcdctl move-leader -w fields 1234567890  # Transfer leadership with fields output
+# leftover truncated MoveLeader target fail-closes (cannot look like a successful transfer)
 # TARGET_ID is hex > 0; leftover text is not a truncated decimal id
 ./build/bin/cetcdctl snapshot status backup.snap -w fields  # Snapshot info in fields format
 ./build/bin/cetcdctl downgrade validate 0.3.0 -w fields  # Validate current version with fields output

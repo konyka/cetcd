@@ -644,6 +644,12 @@ Performance-first, fail-closed design:
   `physical` is leftover-safe-read and ignored (already sync; not
   defrag). Dummy `0x00` / omitted is rev 0 (ErrCompacted). Accepting
   leftover payload as the revision is rejected.
+- **MoveLeader leftover-safe target** — leftover-safe-parses
+  MoveLeaderRequest.targetID so a truncated field-1 varint cannot look
+  like a successful transfer. Leftover length-delimited bytes cannot
+  steal the target. Dummy `0x00` / omitted / `0` fail-closes (etcd
+  member 0 is not a transfer). Accepting a truncated target as OK is
+  rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

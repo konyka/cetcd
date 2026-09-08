@@ -1290,6 +1290,18 @@ CETCD_TEST_CASE(v3rpc_maintenance_move_leader) {
     uint8_t dummy[] = {0x00};
     cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
         "/etcdserverpb.Maintenance/MoveLeader", dummy, 1);
+    /* leftover dummy / omitted target cannot look like a successful transfer */
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    CETCD_ASSERT_TRUE(resp.len == 0);
+
+    uint8_t trunc[] = {0x08};
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/MoveLeader", trunc, 1);
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+
+    uint8_t ok[] = {0x08, 0x02};
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/MoveLeader", ok, 2);
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 0);
     cetcd_rpc_bytes_free(&resp);
@@ -4054,8 +4066,9 @@ CETCD_TEST_CASE(v3rpc_maintenance_responses_have_header) {
     cetcd_rpc_bytes_free(&resp);
 
     /* MoveLeader response should start with header (tag 0x0a) */
+    uint8_t mv[] = {0x08, 0x01};
     resp = cetcd_v3rpc_dispatch(rpc,
-        "/etcdserverpb.Maintenance/MoveLeader", dummy, 1);
+        "/etcdserverpb.Maintenance/MoveLeader", mv, 2);
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 2);
     CETCD_ASSERT_TRUE(resp.data[0] == 0x0a);
