@@ -938,6 +938,19 @@ int cetcd_encode_watch_event_kv_version(int64_t version, uint8_t *out,
                                         size_t cap, size_t *n);
 int cetcd_parse_watch_event_kv_version(const uint8_t *req, size_t len,
                                        int64_t *version);
+/* leftover-safe WatchResponse Event KV create_revision (field 2, tag
+ * 0x10 inside Event field 2 / Watch field 11). omitted / empty /
+ * dummy 0x00 = 0. leftover truncated Event-nested create_revision is
+ * INVAL so a truncated watch cannot look like create_revision 0.
+ * leftover length-delimited fields are skipped by payload so leftover
+ * bytes cannot steal a printed create_revision (tag 0x0a header
+ * member_id is not Event create_revision). unknown wire types are
+ * INVAL. last Event create_revision is copied when create_rev is
+ * set. */
+int cetcd_encode_watch_event_kv_create_rev(int64_t create_rev, uint8_t *out,
+                                           size_t cap, size_t *n);
+int cetcd_parse_watch_event_kv_create_rev(const uint8_t *req, size_t len,
+                                          int64_t *create_rev);
 /* leftover-safe WatchResponse.fragment (field 7, tag 0x38). omitted /
  * empty / dummy 0x00 = not a fragment. leftover truncated fragment
  * is INVAL so a truncated watch cannot look like more frames.
