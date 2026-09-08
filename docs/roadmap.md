@@ -768,6 +768,13 @@ Performance-first, fail-closed design:
   voter). Dummy `0x00` is not a skip length. `cetcdctl member list`
   leftover-safe-skips unknown fields. Accepting leftover payload as
   the printed URL is rejected.
+- **Status leftover-safe version / isLearner** — leftover-safe-parses
+  StatusResponse so leftover length-delimited bytes cannot steal a
+  printed version, dbSize, or `isLearner`. A truncated version /
+  isLearner fail-closes (cannot print leftover text or look like a
+  voter). Dummy `0x00` is not a skip length. `cetcdctl endpoint
+  status` leftover-safe-skips unknown fields. Accepting leftover
+  payload as the printed version is rejected.
 - **AuthStatus / user-role list leftover-safe** — leftover-safe-parses
   AuthStatusResponse and UserList/RoleList so leftover length-delimited
   bytes cannot steal `enabled` or a printed user/role name. A truncated

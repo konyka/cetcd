@@ -4383,6 +4383,76 @@ int cetcd_parse_string_list_response(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+int cetcd_encode_status_response(const char *version, uint64_t db_size,
+                                 int is_learner, uint8_t *out, size_t cap,
+                                 size_t *n) {
+    size_t pos = 0;
+    uint64_t v;
+    int rc;
+    if (!out || !n || !version || !version[0]) return CETCD_ERR_INVAL;
+    rc = write_bytes_field_(out, cap, &pos, 0x12, (const uint8_t *)version,
+                            strlen(version));
+    if (rc != CETCD_OK) return rc;
+    if (pos + 2 > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x18; /* field 3 dbSize */
+    v = db_size;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    if (is_learner) {
+        if (pos + 2 > cap) return CETCD_ERR_OVERFLOW;
+        out[pos++] = 0x50;
+        out[pos++] = 0x01;
+    }
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_status_response(const uint8_t *req, size_t len,
+                                char *version, size_t version_cap,
+                                uint64_t *db_size, int *is_learner) {
+    size_t p = 0;
+    if (version && version_cap)
+        version[0] = '\0';
+    if (db_size) *db_size = 0;
+    if (is_learner) *is_learner = 0;
+    if (!version && !db_size && !is_learner) return CETCD_ERR_INVAL;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x12 || tag == 0x42) {
+            uint64_t skip = 0;
+            int rc = leftover_safe_varint_at_(req, len, &p, &skip);
+            if (rc != CETCD_OK || p + skip > len) return CETCD_ERR_INVAL;
+            if (tag == 0x12 && version && version_cap) {
+                if (skip >= version_cap) return CETCD_ERR_INVAL;
+                memcpy(version, req + p, (size_t)skip);
+                version[skip] = '\0';
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        if (tag == 0x18 || tag == 0x20 || tag == 0x28 || tag == 0x30 ||
+            tag == 0x38 || tag == 0x48 || tag == 0x50) {
+            uint64_t v = 0;
+            if (leftover_safe_varint_at_(req, len, &p, &v) != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            if (tag == 0x18 && db_size) *db_size = v;
+            if (tag == 0x50 && is_learner) *is_learner = v != 0;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n) {
     if (!out || !n || cap < 2) return CETCD_ERR_INVAL;

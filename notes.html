@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 144 — leftover-safe AuthStatus</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 145 — leftover-safe Status</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 144 leftover-safe-parses
-     AuthStatus / UserList / RoleList so leftover length-delimited
-     bytes cannot steal enabled or a printed principal.</p>
+  <p><strong>v0.3.0</strong>. Phase 145 leftover-safe-parses
+     StatusResponse so leftover length-delimited bytes cannot steal a
+     printed version, dbSize, or isLearner.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -197,6 +197,7 @@
       <tr><td>142</td><td>leftover-safe Range/Alarm response</td><td>RangeResponse / AlarmResponse leftover-safe-parses so leftover length-delimited bytes cannot steal a printed get/txn key or CORRUPT type; truncated key / alarm fail-closes; cetcdctl leftover-safe-skips unknown fields — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>143</td><td>leftover-safe MemberList response</td><td>MemberList leftover-safe-parses so leftover length-delimited bytes cannot steal a printed peerURL, id, or isLearner; truncated peerURL / isLearner fail-closes; cetcdctl leftover-safe-skips unknown fields — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>144</td><td>leftover-safe AuthStatus</td><td>AuthStatus / UserList / RoleList leftover-safe-parses so leftover length-delimited bytes cannot steal enabled or a printed user/role; truncated enabled / name fail-closes; cetcdctl leftover-safe-skips unknown fields — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>145</td><td>leftover-safe Status</td><td>Status leftover-safe-parses so leftover length-delimited bytes cannot steal a printed version, dbSize, or isLearner; truncated version / isLearner fail-closes; cetcdctl leftover-safe-skips unknown fields — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

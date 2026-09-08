@@ -904,6 +904,7 @@ Txn Compare leftover-safe-parses so leftover length-delimited bytes cannot steal
 TxnRequest leftover-safe-parses so leftover length-delimited bytes cannot inject an extra success/failure op (truncated success-op length fail-closes).
 Authenticate leftover-safe-parses field 1/2 so leftover length-delimited bytes cannot steal a name or password (truncated password fail-closes; dummy `0x00` / omitted = empty).
 AuthStatus leftover-safe-parses so leftover length-delimited bytes cannot steal `enabled`. UserList/RoleList leftover-safe-parses so leftover cannot steal a printed user or role.
+Status leftover-safe-parses so leftover length-delimited bytes cannot steal a printed version, dbSize, or `isLearner` (truncated version / isLearner fail-closes).
 UserAdd leftover-safe-parses so leftover length-delimited bytes cannot steal a password or `no_password` (truncated password / options fail-closes). UserChangePassword leftover-safe-parses the same name/password fields.
 UserDelete / RoleAdd / RoleDelete / UserGet / RoleGet leftover-safe-parses so leftover length-delimited bytes cannot steal the name and delete or look up the wrong principal (truncated name fail-closes). UserGrantRole / UserRevokeRole leftover-safe-parses so leftover cannot steal the user or role.
 RoleGrantPermission / RoleRevokePermission leftover-safe-parses so leftover length-delimited bytes cannot steal the role, Permission key, range_end, or permType (truncated name / Permission / key fail-closes).

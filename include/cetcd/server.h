@@ -544,6 +544,20 @@ int cetcd_encode_string_list_item(const char *s, uint8_t *out, size_t cap,
                                   size_t *n);
 int cetcd_parse_string_list_response(const uint8_t *req, size_t len,
                                      char *name, size_t name_cap, size_t *n);
+/* leftover-safe StatusResponse version / dbSize / isLearner. omitted
+ * / empty / dummy 0x00 = empty version / dbSize 0 / voter. leftover
+ * truncated version / isLearner is INVAL so a truncated status cannot
+ * print a leftover version or look like a voter. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed version, dbSize, or isLearner. unknown wire
+ * types are INVAL. last version is copied when version/version_cap
+ * are set. */
+int cetcd_encode_status_response(const char *version, uint64_t db_size,
+                                 int is_learner, uint8_t *out, size_t cap,
+                                 size_t *n);
+int cetcd_parse_status_response(const uint8_t *req, size_t len,
+                                char *version, size_t version_cap,
+                                uint64_t *db_size, int *is_learner);
 /* leftover-safe DowngradeRequest. omitted / empty / dummy 0x00 =
  * action VALIDATE (0) / empty version. leftover truncated action /
  * version is INVAL so a truncated validate cannot look like ENABLE

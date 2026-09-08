@@ -1939,6 +1939,78 @@ CETCD_TEST_CASE(auto_compact_parse_string_list_response) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_status_response) {
+    uint8_t buf[64];
+    size_t n = 0;
+    char ver[32];
+    uint64_t db = 9;
+    int learner = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_status_response(NULL, 4096, 1, buf,
+                                                    sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_status_response("3.5.18", 4096, 1, buf,
+                                                    sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_response(buf, n, ver, sizeof(ver),
+                                                   &db, &learner),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(ver, "3.5.18");
+    CETCD_ASSERT_TRUE(db == 4096);
+    CETCD_ASSERT_EQ_INT(learner, 1);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_response(NULL, 0, ver, sizeof(ver),
+                                                   &db, &learner),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(ver, "");
+    CETCD_ASSERT_TRUE(db == 0);
+    CETCD_ASSERT_EQ_INT(learner, 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_response(dummy, 1, ver, sizeof(ver),
+                                                   &db, &learner),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(ver, "");
+    CETCD_ASSERT_EQ_INT(learner, 0);
+
+    /* leftover truncated version cannot print leftover text */
+    uint8_t trunc_ver[] = { 0x12 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_response(trunc_ver, 1, ver,
+                                                   sizeof(ver), &db, &learner),
+                        CETCD_ERR_INVAL);
+
+    /* leftover truncated isLearner cannot look like a voter */
+    uint8_t trunc_lrn[] = { 0x50 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_response(trunc_lrn, 1, ver,
+                                                   sizeof(ver), &db, &learner),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed version */
+    uint8_t steal_ver[] = { 0x1a, 0x08, 0x12, 0x06, '3', '.', '5', '.',
+                            '1', '8' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_response(steal_ver,
+                                                   sizeof(steal_ver), ver,
+                                                   sizeof(ver), &db, &learner),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(ver, "");
+    CETCD_ASSERT_TRUE(db == 0);
+
+    /* leftover cannot steal isLearner */
+    uint8_t steal_lrn[] = { 0x1a, 0x02, 0x50, 0x01 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_response(steal_lrn,
+                                                   sizeof(steal_lrn), ver,
+                                                   sizeof(ver), &db, &learner),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(learner, 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_response(fixed64, 1, ver,
+                                                   sizeof(ver), &db, &learner),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_response(buf, n, NULL, 0, NULL,
+                                                   NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_downgrade_request) {
     uint8_t buf[64];
     size_t n = 0;
@@ -3596,6 +3668,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_member_list_response),
     CETCD_TEST_ENTRY(auto_compact_parse_auth_status_response),
     CETCD_TEST_ENTRY(auto_compact_parse_string_list_response),
+    CETCD_TEST_ENTRY(auto_compact_parse_status_response),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_request),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_op_key),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),
