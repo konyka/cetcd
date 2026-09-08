@@ -885,7 +885,7 @@ Subcommand `--flag=value` (`put --lease=1`, `get --rev=5`, `--write-out=json`, `
 `cetcdctl lease grant TTL` must be `> 0`; a typo fail-closes instead of granting TTL `0`. LeaseGrant leftover-safe-parses field 1 so a truncated TTL cannot grant a 60s lease (dummy `0x00` / `TTL<=0` fail-closes).
 `cetcdctl lease grant --lease-id` must be hex; leftover text fail-closes instead of becoming id `0`.
 `cetcdctl lease revoke` / `timetolive` / `keepalive` ID must be `> 0`; a typo fail-closes instead of lease id `0`.
-`cetcdctl member remove` / `update` / `promote` ID must be hex `> 0`; leftover text fail-closes instead of a truncated decimal id. MemberRemove/Promote leftover-safe-parses field 1 so a truncated id cannot look like a successful remove or promote (dummy `0x00` / `0` fail-closes).
+`cetcdctl member remove` / `update` / `promote` ID must be hex `> 0`; leftover text fail-closes instead of a truncated decimal id. MemberRemove/Promote leftover-safe-parses field 1 so a truncated id cannot look like a successful remove or promote (dummy `0x00` / `0` fail-closes). MemberUpdate leftover-safe-parses field 1/2 so a truncated id or leftover peerURL length cannot look like a successful update.
 MemberAdd/Update peer URL ports are leftover-safe (`1..65535`; missing → 2380); `2380foo` fail-closes instead of joining on truncated port 2380.
 `cetcdctl endpoint --cluster` leftover-safe-parses member client URLs (missing port → 2379). `--cluster` leftover-safe-sends linearizable MemberList (field 1 = true; a follower fail-closes).
 `cetcdctl move-leader TARGET_ID` must be hex `> 0`; leftover text fail-closes instead of transferring to a truncated id. MoveLeader leftover-safe-parses field 1 so a truncated target cannot look like a successful transfer (dummy `0x00` / `0` fail-closes).
@@ -1031,7 +1031,7 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 | Cluster | `/etcdserverpb.Cluster/MemberList` | `cluster_handler.c` | 列出集群成员（field 1 linearizable；默认 true；follower fail-close；self 使用 --name 与 advertise/listen UniqueURLs 列表，peer 省略 clientURLs） |
 | Cluster | `/etcdserverpb.Cluster/MemberAdd` | `cluster_handler.c` | 添加集群成员 |
 | Cluster | `/etcdserverpb.Cluster/MemberRemove` | `cluster_handler.c` | 移除成员；field 1 leftover-safe（截断 / 0 不能假装删除成功）；删 voter 若剩余不足原 quorum 则 fail-closed（`--strict-reconfig-check=false` 可关；learner / 未知 id 见实现） |
-| Cluster | `/etcdserverpb.Cluster/MemberUpdate` | `cluster_handler.c` | 更新成员地址（实际更新 cluster 中的 peer 信息） |
+| Cluster | `/etcdserverpb.Cluster/MemberUpdate` | `cluster_handler.c` | 更新成员地址；field 1/2 leftover-safe（截断 / 0 不能假装更新成功；leftover peerURL 长度不能越界） |
 | Cluster | `/etcdserverpb.Cluster/MemberPromote` | `cluster_handler.c` | 提升学习者为投票成员；field 1 leftover-safe（截断 / 0 不能假装提升成功） |
 | Maintenance | `/etcdserverpb.Maintenance/Status` | `maint_handler.c` | 版本/dbSize（LMDB 已分配页）/dbSizeInUse（已用页，与 quota 同源）/leader/raftIndex/raftTerm/raftAppliedIndex/errors/isLearner |
 | Maintenance | `/etcdserverpb.Maintenance/Defragment` | `maint_handler.c` | compact-copy `data.mdb`（无 backend 仍成功） |
@@ -1151,7 +1151,7 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `member list` | 列出集群成员（`--linearizable[=bool]` leftover-safe；etcd 默认 true；follower fail-close） |
 | `member add PEER_URL` | 添加集群成员（未知 leftover `--` 旗标 fail-close） |
 | `member remove ID` | 移除成员（hex `> 0`；截断 proto / 0 fail-close；会丢 quorum 的 voter 删除 fail-closed；未知 leftover `--` 旗标 fail-close） |
-| `member update ID URL` | 更新成员地址 |
+| `member update ID URL` | 更新成员地址（hex `> 0`；截断 proto / 0 / leftover peerURL 长度 fail-close） |
 | `member promote ID` | 提升成员为投票节点（hex `> 0`；截断 proto / 0 fail-close） |
 | `auth enable/disable/status` | 认证管理 |
 | `auth login NAME PASS` | 认证并获取 token（未知 leftover `--` 旗标 fail-close） |

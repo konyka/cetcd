@@ -541,6 +541,9 @@ and `MemberPromote` returns a proper `ResponseHeader` with the current revision.
 `MemberRemove`/`MemberPromote` leftover-safe-parse field 1 so a truncated varint /
 dummy `0x00` / `0` cannot look like a successful remove or promote; leftover
 length-delimited bytes cannot steal the id.
+`MemberUpdate` leftover-safe-parses field 1/2 so a truncated varint / dummy `0x00` /
+`0` cannot look like a successful update; leftover peerURL length cannot walk off
+the buffer or steal the id.
 MemberAdd/Update peer URLs leftover-safe-parse the port (`1..65535`; missing → 2380);
 `2380foo` fail-closes instead of joining on truncated `2380`.
 `MemberListRequest.linearizable` (field 1, tag `0x08`) leftover-safe-parses; omitted /
@@ -703,7 +706,7 @@ IPv6 zone UniqueURLs leftover-safe-split `addr%zone` (`[fe80::1%1]:2379`; empty 
 `del --print-value-only` (output only the deleted values when used with `--prev-kv`, implies `--prev-kv` if not explicitly set),
 `check perf --load S|M|L` (workload size: s=10, m=100, l=1000 keys; runs multiple put/get operations and reports average latency) and `--prefix PREFIX` (key prefix for test keys),
 `lease keepalive --interval SEC` (custom keepalive interval instead of default ttl/2; `--interval` must be `> 0`; leftover text fail-closes),
-`member add --peer-urls url1,url2` (comma-separated multiple peer URLs for cluster member addition; `member update` also supports comma-separated URLs; peer URL ports are leftover-safe `1..65535`; `member remove`/`update`/`promote` IDs are hex `> 0`; leftover text fail-closes); MemberRemove/Promote leftover-safe-parses field 1 so a truncated varint cannot look like a successful remove or promote (dummy `0x00` / `0` fail-closes),
+`member add --peer-urls url1,url2` (comma-separated multiple peer URLs for cluster member addition; `member update` also supports comma-separated URLs; peer URL ports are leftover-safe `1..65535`; `member remove`/`update`/`promote` IDs are hex `> 0`; leftover text fail-closes); MemberRemove/Promote leftover-safe-parses field 1 so a truncated varint cannot look like a successful remove or promote (dummy `0x00` / `0` fail-closes); MemberUpdate leftover-safe-parses field 1/2 so a truncated id or leftover peerURL length cannot look like a successful update,
 `txn -i` (interactive transaction mode: reads a transaction definition from stdin with `cmp`/`cmp_create`/`cmp_mod`/`cmp_ver` compare conditions, `then`/`else` sections, and `put`/`get`/`del` operations; builds a full TxnRequest with compare, success, and failure op lists and sends it as a single atomic Txn RPC; supports `-w json|fields` output),
 `endpoint health --cluster` (checks the health of all cluster members by first calling MemberList to discover all member client URLs, then connecting to each endpoint individually and sending a Status RPC; leftover client URL ports fail-close instead of connecting to a truncated port; missing port → 2379; supports `-w json|fields` output),
 `endpoint status --cluster` and `endpoint hashkv --cluster` (extend the `--cluster` flag to `endpoint status` and `endpoint hashkv` subcommands; uses the shared `collect_cluster_endpoints` helper to discover all member client URLs and queries each endpoint individually; `endpoint status --cluster` supports table format with multi-row output, `endpoint hashkv --cluster` supports json and fields output),

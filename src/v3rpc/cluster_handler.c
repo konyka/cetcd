@@ -32,6 +32,7 @@
  *   MemberUpdateRequest:
  *     field 1 (ID)          = uint64, tag = 0x08
  *     field 2 (peerURLs)    = repeated string, tag = 0x12
+ *     leftover-safe: truncated / dummy 0x00 / 0 fail-closes
  *   MemberUpdateResponse: header only
  *
  *   MemberPromoteRequest:
@@ -291,6 +292,99 @@ static int parse_member_id_request_(const uint8_t *req, size_t len,
     return 0;
 }
 
+/* leftover-safe MemberUpdate. v3rpc cannot link server. */
+static int parse_member_update_request_(const uint8_t *req, size_t len,
+                                        uint64_t *id, char *url,
+                                        size_t url_cap) {
+    size_t p = 0;
+    if (!id) return -1;
+    *id = 0;
+    if (url && url_cap)
+        url[0] = '\0';
+    if (!req || len == 0) return 0;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x08) {
+            uint64_t v = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got) return -1;
+            *id = v;
+            continue;
+        }
+        if (tag == 0x12) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got || p + skip > len) return -1;
+            if (url && url_cap) {
+                size_t copy = (size_t)skip < url_cap - 1 ? (size_t)skip : url_cap - 1;
+                memcpy(url, req + p, copy);
+                url[copy] = '\0';
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got) return -1;
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got || p + skip > len) return -1;
+            p += (size_t)skip;
+            continue;
+        }
+        return -1;
+    }
+    return 0;
+}
+
 cetcd_rpc_bytes cluster_handle_member_list(cetcd_v3rpc *rpc,
                                             const uint8_t *req, size_t req_len) {
     int linearizable = 0;
@@ -508,43 +602,15 @@ cetcd_rpc_bytes cluster_handle_member_remove(cetcd_v3rpc *rpc,
 cetcd_rpc_bytes cluster_handle_member_update(cetcd_v3rpc *rpc,
                                               const uint8_t *req, size_t req_len) {
     (void)rpc;
-    size_t pos = 0;
     uint64_t member_id = 0;
-
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x08) {
-            if (read_varint_c(req, req_len, &pos, &member_id) != 0) break;
-        } else if (tag == 0x12) {
-            /* peerURLs: skip */
-            uint64_t l = 0; read_varint_c(req, req_len, &pos, &l);
-            pos += (size_t)l;
-        } else {
-            uint64_t skip = 0; read_varint_c(req, req_len, &pos, &skip);
-        }
-    }
+    char new_url[256] = {0};
+    if (parse_member_update_request_(req, req_len, &member_id, new_url,
+                                     sizeof(new_url)) != 0 ||
+        member_id == 0)
+        return (cetcd_rpc_bytes){NULL, 0};
 
     /* Update the peer's address and port in the cluster */
     if (g_rpc_cluster && member_id > 0) {
-        /* Parse new peer URL from request */
-        size_t pos2 = 0;
-        char new_url[256] = {0};
-        while (pos2 < req_len) {
-            uint8_t tag = req[pos2++];
-            if (tag == 0x08) {
-                uint64_t v = 0; read_varint_c(req, req_len, &pos2, &v);
-            } else if (tag == 0x12) {
-                uint8_t *url = NULL; size_t url_len = 0;
-                if (read_bytes_c(req, req_len, &pos2, &url, &url_len) == 0 && url) {
-                    size_t copy_len = url_len < sizeof(new_url) - 1 ? url_len : sizeof(new_url) - 1;
-                    memcpy(new_url, url, copy_len);
-                    new_url[copy_len] = '\0';
-                    free(url);
-                }
-            } else {
-                uint64_t skip = 0; read_varint_c(req, req_len, &pos2, &skip);
-            }
-        }
         if (new_url[0]) {
             char addr[256];
             uint16_t port = 2380;

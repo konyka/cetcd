@@ -475,6 +475,7 @@ to cancel the watch and close the stream.
 # leftover truncated MemberRemove/Promote id fail-closes (cannot look like success)
 # leftover member remove --force / member add --foo URL fail-close
 ./build/bin/cetcdctl member update 1234567890 http://localhost:2380  # Update member peer URL
+# leftover truncated MemberUpdate id / peerURL length fail-closes (cannot look like success)
 ./build/bin/cetcdctl member promote 1234567890        # Promote learner to voting member
 ```
 

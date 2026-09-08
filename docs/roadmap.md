@@ -661,6 +661,11 @@ Performance-first, fail-closed design:
   cannot steal the id. Dummy `0x00` / omitted / `0` fail-closes (etcd
   member 0 is not a remove). Accepting a truncated id as OK is
   rejected.
+- **MemberUpdate leftover-safe** — leftover-safe-parses
+  MemberUpdate field 1/2 so a truncated varint cannot look like a
+  successful update. Leftover peerURL length cannot walk off the
+  buffer or steal the id. Dummy `0x00` / omitted / `0` fail-closes.
+  Accepting a truncated id as OK is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

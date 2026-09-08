@@ -218,6 +218,17 @@ int cetcd_encode_member_id_request(uint64_t id, uint8_t *out, size_t cap,
  * cannot steal the id. unknown wire types are INVAL. */
 int cetcd_parse_member_id_request(const uint8_t *req, size_t len,
                                   uint64_t *out);
+/* MemberUpdate field 1 (ID) + field 2 (peerURLs). 0 is INVAL. */
+int cetcd_encode_member_update_request(uint64_t id, const char *url,
+                                       uint8_t *out, size_t cap, size_t *n);
+/* leftover-safe MemberUpdate. omitted / empty / dummy 0x00 = id 0.
+ * leftover truncated varint is INVAL so a truncated id cannot look
+ * like a successful update. leftover length-delimited fields are
+ * skipped by payload so leftover bytes cannot steal the id or walk
+ * off the buffer. unknown wire types are INVAL. last peerURL is
+ * copied when url/url_cap are set. */
+int cetcd_parse_member_update_request(const uint8_t *req, size_t len,
+                                      uint64_t *id, char *url, size_t url_cap);
 /* MemberListRequest field 1 (linearizable). proto3 omitted = 0. */
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n);

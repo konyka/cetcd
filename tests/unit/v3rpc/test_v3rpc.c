@@ -1564,6 +1564,23 @@ CETCD_TEST_CASE(v3rpc_cluster_member_remove) {
 CETCD_TEST_CASE(v3rpc_cluster_member_update) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
 
+    uint8_t dummy[] = {0x00};
+    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Cluster/MemberUpdate", dummy, 1);
+    /* leftover dummy / omitted id cannot look like a successful update */
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    CETCD_ASSERT_TRUE(resp.len == 0);
+
+    uint8_t trunc[] = {0x08};
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Cluster/MemberUpdate", trunc, 1);
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+
+    uint8_t badurl[] = {0x08, 0x01, 0x12, 0x05};
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Cluster/MemberUpdate", badurl, 4);
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+
     /* MemberUpdateRequest: field 1 (ID) = 1, field 2 (peerURLs) = "127.0.0.1:2380" */
     uint8_t upd_buf[32];
     size_t pos = 0;
@@ -1573,7 +1590,7 @@ CETCD_TEST_CASE(v3rpc_cluster_member_update) {
     upd_buf[pos++] = 0x0e;
     memcpy(upd_buf + pos, "127.0.0.1:2380", 14); pos += 14;
 
-    cetcd_rpc_bytes resp = cetcd_v3rpc_dispatch(rpc,
+    resp = cetcd_v3rpc_dispatch(rpc,
         "/etcdserverpb.Cluster/MemberUpdate", upd_buf, pos);
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 0);

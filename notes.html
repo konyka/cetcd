@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 124 — leftover-safe MemberRemove id</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 125 — leftover-safe MemberUpdate</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 124 leftover-safe-parses
-     MemberRemove/Promote ID so a truncated field-1 varint cannot look
-    like a successful remove or promote.</p>
+  <p><strong>v0.3.0</strong>. Phase 125 leftover-safe-parses
+     MemberUpdate so a truncated field-1 varint or leftover peerURL
+    length cannot look like a successful update.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -177,6 +177,7 @@
       <tr><td>122</td><td>leftover-safe MoveLeader target</td><td>MoveLeader leftover-safe-parses field 1 so a truncated varint / dummy 0x00 / 0 cannot look like a successful transfer; leftover length-delimited bytes cannot steal the target — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>123</td><td>leftover-safe LeaseGrant TTL</td><td>LeaseGrant leftover-safe-parses field 1 so a truncated varint cannot grant a 60s lease; dummy 0x00 / TTL&lt;=0 fail-closes; leftover length-delimited bytes cannot steal the TTL — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>124</td><td>leftover-safe MemberRemove id</td><td>MemberRemove/Promote leftover-safe-parses field 1 so a truncated varint / dummy 0x00 / 0 cannot look like a successful remove or promote; leftover length-delimited bytes cannot steal the id — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>125</td><td>leftover-safe MemberUpdate</td><td>MemberUpdate leftover-safe-parses field 1/2 so a truncated varint / dummy 0x00 / 0 cannot look like a successful update; leftover peerURL length cannot walk off the buffer or steal the id — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

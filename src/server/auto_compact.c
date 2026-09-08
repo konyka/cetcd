@@ -1806,6 +1806,130 @@ int cetcd_parse_member_id_request(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+int cetcd_encode_member_update_request(uint64_t id, const char *url,
+                                       uint8_t *out, size_t cap, size_t *n) {
+    if (!out || !n || cap == 0) return CETCD_ERR_INVAL;
+    if (id == 0 || !url || !url[0]) return CETCD_ERR_INVAL;
+    size_t pos = 0;
+    if (pos >= cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x08;
+    uint64_t v = id;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    size_t ulen = strlen(url);
+    if (pos + 1 >= cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x12;
+    uint64_t lv = ulen;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(lv & 0x7fu);
+        lv >>= 7;
+        if (lv) b |= 0x80u;
+        out[pos++] = b;
+    } while (lv);
+    if (pos + ulen > cap) return CETCD_ERR_OVERFLOW;
+    memcpy(out + pos, url, ulen);
+    pos += ulen;
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_member_update_request(const uint8_t *req, size_t len,
+                                      uint64_t *id, char *url, size_t url_cap) {
+    size_t p = 0;
+    if (!id) return CETCD_ERR_INVAL;
+    *id = 0;
+    if (url && url_cap)
+        url[0] = '\0';
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x08) {
+            uint64_t v = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return CETCD_ERR_INVAL;
+            }
+            if (!got) return CETCD_ERR_INVAL;
+            *id = v;
+            continue;
+        }
+        if (tag == 0x12) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return CETCD_ERR_INVAL;
+            }
+            if (!got || p + skip > len) return CETCD_ERR_INVAL;
+            if (url && url_cap) {
+                size_t copy = (size_t)skip < url_cap - 1 ? (size_t)skip : url_cap - 1;
+                memcpy(url, req + p, copy);
+                url[copy] = '\0';
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return CETCD_ERR_INVAL;
+            }
+            if (!got) return CETCD_ERR_INVAL;
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return CETCD_ERR_INVAL;
+            }
+            if (!got || p + skip > len) return CETCD_ERR_INVAL;
+            p += (size_t)skip;
+            continue;
+        }
+        return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n) {
     if (!out || !n || cap < 2) return CETCD_ERR_INVAL;
