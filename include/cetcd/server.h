@@ -636,6 +636,16 @@ int cetcd_encode_member_list_is_learner(int is_learner, uint8_t *out,
                                         size_t cap, size_t *n);
 int cetcd_parse_member_list_is_learner(const uint8_t *req, size_t len,
                                        int *is_learner);
+/* leftover-safe Member.ID (field 1, tag 0x08 inside field 2, tag
+ * 0x12). omitted / empty / dummy 0x00 = 0. leftover truncated id is
+ * INVAL so a truncated list cannot print leftover id 0. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed id (tag 0x0a header cluster_id is not
+ * member id). unknown wire types are INVAL. last id is copied when
+ * id is set. proto3 omitted id is 0. */
+int cetcd_encode_member_list_id(uint64_t id, uint8_t *out, size_t cap,
+                                size_t *n);
+int cetcd_parse_member_list_id(const uint8_t *req, size_t len, uint64_t *id);
 /* leftover-safe AuthStatusResponse.enabled. omitted / empty / dummy
  * 0x00 = disabled. leftover truncated enabled is INVAL so a truncated
  * status cannot look like disabled. leftover length-delimited fields

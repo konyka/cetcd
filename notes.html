@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 205 — leftover-safe RoleGet permType</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 206 — leftover-safe MemberList id</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 205 leftover-safe-parses
-     RoleGet permType so leftover length-delimited bytes cannot
-     steal a printed permType.</p>
+  <p><strong>v0.3.0</strong>. Phase 206 leftover-safe-parses
+     Member.ID so leftover length-delimited bytes cannot
+     steal a printed member id.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -258,6 +258,7 @@
       <tr><td>203</td><td>leftover-safe DeleteRange prev_kv create_revision</td><td>DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal a printed prev create_revision; truncated prev_kv create_revision fail-closes; header member_id is not prev create_revision; cetcdctl leftover-safe-parses field 2 inside prev_kv — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>204</td><td>leftover-safe DeleteRange prev_kv mod_revision</td><td>DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal a printed prev mod_revision; truncated prev_kv mod_revision fail-closes; header revision is not prev mod_revision; cetcdctl leftover-safe-parses field 3 inside prev_kv — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>205</td><td>leftover-safe RoleGet permType</td><td>RoleGet leftover-safe-parses so leftover length-delimited bytes cannot steal a printed permType; truncated permType fail-closes; header cluster_id is not permType; UserGet/UserList/RoleList leftover-safe-parse first — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>206</td><td>leftover-safe MemberList id</td><td>MemberList leftover-safe-parses so leftover length-delimited bytes cannot steal a printed member id; truncated id fail-closes; header cluster_id is not member id; cetcdctl leftover-safe-parses field 1 — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

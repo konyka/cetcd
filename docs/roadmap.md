@@ -840,6 +840,12 @@ Performance-first, fail-closed design:
   header is not isLearner. `cetcdctl member list` leftover-safe-parses
   field 5. Accepting leftover payload as the printed isLearner is
   rejected.
+- **MemberList leftover-safe id** — leftover-safe-parses Member.ID so
+  leftover length-delimited bytes cannot steal a printed member id. A
+  truncated id fail-closes (cannot look like id 0). Dummy `0x00` is
+  not a skip length. Tag `0x0a` header cluster_id is not member id.
+  `cetcdctl member list` leftover-safe-parses field 1. Accepting
+  leftover payload as the printed id is rejected.
 - **Status leftover-safe version / isLearner** — leftover-safe-parses
   StatusResponse so leftover length-delimited bytes cannot steal a
   printed version, dbSize, or `isLearner`. A truncated version /

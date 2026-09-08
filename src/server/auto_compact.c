@@ -5093,6 +5093,84 @@ int cetcd_parse_member_list_is_learner(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+int cetcd_encode_member_list_id(uint64_t id, uint8_t *out, size_t cap,
+                                size_t *n) {
+    uint8_t inner[16];
+    size_t in = 0;
+    uint64_t v;
+    size_t pos = 0;
+    if (!out || !n) return CETCD_ERR_INVAL;
+    *n = 0;
+    if (id == 0) return CETCD_OK;
+    if (in + 2 > sizeof(inner)) return CETCD_ERR_OVERFLOW;
+    inner[in++] = 0x08;
+    v = id;
+    do {
+        if (in >= sizeof(inner)) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        inner[in++] = b;
+    } while (v);
+    if (pos + 2 + in > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x12; /* field 2 members */
+    v = in;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    memcpy(out + pos, inner, in);
+    pos += in;
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_member_list_id(const uint8_t *req, size_t len, uint64_t *id) {
+    size_t p = 0;
+    if (!id) return CETCD_ERR_INVAL;
+    *id = 0;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x12) {
+            uint64_t skip = 0;
+            size_t ip = 0;
+            int rc = leftover_safe_varint_at_(req, len, &p, &skip);
+            if (rc != CETCD_OK || p + skip > len) return CETCD_ERR_INVAL;
+            *id = 0;
+            while (ip < (size_t)skip) {
+                uint8_t mt = req[p + ip];
+                ip++;
+                if (mt == 0x00)
+                    continue;
+                if (mt == 0x08) {
+                    uint64_t v = 0;
+                    size_t qp = ip;
+                    if (leftover_safe_varint_at_(req + p, (size_t)skip, &qp, &v)
+                        != CETCD_OK)
+                        return CETCD_ERR_INVAL;
+                    *id = v;
+                    ip = qp;
+                    continue;
+                }
+                if (leftover_safe_skip_unknown_at_(req + p, (size_t)skip, &ip,
+                                                   mt) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_auth_status_response(int enabled, uint8_t *out, size_t cap,
                                       size_t *n) {
     if (!out || !n || cap < 2) return CETCD_ERR_INVAL;

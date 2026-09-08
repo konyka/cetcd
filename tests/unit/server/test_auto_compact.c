@@ -2018,6 +2018,54 @@ CETCD_TEST_CASE(auto_compact_parse_member_list_is_learner) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_member_list_id) {
+    uint8_t buf[16];
+    size_t n = 0;
+    uint64_t id = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_id(0, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_id(5, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_id(buf, n, &id), CETCD_OK);
+    CETCD_ASSERT_TRUE(id == 5);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_id(NULL, 0, &id), CETCD_OK);
+    CETCD_ASSERT_TRUE(id == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_id(dummy, 1, &id), CETCD_OK);
+    CETCD_ASSERT_TRUE(id == 0);
+
+    /* leftover truncated member id cannot look like 0 */
+    uint8_t trunc[] = { 0x12, 0x01, 0x08 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_id(trunc, sizeof(trunc), &id),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed member id */
+    uint8_t steal[] = { 0x12, 0x04, 0x32, 0x02, 0x08, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_id(steal, sizeof(steal), &id),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(id == 0);
+
+    /* leftover header cluster_id is not member id */
+    uint8_t header[] = { 0x0a, 0x02, 0x08, 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_id(header, sizeof(header), &id),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(id == 0);
+
+    uint8_t last[] = { 0x12, 0x02, 0x08, 0x01, 0x12, 0x02, 0x08, 0x02 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_id(last, sizeof(last), &id),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(id == 2);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_id(fixed64, 1, &id),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_id(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_auth_status_response) {
     uint8_t buf[8];
     size_t n = 0;
@@ -7109,6 +7157,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_member_list_client_url),
     CETCD_TEST_ENTRY(auto_compact_parse_member_list_name),
     CETCD_TEST_ENTRY(auto_compact_parse_member_list_is_learner),
+    CETCD_TEST_ENTRY(auto_compact_parse_member_list_id),
     CETCD_TEST_ENTRY(auto_compact_parse_auth_status_response),
     CETCD_TEST_ENTRY(auto_compact_parse_auth_status_auth_revision),
     CETCD_TEST_ENTRY(auto_compact_parse_string_list_response),
