@@ -365,6 +365,7 @@ fail-close. `--prefix=false` does not eat the key.
 ./build/bin/cetcdctl del --prev-kv --print-value-only foo  # Output only deleted values
 # leftover truncated DeleteRange range_end fail-closes (cannot look like a point delete)
 # leftover length-delimited bytes cannot steal range_end and turn a point delete into a range delete
+# leftover Txn-embedded Put/Range/DeleteRange cannot steal lease/rev/range_end (truncated inner field fail-closes the txn)
 ```
 
 ### Watch streaming

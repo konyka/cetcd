@@ -860,6 +860,97 @@ CETCD_TEST_CASE(v3rpc_txn) {
     CETCD_ASSERT_TRUE(resp.len > 0);
     cetcd_rpc_bytes_free(&resp);
 
+    /* leftover truncated Txn RequestPut lease cannot look like a no-lease put */
+    uint8_t trunc_put_inner[] = { 0x0a, 0x01, 'k', 0x12, 0x01, 'v', 0x18 };
+    uint8_t trunc_op[16]; size_t to = 0;
+    trunc_op[to++] = 0x12;
+    trunc_op[to++] = (uint8_t)sizeof(trunc_put_inner);
+    memcpy(trunc_op + to, trunc_put_inner, sizeof(trunc_put_inner)); to += sizeof(trunc_put_inner);
+    uint8_t trunc_txn[32]; size_t tt = 0;
+    trunc_txn[tt++] = 0x12;
+    trunc_txn[tt++] = (uint8_t)to;
+    memcpy(trunc_txn + tt, trunc_op, to); tt += to;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", trunc_txn, tt);
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover length-delimited payload cannot steal a Txn RequestPut lease.
+     * leftover-unsafe would set lease=5 and fail ErrLeaseNotFound. */
+    uint8_t steal_put[] = { 0x0a, 0x01, 's', 0x12, 0x01, '1', 0x22, 0x03, 0x18, 0x01, 0x05 };
+    uint8_t steal_op[24]; size_t so = 0;
+    steal_op[so++] = 0x12;
+    steal_op[so++] = (uint8_t)sizeof(steal_put);
+    memcpy(steal_op + so, steal_put, sizeof(steal_put)); so += sizeof(steal_put);
+    uint8_t steal_txn[40]; size_t st = 0;
+    steal_txn[st++] = 0x12;
+    steal_txn[st++] = (uint8_t)so;
+    memcpy(steal_txn + st, steal_op, so); st += so;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", steal_txn, st);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover cannot steal Txn RequestDeleteRange range_end and wipe [a,c) */
+    uint8_t put_a[8]; size_t pa = 0;
+    put_a[pa++] = 0x0a; put_a[pa++] = 0x01; put_a[pa++] = 'a';
+    put_a[pa++] = 0x12; put_a[pa++] = 0x01; put_a[pa++] = '1';
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_a, pa);
+    cetcd_rpc_bytes_free(&resp);
+    uint8_t put_b[8]; size_t pb = 0;
+    put_b[pb++] = 0x0a; put_b[pb++] = 0x01; put_b[pb++] = 'b';
+    put_b[pb++] = 0x12; put_b[pb++] = 0x01; put_b[pb++] = '2';
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", put_b, pb);
+    cetcd_rpc_bytes_free(&resp);
+    uint8_t steal_del[] = { 0x0a, 0x01, 'a', 0x22, 0x03, 0x12, 0x01, 'c' };
+    uint8_t sdel_op[16]; size_t sdo = 0;
+    sdel_op[sdo++] = 0x1a;
+    sdel_op[sdo++] = (uint8_t)sizeof(steal_del);
+    memcpy(sdel_op + sdo, steal_del, sizeof(steal_del)); sdo += sizeof(steal_del);
+    uint8_t sdel_txn[24]; size_t sdt = 0;
+    sdel_txn[sdt++] = 0x12;
+    sdel_txn[sdt++] = (uint8_t)sdo;
+    memcpy(sdel_txn + sdt, sdel_op, sdo); sdt += sdo;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", sdel_txn, sdt);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    cetcd_rpc_bytes_free(&resp);
+    uint8_t range_b[8]; size_t rb = 0;
+    range_b[rb++] = 0x0a; range_b[rb++] = 0x01; range_b[rb++] = 'b';
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Range", range_b, rb);
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    int found_b = 0;
+    for (size_t i = 0; i < resp.len; i++) {
+        if (resp.data[i] == 'b') { found_b = 1; break; }
+    }
+    CETCD_ASSERT_TRUE(found_b);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover truncated Txn RequestDeleteRange cannot look like a point delete */
+    uint8_t trunc_del[] = { 0x0a, 0x01, 's', 0x12 };
+    uint8_t tdel_op[12]; size_t tdo = 0;
+    tdel_op[tdo++] = 0x1a;
+    tdel_op[tdo++] = (uint8_t)sizeof(trunc_del);
+    memcpy(tdel_op + tdo, trunc_del, sizeof(trunc_del)); tdo += sizeof(trunc_del);
+    uint8_t tdel_txn[24]; size_t tdt = 0;
+    tdel_txn[tdt++] = 0x12;
+    tdel_txn[tdt++] = (uint8_t)tdo;
+    memcpy(tdel_txn + tdt, tdel_op, tdo); tdt += tdo;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", tdel_txn, tdt);
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover truncated Txn RequestRange cannot range the live tree */
+    uint8_t trunc_rng[] = { 0x0a, 0x01, 's', 0x20 };
+    uint8_t trng_op[12]; size_t tro = 0;
+    trng_op[tro++] = 0x0a;
+    trng_op[tro++] = (uint8_t)sizeof(trunc_rng);
+    memcpy(trng_op + tro, trunc_rng, sizeof(trunc_rng)); tro += sizeof(trunc_rng);
+    uint8_t trng_txn[24]; size_t trt = 0;
+    trng_txn[trt++] = 0x12;
+    trng_txn[trt++] = (uint8_t)tro;
+    memcpy(trng_txn + trt, trng_op, tro); trt += tro;
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Txn", trng_txn, trt);
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
     cetcd_v3rpc_free(rpc);
 }
 

@@ -58,6 +58,32 @@ static int read_bytes(const uint8_t *buf, size_t len, size_t *pos, uint8_t **out
     return 0;
 }
 
+/* leftover-safe length-delimited payload. truncated length or a
+ * payload that does not fit is INVAL so leftover cannot clamp and
+ * keep going (Txn-embedded Put/Range/DeleteRange). */
+static int leftover_safe_ldelim_(const uint8_t *buf, size_t len, size_t *pos,
+                                 const uint8_t **payload, size_t *payload_len) {
+    uint64_t n = 0;
+    int shift = 0;
+    int got = 0;
+    if (!buf || !pos || !payload || !payload_len) return -1;
+    while (*pos < len) {
+        uint8_t b = buf[(*pos)++];
+        n |= (uint64_t)(b & 0x7F) << shift;
+        if ((b & 0x80) == 0) {
+            got = 1;
+            break;
+        }
+        shift += 7;
+        if (shift > 63) return -1;
+    }
+    if (!got || *pos + n > len) return -1;
+    *payload = buf + *pos;
+    *payload_len = (size_t)n;
+    *pos += (size_t)n;
+    return 0;
+}
+
 static int write_varint_local(uint8_t *buf, size_t cap, size_t *pos, uint64_t val) {
     while (*pos < cap) {
         uint8_t b = val & 0x7F;
@@ -1657,33 +1683,23 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
         uint8_t op_tag = od[op_pos++];
 
         if (op_tag == 0x12) {
-            /* RequestPut */
-            uint64_t plen = 0;
-            if (read_varint(od, ol, &op_pos, &plen) != 0) continue;
-            size_t put_end = op_pos + (size_t)plen;
-            if (put_end > ol) put_end = ol;
+            /* RequestPut — leftover-safe so leftover cannot steal lease */
+            const uint8_t *put_bytes = NULL;
+            size_t put_len = 0;
+            if (leftover_safe_ldelim_(od, ol, &op_pos, &put_bytes, &put_len) != 0) {
+                free(resp);
+                goto txn_cleanup;
+            }
             uint8_t *pk = NULL, *pv = NULL;
             size_t pk_len = 0, pv_len = 0;
             int64_t lease_id = 0;
             int want_prev_kv = 0;
             int ignore_value = 0, ignore_lease = 0;
-            while (op_pos < put_end) {
-                uint8_t ptag = od[op_pos++];
-                if (ptag == 0x0a) {
-                    read_bytes(od, put_end, &op_pos, &pk, &pk_len);
-                } else if (ptag == 0x12) {
-                    read_bytes(od, put_end, &op_pos, &pv, &pv_len);
-                } else if (ptag == 0x18) {
-                    uint64_t v = 0; read_varint(od, put_end, &op_pos, &v); lease_id = (int64_t)v;
-                } else if (ptag == 0x20) {
-                    uint64_t v = 0; read_varint(od, put_end, &op_pos, &v); want_prev_kv = (int)v;
-                } else if (ptag == 0x28) {
-                    uint64_t v = 0; read_varint(od, put_end, &op_pos, &v); ignore_value = (int)v;
-                } else if (ptag == 0x30) {
-                    uint64_t v = 0; read_varint(od, put_end, &op_pos, &v); ignore_lease = (int)v;
-                } else {
-                    uint64_t skip = 0; read_varint(od, put_end, &op_pos, &skip);
-                }
+            if (parse_put_request_(put_bytes, put_len, &pk, &pk_len, &pv, &pv_len,
+                                   &lease_id, &want_prev_kv, &ignore_value,
+                                   &ignore_lease) != 0) {
+                free(resp);
+                goto txn_cleanup;
             }
             if (!pk || pk_len == 0) {
                 if (pk) free(pk);
@@ -1807,25 +1823,21 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
             memcpy(resp + rpos, put_inner, pp); rpos += pp;
 
         } else if (op_tag == 0x1a) {
-            /* RequestDeleteRange */
-            uint64_t dlen = 0;
-            if (read_varint(od, ol, &op_pos, &dlen) != 0) continue;
-            size_t del_end = op_pos + (size_t)dlen;
-            if (del_end > ol) del_end = ol;
+            /* RequestDeleteRange — leftover-safe so leftover cannot steal range_end */
+            const uint8_t *del_bytes = NULL;
+            size_t del_len = 0;
+            if (leftover_safe_ldelim_(od, ol, &op_pos, &del_bytes, &del_len) != 0) {
+                free(resp);
+                goto txn_cleanup;
+            }
             uint8_t *dk = NULL; size_t dk_len = 0;
             uint8_t *drange_end = NULL; size_t drange_end_len = 0;
             int want_prev_kv = 0;
-            while (op_pos < del_end) {
-                uint8_t dtag = od[op_pos++];
-                if (dtag == 0x0a) {
-                    read_bytes(od, del_end, &op_pos, &dk, &dk_len);
-                } else if (dtag == 0x12) {
-                    read_bytes(od, del_end, &op_pos, &drange_end, &drange_end_len);
-                } else if (dtag == 0x18) {
-                    uint64_t v = 0; read_varint(od, del_end, &op_pos, &v); want_prev_kv = (int)v;
-                } else {
-                    uint64_t skip = 0; read_varint(od, del_end, &op_pos, &skip);
-                }
+            if (parse_delete_range_request_(del_bytes, del_len, &dk, &dk_len,
+                                            &drange_end, &drange_end_len,
+                                            &want_prev_kv) != 0) {
+                free(resp);
+                goto txn_cleanup;
             }
             if (!dk || dk_len == 0) {
                 if (dk) free(dk);
@@ -1985,18 +1997,13 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
             free(del_inner);
 
         } else if (op_tag == 0x0a) {
-            /* RequestRange — query MVCC store and return actual results */
-            uint64_t rlen_val = 0;
-            if (read_varint(od, ol, &op_pos, &rlen_val) != 0) continue;
-            const uint8_t *rd = od + op_pos;
-            size_t rl = (size_t)rlen_val;
-            op_pos += (size_t)rlen_val;
-
-            /* Parse RequestRange: key (0x0a), range_end (0x12), limit (0x18),
-             *   revision (0x20), sort_order (0x28), sort_target (0x30),
-             *   serializable (0x38), keys_only (0x40), count_only (0x48),
-             *   min_mod_rev (0x50), max_mod_rev (0x58),
-             *   min_create_rev (0x60), max_create_rev (0x68) */
+            /* RequestRange — leftover-safe so leftover cannot steal rev/limit */
+            const uint8_t *rd = NULL;
+            size_t rl = 0;
+            if (leftover_safe_ldelim_(od, ol, &op_pos, &rd, &rl) != 0) {
+                free(resp);
+                goto txn_cleanup;
+            }
             uint8_t *rkey = NULL; size_t rkey_len = 0;
             uint8_t *rrange_end = NULL; size_t rrange_end_len = 0;
             int64_t rrev = 0;
@@ -2006,39 +2013,14 @@ cetcd_rpc_bytes kv_handle_txn(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
             int64_t rmin_mod_rev = 0, rmax_mod_rev = 0;
             int64_t rmin_create_rev = 0, rmax_create_rev = 0;
             int rserializable = 0;
-            size_t rp_pos = 0;
-            while (rp_pos < rl) {
-                uint8_t rtag = rd[rp_pos++];
-                if (rtag == 0x0a) {
-                    read_bytes(rd, rl, &rp_pos, &rkey, &rkey_len);
-                } else if (rtag == 0x12) {
-                    read_bytes(rd, rl, &rp_pos, &rrange_end, &rrange_end_len);
-                } else if (rtag == 0x18) {
-                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rlimit = (int64_t)v;
-                } else if (rtag == 0x20) {
-                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rrev = (int64_t)v;
-                } else if (rtag == 0x28) {
-                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rsort_order = (int)v;
-                } else if (rtag == 0x30) {
-                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rsort_target = (int)v;
-                } else if (rtag == 0x38) {
-                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v);
-                    rserializable = (int)v;
-                } else if (rtag == 0x40) {
-                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rkeys_only = (int)v;
-                } else if (rtag == 0x48) {
-                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rcount_only = (int)v;
-                } else if (rtag == 0x50) {
-                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rmin_mod_rev = (int64_t)v;
-                } else if (rtag == 0x58) {
-                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rmax_mod_rev = (int64_t)v;
-                } else if (rtag == 0x60) {
-                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rmin_create_rev = (int64_t)v;
-                } else if (rtag == 0x68) {
-                    uint64_t v = 0; read_varint(rd, rl, &rp_pos, &v); rmax_create_rev = (int64_t)v;
-                } else {
-                    uint64_t skip = 0; read_varint(rd, rl, &rp_pos, &skip);
-                }
+            if (parse_range_request_(rd, rl, &rkey, &rkey_len, &rrange_end,
+                                     &rrange_end_len, &rrev, &rlimit,
+                                     &rsort_order, &rsort_target,
+                                     &rserializable, &rkeys_only, &rcount_only,
+                                     &rmin_mod_rev, &rmax_mod_rev,
+                                     &rmin_create_rev, &rmax_create_rev) != 0) {
+                free(resp);
+                goto txn_cleanup;
             }
             if (!rkey || rkey_len == 0) {
                 if (rkey) free(rkey);

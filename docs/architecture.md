@@ -564,8 +564,8 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `put --ignore-value/--ignore-lease`, `get/del KEY RANGE_END` (positional range_end argument),
 `get/del --from-key` (unbounded range queries), `put --lease ID` (attach lease to key; leftover `10foo` fail-closes; `--lease=1` accepted),
 `alarm list/activate/disarm` (alarm management), `version` (print client version),
-`txn get KEY [RANGE_END]` (transactional range query), `txn del [--prefix] [--prev-kv] KEY [RANGE_END]`
-(transactional delete), `get --hex` (hex output for binary data), `lease timetolive --keys ID`
+`txn get KEY [RANGE_END]` (transactional range query; leftover-safe so leftover cannot steal `rev` / `range_end`), `txn del [--prefix] [--prev-kv] KEY [RANGE_END]`
+(transactional delete; leftover-safe so leftover cannot steal `range_end` and turn a point delete into a range delete), `txn put` leftover-safe so leftover cannot steal the lease, `get --hex` (hex output for binary data), `lease timetolive --keys ID`
 (show keys attached to lease), `endpoint health/status` (server health check and status),
 `check perf` (simple performance check), `compact --physical` (physically-backed compaction),
 `get --consistency l|s` (linearizable Range requires this node to be leader; serializable reads the local store; a follower linearizable Range fail-closes),
@@ -769,6 +769,9 @@ and the `more` flag correctly uses field 3 (tag 0x18).
 `Range` / Txn `RequestRange` with `revision < compacted_rev` propagate MVCC
 `CETCD_ERR_RANGE` as an RPC failure (empty response) instead of a successful empty
 result — matching etcd ErrCompacted; `revision == compacted_rev` remains readable.
+Txn-embedded Put/Range/DeleteRange leftover-safe-parses the same way as the
+top-level handlers so leftover length-delimited bytes cannot steal `lease` /
+`rev` / `range_end`; a truncated inner field fail-closes the whole Txn.
 The `Txn` handler now evaluates `Compare` clauses against the MVCC store — supporting
 `EQUAL`/`GREATER`/`LESS`/`NOT_EQUAL` operators on `VERSION`, `CREATE`, `MOD`, `VALUE`, and
 `LEASE` targets — and executes success or failure ops accordingly, returning a complete

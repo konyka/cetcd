@@ -694,6 +694,12 @@ Performance-first, fail-closed design:
   truncated field-2 / field-3 fail-closes (cannot look like a point
   delete or a no-prev-kv delete). Dummy `0x00` / omitted is empty
   range_end. Accepting leftover payload as the range is rejected.
+- **Txn leftover-safe embedded ops** — leftover-safe-parses
+  Txn-embedded Put/Range/DeleteRange so leftover length-delimited
+  bytes cannot steal `lease` / `rev` / `range_end`. A truncated
+  inner field fail-closes the whole Txn (cannot look like a
+  no-lease put, a live-tree range, or a point delete). Accepting
+  leftover payload as an embedded field is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`
