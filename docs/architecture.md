@@ -737,7 +737,9 @@ A single-byte `"\0"` key remains valid (FromKey / all-keys scans / Watch). `Rang
 actual `KeyValue` protobuf messages (supporting both point-get and range queries with
 `range_end`), `Put` returns a proper `PutResponse` with header revision; an omitted protobuf
 `value` field is treated as empty bytes (matching etcd proto3) and still writes
-the key. It supports `prev_kv`
+the key. PutRequest leftover-safe-parses so leftover length-delimited bytes cannot
+steal the lease; a truncated `--lease` fail-closes (cannot look like a no-lease
+put). Dummy `0x00` / omitted is lease 0. It supports `prev_kv`
 (returning the previous key-value when `prev_kv=true` is set in the request, encoded as field 2
 tag 0x12 per etcd v3.5 proto), `ignore_value`
 (keeping the existing value when `ignore_value=true`), and `ignore_lease` (keeping the existing

@@ -256,6 +256,28 @@ int cetcd_encode_range_request(const uint8_t *key, size_t key_len, int64_t rev,
                                uint8_t *out, size_t cap, size_t *n);
 int cetcd_parse_range_request(const uint8_t *req, size_t len,
                               cetcd_range_request *out);
+/* leftover-safe PutRequest. omitted / empty / dummy 0x00 = empty key /
+ * lease 0. leftover truncated varint is INVAL so a truncated --lease
+ * cannot look like a no-lease put. leftover length-delimited fields
+ * are skipped by payload so leftover bytes cannot steal the lease.
+ * unknown wire types are INVAL. key / value are malloced. */
+typedef struct cetcd_put_request {
+    uint8_t *key;
+    size_t key_len;
+    uint8_t *value;
+    size_t value_len;
+    int64_t lease;
+    int prev_kv;
+    int ignore_value;
+    int ignore_lease;
+} cetcd_put_request;
+void cetcd_put_request_clear(cetcd_put_request *r);
+int cetcd_encode_put_request(const uint8_t *key, size_t key_len,
+                             const uint8_t *value, size_t value_len,
+                             int64_t lease, uint8_t *out, size_t cap,
+                             size_t *n);
+int cetcd_parse_put_request(const uint8_t *req, size_t len,
+                            cetcd_put_request *out);
 /* MemberRemove/Promote field 1 (ID). 0 is INVAL. */
 int cetcd_encode_member_id_request(uint64_t id, uint8_t *out, size_t cap,
                                    size_t *n);

@@ -1918,6 +1918,60 @@ CETCD_TEST_CASE(auto_compact_parse_range_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_put_request) {
+    uint8_t buf[32];
+    size_t n = 0;
+    cetcd_put_request pr;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_put_request((const uint8_t *)"k", 1,
+                                                 (const uint8_t *)"v", 1, -1,
+                                                 buf, sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_put_request((const uint8_t *)"k", 1,
+                                                 (const uint8_t *)"v", 1, 2,
+                                                 buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_put_request(buf, n, &pr), CETCD_OK);
+    CETCD_ASSERT_TRUE(pr.key_len == 1 && pr.key && pr.key[0] == 'k');
+    CETCD_ASSERT_TRUE(pr.value_len == 1 && pr.value && pr.value[0] == 'v');
+    CETCD_ASSERT_TRUE(pr.lease == 2);
+    cetcd_put_request_clear(&pr);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_put_request(NULL, 0, &pr), CETCD_OK);
+    CETCD_ASSERT_TRUE(pr.lease == 0);
+    CETCD_ASSERT_TRUE(pr.key == NULL);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_put_request(dummy, 1, &pr), CETCD_OK);
+    CETCD_ASSERT_TRUE(pr.lease == 0);
+
+    /* leftover truncated --lease cannot look like a no-lease put */
+    uint8_t trunc[] = { 0x0a, 0x01, 'k', 0x12, 0x01, 'v', 0x18 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_put_request(trunc, 7, &pr),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_TRUE(pr.key == NULL);
+
+    /* leftover length-delimited payload cannot steal the lease */
+    uint8_t steal[] = { 0x0a, 0x01, 'k', 0x12, 0x01, 'v',
+                        0x3a, 0x02, 0x18, 0x63 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_put_request(steal, sizeof(steal), &pr),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(pr.lease == 0);
+    cetcd_put_request_clear(&pr);
+
+    uint8_t badskip[] = { 0x0a, 0x01, 'k', 0x3a, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_put_request(badskip, 5, &pr),
+                        CETCD_ERR_INVAL);
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_put_request(fixed64, 1, &pr),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_put_request(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_put_request((const uint8_t *)"k", 1,
+                                                 (const uint8_t *)"v", 1, 0,
+                                                 NULL, sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_compact_argv) {
     int physical = 0;
     int64_t rev = 0;
@@ -2530,6 +2584,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_lease_id_request),
     CETCD_TEST_ENTRY(auto_compact_parse_alarm_request),
     CETCD_TEST_ENTRY(auto_compact_parse_range_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_put_request),
     CETCD_TEST_ENTRY(auto_compact_parse_compact_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_defrag_argv),

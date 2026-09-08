@@ -683,6 +683,11 @@ Performance-first, fail-closed design:
   or `limit`. A truncated field-4 varint fail-closes (cannot range
   the live tree). Dummy `0x00` / omitted is rev 0 (current).
   Accepting leftover payload as the revision is rejected.
+- **Put leftover-safe lease** — leftover-safe-parses PutRequest so
+  leftover length-delimited bytes cannot steal the lease. A truncated
+  field-3 varint fail-closes (cannot look like a no-lease put). Dummy
+  `0x00` / omitted is lease 0. Accepting leftover payload as the
+  lease is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

@@ -338,6 +338,8 @@ fail-close. `--prefix=false` does not eat the key.
 ./build/bin/cetcdctl put foo bar --prev-kv --print-value-only  # Output only previous value
 ./build/bin/cetcdctl put foo -                     # Read value from stdin
 ./build/bin/cetcdctl put --lease=1 foo bar         # Attach lease; leftover --lease 10foo fail-closes
+# leftover truncated Put --lease fail-closes (cannot look like a no-lease put)
+# leftover length-delimited bytes cannot steal the lease
 # leftover put --foo k v / get k --foo fail-close (not a key or range_end)
 # put -- --foo v writes key --foo
 # leftover watch --foo / member remove --force / lock --foo name fail-close

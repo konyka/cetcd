@@ -119,6 +119,22 @@ CETCD_TEST_CASE(v3rpc_put_range) {
     CETCD_ASSERT_TRUE(resp.len > 0);
     cetcd_rpc_bytes_free(&resp);
 
+    uint8_t trunc[] = { 0x0a, 0x05, 'h', 'e', 'l', 'l', 'o',
+                        0x12, 0x05, 'w', 'o', 'r', 'l', 'd', 0x18 };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", trunc, 15);
+    /* leftover truncated lease cannot look like a no-lease put */
+    CETCD_ASSERT_TRUE(resp.data == NULL);
+    cetcd_rpc_bytes_free(&resp);
+
+    /* leftover length-delimited payload cannot steal an unknown lease */
+    uint8_t steal[] = { 0x0a, 0x01, 'x', 0x12, 0x01, 'y',
+                        0x3a, 0x02, 0x18, 0x63 };
+    resp = cetcd_v3rpc_dispatch(rpc, "/etcdserverpb.KV/Put", steal,
+                                sizeof(steal));
+    CETCD_ASSERT_NOT_NULL(resp.data);
+    CETCD_ASSERT_TRUE(resp.len > 0);
+    cetcd_rpc_bytes_free(&resp);
+
     /* Now Range for the key */
     uint8_t range_buf[16];
     pos = 0;

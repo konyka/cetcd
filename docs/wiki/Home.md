@@ -894,6 +894,7 @@ Alarm leftover-safe-parses field 1/2/3 so leftover length-delimited bytes cannot
 `cetcdctl hash` / `status` unknown leftover flags fail-close (`hash --rev` cannot hash the live tree; `status --cluster` cannot report one node).
 `cetcdctl defrag --cluster` leftover-safe-sends linearizable MemberList and defragments every client URL; a swallowed `--cluster` would defrag only the connected member; a follower cannot walk a stale list. `defrag --data-dir` leftover-safe-opens the local LMDB and compact-copies (`--data-dir --cluster` cannot eat a flag as the path; `--cluster` + `--data-dir` fail-close). Other leftover flags fail-close.
 `cetcdctl get --rev` / `--limit` / `--min-mod-rev` and related flags must be integers `>= 0`; leftover text fail-closes instead of a truncated revision. Range leftover-safe-parses field 4 so leftover length-delimited bytes cannot steal `rev` / `limit` (truncated `--rev` fail-closes; dummy `0x00` / omitted = current).
+Put leftover-safe-parses field 3 so leftover length-delimited bytes cannot steal the lease (truncated `--lease` fail-closes; dummy `0x00` / omitted = lease 0).
 `cetcdctl watch --start-rev` must be an integer `>= 0`; leftover text fail-closes instead of starting at a truncated revision.
 `--help` does not pre-empt an earlier invalid flag. `--config-file` is skipped when `--help` is present.
 A `cert-file` enables client TLS even without an https listen URL. A data-dir join does not campaign as a singleton before persisted peers load.
@@ -1000,7 +1001,7 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 
 | 服务 | RPC | 处理器文件 | 说明 |
 |------|-----|-----------|------|
-| KV | `/etcdserverpb.KV/Put` | `kv_handler.c` | 写入键值对，推进 MVCC 修订号，返回含 revision 的 PutResponse |
+| KV | `/etcdserverpb.KV/Put` | `kv_handler.c` | 写入键值对；field 3 leftover-safe（截断 `--lease` 不能假装无租约；leftover 长度域不能偷 lease） |
 | KV | `/etcdserverpb.KV/Range` | `kv_handler.c` | 范围查询；field 4 leftover-safe（截断 `--rev` 不能查 live tree；leftover 长度域不能偷 rev/limit）；默认线性一致（非 leader fail-closed）；`serializable` 读本地 |
 | KV | `/etcdserverpb.KV/RangeStream` | `kv_handler.c` | 服务端流：先 `more=true` 头，再完整 RangeResponse |
 | KV | `/etcdserverpb.KV/DeleteRange` | `kv_handler.c` | 删除键，推进 MVCC 修订号，返回删除计数 |
@@ -1131,7 +1132,7 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 
 | 命令 | 说明 |
 |------|------|
-| `put [--prev-kv] [--ignore-value] [--ignore-lease] KEY [VALUE]` | 存储键值对（--prev-kv 返回旧值，--ignore-value 保留原值，--ignore-lease 保留原租约；未知 leftover `--` 旗标 fail-close） |
+| `put [--prev-kv] [--ignore-value] [--ignore-lease] KEY [VALUE]` | 存储键值对（截断 proto `--lease` 不能假装无租约；leftover 长度域不能偷 lease；未知 leftover `--` 旗标 fail-close） |
 | `get [--prefix] [--keys-only] [--count-only] [--rev N] [--limit N] KEY` | 获取键值（截断 proto `--rev` 不能查 live tree；leftover 长度域不能偷 rev/limit；未知 leftover `--` 旗标 fail-close） |
 | `del [--prefix] [--prev-kv] KEY` | 删除键（支持前缀删除、返回旧值、删除计数；未知 leftover `--` 旗标 fail-close） |
 | `watch [--prefix] [--prev-kv] [--start-rev] KEY` | 观察键变更（双向流，实时推送事件；未知 leftover `--` 旗标 fail-close） |

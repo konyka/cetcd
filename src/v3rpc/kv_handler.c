@@ -76,6 +76,161 @@ static void append_kv_lease_(uint8_t *buf, size_t cap, size_t *pos, int64_t leas
     write_varint_local(buf, cap, pos, (uint64_t)lease_id);
 }
 
+/* leftover-safe PutRequest. v3rpc cannot link server. */
+static void put_req_clear_(uint8_t **key, uint8_t **val) {
+    free(*key);
+    free(*val);
+    *key = NULL;
+    *val = NULL;
+}
+
+static int parse_put_request_(const uint8_t *req, size_t len,
+                              uint8_t **key, size_t *key_len,
+                              uint8_t **val, size_t *val_len,
+                              int64_t *lease, int *prev_kv,
+                              int *ignore_value, int *ignore_lease) {
+    size_t p = 0;
+    if (!key || !key_len || !val || !val_len || !lease || !prev_kv ||
+        !ignore_value || !ignore_lease)
+        return -1;
+    *key = NULL; *key_len = 0;
+    *val = NULL; *val_len = 0;
+    *lease = 0; *prev_kv = 0;
+    *ignore_value = 0; *ignore_lease = 0;
+    if (!req || len == 0) return 0;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x0a || tag == 0x12) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    put_req_clear_(key, val);
+                    return -1;
+                }
+            }
+            if (!got || p + skip > len) {
+                put_req_clear_(key, val);
+                return -1;
+            }
+            if (skip == 0) {
+                if (tag == 0x0a) {
+                    free(*key);
+                    *key = NULL;
+                    *key_len = 0;
+                } else {
+                    free(*val);
+                    *val = NULL;
+                    *val_len = 0;
+                }
+                continue;
+            }
+            uint8_t *copy = (uint8_t *)malloc((size_t)skip);
+            if (!copy) {
+                put_req_clear_(key, val);
+                return -1;
+            }
+            memcpy(copy, req + p, (size_t)skip);
+            p += (size_t)skip;
+            if (tag == 0x0a) {
+                free(*key);
+                *key = copy;
+                *key_len = (size_t)skip;
+            } else {
+                free(*val);
+                *val = copy;
+                *val_len = (size_t)skip;
+            }
+            continue;
+        }
+        if (tag == 0x18 || tag == 0x20 || tag == 0x28 || tag == 0x30) {
+            uint64_t v = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    put_req_clear_(key, val);
+                    return -1;
+                }
+            }
+            if (!got || v > (uint64_t)INT64_MAX) {
+                put_req_clear_(key, val);
+                return -1;
+            }
+            if (tag == 0x18) *lease = (int64_t)v;
+            else if (tag == 0x20) *prev_kv = v != 0;
+            else if (tag == 0x28) *ignore_value = v != 0;
+            else *ignore_lease = v != 0;
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    put_req_clear_(key, val);
+                    return -1;
+                }
+            }
+            if (!got) {
+                put_req_clear_(key, val);
+                return -1;
+            }
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) {
+                    put_req_clear_(key, val);
+                    return -1;
+                }
+            }
+            if (!got || p + skip > len) {
+                put_req_clear_(key, val);
+                return -1;
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        put_req_clear_(key, val);
+        return -1;
+    }
+    return 0;
+}
+
 cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
     uint8_t *key = NULL; size_t key_len = 0;
@@ -84,25 +239,10 @@ cetcd_rpc_bytes kv_handle_put(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_l
     int      prev_kv_flag = 0;
     int      ignore_value = 0;
     int      ignore_lease = 0;
-    size_t pos = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x0a) { /* key: bytes */
-            if (read_bytes(req, req_len, &pos, &key, &key_len) != 0) break;
-        } else if (tag == 0x12) { /* value: bytes */
-            if (read_bytes(req, req_len, &pos, &val, &val_len) != 0) break;
-        } else if (tag == 0x18) { /* lease: varint */
-            uint64_t tmp = 0; if (read_varint(req, req_len, &pos, &tmp) != 0) break; lease_id = (int64_t)tmp;
-        } else if (tag == 0x20) { /* prev_kv (bool) */
-            uint64_t tmp = 0; if (read_varint(req, req_len, &pos, &tmp) != 0) break; prev_kv_flag = (int)tmp;
-        } else if (tag == 0x28) { /* ignore_value (bool) */
-            uint64_t tmp = 0; if (read_varint(req, req_len, &pos, &tmp) != 0) break; ignore_value = (int)tmp;
-        } else if (tag == 0x30) { /* ignore_lease (bool) */
-            uint64_t tmp = 0; if (read_varint(req, req_len, &pos, &tmp) != 0) break; ignore_lease = (int)tmp;
-        } else {
-            uint64_t skip = 0; read_varint(req, req_len, &pos, &skip);
-        }
-    }
+    if (parse_put_request_(req, req_len, &key, &key_len, &val, &val_len,
+                           &lease_id, &prev_kv_flag, &ignore_value,
+                           &ignore_lease) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
 
     /* etcd ErrEmptyKey: key must be provided (len > 0). */
     if (!key || key_len == 0) {
