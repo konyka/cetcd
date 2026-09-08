@@ -2301,6 +2301,45 @@ CETCD_TEST_CASE(auto_compact_parse_status_raft_index) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_status_raft_term) {
+    uint8_t buf[16];
+    size_t n = 0;
+    uint64_t term = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_status_raft_term(0, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_status_raft_term(3, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_raft_term(buf, n, &term), CETCD_OK);
+    CETCD_ASSERT_TRUE(term == 3);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_raft_term(NULL, 0, &term), CETCD_OK);
+    CETCD_ASSERT_TRUE(term == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_raft_term(dummy, 1, &term),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(term == 0);
+
+    /* leftover truncated raftTerm cannot look like raftTerm 0 */
+    uint8_t trunc[] = { 0x30 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_raft_term(trunc, 1, &term),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed raftTerm */
+    uint8_t steal[] = { 0x1a, 0x02, 0x30, 0x03 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_raft_term(steal, sizeof(steal),
+                                                    &term),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(term == 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_raft_term(fixed64, 1, &term),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_raft_term(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_lease_grant_response) {
     uint8_t buf[16];
     size_t n = 0;
@@ -5056,6 +5095,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_status_db_size_in_use),
     CETCD_TEST_ENTRY(auto_compact_parse_status_leader),
     CETCD_TEST_ENTRY(auto_compact_parse_status_raft_index),
+    CETCD_TEST_ENTRY(auto_compact_parse_status_raft_term),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_response),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_error),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_ttl_response),

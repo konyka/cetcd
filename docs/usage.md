@@ -632,7 +632,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl endpoint health -w json  # Health check with ResponseHeader (IPv6 is [::1]:2379)
 # leftover cannot steal a printed JSON revision
 ./build/bin/cetcdctl endpoint status -w table  # Status in table format
-# leftover cannot steal a printed version, dbSize, dbSizeInUse, leader, raftIndex, or isLearner
+# leftover cannot steal a printed version, dbSize, dbSizeInUse, leader, raftIndex, raftTerm, or isLearner
 # leftover cannot steal a used --cluster client URL
 ./build/bin/cetcdctl endpoint hashkv --rev 10 -w json  # HashKV at rev (leftover 10foo fail-closes)
 ./build/bin/cetcdctl endpoint hashkv -w fields  # HashKV with fields output
