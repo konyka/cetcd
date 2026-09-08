@@ -1132,6 +1132,13 @@ Performance-first, fail-closed design:
   fail-closes (cannot print 0). Dummy `0x00` is not a skip length.
   `cetcdctl del` leftover-safe-parses field 2. Accepting leftover
   payload as the printed count is rejected.
+- **DeleteRange leftover-safe prev_kv value** — leftover-safe-parses
+  DeleteRangeResponse prev_kv value so leftover length-delimited
+  bytes cannot steal a printed prev value. A truncated prev_kv value
+  fail-closes (cannot print leftover text). Dummy `0x00` is not a skip
+  length. Tag `0x0a` header is not prev value. `cetcdctl del --prev-kv`
+  leftover-safe-parses field 5 inside prev_kv. Accepting leftover
+  payload as the printed prev value is rejected.
 - **auth login leftover-safe printed token** — leftover-safe-parses
   AuthenticateResponse so leftover length-delimited bytes cannot steal
   a printed login token. AuthStatus leftover-safe-parses so leftover

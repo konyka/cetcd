@@ -1116,6 +1116,18 @@ int cetcd_encode_delete_range_deleted(int64_t deleted, uint8_t *out,
                                       size_t cap, size_t *n);
 int cetcd_parse_delete_range_deleted(const uint8_t *req, size_t len,
                                      int64_t *deleted);
+/* leftover-safe DeleteRangeResponse prev_kv value (field 5, tag 0x2a
+ * inside field 3, tag 0x1a). omitted / empty / dummy 0x00 = empty
+ * value. leftover truncated prev_kv value is INVAL so a truncated
+ * del cannot print leftover text as the prev value. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed prev value (tag 0x0a header is not prev
+ * value). unknown wire types are INVAL. last prev value is copied
+ * when value/value_cap are set. */
+int cetcd_encode_delete_range_prev_kv_value(const char *value, uint8_t *out,
+                                            size_t cap, size_t *n);
+int cetcd_parse_delete_range_prev_kv_value(const uint8_t *req, size_t len,
+                                           char *value, size_t value_cap);
 /* leftover-safe DowngradeRequest. omitted / empty / dummy 0x00 =
  * action VALIDATE (0) / empty version. leftover truncated action /
  * version is INVAL so a truncated validate cannot look like ENABLE

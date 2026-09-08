@@ -2125,6 +2125,17 @@ static int cmd_del(int argc, char **argv) {
         return 1;
     }
     (void)leftover_key;
+    char leftover_prev_value[256];
+    leftover_prev_value[0] = '\0';
+    /* leftover-safe: leftover cannot steal a printed prev value */
+    if (cetcd_parse_delete_range_prev_kv_value(resp, (size_t)rlen,
+                                               leftover_prev_value,
+                                               sizeof(leftover_prev_value))
+        != CETCD_OK) {
+        fprintf(stderr, "request failed\n");
+        return 1;
+    }
+    (void)leftover_prev_value;
     if (want_fields) {
         size_t rpos = 0;
         uint64_t deleted = (uint64_t)leftover_deleted;
