@@ -3929,6 +3929,47 @@ int cetcd_parse_downgrade_request(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+int cetcd_encode_downgrade_response(const char *version, uint8_t *out,
+                                    size_t cap, size_t *n) {
+    size_t pos = 0;
+    int rc;
+    if (!out || !n || !version || !version[0]) return CETCD_ERR_INVAL;
+    rc = write_bytes_field_(out, cap, &pos, 0x12,
+                            (const uint8_t *)version, strlen(version));
+    if (rc != CETCD_OK) return rc;
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_downgrade_response(const uint8_t *req, size_t len,
+                                   char *version, size_t version_cap) {
+    size_t p = 0;
+    if (version && version_cap)
+        version[0] = '\0';
+    if (!version) return CETCD_ERR_INVAL;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x12) {
+            uint64_t skip = 0;
+            int rc = leftover_safe_varint_at_(req, len, &p, &skip);
+            if (rc != CETCD_OK || p + skip > len) return CETCD_ERR_INVAL;
+            if (version_cap) {
+                if (skip >= version_cap) return CETCD_ERR_INVAL;
+                memcpy(version, req + p, (size_t)skip);
+                version[skip] = '\0';
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_txn_op_put(const uint8_t *key, size_t key_len,
                             uint8_t *out, size_t cap, size_t *n) {
     uint8_t put[64];

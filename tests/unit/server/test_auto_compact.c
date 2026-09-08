@@ -2802,6 +2802,58 @@ CETCD_TEST_CASE(auto_compact_parse_downgrade_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_downgrade_response) {
+    uint8_t buf[32];
+    size_t n = 0;
+    char ver[16];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_downgrade_response(NULL, buf, sizeof(buf),
+                                                        &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_downgrade_response("0.3.0", buf,
+                                                        sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_downgrade_response(buf, n, ver,
+                                                       sizeof(ver)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(ver, "0.3.0");
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_downgrade_response(NULL, 0, ver,
+                                                       sizeof(ver)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(ver, "");
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_downgrade_response(dummy, 1, ver,
+                                                       sizeof(ver)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(ver, "");
+
+    /* leftover truncated version cannot print leftover text */
+    uint8_t trunc[] = { 0x12 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_downgrade_response(trunc, 1, ver,
+                                                       sizeof(ver)),
+                        CETCD_ERR_INVAL);
+    uint8_t trunc_ver[] = { 0x12, 0x03, '0', '.' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_downgrade_response(trunc_ver,
+                                                       sizeof(trunc_ver),
+                                                       ver, sizeof(ver)),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed version */
+    uint8_t steal[] = { 0x1a, 0x07, 0x12, 0x05, '0', '.', '3', '.', '0' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_downgrade_response(steal, sizeof(steal),
+                                                       ver, sizeof(ver)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(ver, "");
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_downgrade_response(fixed64, 1, ver,
+                                                       sizeof(ver)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_downgrade_response(buf, n, NULL, 0),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_txn_op_key) {
     uint8_t buf[64];
     size_t n = 0;
@@ -4393,6 +4445,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_watch_response),
     CETCD_TEST_ENTRY(auto_compact_parse_delete_range_response),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_downgrade_response),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_op_key),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_id_request),

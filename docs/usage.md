@@ -631,6 +631,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl downgrade validate 0.3.0     # Confirm cluster is already at 0.3.0
 # enable / cancel / other versions fail-closed (on-disk format cannot change)
 # leftover cannot steal ENABLE or a VALIDATE version; truncated action/version fail-closes
+# leftover-safe: leftover proto bytes cannot steal a printed cluster version
 ./build/bin/cetcdctl check perf                   # Run performance check (put/get latency)
 # leftover check perf --foo / check datascale --foo fail-close (cannot start a write load)
 # leftover --load --prefix fail-close (cannot eat --prefix as the load)

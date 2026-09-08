@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 158 — leftover-safe LeaseGrant print</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 159 — leftover-safe Downgrade version</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 158 leftover-safe-parses
-     LeaseGrant so leftover length-delimited bytes cannot steal a
-     printed grant ID.</p>
+  <p><strong>v0.3.0</strong>. Phase 159 leftover-safe-parses
+     Downgrade so leftover length-delimited bytes cannot steal a
+     printed cluster version.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -211,6 +211,7 @@
       <tr><td>156</td><td>leftover-safe login token</td><td>auth login leftover-safe-parses so leftover length-delimited bytes cannot steal a printed token; AuthStatus leftover-safe-parses so leftover cannot steal printed enabled — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>157</td><td>leftover-safe DeleteRange</td><td>DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal a printed prev_kv key; truncated prev_kv / key fail-closes; cetcdctl put/del leftover-safe-skips unknown fields — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>158</td><td>leftover-safe LeaseGrant print</td><td>LeaseGrant leftover-safe-parses so leftover length-delimited bytes cannot steal a printed grant ID; TimeToLive leftover-safe-skips so leftover cannot steal a printed TTL key — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>159</td><td>leftover-safe Downgrade version</td><td>Downgrade leftover-safe-parses so leftover length-delimited bytes cannot steal a printed cluster version; truncated version fail-closes; VALIDATE encodes cetcd_version(); cetcdctl leftover-safe-parses field 2 — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

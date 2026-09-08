@@ -869,6 +869,7 @@ static int parse_downgrade_request_(const uint8_t *req, size_t len,
  *   truncated action / version fail-closes
  * DowngradeResponse:
  *   field 1 (header)  = ResponseHeader, tag = 0x0a
+ *   field 2 (version) = string, tag = 0x12
  *
  * cetcd cannot change on-disk format. VALIDATE of cetcd_version()
  * succeeds; ENABLE, CANCEL, and any other version fail-closed.
@@ -889,11 +890,21 @@ cetcd_rpc_bytes maint_handle_downgrade(cetcd_v3rpc *rpc, const uint8_t *req, siz
     hdr_buf[hp++] = 0x18;
     write_varint_m(hdr_buf, sizeof(hdr_buf), &hp, (uint64_t)(current_rev > 0 ? current_rev : 1));
 
-    uint8_t buf[32];
+    uint8_t buf[64];
     size_t bpos = 0;
     buf[bpos++] = 0x0a; /* field 1 = header */
     write_varint_m(buf, sizeof(buf), &bpos, (uint64_t)hp);
     memcpy(buf + bpos, hdr_buf, hp); bpos += hp;
+
+    /* field 2 = version (cluster version after VALIDATE) */
+    {
+        const char *verstr = cetcd_version();
+        size_t vlen = strlen(verstr);
+        buf[bpos++] = 0x12;
+        write_varint_m(buf, sizeof(buf), &bpos, (uint64_t)vlen);
+        memcpy(buf + bpos, verstr, vlen);
+        bpos += vlen;
+    }
 
     uint8_t *out = (uint8_t *)malloc(bpos);
     if (!out) return (cetcd_rpc_bytes){NULL, 0};

@@ -693,6 +693,16 @@ int cetcd_encode_downgrade_request(int action, const char *version,
 int cetcd_parse_downgrade_request(const uint8_t *req, size_t len,
                                   int *action, char *version,
                                   size_t version_cap);
+/* leftover-safe DowngradeResponse.version. omitted / empty / dummy
+ * 0x00 = empty version. leftover truncated version is INVAL so a
+ * truncated validate cannot print leftover text. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed version. unknown wire types are INVAL.
+ * last version is copied when version/version_cap are set. */
+int cetcd_encode_downgrade_response(const char *version, uint8_t *out,
+                                    size_t cap, size_t *n);
+int cetcd_parse_downgrade_response(const uint8_t *req, size_t len,
+                                   char *version, size_t version_cap);
 /* leftover-safe RequestOp key for Txn perm check. omitted / empty /
  * dummy 0x00 = empty key / want_write 1. leftover dummy 0x00 cannot
  * eat the key tag so a leftover Put cannot skip the perm check.

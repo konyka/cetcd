@@ -867,6 +867,13 @@ Performance-first, fail-closed design:
   auth status` / `user list` / `role list` leftover-safe-skip unknown
   fields. Accepting leftover payload as enabled or the printed name
   is rejected.
+- **Downgrade leftover-safe printed version** — leftover-safe-parses
+  DowngradeResponse so leftover length-delimited bytes cannot steal
+  a printed cluster version. A truncated version fail-closes (cannot
+  print leftover text). Dummy `0x00` is not a skip length.
+  `cetcdctl downgrade` leftover-safe-parses field 2. VALIDATE encodes
+  `cetcd_version()`. Accepting leftover payload as the printed version
+  is rejected.
 - **Downgrade leftover-safe action/version** — leftover-safe-parses
   DowngradeRequest so leftover length-delimited bytes cannot steal
   ENABLE or a VALIDATE version. A truncated action / version

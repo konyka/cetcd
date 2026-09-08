@@ -3113,10 +3113,17 @@ static int cmd_status(int argc, char **argv) {
             while (pos < hdr_end) {
                 uint8_t htag = resp[pos++];
                 if (htag == 0x18) { read_varint(resp, hdr_end, &pos, &revision); }
-                else { uint64_t v = 0; read_varint(resp, hdr_end, &pos, &v); }
+                else if (htag == 0x00) { continue; }
+                else if (cetcd_leftover_safe_skip_field(resp, hdr_end, &pos,
+                                                        htag) != CETCD_OK) {
+                    break;
+                }
             }
-        } else {
-            uint64_t v = 0; read_varint(resp, rlen, &pos, &v);
+        } else if (tag == 0x00) {
+            continue;
+        } else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen, &pos, tag)
+                   != CETCD_OK) {
+            break;
         }
     }
     if (want_fields) {
@@ -3390,10 +3397,19 @@ static int cmd_endpoint(int argc, char **argv) {
                         while (pos < hdr_end) {
                             uint8_t htag = sresp[pos++];
                             if (htag == 0x18) { read_varint(sresp, hdr_end, &pos, &revision); }
-                            else { uint64_t v = 0; read_varint(sresp, hdr_end, &pos, &v); }
+                            else if (htag == 0x00) { continue; }
+                            else if (cetcd_leftover_safe_skip_field(sresp, hdr_end,
+                                                                    &pos, htag)
+                                     != CETCD_OK) {
+                                break;
+                            }
                         }
-                    } else {
-                        uint64_t v = 0; read_varint(sresp, srlen, &pos, &v);
+                    } else if (tag == 0x00) {
+                        continue;
+                    } else if (cetcd_leftover_safe_skip_field(sresp, (size_t)srlen,
+                                                              &pos, tag)
+                               != CETCD_OK) {
+                        break;
                     }
                 }
                 if (want_json) {
@@ -3466,10 +3482,17 @@ static int cmd_endpoint(int argc, char **argv) {
                 while (pos < hdr_end) {
                     uint8_t htag = resp[pos++];
                     if (htag == 0x18) { read_varint(resp, hdr_end, &pos, &revision); }
-                    else { uint64_t v = 0; read_varint(resp, hdr_end, &pos, &v); }
+                    else if (htag == 0x00) { continue; }
+                    else if (cetcd_leftover_safe_skip_field(resp, hdr_end, &pos,
+                                                            htag) != CETCD_OK) {
+                        break;
+                    }
                 }
-            } else {
-                uint64_t v = 0; read_varint(resp, rlen, &pos, &v);
+            } else if (tag == 0x00) {
+                continue;
+            } else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen, &pos,
+                                                      tag) != CETCD_OK) {
+                break;
             }
         }
         if (want_json) {
@@ -3779,7 +3802,11 @@ static int cmd_check(int argc, char **argv) {
                 uint8_t t = st_resp[sp++];
                 if (t == 0x18) { read_varint(st_resp, st_rlen, &sp, &db_size); }
                 else if (t == 0x0a || t == 0x12 || t == 0x42) { uint64_t l = 0; read_varint(st_resp, st_rlen, &sp, &l); sp += l; }
-                else { uint64_t v = 0; read_varint(st_resp, st_rlen, &sp, &v); }
+                else if (t == 0x00) { continue; }
+                else if (cetcd_leftover_safe_skip_field(st_resp, (size_t)st_rlen,
+                                                        &sp, t) != CETCD_OK) {
+                    break;
+                }
             }
         }
         /* Cleanup: delete all test keys with prefix */
@@ -4995,13 +5022,25 @@ static int cmd_downgrade(int argc, char **argv) {
 
     int rlen = do_rpc("/etcdserverpb.Maintenance/Downgrade", req, pos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+    /* leftover-safe: leftover cannot steal a printed version */
+    char got_ver[32];
+    if (cetcd_parse_downgrade_response(resp, (size_t)rlen, got_ver,
+                                       sizeof(got_ver)) != CETCD_OK) {
+        fprintf(stderr, "request failed\n");
+        return 1;
+    }
     if (want_json) {
         fputs("{", stdout);
         parse_and_print_header_json(resp, (size_t)rlen);
+        fputs(",\"version\":", stdout);
+        print_json_string((const uint8_t *)got_ver, strlen(got_ver));
         fputs("}\n", stdout);
     } else if (want_fields) {
         parse_and_print_header_json(resp, (size_t)rlen);
+        printf("version: %s\n", got_ver);
         fputs("\n", stdout);
+    } else if (got_ver[0]) {
+        printf("%s\n", got_ver);
     } else {
         printf("OK\n");
     }
