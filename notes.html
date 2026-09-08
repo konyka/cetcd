@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 211 — leftover-safe LeaseLeases ID parse-first</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 212 — leftover-safe txn del succeeded parse-first</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 211 leftover-safe-parses
-     LeaseLeases first so leftover length-delimited bytes cannot
-     steal a printed lease ID.</p>
+  <p><strong>v0.3.0</strong>. Phase 212 leftover-safe-parses
+     Txn succeeded first so leftover length-delimited bytes cannot
+     steal a printed txn del / txn get succeeded.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -264,6 +264,7 @@
       <tr><td>209</td><td>leftover-safe MemberList peerURL</td><td>MemberList leftover-safe-parses so leftover length-delimited bytes cannot steal a printed peerURL; truncated peerURL fail-closes; header is not peerURL; cetcdctl leftover-safe-parses field 3 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>210</td><td>leftover-safe Watch Event type</td><td>Watch leftover-safe-parses so leftover length-delimited bytes cannot steal a printed Event type; truncated Event type fail-closes; header cluster_id is not Event type; cetcdctl leftover-safe-parses field 1 inside Event — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>211</td><td>leftover-safe LeaseLeases ID parse-first</td><td>LeaseLeases leftover-safe-parses first so leftover length-delimited bytes cannot steal a printed lease ID; truncated lease / ID fail-closes; cetcdctl leftover-safe-parses field 1 — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>212</td><td>leftover-safe txn del succeeded parse-first</td><td>Txn leftover-safe-parses first so leftover length-delimited bytes cannot steal a printed txn del / txn get succeeded; truncated succeeded fail-closes; cetcdctl leftover-safe-parses field 2 — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

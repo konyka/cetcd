@@ -3235,6 +3235,12 @@ static int cmd_txn(int argc, char **argv) {
 
         int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        /* leftover-safe: leftover cannot steal printed succeeded */
+        int leftover_succeeded = 0;
+        if (cetcd_parse_txn_succeeded(resp, (size_t)rlen, &leftover_succeeded)
+            != CETCD_OK)
+            return 1;
+        (void)leftover_succeeded;
 
         /* Parse TxnResponse: skip header(0x0a), succeeded(0x10), then response_range(0x0a in ResponseOp) */
         size_t rp = 0;
@@ -3364,10 +3370,23 @@ static int cmd_txn(int argc, char **argv) {
 
         int rlen = do_rpc("/etcdserverpb.KV/Txn", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
-        if (want_json) { fputs("{", stdout); parse_and_print_header_json(resp, (size_t)rlen); fputs(",\"succeeded\":true}\n", stdout); }
-        else if (want_fields) { parse_and_print_header_json(resp, (size_t)rlen); printf("succeeded: true\n\n"); }
-        else { printf("OK\n"); }
-        return 0;
+        /* leftover-safe: leftover cannot steal printed succeeded */
+        int succeeded_i = 0;
+        if (cetcd_parse_txn_succeeded(resp, (size_t)rlen, &succeeded_i)
+            != CETCD_OK)
+            return 1;
+        bool succeeded = succeeded_i != 0;
+        if (want_json) {
+            fputs("{", stdout);
+            parse_and_print_header_json(resp, (size_t)rlen);
+            printf(",\"succeeded\":%s}\n", succeeded ? "true" : "false");
+        } else if (want_fields) {
+            parse_and_print_header_json(resp, (size_t)rlen);
+            printf("succeeded: %s\n\n", succeeded ? "true" : "false");
+        } else {
+            printf("%s\n", succeeded ? "OK" : "FAILED");
+        }
+        return succeeded ? 0 : 1;
     } else if (strcmp(argv[2], "-i") == 0 || strcmp(argv[2], "--interactive") == 0) {
         /* Interactive txn mode: read transaction definition from stdin
          *

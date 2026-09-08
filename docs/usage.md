@@ -495,6 +495,8 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl txn get -w fields foo       # Transactional get with fields output
 ./build/bin/cetcdctl txn del --prefix foo       # Transactional prefix delete
 ./build/bin/cetcdctl txn del -w fields --prefix foo  # Transactional delete with fields output
+# leftover Txn succeeded cannot steal a printed txn del / txn get succeeded
+# (truncated field 2 fail-closes; leftover cannot print hardcoded true)
 ```
 
 ### Compaction

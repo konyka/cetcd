@@ -939,7 +939,9 @@ Performance-first, fail-closed design:
   steal a successful lock, elect, or compare. A truncated succeeded
   fail-closes (cannot look like a held lock). Dummy `0x00` is not a
   skip length. `cetcdctl lock` / `elect` / `txn` leftover-safe-parse
-  field 2. Accepting leftover payload as succeeded is rejected.
+  field 2. `cetcdctl txn del` / `txn get` leftover-safe-parse field 2
+  first so a leftover truncated succeeded cannot print true or range
+  kvs. Accepting leftover payload as succeeded is rejected.
 - **Hash leftover-safe printed hash** — leftover-safe-parses Hash /
   HashKV so leftover length-delimited bytes cannot steal a printed
   hash or compact_revision. A truncated hash fail-closes (cannot look
