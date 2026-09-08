@@ -911,7 +911,7 @@ Range leftover-safe-parses KV value so leftover length-delimited bytes cannot st
 Range leftover-safe-parses KV key so leftover length-delimited bytes cannot steal a printed key (truncated key fail-closes; tag `0x0a` header is not key).
 Put leftover-safe-parses field 3 so leftover length-delimited bytes cannot steal the lease (truncated `--lease` fail-closes; dummy `0x00` / omitted = lease 0).
 DeleteRange leftover-safe-parses field 2 so leftover length-delimited bytes cannot steal `range_end` and turn a point delete into a range delete (truncated `range_end` fail-closes; dummy `0x00` / omitted = empty range_end).
-DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal a printed prev_kv key (truncated prev_kv / key fail-closes).
+DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal a printed prev_kv key (truncated prev_kv / key fail-closes; tag `0x0a` header is not prev key).
 DeleteRange leftover-safe-parses prev_kv value so leftover length-delimited bytes cannot steal a printed prev value (truncated prev_kv value fail-closes; tag `0x0a` header is not prev value).
 DeleteRange leftover-safe-parses prev_kv lease so leftover length-delimited bytes cannot steal a printed prev lease (truncated prev_kv lease fail-closes; tag `0x0a` header is not prev lease).
 DeleteRange leftover-safe-parses prev_kv version so leftover length-delimited bytes cannot steal a printed prev version (truncated prev_kv version fail-closes; tag `0x0a` header raft_term is not prev version).

@@ -5007,6 +5007,71 @@ CETCD_TEST_CASE(auto_compact_parse_delete_range_prev_kv_mod_rev) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_delete_range_prev_kv_key) {
+    uint8_t buf[32];
+    size_t n = 0;
+    char key[16];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_delete_range_prev_kv_key("", buf,
+                                                             sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_delete_range_prev_kv_key("ok", buf,
+                                                             sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_delete_range_prev_kv_key(buf, n, key,
+                                                            sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "ok");
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_delete_range_prev_kv_key(NULL, 0, key,
+                                                            sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "");
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_delete_range_prev_kv_key(dummy, 1, key,
+                                                            sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "");
+
+    /* leftover truncated prev key cannot print leftover text */
+    uint8_t trunc[] = { 0x1a, 0x01, 0x0a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_delete_range_prev_kv_key(trunc,
+                                                            sizeof(trunc),
+                                                            key, sizeof(key)),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed prev key */
+    uint8_t steal[] = { 0x1a, 0x06, 0x32, 0x04, 0x0a, 0x02, 'o', 'k' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_delete_range_prev_kv_key(steal,
+                                                            sizeof(steal),
+                                                            key, sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "");
+
+    /* leftover header is not prev key */
+    uint8_t header[] = { 0x0a, 0x04, 0x0a, 0x02, 'x', 'y' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_delete_range_prev_kv_key(header,
+                                                            sizeof(header),
+                                                            key, sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "");
+
+    uint8_t last[] = { 0x1a, 0x04, 0x0a, 0x02, 'a', 'a',
+                       0x1a, 0x04, 0x0a, 0x02, 'b', 'b' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_delete_range_prev_kv_key(last, sizeof(last),
+                                                            key, sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "bb");
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_delete_range_prev_kv_key(fixed64, 1, key,
+                                                            sizeof(key)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_delete_range_prev_kv_key(buf, n, NULL, 0),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_downgrade_request) {
     uint8_t buf[64];
     size_t n = 0;
@@ -7209,6 +7274,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_delete_range_prev_kv_version),
     CETCD_TEST_ENTRY(auto_compact_parse_delete_range_prev_kv_create_rev),
     CETCD_TEST_ENTRY(auto_compact_parse_delete_range_prev_kv_mod_rev),
+    CETCD_TEST_ENTRY(auto_compact_parse_delete_range_prev_kv_key),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_request),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_response),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_op_key),

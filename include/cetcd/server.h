@@ -1210,6 +1210,18 @@ int cetcd_encode_delete_range_prev_kv_mod_rev(int64_t mod_rev, uint8_t *out,
                                               size_t cap, size_t *n);
 int cetcd_parse_delete_range_prev_kv_mod_rev(const uint8_t *req, size_t len,
                                              int64_t *mod_rev);
+/* leftover-safe DeleteRangeResponse prev_kv key (field 1, tag 0x0a
+ * inside field 3, tag 0x1a). omitted / empty / dummy 0x00 = empty
+ * key. leftover truncated prev_kv key is INVAL so a truncated del
+ * cannot print leftover text as the prev key. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed prev key (tag 0x0a header is not prev
+ * key). unknown wire types are INVAL. last prev key is copied when
+ * key/key_cap are set. proto3 omitted key is empty. */
+int cetcd_encode_delete_range_prev_kv_key(const char *key, uint8_t *out,
+                                          size_t cap, size_t *n);
+int cetcd_parse_delete_range_prev_kv_key(const uint8_t *req, size_t len,
+                                         char *key, size_t key_cap);
 /* leftover-safe DowngradeRequest. omitted / empty / dummy 0x00 =
  * action VALIDATE (0) / empty version. leftover truncated action /
  * version is INVAL so a truncated validate cannot look like ENABLE

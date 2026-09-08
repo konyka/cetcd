@@ -1185,6 +1185,13 @@ Performance-first, fail-closed design:
   `0x0a` header revision is not prev mod_revision. `cetcdctl del
   --prev-kv` leftover-safe-parses field 3 inside prev_kv. Accepting
   leftover payload as the printed prev mod_revision is rejected.
+- **DeleteRange leftover-safe prev_kv key** — leftover-safe-parses
+  DeleteRangeResponse prev_kv key so leftover length-delimited bytes
+  cannot steal a printed prev key. A truncated prev_kv key fail-closes
+  (cannot print leftover text). Dummy `0x00` is not a skip length.
+  Tag `0x0a` header is not prev key. `cetcdctl del --prev-kv`
+  leftover-safe-parses field 1 inside prev_kv. Accepting leftover
+  payload as the printed prev key is rejected.
 - **auth login leftover-safe printed token** — leftover-safe-parses
   AuthenticateResponse so leftover length-delimited bytes cannot steal
   a printed login token. AuthStatus leftover-safe-parses so leftover
