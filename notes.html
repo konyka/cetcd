@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 149 — leftover-safe Hash</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 150 — leftover-safe LeaseLeases</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 149 leftover-safe-parses
-     Hash / HashKV so leftover length-delimited bytes cannot steal a
-     printed hash or compact_revision.</p>
+  <p><strong>v0.3.0</strong>. Phase 150 leftover-safe-parses
+     LeaseLeases so leftover length-delimited bytes cannot steal a
+     printed lease ID.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -202,6 +202,7 @@
       <tr><td>147</td><td>leftover-safe Authenticate token</td><td>Authenticate leftover-safe-parses so leftover length-delimited bytes cannot steal a used token; truncated token fail-closes; cetcdctl leftover-safe-parses field 2 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>148</td><td>leftover-safe Txn succeeded</td><td>Txn leftover-safe-parses succeeded so leftover length-delimited bytes cannot steal a successful lock, elect, or compare; truncated succeeded fail-closes — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>149</td><td>leftover-safe Hash</td><td>Hash / HashKV leftover-safe-parses so leftover length-delimited bytes cannot steal a printed hash or compact_revision; truncated hash fail-closes — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>150</td><td>leftover-safe LeaseLeases</td><td>LeaseLeases leftover-safe-parses so leftover length-delimited bytes cannot steal a printed lease ID; truncated lease / ID fail-closes; cetcdctl leftover-safe-skips unknown fields — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

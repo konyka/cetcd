@@ -608,6 +608,15 @@ int cetcd_encode_hash_response(uint32_t hash, int64_t compact_rev,
                                uint8_t *out, size_t cap, size_t *n);
 int cetcd_parse_hash_response(const uint8_t *req, size_t len,
                               uint32_t *hash, int64_t *compact_rev);
+/* leftover-safe LeaseLeases last ID. omitted / empty / dummy 0x00 =
+ * 0 leases / id 0. leftover truncated lease / ID is INVAL so a
+ * truncated list cannot print a leftover ID. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed ID. unknown wire types are INVAL. */
+int cetcd_encode_lease_list_item(int64_t id, uint8_t *out, size_t cap,
+                                 size_t *n);
+int cetcd_parse_lease_list_response(const uint8_t *req, size_t len,
+                                    int64_t *id, size_t *n);
 /* leftover-safe DowngradeRequest. omitted / empty / dummy 0x00 =
  * action VALIDATE (0) / empty version. leftover truncated action /
  * version is INVAL so a truncated validate cannot look like ENABLE

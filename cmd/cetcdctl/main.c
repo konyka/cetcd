@@ -2328,8 +2328,12 @@ static int cmd_lease(int argc, char **argv) {
                             printf("lease ID: %llu\n", (unsigned long long)id);
                         }
                         count++;
-                    } else {
-                        uint64_t v = 0; read_varint(resp, lend, &rpos, &v);
+                    } else if (ltag == 0x00) {
+                        continue;
+                    } else if (cetcd_leftover_safe_skip_field(resp, lend, &rpos,
+                                                              ltag)
+                               != CETCD_OK) {
+                        break;
                     }
                 }
                 rpos = lend;
@@ -2337,8 +2341,11 @@ static int cmd_lease(int argc, char **argv) {
                 /* Skip header (length-delimited) */
                 uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
                 rpos += l;
-            } else {
-                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            } else if (tag == 0x00) {
+                continue;
+            } else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen, &rpos,
+                                                      tag) != CETCD_OK) {
+                break;
             }
         }
         if (json_fmt) {

@@ -2282,6 +2282,62 @@ CETCD_TEST_CASE(auto_compact_parse_hash_response) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_lease_list_response) {
+    uint8_t buf[16];
+    size_t n = 0, got = 9;
+    int64_t id = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_lease_list_item(0, buf, sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_lease_list_item(5, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_list_response(buf, n, &id, &got),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(id == 5);
+    CETCD_ASSERT_TRUE(got == 1);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_list_response(NULL, 0, &id, &got),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(id == 0);
+    CETCD_ASSERT_TRUE(got == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_list_response(dummy, 1, &id, &got),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(got == 0);
+
+    /* leftover truncated lease cannot print a leftover ID */
+    uint8_t trunc[] = { 0x12 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_list_response(trunc, 1, &id, &got),
+                        CETCD_ERR_INVAL);
+    uint8_t trunc_id[] = { 0x12, 0x01, 0x08 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_list_response(trunc_id,
+                                                       sizeof(trunc_id),
+                                                       &id, &got),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed ID */
+    uint8_t steal[] = { 0x1a, 0x04, 0x12, 0x02, 0x08, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_list_response(steal, sizeof(steal),
+                                                       &id, &got),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(got == 0);
+    CETCD_ASSERT_TRUE(id == 0);
+
+    uint8_t inner_steal[] = { 0x12, 0x04, 0x1a, 0x02, 0x08, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_list_response(inner_steal,
+                                                       sizeof(inner_steal),
+                                                       &id, &got),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(got == 1);
+    CETCD_ASSERT_TRUE(id == 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_list_response(fixed64, 1, &id, &got),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_list_response(buf, n, NULL, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_downgrade_request) {
     uint8_t buf[64];
     size_t n = 0;
@@ -3945,6 +4001,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_authenticate_response),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_succeeded),
     CETCD_TEST_ENTRY(auto_compact_parse_hash_response),
+    CETCD_TEST_ENTRY(auto_compact_parse_lease_list_response),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_request),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_op_key),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),

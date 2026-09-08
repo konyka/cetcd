@@ -802,6 +802,12 @@ Performance-first, fail-closed design:
   like 0). Dummy `0x00` is not a skip length. `cetcdctl hash` /
   `hashkv` leftover-safe-parse field 2/3. Accepting leftover payload
   as the printed hash is rejected.
+- **LeaseLeases leftover-safe ID** — leftover-safe-parses
+  LeaseLeasesResponse so leftover length-delimited bytes cannot steal
+  a printed lease ID. A truncated lease / ID fail-closes (cannot print
+  leftover text). Dummy `0x00` is not a skip length. `cetcdctl lease
+  list` leftover-safe-skips unknown fields. Accepting leftover payload
+  as the printed ID is rejected.
 - **AuthStatus / user-role list leftover-safe** — leftover-safe-parses
   AuthStatusResponse and UserList/RoleList so leftover length-delimited
   bytes cannot steal `enabled` or a printed user/role name. A truncated

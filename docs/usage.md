@@ -444,6 +444,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl lease keepalive --interval 5 1        # Keep alive with custom 5-second interval
 # --interval must be > 0; leftover text is not a silent truncated interval
 ./build/bin/cetcdctl lease list -w fields                  # List all leases in fields format
+# leftover cannot steal a printed lease ID
 ```
 
 ### Transactions
