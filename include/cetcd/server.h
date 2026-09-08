@@ -317,6 +317,17 @@ int cetcd_encode_range_response_kv_value(const char *value, uint8_t *out,
                                          size_t cap, size_t *n);
 int cetcd_parse_range_response_kv_value(const uint8_t *req, size_t len,
                                         char *value, size_t value_cap);
+/* leftover-safe RangeResponse KV key (field 1, tag 0x0a). omitted /
+ * empty / dummy 0x00 = empty key. leftover truncated key is INVAL so
+ * a truncated get cannot print leftover text as the key. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed key (tag 0x0a header is not key). unknown
+ * wire types are INVAL. last key is copied when key/key_cap are
+ * set. */
+int cetcd_encode_range_response_kv_key(const char *key, uint8_t *out,
+                                       size_t cap, size_t *n);
+int cetcd_parse_range_response_kv_key(const uint8_t *req, size_t len,
+                                      char *key, size_t key_cap);
 /* leftover-safe RangeResponse.count / more. omitted / empty / dummy
  * 0x00 = count 0 / more false. leftover truncated count / more is
  * INVAL so a truncated get --count-only cannot print 0. leftover

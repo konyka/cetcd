@@ -758,6 +758,13 @@ Performance-first, fail-closed design:
   is not value. `cetcdctl get` / `put --prev-kv` / `del --prev-kv` /
   `watch` leftover-safe-parse field 5. Accepting leftover payload as
   the printed value is rejected.
+- **Range leftover-safe KV key** — leftover-safe-parses
+  RangeResponse KV key so leftover length-delimited bytes cannot
+  steal a printed key. A truncated key fail-closes (cannot print
+  leftover text). Dummy `0x00` is not a skip length. Tag `0x0a` header
+  is not key. `cetcdctl get` / `put --prev-kv` / `del --prev-kv` /
+  `watch` leftover-safe-parse field 1. Accepting leftover payload as
+  the printed key is rejected.
 - **Authenticate leftover-safe name/password** — leftover-safe-parses
   AuthenticateRequest so leftover length-delimited bytes cannot steal
   a name or password. A truncated password fail-closes (cannot look
