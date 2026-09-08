@@ -874,6 +874,12 @@ static void parse_lease_ttl_response(const uint8_t *data, size_t len) {
 }
 
 static void parse_member_list_response(const uint8_t *data, size_t len, int table_format, int json_format, int fields_format) {
+    char leftover_curl[256];
+    leftover_curl[0] = '\0';
+    /* leftover-safe: leftover cannot steal a printed client URL */
+    if (cetcd_parse_member_list_client_url(data, len, leftover_curl,
+                                           sizeof(leftover_curl)) != CETCD_OK)
+        return;
     size_t pos = 0;
     int first = 1;
     if (table_format) {
@@ -902,17 +908,18 @@ static void parse_member_list_response(const uint8_t *data, size_t len, int tabl
                 if (mtag == 0x08) {
                     read_varint(data, mend, &pos, &mid);
                 } else if (mtag == 0x12) {
+                    /* field 2 = name (string) */
+                    uint64_t l = 0; read_varint(data, mend, &pos, &l);
+                    m_name = data + pos; name_len = (size_t)l;
+                    pos += l;
+                } else if (mtag == 0x1a) {
+                    /* field 3 = peerURLs (repeated string) */
                     uint64_t l = 0; read_varint(data, mend, &pos, &l);
                     if (n_peer < 8) {
                         peer_urls[n_peer] = data + pos;
                         peer_lens[n_peer] = (size_t)l;
                         n_peer++;
                     }
-                    pos += l;
-                } else if (mtag == 0x1a) {
-                    /* field 3 = name (string) */
-                    uint64_t l = 0; read_varint(data, mend, &pos, &l);
-                    m_name = data + pos; name_len = (size_t)l;
                     pos += l;
                 } else if (mtag == 0x22) {
                     /* field 4 = clientURLs (repeated string) */
@@ -3224,6 +3231,16 @@ static int collect_cluster_endpoints(struct cluster_endpoint *eps, int max_eps) 
         return -1;
     int mrlen = do_rpc("/etcdserverpb.Cluster/MemberList", mreq, mn, mresp, sizeof(mresp));
     if (mrlen < 0) return -1;
+    {
+        char leftover_curl[256];
+        leftover_curl[0] = '\0';
+        /* leftover-safe: leftover cannot steal a used --cluster URL */
+        if (cetcd_parse_member_list_client_url(mresp, (size_t)mrlen,
+                                               leftover_curl,
+                                               sizeof(leftover_curl))
+            != CETCD_OK)
+            return -1;
+    }
     size_t mpos = 0;
     int count = 0;
     while (mpos < (size_t)mrlen && count < max_eps) {
@@ -3243,8 +3260,11 @@ static int collect_cluster_endpoints(struct cluster_endpoint *eps, int max_eps) 
                 } else if (mtag == 0x12 || mtag == 0x1a) {
                     uint64_t l = 0; read_varint(mresp, mend, &mpos, &l);
                     mpos += l;
-                } else {
-                    uint64_t v = 0; read_varint(mresp, mend, &mpos, &v);
+                } else if (mtag == 0x00) {
+                    continue;
+                } else if (cetcd_leftover_safe_skip_field(mresp, mend, &mpos,
+                                                          mtag) != CETCD_OK) {
+                    return -1;
                 }
             }
             mpos = mend;
@@ -3258,8 +3278,11 @@ static int collect_cluster_endpoints(struct cluster_endpoint *eps, int max_eps) 
         } else if (tag == 0x0a) {
             uint64_t l = 0; read_varint(mresp, mrlen, &mpos, &l);
             mpos += l;
-        } else {
-            uint64_t v = 0; read_varint(mresp, mrlen, &mpos, &v);
+        } else if (tag == 0x00) {
+            continue;
+        } else if (cetcd_leftover_safe_skip_field(mresp, (size_t)mrlen, &mpos,
+                                                  tag) != CETCD_OK) {
+            return -1;
         }
     }
     return count;
@@ -5218,6 +5241,18 @@ static int cmd_member(int argc, char **argv) {
         }
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberList", req, rpos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        {
+            char leftover_curl[256];
+            leftover_curl[0] = '\0';
+            /* leftover-safe: leftover cannot steal a printed client URL */
+            if (cetcd_parse_member_list_client_url(resp, (size_t)rlen,
+                                                   leftover_curl,
+                                                   sizeof(leftover_curl))
+                != CETCD_OK) {
+                fprintf(stderr, "request failed\n");
+                return 1;
+            }
+        }
         parse_member_list_response(resp, rlen, table_fmt, json_fmt, fields_fmt);
     } else if (strcmp(argv[2], "add") == 0) {
         const char *peer_url = NULL;
@@ -5266,6 +5301,18 @@ static int cmd_member(int argc, char **argv) {
         }
         int rlen = do_rpc("/etcdserverpb.Cluster/MemberAdd", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        {
+            char leftover_curl[256];
+            leftover_curl[0] = '\0';
+            /* leftover-safe: leftover cannot steal a printed client URL */
+            if (cetcd_parse_member_list_client_url(resp, (size_t)rlen,
+                                                   leftover_curl,
+                                                   sizeof(leftover_curl))
+                != CETCD_OK) {
+                fprintf(stderr, "request failed\n");
+                return 1;
+            }
+        }
         if (want_json) {
             parse_member_list_response(resp, rlen, 0, 1, 0);
         } else if (want_fields) {

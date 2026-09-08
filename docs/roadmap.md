@@ -774,7 +774,15 @@ Performance-first, fail-closed design:
   isLearner fail-closes (cannot print a leftover URL or look like a
   voter). Dummy `0x00` is not a skip length. `cetcdctl member list`
   leftover-safe-skips unknown fields. Accepting leftover payload as
-  the printed URL is rejected.
+  the printed URL is rejected. Member encodes etcd field 2 `name`
+  (`0x12`) / field 3 `peerURLs` (`0x1a`) (a swapped name/peerURL
+  wire is rejected).
+- **MemberList leftover-safe clientURL** — leftover-safe-parses
+  Member.clientURLs so leftover length-delimited bytes cannot steal a
+  used `--cluster` client URL. A truncated clientURL fail-closes
+  (cannot connect leftover text). Dummy `0x00` is not a skip length.
+  `cetcdctl endpoint --cluster` leftover-safe-parses field 4.
+  Accepting leftover payload as the connected URL is rejected.
 - **Status leftover-safe version / isLearner** — leftover-safe-parses
   StatusResponse so leftover length-delimited bytes cannot steal a
   printed version, dbSize, or `isLearner`. A truncated version /

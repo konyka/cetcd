@@ -14,8 +14,13 @@
  *   MemberListResponse:
  *     field 2 (members) = repeated Member, tag = 0x12 (length-delimited)
  *       Member:
- *         field 1 (ID)       = uint64, tag = 0x08
- *         field 2 (peerURLs) = repeated string, tag = 0x12
+ *         field 1 (ID)         = uint64, tag = 0x08
+ *         field 2 (name)       = string, tag = 0x12
+ *         field 3 (peerURLs)   = repeated string, tag = 0x1a
+ *         field 4 (clientURLs) = repeated string, tag = 0x22
+ *         field 5 (isLearner)  = bool, tag = 0x28
+ *         leftover-safe: leftover cannot steal a used clientURL;
+ *         truncated clientURL fail-closes
  *
  *   MemberAddRequest:
  *     field 1 (peerURLs)    = repeated string, tag = 0x0a
@@ -140,10 +145,11 @@ static cetcd_rpc_bytes make_simple_cluster_response(void) {
 }
 
 /*
- * Encode a Member message into buffer.
+ * Encode a Member message into buffer (etcd v3.5 proto).
  * Member:
- *   field 1 (ID)       = uint64, tag = 0x08
- *   field 2 (peerURLs) = repeated string, tag = 0x12
+ *   field 1 (ID)         = uint64, tag = 0x08
+ *   field 2 (name)       = string, tag = 0x12
+ *   field 3 (peerURLs)   = repeated string, tag = 0x1a
  */
 static size_t encode_member(uint8_t *buf, size_t cap, uint64_t id,
                              const char *name, const char *peer_addr,
@@ -151,20 +157,20 @@ static size_t encode_member(uint8_t *buf, size_t cap, uint64_t id,
     size_t pos = 0;
     buf[pos++] = 0x08; /* field 1 = ID */
     write_varint_c(buf, cap, &pos, id);
-    if (peer_addr && *peer_addr) {
-        if (append_csv_strings_(buf, cap, &pos, 0x12, peer_addr) != 0)
-            return 0;
-    }
-    /* field 3 = name (string) */
+    /* field 2 = name (string) */
     {
         const char *nm = (name && *name) ? name : "default";
         size_t nlen = strlen(nm);
-        buf[pos++] = 0x1a;
+        buf[pos++] = 0x12;
         write_varint_c(buf, cap, &pos, (uint64_t)nlen);
         if (pos + nlen < cap) {
             memcpy(buf + pos, nm, nlen);
             pos += nlen;
         }
+    }
+    if (peer_addr && *peer_addr) {
+        if (append_csv_strings_(buf, cap, &pos, 0x1a, peer_addr) != 0)
+            return 0;
     }
     /* field 4 = clientURLs (repeated string); omit when unknown */
     if (client_url && *client_url) {

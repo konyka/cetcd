@@ -631,6 +631,7 @@ to cancel the watch and close the stream.
 # leftover cannot steal a printed JSON revision
 ./build/bin/cetcdctl endpoint status -w table  # Status in table format
 # leftover cannot steal a printed version, dbSize, or isLearner
+# leftover cannot steal a used --cluster client URL
 ./build/bin/cetcdctl endpoint hashkv --rev 10 -w json  # HashKV at rev (leftover 10foo fail-closes)
 ./build/bin/cetcdctl endpoint hashkv -w fields  # HashKV with fields output
 ./build/bin/cetcdctl alarm list                           # List all alarms

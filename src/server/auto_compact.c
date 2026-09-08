@@ -4310,7 +4310,7 @@ int cetcd_encode_member_list_response_member(uint64_t id, const char *url,
         if (v) b |= 0x80u;
         inner[in++] = b;
     } while (v);
-    rc = write_bytes_field_(inner, sizeof(inner), &in, 0x12,
+    rc = write_bytes_field_(inner, sizeof(inner), &in, 0x1a,
                             (const uint8_t *)url, strlen(url));
     if (rc != CETCD_OK) return rc;
     if (is_learner) {
@@ -4374,13 +4374,89 @@ int cetcd_parse_member_list_response(const uint8_t *req, size_t len,
                     if (mt == 0x28 && is_learner) *is_learner = v != 0;
                     continue;
                 }
-                if (mt == 0x12) {
+                if (mt == 0x12 || mt == 0x1a || mt == 0x22) {
                     uint64_t sl = 0;
                     size_t qp = ip;
                     if (leftover_safe_varint_at_(req + p, (size_t)skip, &qp, &sl)
                         != CETCD_OK || qp + sl > (size_t)skip)
                         return CETCD_ERR_INVAL;
-                    if (url && url_cap) {
+                    if (mt == 0x1a && url && url_cap) {
+                        if (sl >= url_cap) return CETCD_ERR_INVAL;
+                        memcpy(url, req + p + qp, (size_t)sl);
+                        url[sl] = '\0';
+                    }
+                    ip = qp + (size_t)sl;
+                    continue;
+                }
+                if (leftover_safe_skip_unknown_at_(req + p, (size_t)skip, &ip,
+                                                   mt) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
+int cetcd_encode_member_list_client_url(const char *url, uint8_t *out,
+                                        size_t cap, size_t *n) {
+    uint8_t inner[96];
+    size_t in = 0;
+    uint64_t v;
+    size_t pos = 0;
+    int rc;
+    if (!out || !n || !url || !url[0]) return CETCD_ERR_INVAL;
+    rc = write_bytes_field_(inner, sizeof(inner), &in, 0x22,
+                            (const uint8_t *)url, strlen(url));
+    if (rc != CETCD_OK) return rc;
+    if (pos + 2 + in > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x12; /* field 2 members */
+    v = in;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    memcpy(out + pos, inner, in);
+    pos += in;
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_member_list_client_url(const uint8_t *req, size_t len,
+                                       char *url, size_t url_cap) {
+    size_t p = 0;
+    if (url && url_cap)
+        url[0] = '\0';
+    if (!url) return CETCD_ERR_INVAL;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x12) {
+            uint64_t skip = 0;
+            size_t ip = 0;
+            int rc = leftover_safe_varint_at_(req, len, &p, &skip);
+            if (rc != CETCD_OK || p + skip > len) return CETCD_ERR_INVAL;
+            if (url && url_cap) url[0] = '\0';
+            while (ip < (size_t)skip) {
+                uint8_t mt = req[p + ip];
+                ip++;
+                if (mt == 0x00)
+                    continue;
+                if (mt == 0x22) {
+                    uint64_t sl = 0;
+                    size_t qp = ip;
+                    if (leftover_safe_varint_at_(req + p, (size_t)skip, &qp, &sl)
+                        != CETCD_OK || qp + sl > (size_t)skip)
+                        return CETCD_ERR_INVAL;
+                    if (url_cap) {
                         if (sl >= url_cap) return CETCD_ERR_INVAL;
                         memcpy(url, req + p + qp, (size_t)sl);
                         url[sl] = '\0';

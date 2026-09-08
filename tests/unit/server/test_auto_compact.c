@@ -1824,7 +1824,7 @@ CETCD_TEST_CASE(auto_compact_parse_member_list_response) {
 
     /* leftover cannot steal isLearner */
     uint8_t steal_learn[] = {
-        0x12, 0x16, 0x08, 0x07, 0x12, 0x0e,
+        0x12, 0x16, 0x08, 0x07, 0x1a, 0x0e,
         '1', '2', '7', '.', '0', '.', '0', '.', '1', ':', '2', '3', '8', '0',
         0x3a, 0x02, 0x28, 0x01
     };
@@ -1843,6 +1843,64 @@ CETCD_TEST_CASE(auto_compact_parse_member_list_response) {
                         CETCD_ERR_INVAL);
     CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_response(buf, n, NULL, NULL, 0,
                                                         NULL, NULL),
+                        CETCD_ERR_INVAL);
+}
+
+CETCD_TEST_CASE(auto_compact_parse_member_list_client_url) {
+    uint8_t buf[64];
+    size_t n = 0;
+    char url[32];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_client_url(NULL, buf,
+                                                            sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_client_url("", buf,
+                                                            sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_member_list_client_url(
+                            "http://127.0.0.1:2379", buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_client_url(buf, n, url,
+                                                           sizeof(url)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(url, "http://127.0.0.1:2379");
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_client_url(NULL, 0, url,
+                                                           sizeof(url)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(url, "");
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_client_url(dummy, 1, url,
+                                                           sizeof(url)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(url, "");
+
+    /* leftover truncated clientURL cannot connect leftover text */
+    uint8_t trunc[] = { 0x12, 0x01, 0x22 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_client_url(trunc, sizeof(trunc),
+                                                           url, sizeof(url)),
+                        CETCD_ERR_INVAL);
+    uint8_t trunc_len[] = { 0x12, 0x02, 0x22, 0x10 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_client_url(
+                            trunc_len, sizeof(trunc_len), url, sizeof(url)),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a used --cluster client URL */
+    uint8_t steal[] = {
+        0x12, 0x16, 0x2a, 0x14, 0x22, 0x12,
+        'h', 't', 't', 'p', ':', '/', '/', 's', 't', 'o', 'l', 'e', 'n',
+        ':', '2', '3', '7', '9'
+    };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_client_url(steal, sizeof(steal),
+                                                           url, sizeof(url)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(url, "");
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_client_url(fixed64, 1, url,
+                                                           sizeof(url)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_member_list_client_url(buf, n, NULL, 0),
                         CETCD_ERR_INVAL);
 }
 
@@ -4697,6 +4755,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_member_update_request),
     CETCD_TEST_ENTRY(auto_compact_parse_member_add_request),
     CETCD_TEST_ENTRY(auto_compact_parse_member_list_response),
+    CETCD_TEST_ENTRY(auto_compact_parse_member_list_client_url),
     CETCD_TEST_ENTRY(auto_compact_parse_auth_status_response),
     CETCD_TEST_ENTRY(auto_compact_parse_string_list_response),
     CETCD_TEST_ENTRY(auto_compact_parse_status_response),

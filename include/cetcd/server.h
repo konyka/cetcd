@@ -528,13 +528,25 @@ int cetcd_parse_member_add_request(const uint8_t *req, size_t len,
  * leftover URL or look like a voter. leftover length-delimited
  * fields are skipped by payload so leftover bytes cannot steal a
  * printed peerURL, id, or isLearner. unknown wire types are INVAL.
- * last peerURL is copied when url/url_cap are set. */
+ * last peerURL (field 3, tag 0x1a) is copied when url/url_cap are
+ * set. field 2 is name (etcd proto; a leftover 0x12 cannot steal
+ * the printed peerURL). */
 int cetcd_encode_member_list_response_member(uint64_t id, const char *url,
                                              int is_learner, uint8_t *out,
                                              size_t cap, size_t *n);
 int cetcd_parse_member_list_response(const uint8_t *req, size_t len,
                                      uint64_t *id, char *url, size_t url_cap,
                                      int *is_learner, size_t *n_members);
+/* leftover-safe Member.clientURLs (field 4, tag 0x22). omitted /
+ * empty / dummy 0x00 = empty. leftover truncated clientURL is INVAL
+ * so a truncated list cannot connect leftover text. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a used --cluster client URL. unknown wire types are
+ * INVAL. last clientURL is copied when url/url_cap are set. */
+int cetcd_encode_member_list_client_url(const char *url, uint8_t *out,
+                                        size_t cap, size_t *n);
+int cetcd_parse_member_list_client_url(const uint8_t *req, size_t len,
+                                       char *url, size_t url_cap);
 /* leftover-safe AuthStatusResponse.enabled. omitted / empty / dummy
  * 0x00 = disabled. leftover truncated enabled is INVAL so a truncated
  * status cannot look like disabled. leftover length-delimited fields
