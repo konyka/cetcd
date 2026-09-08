@@ -768,6 +768,15 @@ int cetcd_encode_lease_ttl_remaining(int64_t ttl, uint8_t *out, size_t cap,
                                      size_t *n);
 int cetcd_parse_lease_ttl_remaining(const uint8_t *req, size_t len,
                                     int64_t *ttl);
+/* leftover-safe LeaseTimeToLiveResponse.ID (field 2, tag 0x10).
+ * omitted / empty / dummy 0x00 = 0. leftover truncated ID is INVAL
+ * so a truncated TTL cannot look like lease id 0. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed ID (tag 0x0a header member_id is not the
+ * lease ID). unknown wire types are INVAL. last ID is copied when
+ * id is set. */
+int cetcd_encode_lease_ttl_id(int64_t id, uint8_t *out, size_t cap, size_t *n);
+int cetcd_parse_lease_ttl_id(const uint8_t *req, size_t len, int64_t *id);
 /* leftover-safe AuthenticateResponse.token. omitted / empty / dummy
  * 0x00 = empty token. leftover truncated token is INVAL so a
  * truncated login cannot look like no token. leftover

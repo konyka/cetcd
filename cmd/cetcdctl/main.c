@@ -934,12 +934,20 @@ static void parse_lease_ttl_response(const uint8_t *data, size_t len) {
     /* leftover-safe: leftover cannot steal a printed remaining TTL */
     if (cetcd_parse_lease_ttl_remaining(data, len, &leftover_ttl) != CETCD_OK)
         return;
+    int64_t leftover_id = 0;
+    /* leftover-safe: leftover cannot steal a printed lease ID */
+    if (cetcd_parse_lease_ttl_id(data, len, &leftover_id) != CETCD_OK)
+        return;
     size_t pos = 0;
     while (pos < len) {
         uint8_t tag = data[pos++];
         if (tag == 0x10) {
-            uint64_t v = 0; read_varint(data, len, &pos, &v);
-            printf("lease ID: %llu\n", (unsigned long long)v);
+            /* leftover-safe-skip field 2; leftover-safe ID is printed */
+            if (cetcd_leftover_safe_skip_field(data, len, &pos, tag)
+                != CETCD_OK) {
+                break;
+            }
+            printf("lease ID: %llu\n", (unsigned long long)leftover_id);
         } else if (tag == 0x18) {
             /* leftover-safe-skip field 3; leftover-safe remaining TTL is printed */
             if (cetcd_leftover_safe_skip_field(data, len, &pos, tag)
@@ -2452,9 +2460,16 @@ static int cmd_lease(int argc, char **argv) {
             fprintf(stderr, "request failed\n");
             return 1;
         }
+        int64_t leftover_id = 0;
+        /* leftover-safe: leftover cannot steal a printed lease ID */
+        if (cetcd_parse_lease_ttl_id(resp, (size_t)rlen, &leftover_id)
+            != CETCD_OK) {
+            fprintf(stderr, "request failed\n");
+            return 1;
+        }
         if (want_json) {
             size_t rpos = 0;
-            uint64_t lid = 0, ttl = (uint64_t)leftover_ttl, granted = (uint64_t)leftover_granted;
+            uint64_t lid = (uint64_t)leftover_id, ttl = (uint64_t)leftover_ttl, granted = (uint64_t)leftover_granted;
             fputs("{", stdout);
             parse_and_print_header_json(resp, (size_t)rlen);
             fputs(",", stdout);
@@ -2462,8 +2477,14 @@ static int cmd_lease(int argc, char **argv) {
             int key_count = 0;
             while (rpos < (size_t)rlen) {
                 uint8_t tag = resp[rpos++];
-                if (tag == 0x10) { read_varint(resp, rlen, &rpos, &lid); }
-                else if (tag == 0x18) {
+                if (tag == 0x10) {
+                    /* leftover-safe: leftover cannot steal a printed lease ID */
+                    if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                        &rpos, tag)
+                        != CETCD_OK) {
+                        break;
+                    }
+                } else if (tag == 0x18) {
                     /* leftover-safe: leftover cannot steal a printed remaining TTL */
                     if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
                                                         &rpos, tag)
@@ -2518,11 +2539,17 @@ static int cmd_lease(int argc, char **argv) {
             fputs("}\n", stdout);
         } else if (want_fields) {
             size_t rpos = 0;
-            uint64_t lid = 0, ttl = (uint64_t)leftover_ttl, granted = (uint64_t)leftover_granted;
+            uint64_t lid = (uint64_t)leftover_id, ttl = (uint64_t)leftover_ttl, granted = (uint64_t)leftover_granted;
             while (rpos < (size_t)rlen) {
                 uint8_t tag = resp[rpos++];
-                if (tag == 0x10) { read_varint(resp, rlen, &rpos, &lid); }
-                else if (tag == 0x18) {
+                if (tag == 0x10) {
+                    /* leftover-safe: leftover cannot steal a printed lease ID */
+                    if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                        &rpos, tag)
+                        != CETCD_OK) {
+                        break;
+                    }
+                } else if (tag == 0x18) {
                     /* leftover-safe: leftover cannot steal a printed remaining TTL */
                     if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
                                                         &rpos, tag)

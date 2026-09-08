@@ -947,6 +947,13 @@ Performance-first, fail-closed design:
   skip length. Tag `0x0a` header revision is not remaining TTL.
   `cetcdctl lease timetolive` leftover-safe-parses field 3. Accepting
   leftover payload as the printed remaining TTL is rejected.
+- **TimeToLive leftover-safe ID** — leftover-safe-parses
+  LeaseTimeToLiveResponse.ID so leftover length-delimited bytes
+  cannot steal a printed lease ID. A truncated ID fail-closes
+  (cannot look like lease id 0). Dummy `0x00` is not a skip length.
+  Tag `0x0a` header member_id is not the lease ID. `cetcdctl lease
+  timetolive` leftover-safe-parses field 2. Accepting leftover
+  payload as the printed ID is rejected.
 - **RoleGet leftover-safe key / permType** — leftover-safe-parses
   AuthRoleGetResponse so leftover length-delimited bytes cannot steal
   a printed Permission key or permType. A truncated perm / key
