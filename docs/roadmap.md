@@ -810,6 +810,12 @@ Performance-first, fail-closed design:
   length. `cetcdctl status` / `endpoint status` leftover-safe-parse
   field 9. Accepting leftover payload as the printed dbSizeInUse is
   rejected.
+- **Status leftover-safe leader** — leftover-safe-parses
+  StatusResponse.leader so leftover length-delimited bytes cannot
+  steal a printed leader. A truncated leader fail-closes (cannot
+  look like leader 0). Dummy `0x00` is not a skip length.
+  `cetcdctl status` / `endpoint status` leftover-safe-parse field 4.
+  Accepting leftover payload as the printed leader is rejected.
 - **LeaseGrant / TimeToLive leftover-safe ID** — leftover-safe-parses
   LeaseGrantResponse and LeaseTimeToLiveResponse so leftover
   length-delimited bytes cannot steal a printed or lock-used ID, TTL,

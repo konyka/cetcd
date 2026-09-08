@@ -770,6 +770,10 @@ static void parse_status_response(const uint8_t *data, size_t len) {
     if (cetcd_parse_status_db_size_in_use(data, len, &leftover_inuse)
         != CETCD_OK)
         return;
+    uint64_t leftover_leader = 0;
+    /* leftover-safe: leftover cannot steal a printed leader */
+    if (cetcd_parse_status_leader(data, len, &leftover_leader) != CETCD_OK)
+        return;
     size_t pos = 0;
     while (pos < len) {
         uint8_t tag = data[pos++];
@@ -783,9 +787,12 @@ static void parse_status_response(const uint8_t *data, size_t len) {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
             printf("dbSize: %llu\n", (unsigned long long)v);
         } else if (tag == 0x20) {
-            /* leader (uint64) */
-            uint64_t v = 0; read_varint(data, len, &pos, &v);
-            printf("leader: %llu\n", (unsigned long long)v);
+            /* leftover-safe-skip field 4; leftover-safe leader is printed */
+            if (cetcd_leftover_safe_skip_field(data, len, &pos, tag)
+                != CETCD_OK) {
+                break;
+            }
+            printf("leader: %llu\n", (unsigned long long)leftover_leader);
         } else if (tag == 0x28) {
             /* raftIndex (uint64) */
             uint64_t v = 0; read_varint(data, len, &pos, &v);
@@ -3188,10 +3195,17 @@ static int cmd_status(int argc, char **argv) {
         fprintf(stderr, "request failed\n");
         return 1;
     }
+    uint64_t leftover_leader = 0;
+    /* leftover-safe: leftover cannot steal a printed leader */
+    if (cetcd_parse_status_leader(resp, (size_t)rlen, &leftover_leader)
+        != CETCD_OK) {
+        fprintf(stderr, "request failed\n");
+        return 1;
+    }
     /* Parse StatusResponse */
     size_t pos = 0;
     const uint8_t *version = NULL; size_t version_len = 0;
-    uint64_t db_size = 0, leader = 0, raft_index = 0, raft_term = 0, revision = 0;
+    uint64_t db_size = 0, leader = leftover_leader, raft_index = 0, raft_term = 0, revision = 0;
     uint64_t raft_applied = 0, db_inuse = leftover_inuse, is_learner = 0;
     while (pos < (size_t)rlen) {
         uint8_t tag = resp[pos++];
@@ -3201,7 +3215,11 @@ static int cmd_status(int argc, char **argv) {
         } else if (tag == 0x18) {
             read_varint(resp, rlen, &pos, &db_size);
         } else if (tag == 0x20) {
-            read_varint(resp, rlen, &pos, &leader);
+            /* leftover-safe: leftover cannot steal a printed leader */
+            if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen, &pos, tag)
+                != CETCD_OK) {
+                break;
+            }
         } else if (tag == 0x28) {
             read_varint(resp, rlen, &pos, &raft_index);
         } else if (tag == 0x30) {
@@ -3524,9 +3542,14 @@ static int cmd_endpoint(int argc, char **argv) {
                                                       &leftover_inuse)
                     != CETCD_OK)
                     continue;
+                uint64_t leftover_leader = 0;
+                /* leftover-safe: leftover cannot steal a printed leader */
+                if (cetcd_parse_status_leader(sresp, (size_t)srlen,
+                                              &leftover_leader) != CETCD_OK)
+                    continue;
                 size_t pos = 0;
                 const uint8_t *ver = NULL; size_t ver_len = 0;
-                uint64_t db_size = 0, leader = 0, raft_index = 0, raft_term = 0, revision = 0;
+                uint64_t db_size = 0, leader = leftover_leader, raft_index = 0, raft_term = 0, revision = 0;
                 uint64_t db_inuse = leftover_inuse;
                 while (pos < (size_t)srlen) {
                     uint8_t tag = sresp[pos++];
@@ -3536,7 +3559,12 @@ static int cmd_endpoint(int argc, char **argv) {
                     } else if (tag == 0x18) {
                         read_varint(sresp, srlen, &pos, &db_size);
                     } else if (tag == 0x20) {
-                        read_varint(sresp, srlen, &pos, &leader);
+                        /* leftover-safe: leftover cannot steal a printed leader */
+                        if (cetcd_leftover_safe_skip_field(sresp, (size_t)srlen,
+                                                            &pos, tag)
+                            != CETCD_OK) {
+                            break;
+                        }
                     } else if (tag == 0x28) {
                         read_varint(sresp, srlen, &pos, &raft_index);
                     } else if (tag == 0x30) {
@@ -3644,9 +3672,16 @@ static int cmd_endpoint(int argc, char **argv) {
             fprintf(stderr, "request failed\n");
             return 1;
         }
+        uint64_t leftover_leader = 0;
+        /* leftover-safe: leftover cannot steal a printed leader */
+        if (cetcd_parse_status_leader(resp, (size_t)rlen, &leftover_leader)
+            != CETCD_OK) {
+            fprintf(stderr, "request failed\n");
+            return 1;
+        }
         size_t pos = 0;
         const uint8_t *ver = NULL; size_t ver_len = 0;
-        uint64_t db_size = 0, leader = 0, raft_index = 0, raft_term = 0, revision = 0;
+        uint64_t db_size = 0, leader = leftover_leader, raft_index = 0, raft_term = 0, revision = 0;
         uint64_t db_inuse = leftover_inuse;
         while (pos < (size_t)rlen) {
             uint8_t tag = resp[pos++];
@@ -3656,7 +3691,11 @@ static int cmd_endpoint(int argc, char **argv) {
             } else if (tag == 0x18) {
                 read_varint(resp, rlen, &pos, &db_size);
             } else if (tag == 0x20) {
-                read_varint(resp, rlen, &pos, &leader);
+                /* leftover-safe: leftover cannot steal a printed leader */
+                if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen, &pos, tag)
+                    != CETCD_OK) {
+                    break;
+                }
             } else if (tag == 0x28) {
                 read_varint(resp, rlen, &pos, &raft_index);
             } else if (tag == 0x30) {

@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 169 — leftover-safe Status dbSizeInUse</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 170 — leftover-safe Status leader</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 169 leftover-safe-parses
-     Status dbSizeInUse so leftover length-delimited bytes cannot
-     steal a printed used-page size.</p>
+  <p><strong>v0.3.0</strong>. Phase 170 leftover-safe-parses
+     Status leader so leftover length-delimited bytes cannot
+     steal a printed leader.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -222,6 +222,7 @@
       <tr><td>167</td><td>leftover-safe Member name</td><td>Member leftover-safe-parses so leftover length-delimited bytes cannot steal a printed member name; truncated name fail-closes; cetcdctl leftover-safe-parses field 2 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>168</td><td>leftover-safe LeaseGrant error</td><td>LeaseGrant leftover-safe-parses so leftover length-delimited bytes cannot steal a printed grant error; truncated error fail-closes; cetcdctl leftover-safe-parses field 4; interop-only (cetcd omits field 4 on success) — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>169</td><td>leftover-safe Status dbSizeInUse</td><td>Status leftover-safe-parses so leftover length-delimited bytes cannot steal a printed dbSizeInUse; truncated dbSizeInUse fail-closes; cetcdctl leftover-safe-parses field 9 — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>170</td><td>leftover-safe Status leader</td><td>Status leftover-safe-parses so leftover length-delimited bytes cannot steal a printed leader; truncated leader fail-closes; cetcdctl leftover-safe-parses field 4 — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

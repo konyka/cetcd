@@ -2223,6 +2223,45 @@ CETCD_TEST_CASE(auto_compact_parse_status_db_size_in_use) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_status_leader) {
+    uint8_t buf[16];
+    size_t n = 0;
+    uint64_t leader = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_status_leader(0, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_status_leader(7, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_leader(buf, n, &leader), CETCD_OK);
+    CETCD_ASSERT_TRUE(leader == 7);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_leader(NULL, 0, &leader), CETCD_OK);
+    CETCD_ASSERT_TRUE(leader == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_leader(dummy, 1, &leader),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(leader == 0);
+
+    /* leftover truncated leader cannot look like leader 0 */
+    uint8_t trunc[] = { 0x20 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_leader(trunc, 1, &leader),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed leader */
+    uint8_t steal[] = { 0x1a, 0x02, 0x20, 0x07 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_leader(steal, sizeof(steal),
+                                                 &leader),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(leader == 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_leader(fixed64, 1, &leader),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_leader(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_lease_grant_response) {
     uint8_t buf[16];
     size_t n = 0;
@@ -4976,6 +5015,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_status_response),
     CETCD_TEST_ENTRY(auto_compact_parse_status_errors),
     CETCD_TEST_ENTRY(auto_compact_parse_status_db_size_in_use),
+    CETCD_TEST_ENTRY(auto_compact_parse_status_leader),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_response),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_error),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_ttl_response),
