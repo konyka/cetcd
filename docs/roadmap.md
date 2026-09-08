@@ -1139,6 +1139,13 @@ Performance-first, fail-closed design:
   length. Tag `0x0a` header is not prev value. `cetcdctl del --prev-kv`
   leftover-safe-parses field 5 inside prev_kv. Accepting leftover
   payload as the printed prev value is rejected.
+- **DeleteRange leftover-safe prev_kv lease** — leftover-safe-parses
+  DeleteRangeResponse prev_kv lease so leftover length-delimited
+  bytes cannot steal a printed prev lease. A truncated prev_kv lease
+  fail-closes (cannot look like lease 0). Dummy `0x00` is not a skip
+  length. Tag `0x0a` header is not prev lease. `cetcdctl del --prev-kv`
+  leftover-safe-parses field 6 inside prev_kv. Accepting leftover
+  payload as the printed prev lease is rejected.
 - **auth login leftover-safe printed token** — leftover-safe-parses
   AuthenticateResponse so leftover length-delimited bytes cannot steal
   a printed login token. AuthStatus leftover-safe-parses so leftover
