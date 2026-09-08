@@ -583,8 +583,11 @@ static void parse_range_response(const uint8_t *data, size_t len) {
                     read_varint(data, kv_end, &pos, &version);
                 } else if (ktag == 0x30) {
                     read_varint(data, kv_end, &pos, &lease);
-                } else {
-                    uint64_t v = 0; read_varint(data, kv_end, &pos, &v);
+                } else if (ktag == 0x00) {
+                    continue;
+                } else if (cetcd_leftover_safe_skip_field(data, kv_end, &pos,
+                                                          ktag) != CETCD_OK) {
+                    break;
                 }
             }
             pos = kv_end;
@@ -693,13 +696,19 @@ static void parse_range_response(const uint8_t *data, size_t len) {
                     read_varint(data, hdr_end, &pos, &hdr_revision);
                 } else if (htag == 0x20) {
                     read_varint(data, hdr_end, &pos, &hdr_raft_term);
-                } else {
-                    uint64_t v = 0; read_varint(data, hdr_end, &pos, &v);
+                } else if (htag == 0x00) {
+                    continue;
+                } else if (cetcd_leftover_safe_skip_field(data, hdr_end, &pos,
+                                                          htag) != CETCD_OK) {
+                    break;
                 }
             }
             pos = hdr_end;
-        } else {
-            uint64_t v = 0; read_varint(data, len, &pos, &v);
+        } else if (tag == 0x00) {
+            continue;
+        } else if (cetcd_leftover_safe_skip_field(data, len, &pos, tag)
+                   != CETCD_OK) {
+            break;
         }
     }
     if (g_write_table && !g_count_only) {
@@ -2679,20 +2688,29 @@ static int cmd_txn(int argc, char **argv) {
                         rp += (size_t)rr_len;
                     } else if (sub_tag == 0x12) {
                         /* ResponsePut */
-                        uint64_t skip = 0; read_varint(resp, sub_end, &rp, &skip);
-                        rp += (size_t)skip;
+                        if (cetcd_leftover_safe_skip_field(resp, sub_end, &rp,
+                                                           sub_tag) != CETCD_OK)
+                            break;
                     } else if (sub_tag == 0x1a) {
                         /* ResponseDeleteRange */
-                        uint64_t skip = 0; read_varint(resp, sub_end, &rp, &skip);
-                        rp += (size_t)skip;
-                    } else {
-                        uint64_t skip = 0; read_varint(resp, sub_end, &rp, &skip);
+                        if (cetcd_leftover_safe_skip_field(resp, sub_end, &rp,
+                                                           sub_tag) != CETCD_OK)
+                            break;
+                    } else if (sub_tag == 0x00) {
+                        continue;
+                    } else if (cetcd_leftover_safe_skip_field(resp, sub_end,
+                                                              &rp, sub_tag)
+                               != CETCD_OK) {
+                        break;
                     }
                 }
             } else if (tag == 0x10) {
                 uint64_t v = 0; read_varint(resp, rlen, &rp, &v);
-            } else {
-                uint64_t skip = 0; read_varint(resp, rlen, &rp, &skip);
+            } else if (tag == 0x00) {
+                continue;
+            } else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen, &rp,
+                                                      tag) != CETCD_OK) {
+                break;
             }
         }
         return 0;
@@ -2924,15 +2942,23 @@ static int cmd_txn(int argc, char **argv) {
                         parse_range_response(resp + rpos, (size_t)rl);
                         rpos += (size_t)rl;
                     } else if (sub_tag == 0x12 || sub_tag == 0x1a) {
-                        uint64_t skip = 0; read_varint(resp, op_end, &rpos, &skip);
-                        rpos += (size_t)skip;
-                    } else {
-                        uint64_t skip = 0; read_varint(resp, op_end, &rpos, &skip);
+                        if (cetcd_leftover_safe_skip_field(resp, op_end, &rpos,
+                                                           sub_tag) != CETCD_OK)
+                            break;
+                    } else if (sub_tag == 0x00) {
+                        continue;
+                    } else if (cetcd_leftover_safe_skip_field(resp, op_end,
+                                                              &rpos, sub_tag)
+                               != CETCD_OK) {
+                        break;
                     }
                 }
                 rpos = op_end;
-            } else {
-                uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+            } else if (tag == 0x00) {
+                continue;
+            } else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen, &rpos,
+                                                      tag) != CETCD_OK) {
+                break;
             }
         }
         if (want_json) {
@@ -4263,55 +4289,41 @@ static int cmd_alarm(int argc, char **argv) {
     int rlen = do_rpc("/etcdserverpb.Maintenance/Alarm", req, rpos, resp, sizeof(resp));
     if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
 
-    /* Parse AlarmResponse */
-    size_t pos = 0;
-    int found_alarms = 0;
+    /* leftover-safe AlarmResponse so leftover cannot steal type */
+    cetcd_alarm_member alarms[8];
+    size_t n_alarms = 0;
+    if (cetcd_parse_alarm_response(resp, (size_t)rlen, alarms, 8, &n_alarms)
+        != CETCD_OK) {
+        fprintf(stderr, "request failed\n");
+        return 1;
+    }
+    int found_alarms = n_alarms > 0;
     if (json_fmt && action == 0) {
         fputs("{", stdout);
         parse_and_print_header_json(resp, (size_t)rlen);
         fputs(",\"alarms\":[", stdout);
     }
-    while (pos < (size_t)rlen) {
-        uint8_t tag = resp[pos++];
-        if (tag == 0x0a) { /* header, skip */
-            uint64_t skip = 0; read_varint(resp, rlen, &pos, &skip);
-            pos += (size_t)skip;
-        } else if (tag == 0x12) { /* alarms */
-            uint64_t alarm_len = 0; read_varint(resp, rlen, &pos, &alarm_len);
-            size_t alarm_start = pos;
-            uint64_t member_id = 0, alarm_val = 0;
-            while (pos < alarm_start + (size_t)alarm_len) {
-                uint8_t atag = resp[pos++];
-                if (atag == 0x08) {
-                    uint64_t v = 0; read_varint(resp, rlen, &pos, &v); member_id = v;
-                } else if (atag == 0x10) {
-                    uint64_t v = 0; read_varint(resp, rlen, &pos, &v); alarm_val = v;
-                } else {
-                    uint64_t skip = 0; read_varint(resp, rlen, &pos, &skip);
+    if (action == 0) {
+        for (size_t i = 0; i < n_alarms; i++) {
+            uint64_t member_id = alarms[i].member_id;
+            int alarm_val = alarms[i].alarm;
+            const char *type_str = (alarm_val == 0) ? "NONE" : (alarm_val == 1) ? "NOSPACE" : (alarm_val == 2) ? "CORRUPT" : "UNKNOWN";
+            if (json_fmt) {
+                if (i) printf(",");
+                printf("{\"memberID\":%lu,\"alarm\":\"%s\"}", (unsigned long)member_id, type_str);
+            } else if (fields_fmt) {
+                printf("memberID: %lu\n", (unsigned long)member_id);
+                printf("alarm: %s\n", type_str);
+            } else if (table_fmt) {
+                if (i == 0) {
+                    printf("+----------------------+----------+\n");
+                    printf("|       MEMBER         |  ALARM   |\n");
+                    printf("+----------------------+----------+\n");
                 }
+                printf("| %20lu | %8s |\n", (unsigned long)member_id, type_str);
+            } else {
+                printf("memberID:%lu alarm:%s\n", (unsigned long)member_id, type_str);
             }
-            if (action == 0) { /* list */
-                const char *type_str = (alarm_val == 0) ? "NONE" : (alarm_val == 1) ? "NOSPACE" : (alarm_val == 2) ? "CORRUPT" : "UNKNOWN";
-                if (json_fmt) {
-                    if (found_alarms) printf(",");
-                    printf("{\"memberID\":%lu,\"alarm\":\"%s\"}", (unsigned long)member_id, type_str);
-                } else if (fields_fmt) {
-                    printf("memberID: %lu\n", (unsigned long)member_id);
-                    printf("alarm: %s\n", type_str);
-                } else if (table_fmt) {
-                    if (!found_alarms) {
-                        printf("+----------------------+----------+\n");
-                        printf("|       MEMBER         |  ALARM   |\n");
-                        printf("+----------------------+----------+\n");
-                    }
-                    printf("| %20lu | %8s |\n", (unsigned long)member_id, type_str);
-                } else {
-                    printf("memberID:%lu alarm:%s\n", (unsigned long)member_id, type_str);
-                }
-            }
-            found_alarms = 1;
-        } else {
-            uint64_t skip = 0; read_varint(resp, rlen, &pos, &skip);
         }
     }
 

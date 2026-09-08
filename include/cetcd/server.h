@@ -229,6 +229,37 @@ int cetcd_encode_alarm_request(int action, uint64_t member_id, int alarm,
  * types are INVAL. */
 int cetcd_parse_alarm_request(const uint8_t *req, size_t len, int *action,
                               uint64_t *member_id, int *alarm);
+/* leftover-safe skip of one protobuf field after the tag is consumed.
+ * dummy 0x00 is not a length. wire 0 leftover-safe-skips the varint.
+ * wire 2 leftover-safe-skips length+payload. unknown wire is INVAL. */
+int cetcd_leftover_safe_skip_field(const uint8_t *buf, size_t len,
+                                   size_t *pos, uint8_t tag);
+/* leftover-safe AlarmResponse. omitted / empty / dummy 0x00 = 0 alarms.
+ * leftover truncated memberID / type is INVAL so a truncated alarm
+ * cannot look like NONE. leftover length-delimited fields are skipped
+ * by payload so leftover bytes cannot steal memberID or type.
+ * unknown wire types are INVAL. first `cap` AlarmMembers are copied. */
+typedef struct cetcd_alarm_member {
+    uint64_t member_id;
+    int alarm;
+} cetcd_alarm_member;
+int cetcd_encode_alarm_response_member(uint64_t member_id, int alarm,
+                                       uint8_t *out, size_t cap, size_t *n);
+int cetcd_parse_alarm_response(const uint8_t *req, size_t len,
+                               cetcd_alarm_member *out, size_t cap,
+                               size_t *n);
+/* leftover-safe RangeResponse last KV. omitted / empty / dummy 0x00 =
+ * 0 kvs / empty key. leftover truncated key is INVAL so a truncated
+ * get cannot print a leftover key. leftover length-delimited fields
+ * are skipped by payload so leftover bytes cannot steal a printed
+ * key or value. unknown wire types are INVAL. last KV is copied
+ * when key/value caps are set. */
+int cetcd_encode_range_response_kv(const uint8_t *key, size_t key_len,
+                                   const uint8_t *val, size_t val_len,
+                                   uint8_t *out, size_t cap, size_t *n);
+int cetcd_parse_range_response_kv(const uint8_t *req, size_t len,
+                                  char *key, size_t key_cap, char *value,
+                                  size_t value_cap, size_t *n_kvs);
 /* leftover-safe RangeRequest. omitted / empty / dummy 0x00 = empty key /
  * rev 0 (current). leftover truncated varint is INVAL so a truncated
  * --rev cannot range the live tree. leftover length-delimited fields

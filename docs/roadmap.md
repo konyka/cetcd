@@ -707,6 +707,13 @@ Performance-first, fail-closed design:
   fail-closes (cannot look like a missing-key allow). Dummy
   `0x00` / omitted is empty key. Accepting leftover payload as
   the key is rejected.
+- **Range/Alarm leftover-safe response** — leftover-safe-parses
+  RangeResponse KVs and AlarmResponse so leftover length-delimited
+  bytes cannot steal a printed key or CORRUPT type. A truncated
+  key / alarm fail-closes (cannot look like a leftover print).
+  Dummy `0x00` is not a skip length. `cetcdctl get` / `txn` /
+  `alarm list` leftover-safe-skip unknown fields. Accepting
+  leftover payload as the printed key is rejected.
 - **Authenticate leftover-safe name/password** — leftover-safe-parses
   AuthenticateRequest so leftover length-delimited bytes cannot steal
   a name or password. A truncated password fail-closes (cannot look

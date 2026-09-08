@@ -344,6 +344,7 @@ fail-close. `--prefix=false` does not eat the key.
 # put -- --foo v writes key --foo
 # leftover watch --foo / member remove --force / lock --foo name fail-close
 ./build/bin/cetcdctl get foo
+# leftover cannot steal a printed get / txn key or alarm CORRUPT type
 ./build/bin/cetcdctl get --prefix foo           # Get all keys with prefix
 ./build/bin/cetcdctl get --prefix ""             # Get all keys (empty prefix = all)
 ./build/bin/cetcdctl get --from-key foo          # Get all keys >= foo

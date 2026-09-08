@@ -2092,6 +2092,122 @@ CETCD_TEST_CASE(auto_compact_parse_alarm_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_alarm_response) {
+    uint8_t buf[32];
+    size_t n = 0, got = 9;
+    cetcd_alarm_member al[2];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_alarm_response_member(7, -1, buf,
+                                                          sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_alarm_response_member(7, 2, buf,
+                                                          sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_alarm_response(buf, n, al, 2, &got),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(got == 1);
+    CETCD_ASSERT_TRUE(al[0].member_id == 7);
+    CETCD_ASSERT_EQ_INT(al[0].alarm, 2);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_alarm_response(NULL, 0, al, 2, &got),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(got == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_alarm_response(dummy, 1, al, 2, &got),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(got == 0);
+
+    /* leftover truncated alarm cannot look like NONE */
+    uint8_t trunc[] = { 0x12, 0x01, 0x10 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_alarm_response(trunc, sizeof(trunc), al, 2,
+                                                   &got),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal CORRUPT */
+    uint8_t steal[] = { 0x1a, 0x04, 0x12, 0x02, 0x10, 0x02 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_alarm_response(steal, sizeof(steal), al, 2,
+                                                   &got),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(got == 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_alarm_response(fixed64, 1, al, 2, &got),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_alarm_response(buf, n, NULL, 1, &got),
+                        CETCD_ERR_INVAL);
+}
+
+CETCD_TEST_CASE(auto_compact_parse_range_response_kv) {
+    uint8_t buf[64];
+    size_t n = 0, nk = 9;
+    char key[32], val[32];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_range_response_kv(NULL, 0, NULL, 0, buf,
+                                                       sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_range_response_kv((const uint8_t *)"foo",
+                                                       3, (const uint8_t *)"v",
+                                                       1, buf, sizeof(buf),
+                                                       &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_kv(buf, n, key, sizeof(key),
+                                                      val, sizeof(val), &nk),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(nk == 1);
+    CETCD_ASSERT_EQ_STR(key, "foo");
+    CETCD_ASSERT_EQ_STR(val, "v");
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_kv(NULL, 0, key, sizeof(key),
+                                                      val, sizeof(val), &nk),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(nk == 0);
+    CETCD_ASSERT_EQ_STR(key, "");
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_kv(dummy, 1, key,
+                                                      sizeof(key), val,
+                                                      sizeof(val), &nk),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(nk == 0);
+
+    /* leftover truncated key cannot print a leftover key */
+    uint8_t trunc[] = { 0x12, 0x01, 0x0a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_kv(trunc, sizeof(trunc),
+                                                      key, sizeof(key), val,
+                                                      sizeof(val), &nk),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed key */
+    uint8_t steal[] = {
+        0x22, 0x07, 0x12, 0x05, 0x0a, 0x03, 'f', 'o', 'o'
+    };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_kv(steal, sizeof(steal),
+                                                      key, sizeof(key), val,
+                                                      sizeof(val), &nk),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(nk == 0);
+    CETCD_ASSERT_EQ_STR(key, "");
+
+    uint8_t steal_key[] = {
+        0x12, 0x07, 0x3a, 0x05, 0x0a, 0x03, 'f', 'o', 'o'
+    };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_kv(steal_key,
+                                                      sizeof(steal_key), key,
+                                                      sizeof(key), val,
+                                                      sizeof(val), &nk),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(nk == 1);
+    CETCD_ASSERT_EQ_STR(key, "");
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_kv(fixed64, 1, key,
+                                                      sizeof(key), val,
+                                                      sizeof(val), &nk),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_kv(buf, n, NULL, 0, NULL, 0,
+                                                      NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_range_request) {
     uint8_t buf[32];
     size_t n = 0;
@@ -3309,6 +3425,8 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_id_request),
     CETCD_TEST_ENTRY(auto_compact_parse_alarm_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_alarm_response),
+    CETCD_TEST_ENTRY(auto_compact_parse_range_response_kv),
     CETCD_TEST_ENTRY(auto_compact_parse_range_request),
     CETCD_TEST_ENTRY(auto_compact_parse_put_request),
     CETCD_TEST_ENTRY(auto_compact_parse_delete_range_request),
