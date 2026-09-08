@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -1929,24 +1930,88 @@ txn_cleanup:
  *
  * CompactResponse: header only (empty)
  */
+/* leftover-safe CompactRequest. leftover length-delimited bytes cannot
+ * overwrite revision. truncated varint is INVAL. physical is parsed and
+ * ignored (already sync; not defrag). dummy 0x00 / omitted = rev 0. */
+static int parse_compact_request_(const uint8_t *req, size_t len,
+                                  int64_t *rev, int *physical) {
+    size_t p = 0;
+    if (!rev || !physical) return -1;
+    *rev = 0;
+    *physical = 0;
+    if (!req || len == 0) return 0;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x08 || tag == 0x10) {
+            uint64_t v = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got) return -1;
+            if (tag == 0x08) {
+                if (v > (uint64_t)INT64_MAX) return -1;
+                *rev = (int64_t)v;
+            } else {
+                *physical = v != 0;
+            }
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got) return -1;
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got || p + skip > len) return -1;
+            p += (size_t)skip;
+            continue;
+        }
+        return -1;
+    }
+    return 0;
+}
+
 cetcd_rpc_bytes kv_handle_compact(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
     int64_t compact_rev = 0;
-    size_t pos = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x08) {
-            uint64_t v = 0;
-            if (read_varint(req, req_len, &pos, &v) != 0) break;
-            compact_rev = (int64_t)v;
-        } else if (tag == 0x10) {
-            uint64_t v = 0;
-            if (read_varint(req, req_len, &pos, &v) != 0) break;
-        } else {
-            uint64_t skip = 0;
-            read_varint(req, req_len, &pos, &skip);
-        }
-    }
+    int physical = 0;
+    if (parse_compact_request_(req, req_len, &compact_rev, &physical) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
+    (void)physical;
     /* revision<=0 (omitted / zero): etcd treats as ErrCompacted (rev<=compactMainRev). */
     if (!g_rpc_store)
         return (cetcd_rpc_bytes){NULL, 0};

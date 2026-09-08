@@ -638,6 +638,12 @@ Performance-first, fail-closed design:
   value) cannot hash the live tree. Dummy `0x00` / omitted is current.
   A leftover length-delimited field is skipped by payload, not eaten as
   a revision. Accepting a truncated `--rev` as current is rejected.
+- **Compact leftover-safe revision** — leftover-safe-parses
+  CompactRequest.revision so leftover length-delimited bytes cannot
+  compact a different rev. A truncated field-1 varint fail-closes.
+  `physical` is leftover-safe-read and ignored (already sync; not
+  defrag). Dummy `0x00` / omitted is rev 0 (ErrCompacted). Accepting
+  leftover payload as the revision is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

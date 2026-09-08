@@ -1467,6 +1467,57 @@ CETCD_TEST_CASE(auto_compact_parse_hashkv_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_compact_request) {
+    int64_t rev = 99;
+    int physical = 99;
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compact_request(NULL, 0, &rev, &physical),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)rev, 0);
+    CETCD_ASSERT_EQ_INT(physical, 0);
+
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compact_request(dummy, 1, &rev, &physical),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)rev, 0);
+
+    uint8_t ten[] = { 0x08, 0x0a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compact_request(ten, 2, &rev, &physical),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)rev, 10);
+    CETCD_ASSERT_EQ_INT(physical, 0);
+
+    uint8_t phys[] = { 0x08, 0x0a, 0x10, 0x01 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compact_request(phys, 4, &rev, &physical),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)rev, 10);
+    CETCD_ASSERT_EQ_INT(physical, 1);
+
+    /* leftover truncated field 1 cannot compact */
+    uint8_t trunc[] = { 0x08 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compact_request(trunc, 1, &rev, &physical),
+                        CETCD_ERR_INVAL);
+
+    /* leftover length-delimited payload cannot overwrite revision */
+    uint8_t steal[] = { 0x08, 0x01, 0x12, 0x01, 0x08 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compact_request(steal, sizeof(steal),
+                                                   &rev, &physical),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT((int)rev, 1);
+
+    uint8_t badskip[] = { 0x08, 0x01, 0x12, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compact_request(badskip, 4, &rev, &physical),
+                        CETCD_ERR_INVAL);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compact_request(fixed64, 1, &rev, &physical),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compact_request(ten, 2, NULL, &physical),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_compact_request(ten, 2, &rev, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_compact_argv) {
     int physical = 0;
     int64_t rev = 0;
@@ -2071,6 +2122,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_i64),
     CETCD_TEST_ENTRY(auto_compact_encode_hashkv_request),
     CETCD_TEST_ENTRY(auto_compact_parse_hashkv_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_compact_request),
     CETCD_TEST_ENTRY(auto_compact_parse_compact_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_defrag_argv),

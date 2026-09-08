@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 120 — leftover-safe HashKV revision</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 121 — leftover-safe Compact revision</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 120 leftover-safe-parses
-     HashKVRequest.revision so a truncated field-1 varint cannot hash
-     the live tree.</p>
+  <p><strong>v0.3.0</strong>. Phase 121 leftover-safe-parses
+     CompactRequest.revision so leftover length-delimited bytes cannot
+     compact a different rev.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -173,6 +173,7 @@
       <tr><td>118</td><td>leftover-safe --cluster MemberList</td><td>defrag/endpoint --cluster leftover-safe-sends linearizable MemberList (field 1 = true) so a follower cannot walk a stale member list — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>119</td><td>leftover-safe role perm --from-key</td><td>role grant/revoke leftover-safe-honors --from-key / --range-end / ENDKEY and Permission.range_end so --range-end --from-key cannot eat a flag as the range; a swallowed range_end cannot grant a prefix instead of [key, range_end) — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>120</td><td>leftover-safe HashKV revision</td><td>HashKV leftover-safe-parses field 1 so a truncated varint cannot hash the live tree; dummy 0x00 / omitted is current — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>121</td><td>leftover-safe Compact revision</td><td>Compact leftover-safe-parses field 1 so leftover length-delimited bytes cannot compact a different rev; truncated varint fail-closes; physical is read and ignored (already sync) — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

@@ -453,6 +453,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl compact 100           # Compact via Raft (followers share compacted_rev)
 # REV must be > 0; leftover text is not a silent truncated revision
 # leftover flags (compact 10 --rev 5) fail-close; --physical waits (already sync)
+# leftover Compact proto bytes cannot overwrite the revision (truncated field 1 fail-closes)
 ```
 
 ### Cluster management

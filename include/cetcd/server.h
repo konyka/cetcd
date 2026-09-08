@@ -184,6 +184,13 @@ int cetcd_encode_hashkv_request(int64_t rev, uint8_t *out, size_t cap, size_t *n
  * cannot hash the live tree. leftover length-delimited fields are
  * skipped by payload; unknown wire types are INVAL. */
 int cetcd_parse_hashkv_request(const uint8_t *req, size_t len, int64_t *out);
+/* leftover-safe CompactRequest. field 1 revision, field 2 physical.
+ * omitted / empty / dummy 0x00 = rev 0. leftover truncated varint is
+ * INVAL. leftover length-delimited fields are skipped by payload so
+ * leftover bytes cannot compact a different rev. unknown wire types
+ * are INVAL. physical is parsed (already-sync compact; not defrag). */
+int cetcd_parse_compact_request(const uint8_t *req, size_t len,
+                                int64_t *rev, int *physical);
 /* MemberListRequest field 1 (linearizable). proto3 omitted = 0. */
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n);
