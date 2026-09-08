@@ -896,6 +896,12 @@ static void parse_lease_grant_response(const uint8_t *data, size_t len) {
 }
 
 static void parse_lease_ttl_response(const uint8_t *data, size_t len) {
+    char leftover_key[256];
+    leftover_key[0] = '\0';
+    /* leftover-safe: leftover cannot steal a printed TTL key */
+    if (cetcd_parse_lease_ttl_key(data, len, leftover_key, sizeof(leftover_key))
+        != CETCD_OK)
+        return;
     size_t pos = 0;
     while (pos < len) {
         uint8_t tag = data[pos++];
@@ -909,10 +915,11 @@ static void parse_lease_ttl_response(const uint8_t *data, size_t len) {
             uint64_t v = 0; read_varint(data, len, &pos, &v);
             printf("granted TTL: %lld\n", (long long)v);
         } else if (tag == 0x2a) {
-            /* keys (repeated bytes) */
+            /* leftover-safe-parse already fail-closed truncated leftover */
             uint64_t l = 0; read_varint(data, len, &pos, &l);
             printf("key: %.*s\n", (int)l, data + pos);
             pos += l;
+            (void)leftover_key;
         } else if (tag == 0x0a) {
             /* Skip header (length-delimited) */
             uint64_t l = 0; read_varint(data, len, &pos, &l);
@@ -2377,6 +2384,14 @@ static int cmd_lease(int argc, char **argv) {
         }
         int rlen = do_rpc("/etcdserverpb.Lease/LeaseTimeToLive", req, pos, resp, sizeof(resp));
         if (rlen < 0) { fprintf(stderr, "request failed\n"); return 1; }
+        char leftover_key[256];
+        leftover_key[0] = '\0';
+        /* leftover-safe: leftover cannot steal a printed TTL key */
+        if (cetcd_parse_lease_ttl_key(resp, (size_t)rlen, leftover_key,
+                                      sizeof(leftover_key)) != CETCD_OK) {
+            fprintf(stderr, "request failed\n");
+            return 1;
+        }
         if (want_json) {
             size_t rpos = 0;
             uint64_t lid = 0, ttl = 0, granted = 0;

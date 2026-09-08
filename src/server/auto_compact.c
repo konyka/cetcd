@@ -5155,6 +5155,49 @@ int cetcd_parse_lease_ttl_response(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+int cetcd_encode_lease_ttl_key(const char *key, uint8_t *out, size_t cap,
+                               size_t *n) {
+    size_t pos = 0;
+    int rc;
+    if (!out || !n) return CETCD_ERR_INVAL;
+    *n = 0;
+    if (!key || !key[0]) return CETCD_OK;
+    rc = write_bytes_field_(out, cap, &pos, 0x2a, (const uint8_t *)key,
+                            strlen(key));
+    if (rc != CETCD_OK) return rc;
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_lease_ttl_key(const uint8_t *req, size_t len, char *key,
+                              size_t key_cap) {
+    size_t p = 0;
+    if (key && key_cap)
+        key[0] = '\0';
+    if (!key) return CETCD_ERR_INVAL;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x2a) {
+            uint64_t skip = 0;
+            int rc = leftover_safe_varint_at_(req, len, &p, &skip);
+            if (rc != CETCD_OK || p + skip > len) return CETCD_ERR_INVAL;
+            if (key_cap) {
+                if (skip >= key_cap) return CETCD_ERR_INVAL;
+                memcpy(key, req + p, (size_t)skip);
+                key[skip] = '\0';
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_authenticate_response(const char *token, uint8_t *out,
                                        size_t cap, size_t *n) {
     size_t pos = 0;

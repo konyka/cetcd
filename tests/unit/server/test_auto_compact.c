@@ -2565,6 +2565,54 @@ CETCD_TEST_CASE(auto_compact_parse_lease_ttl_response) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_lease_ttl_key) {
+    uint8_t buf[32];
+    size_t n = 0;
+    char key[16];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_lease_ttl_key(NULL, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_lease_ttl_key("", buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_lease_ttl_key("/k", buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_key(buf, n, key, sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "/k");
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_key(NULL, 0, key, sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "");
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_key(dummy, 1, key, sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "");
+
+    /* leftover truncated key cannot print leftover text */
+    uint8_t trunc[] = { 0x2a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_key(trunc, 1, key, sizeof(key)),
+                        CETCD_ERR_INVAL);
+    uint8_t trunc_len[] = { 0x2a, 0x10 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_key(trunc_len, sizeof(trunc_len),
+                                                 key, sizeof(key)),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed TTL key */
+    uint8_t steal[] = { 0x32, 0x04, 0x2a, 0x02, '/', 'k' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_key(steal, sizeof(steal), key,
+                                                 sizeof(key)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "");
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_key(fixed64, 1, key, sizeof(key)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_key(buf, n, NULL, 0),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_authenticate_response) {
     uint8_t buf[32];
     size_t n = 0;
@@ -5143,6 +5191,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_response),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_error),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_ttl_response),
+    CETCD_TEST_ENTRY(auto_compact_parse_lease_ttl_key),
     CETCD_TEST_ENTRY(auto_compact_parse_authenticate_response),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_succeeded),
     CETCD_TEST_ENTRY(auto_compact_parse_hash_response),

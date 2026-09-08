@@ -693,6 +693,16 @@ int cetcd_encode_lease_ttl_response(int64_t id, int64_t ttl, int64_t granted,
 int cetcd_parse_lease_ttl_response(const uint8_t *req, size_t len,
                                    int64_t *id, int64_t *ttl, int64_t *granted,
                                    char *key, size_t key_cap);
+/* leftover-safe LeaseTimeToLiveResponse.keys (field 5, tag 0x2a).
+ * omitted / empty / dummy 0x00 = empty. leftover truncated key is
+ * INVAL so a truncated TTL cannot print leftover text. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed TTL key. unknown wire types are INVAL. last
+ * key is copied when key/key_cap are set. */
+int cetcd_encode_lease_ttl_key(const char *key, uint8_t *out, size_t cap,
+                               size_t *n);
+int cetcd_parse_lease_ttl_key(const uint8_t *req, size_t len, char *key,
+                              size_t key_cap);
 /* leftover-safe AuthenticateResponse.token. omitted / empty / dummy
  * 0x00 = empty token. leftover truncated token is INVAL so a
  * truncated login cannot look like no token. leftover
