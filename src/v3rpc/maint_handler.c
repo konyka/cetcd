@@ -463,29 +463,90 @@ cetcd_rpc_bytes maint_handle_hash_kv(cetcd_v3rpc *rpc, const uint8_t *req, size_
  *   field 1 (action) = enum (GET/ACTIVATE/DEACTIVATE), tag = 0x08
  *   field 2 (memberID) = uint64, tag = 0x10
  *   field 3 (alarm)   = enum (NONE/NOSPACE/CORRUPT), tag = 0x18
+ *   leftover-safe: truncated varint fail-closes; leftover length-delimited
+ *   payload cannot steal ACTIVATE
  * AlarmResponse:
  *   field 2 (alarms) = repeated AlarmMember, tag = 0x12
  */
+/* leftover-safe AlarmRequest. v3rpc cannot link server. */
+static int parse_alarm_request_(const uint8_t *req, size_t len, int *action,
+                                uint64_t *member_id, int *alarm) {
+    size_t p = 0;
+    if (!action || !member_id || !alarm) return -1;
+    *action = 0;
+    *member_id = 0;
+    *alarm = 0;
+    if (!req || len == 0) return 0;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x08 || tag == 0x10 || tag == 0x18) {
+            uint64_t v = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got) return -1;
+            if (tag == 0x08) *action = (int)v;
+            else if (tag == 0x10) *member_id = v;
+            else *alarm = (int)v;
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got) return -1;
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got || p + skip > len) return -1;
+            p += (size_t)skip;
+            continue;
+        }
+        return -1;
+    }
+    return 0;
+}
+
 cetcd_rpc_bytes maint_handle_alarm(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
 
-    /* Parse request */
-    size_t pos = 0;
     int action = 0; /* 0=GET, 1=ACTIVATE, 2=DEACTIVATE */
     uint64_t member_id = 0;
     int alarm_type = 0; /* 0=NONE, 1=NOSPACE, 2=CORRUPT */
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x08) { /* action */
-            uint64_t v = 0; if (read_varint_m(req, req_len, &pos, &v) == 0) action = (int)v;
-        } else if (tag == 0x10) { /* memberID */
-            uint64_t v = 0; if (read_varint_m(req, req_len, &pos, &v) == 0) member_id = v;
-        } else if (tag == 0x18) { /* alarm */
-            uint64_t v = 0; if (read_varint_m(req, req_len, &pos, &v) == 0) alarm_type = (int)v;
-        } else {
-            uint64_t skip = 0; read_varint_m(req, req_len, &pos, &skip);
-        }
-    }
+    if (parse_alarm_request_(req, req_len, &action, &member_id, &alarm_type) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
 
     /* Static alarm storage: supports NOSPACE(1) and CORRUPT(2) simultaneously */
 

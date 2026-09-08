@@ -463,6 +463,8 @@ to cancel the watch and close the stream.
 ```sh
 ./build/bin/cetcdctl status                # Status: version, dbSize, dbSizeInUse, raft index/applied, alarms
 ./build/bin/cetcdctl alarm list                       # List alarms (persisted across restart)
+# leftover truncated Alarm action fail-closes (cannot look like GET)
+# leftover length-delimited bytes cannot steal ACTIVATE
 ./build/bin/cetcdctl alarm activate NOSPACE           # Activate NOSPACE via Raft
 ./build/bin/cetcdctl alarm activate CORRUPT           # Activate CORRUPT via Raft
 ./build/bin/cetcdctl alarm disarm                    # Disarm via Raft (followers drop the flag)

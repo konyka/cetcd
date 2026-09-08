@@ -1271,11 +1271,29 @@ CETCD_TEST_CASE(v3rpc_maintenance_alarm) {
     CETCD_ASSERT_NOT_NULL(resp.data);
     CETCD_ASSERT_TRUE(resp.len > 0);
     cetcd_rpc_bytes_free(&resp);
+
+    uint8_t trunc[] = {0x08};
+    resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Alarm", trunc, 1);
+    /* leftover truncated action cannot look like GET */
+    CETCD_ASSERT_TRUE(resp.data == NULL);
     cetcd_v3rpc_free(rpc);
 }
 
 CETCD_TEST_CASE(v3rpc_alarm_activate_disarm) {
     cetcd_v3rpc *rpc = cetcd_v3rpc_new();
+
+    /* leftover length-delimited payload cannot steal ACTIVATE */
+    uint8_t steal[] = {0x08, 0x00, 0x12, 0x04, 0x08, 0x01, 0x18, 0x01};
+    cetcd_rpc_bytes steal_resp = cetcd_v3rpc_dispatch(rpc,
+        "/etcdserverpb.Maintenance/Alarm", steal, sizeof(steal));
+    CETCD_ASSERT_NOT_NULL(steal_resp.data);
+    int steal_alarm = 0;
+    for (size_t i = 0; i < steal_resp.len; i++) {
+        if (steal_resp.data[i] == 0x12) { steal_alarm = 1; break; }
+    }
+    CETCD_ASSERT_FALSE(steal_alarm);
+    cetcd_rpc_bytes_free(&steal_resp);
 
     /* Activate NOSPACE alarm: action=1(0x08,0x01), memberID=0(0x10,0x00), alarm=1(0x18,0x01) */
     uint8_t activate_req[] = {0x08, 0x01, 0x10, 0x00, 0x18, 0x01};

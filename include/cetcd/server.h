@@ -219,6 +219,16 @@ int cetcd_encode_lease_id_request(int64_t id, uint8_t *out, size_t cap,
  * field 2 keys is read when keys is non-NULL. */
 int cetcd_parse_lease_id_request(const uint8_t *req, size_t len,
                                  int64_t *id, int *keys);
+/* AlarmRequest field 1 action / 2 memberID / 3 alarm. */
+int cetcd_encode_alarm_request(int action, uint64_t member_id, int alarm,
+                               uint8_t *out, size_t cap, size_t *n);
+/* leftover-safe AlarmRequest. omitted / empty / dummy 0x00 = GET.
+ * leftover truncated varint is INVAL so a truncated action cannot
+ * look like GET. leftover length-delimited fields are skipped by
+ * payload so leftover bytes cannot steal ACTIVATE. unknown wire
+ * types are INVAL. */
+int cetcd_parse_alarm_request(const uint8_t *req, size_t len, int *action,
+                              uint64_t *member_id, int *alarm);
 /* MemberRemove/Promote field 1 (ID). 0 is INVAL. */
 int cetcd_encode_member_id_request(uint64_t id, uint8_t *out, size_t cap,
                                    size_t *n);

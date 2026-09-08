@@ -1809,6 +1809,121 @@ int cetcd_parse_lease_id_request(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+int cetcd_encode_alarm_request(int action, uint64_t member_id, int alarm,
+                               uint8_t *out, size_t cap, size_t *n) {
+    if (!out || !n || cap == 0) return CETCD_ERR_INVAL;
+    if (action < 0 || alarm < 0) return CETCD_ERR_INVAL;
+    size_t pos = 0;
+    if (pos + 2 > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x08;
+    uint64_t v = (uint64_t)action;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    if (pos + 2 > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x10;
+    v = member_id;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    if (pos + 2 > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x18;
+    v = (uint64_t)alarm;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_alarm_request(const uint8_t *req, size_t len, int *action,
+                              uint64_t *member_id, int *alarm) {
+    size_t p = 0;
+    if (!action || !member_id || !alarm) return CETCD_ERR_INVAL;
+    *action = 0;
+    *member_id = 0;
+    *alarm = 0;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x08 || tag == 0x10 || tag == 0x18) {
+            uint64_t v = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return CETCD_ERR_INVAL;
+            }
+            if (!got) return CETCD_ERR_INVAL;
+            if (tag == 0x08) {
+                if (v > (uint64_t)INT_MAX) return CETCD_ERR_INVAL;
+                *action = (int)v;
+            } else if (tag == 0x10) {
+                *member_id = v;
+            } else {
+                if (v > (uint64_t)INT_MAX) return CETCD_ERR_INVAL;
+                *alarm = (int)v;
+            }
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return CETCD_ERR_INVAL;
+            }
+            if (!got) return CETCD_ERR_INVAL;
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return CETCD_ERR_INVAL;
+            }
+            if (!got || p + skip > len) return CETCD_ERR_INVAL;
+            p += (size_t)skip;
+            continue;
+        }
+        return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_member_id_request(uint64_t id, uint8_t *out, size_t cap,
                                    size_t *n) {
     if (!out || !n || cap == 0) return CETCD_ERR_INVAL;

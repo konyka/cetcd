@@ -526,7 +526,9 @@ fails at the RPC layer (matching etcd `HashByRev` ErrCompacted / ErrFutureRev).
 The `DowngradeResponse` returns only a header (field 1). VALIDATE of
 `cetcd_version()` succeeds; ENABLE, CANCEL, and any other version
 fail-closed (empty frame) so a fake target cannot look successful. The `Alarm` handler processes three actions: GET (list current alarms), ACTIVATE (add an
-alarm), and DEACTIVATE (remove an alarm). ACTIVATE/DEACTIVATE encode apply tag 24 and
+alarm), and DEACTIVATE (remove an alarm). AlarmRequest leftover-safe-parses field 1/2/3
+so leftover length-delimited bytes cannot steal ACTIVATE; a truncated action fail-closes
+(cannot look like GET). Dummy `0x00` / omitted is GET. ACTIVATE/DEACTIVATE encode apply tag 24 and
 go through Raft so followers share the flags; GET is a local read. Not-leader or an
 unknown type (not NOSPACE/CORRUPT) fail-closes. It supports both NOSPACE and CORRUPT alarm types
 simultaneously, with an in-memory table (up to 8 entries) persisted to the LMDB `alarm`
@@ -643,7 +645,7 @@ IPv6 zone UniqueURLs leftover-safe-split `addr%zone` (`[fe80::1%1]:2379`; empty 
 `member add --peer-urls URL` / `--learner` (etcdctl-compatible flags for adding cluster members; --learner sends isLearner=true in MemberAddRequest),
 `check datascale [--load N] [--prefix PREFIX] [-w json]` (new subcommand to test database scalability by loading N keys and reporting DB size and elapsed time; `--load` must be `> 0`; a typo fail-closes),
 `watch --filter NOPUT|NODELETE` (filter event types in watch, maps to WatchCreateRequest.filters field 5),
-`alarm activate/disarm -w json` (JSON output for alarm activate/disarm with real ResponseHeader),
+`alarm activate/disarm -w json` (JSON output for alarm activate/disarm with real ResponseHeader); Alarm leftover-safe-parses field 1/2/3 so leftover length-delimited bytes cannot steal ACTIVATE (truncated action fail-closes),
 `member list -w json` enhanced (now parses name, clientURLs, and isLearner fields from Member proto; server also returns name="default" and clientURLs),
 `snapshot status` enhanced (now parses snapshot blob to count keys and compute hash, includes total_keys column),
 `endpoint health/status/hashkv -w json` enhanced (now all include real ResponseHeader in JSON output),

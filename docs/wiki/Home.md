@@ -890,6 +890,7 @@ MemberAdd/Update peer URL ports are leftover-safe (`1..65535`; missing → 2380)
 `cetcdctl endpoint --cluster` leftover-safe-parses member client URLs (missing port → 2379). `--cluster` leftover-safe-sends linearizable MemberList (field 1 = true; a follower fail-closes).
 `cetcdctl move-leader TARGET_ID` must be hex `> 0`; leftover text fail-closes instead of transferring to a truncated id. MoveLeader leftover-safe-parses field 1 so a truncated target cannot look like a successful transfer (dummy `0x00` / `0` fail-closes).
 `cetcdctl compact REV` must be `> 0`; leftover text fail-closes instead of compacting to a truncated revision. Unknown leftover flags (`compact 10 --rev 5`) fail-close. Compact leftover-safe-parses field 1 so leftover length-delimited bytes cannot compact a different rev (truncated varint fail-closes; `--physical` is already sync).
+Alarm leftover-safe-parses field 1/2/3 so leftover length-delimited bytes cannot steal ACTIVATE (truncated action fail-closes; dummy `0x00` / omitted is GET).
 `cetcdctl hash` / `status` unknown leftover flags fail-close (`hash --rev` cannot hash the live tree; `status --cluster` cannot report one node).
 `cetcdctl defrag --cluster` leftover-safe-sends linearizable MemberList and defragments every client URL; a swallowed `--cluster` would defrag only the connected member; a follower cannot walk a stale list. `defrag --data-dir` leftover-safe-opens the local LMDB and compact-copies (`--data-dir --cluster` cannot eat a flag as the path; `--cluster` + `--data-dir` fail-close). Other leftover flags fail-close.
 `cetcdctl get --rev` / `--limit` / `--min-mod-rev` and related flags must be integers `>= 0`; leftover text fail-closes instead of a truncated revision.
@@ -1037,7 +1038,7 @@ cetcd_rpc_bytes cetcd_v3rpc_dispatch(cetcd_v3rpc *rpc,
 | Maintenance | `/etcdserverpb.Maintenance/Defragment` | `maint_handler.c` | compact-copy `data.mdb`（无 backend 仍成功） |
 | Maintenance | `/etcdserverpb.Maintenance/Hash` | `maint_handler.c` | 返回 KV 存储哈希值 |
 | Maintenance | `/etcdserverpb.Maintenance/HashKV` | `maint_handler.c` | CRC32C(key+value，按 key 序) + 压缩修订号；field 1 leftover-safe（截断 varint fail-close） |
-| Maintenance | `/etcdserverpb.Maintenance/Alarm` | `maint_handler.c` | 告警获取/激活/停用 |
+| Maintenance | `/etcdserverpb.Maintenance/Alarm` | `maint_handler.c` | 告警 GET/ACTIVATE/DEACTIVATE；field 1/2/3 leftover-safe（leftover 长度域不能偷 ACTIVATE；截断 action 不能假装 GET） |
 | Maintenance | `/etcdserverpb.Maintenance/MoveLeader` | `maint_handler.c` | 领导者转移；field 1 leftover-safe（截断 / 0 不能假装转移成功） |
 | Maintenance | `/etcdserverpb.Maintenance/Snapshot` | `maint_handler.c` | 返回 KV 存储快照（单次返回所有键值对） |
 | Maintenance | `/etcdserverpb.Maintenance/Downgrade` | `maint_handler.c` | VALIDATE 当前版本成功；ENABLE/CANCEL/其它版本 fail-closed |
@@ -1143,7 +1144,7 @@ cetcd_server_new() → cetcd_server_start() → cetcd_server_serve() → cetcd_s
 | `txn cas KEY EXPECTED NEW` | 条件事务（CAS）：当 KEY 的值等于 EXPECTED 时设为 NEW |
 | `compact REV` | 压缩 MVCC 历史（未知 leftover 旗标 fail-close；截断 / leftover proto 不能改写修订号） |
 | `status` | 获取服务器状态（未知 leftover 旗标 fail-close） |
-| `alarm` | 查询告警 |
+| `alarm` | 查询/激活/停用告警（截断 proto action 不能假装 GET；leftover 长度域不能偷 ACTIVATE） |
 | `hash` | 获取 KV 存储哈希值（`--rev` 等未知旗标 fail-close） |
 | `hashkv` | 获取 KV 存储 CRC32C 哈希值和压缩修订号（`--rev N` leftover-safe；省略 / `0` = 当前；`10foo` fail-close；截断 field-1 varint 不能哈希 live tree） |
 | `defrag` | 碎片整理（LMDB compact-copy；`--cluster` 走 MemberList；`--data-dir` leftover-safe 离线整理；未知 leftover 旗标 fail-close） |

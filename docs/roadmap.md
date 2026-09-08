@@ -673,6 +673,11 @@ Performance-first, fail-closed design:
   omitted / `0` fail-closes KeepAlive (no ID=0 TTL=0 success frame).
   Truncated TimeToLive fail-closes (cannot look like TTL=-1).
   Accepting a leftover payload as the id is rejected.
+- **Alarm leftover-safe action** — leftover-safe-parses AlarmRequest
+  so leftover length-delimited bytes cannot steal ACTIVATE. A
+  truncated action varint fail-closes (cannot look like GET). Dummy
+  `0x00` / omitted is GET. Accepting leftover payload as the action
+  is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

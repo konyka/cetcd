@@ -1803,6 +1803,70 @@ CETCD_TEST_CASE(auto_compact_parse_lease_id_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_alarm_request) {
+    uint8_t buf[16];
+    size_t n = 0;
+    int action = 99;
+    uint64_t member = 99;
+    int alarm = 99;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_alarm_request(-1, 0, 1, buf, sizeof(buf),
+                                                   &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_alarm_request(1, 0, 1, buf, sizeof(buf),
+                                                   &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_alarm_request(buf, n, &action, &member,
+                                                 &alarm),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(action, 1);
+    CETCD_ASSERT_TRUE(member == 0);
+    CETCD_ASSERT_EQ_INT(alarm, 1);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_alarm_request(NULL, 0, &action, &member,
+                                                 &alarm),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(action, 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_alarm_request(dummy, 1, &action, &member,
+                                                 &alarm),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(action, 0);
+
+    /* leftover truncated action cannot look like GET */
+    uint8_t trunc[] = { 0x08 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_alarm_request(trunc, 1, &action, &member,
+                                                 &alarm),
+                        CETCD_ERR_INVAL);
+    uint8_t trunc2[] = { 0x08, 0x80 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_alarm_request(trunc2, 2, &action, &member,
+                                                 &alarm),
+                        CETCD_ERR_INVAL);
+
+    /* leftover length-delimited payload cannot steal ACTIVATE */
+    uint8_t steal[] = { 0x08, 0x00, 0x12, 0x04, 0x08, 0x01, 0x18, 0x01 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_alarm_request(steal, sizeof(steal),
+                                                 &action, &member, &alarm),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(action, 0);
+    CETCD_ASSERT_EQ_INT(alarm, 0);
+
+    uint8_t badskip[] = { 0x08, 0x00, 0x12, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_alarm_request(badskip, 4, &action, &member,
+                                                 &alarm),
+                        CETCD_ERR_INVAL);
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_alarm_request(fixed64, 1, &action, &member,
+                                                 &alarm),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_alarm_request(buf, n, NULL, &member,
+                                                 &alarm),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_alarm_request(0, 0, 0, NULL, sizeof(buf),
+                                                   &n),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_compact_argv) {
     int physical = 0;
     int64_t rev = 0;
@@ -2413,6 +2477,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_member_update_request),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_id_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_alarm_request),
     CETCD_TEST_ENTRY(auto_compact_parse_compact_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_defrag_argv),

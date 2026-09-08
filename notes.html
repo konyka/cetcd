@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 126 — leftover-safe LeaseRevoke id</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 127 — leftover-safe Alarm action</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 126 leftover-safe-parses
-     LeaseRevoke/KeepAlive/TimeToLive ID so a truncated field-1 varint
-    cannot look like a successful keepalive or steal a revoke.</p>
+  <p><strong>v0.3.0</strong>. Phase 127 leftover-safe-parses
+     AlarmRequest so leftover length-delimited bytes cannot steal
+    ACTIVATE and a truncated action cannot look like GET.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -179,6 +179,7 @@
       <tr><td>124</td><td>leftover-safe MemberRemove id</td><td>MemberRemove/Promote leftover-safe-parses field 1 so a truncated varint / dummy 0x00 / 0 cannot look like a successful remove or promote; leftover length-delimited bytes cannot steal the id — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>125</td><td>leftover-safe MemberUpdate</td><td>MemberUpdate leftover-safe-parses field 1/2 so a truncated varint / dummy 0x00 / 0 cannot look like a successful update; leftover peerURL length cannot walk off the buffer or steal the id — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>126</td><td>leftover-safe LeaseRevoke id</td><td>LeaseRevoke/KeepAlive/TimeToLive leftover-safe-parses field 1 so a truncated varint cannot look like a successful keepalive or steal a revoke; dummy 0x00 / 0 fail-closes KeepAlive; leftover length-delimited bytes cannot inject a fake id — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>127</td><td>leftover-safe Alarm action</td><td>Alarm leftover-safe-parses field 1/2/3 so leftover length-delimited bytes cannot steal ACTIVATE; truncated action fail-closes (cannot look like GET) — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>
