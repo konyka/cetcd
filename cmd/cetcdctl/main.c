@@ -6452,21 +6452,12 @@ static int do_authenticate(const char *user_cred) {
         fprintf(stderr, "authentication request failed\n");
         return -1;
     }
-    /* Parse AuthenticateResponse: field 1 (header), field 2 (token) */
-    size_t rpos = 0;
-    while (rpos < (size_t)rlen) {
-        uint8_t tag = resp[rpos++];
-        if (tag == 0x12) {
-            uint64_t tlen = 0; read_varint(resp, rlen, &rpos, &tlen);
-            size_t copy = (size_t)tlen < sizeof(g_auth_token) - 1 ? (size_t)tlen : sizeof(g_auth_token) - 1;
-            memcpy(g_auth_token, resp + rpos, copy);
-            g_auth_token[copy] = '\0';
-            rpos += tlen;
-        } else if (tag == 0x0a) {
-            uint64_t l = 0; read_varint(resp, rlen, &rpos, &l); rpos += l;
-        } else {
-            uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
-        }
+    /* leftover-safe: leftover cannot steal a used token */
+    if (cetcd_parse_authenticate_response(resp, (size_t)rlen,
+                                          g_auth_token, sizeof(g_auth_token))
+        != CETCD_OK) {
+        fprintf(stderr, "authentication request failed\n");
+        return -1;
     }
     if (g_debug) {
         fprintf(stderr, "[debug] authenticated, token=%s\n", g_auth_token);

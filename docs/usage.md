@@ -580,6 +580,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl auth status -w fields
 # leftover cannot steal auth enabled or a printed user/role name
 ./build/bin/cetcdctl auth login -w fields root mypassword  # Login with fields output (token)
+# leftover cannot steal a used Authenticate token
 ./build/bin/cetcdctl user list -w fields
 ./build/bin/cetcdctl role list -w fields
 ```

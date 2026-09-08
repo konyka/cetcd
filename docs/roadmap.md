@@ -784,6 +784,12 @@ Performance-first, fail-closed design:
   treated wrap `0x08` as the ID). `cetcdctl lease grant` /
   `timetolive` leftover-safe-skip unknown fields. Accepting leftover
   payload as the printed ID is rejected.
+- **Authenticate leftover-safe token** — leftover-safe-parses
+  AuthenticateResponse so leftover length-delimited bytes cannot steal
+  a used token. A truncated token fail-closes (cannot look like no
+  token). Dummy `0x00` is not a skip length. `cetcdctl auth login`
+  leftover-safe-parses field 2. Accepting leftover payload as the
+  token is rejected.
 - **AuthStatus / user-role list leftover-safe** — leftover-safe-parses
   AuthStatusResponse and UserList/RoleList so leftover length-delimited
   bytes cannot steal `enabled` or a printed user/role name. A truncated

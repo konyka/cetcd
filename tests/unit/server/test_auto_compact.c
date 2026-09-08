@@ -2136,6 +2136,53 @@ CETCD_TEST_CASE(auto_compact_parse_lease_ttl_response) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_authenticate_response) {
+    uint8_t buf[32];
+    size_t n = 0;
+    char tok[32];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_authenticate_response(NULL, buf,
+                                                          sizeof(buf), &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_authenticate_response("tokn", buf,
+                                                          sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_authenticate_response(buf, n, tok,
+                                                         sizeof(tok)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(tok, "tokn");
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_authenticate_response(NULL, 0, tok,
+                                                         sizeof(tok)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(tok, "");
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_authenticate_response(dummy, 1, tok,
+                                                         sizeof(tok)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(tok, "");
+
+    /* leftover truncated token cannot look like no token */
+    uint8_t trunc[] = { 0x12 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_authenticate_response(trunc, 1, tok,
+                                                         sizeof(tok)),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a used token */
+    uint8_t steal[] = { 0x1a, 0x06, 0x12, 0x04, 't', 'o', 'k', 'n' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_authenticate_response(steal, sizeof(steal),
+                                                         tok, sizeof(tok)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(tok, "");
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_authenticate_response(fixed64, 1, tok,
+                                                         sizeof(tok)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_authenticate_response(buf, n, NULL, 0),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_downgrade_request) {
     uint8_t buf[64];
     size_t n = 0;
@@ -3796,6 +3843,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_status_response),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_response),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_ttl_response),
+    CETCD_TEST_ENTRY(auto_compact_parse_authenticate_response),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_request),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_op_key),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),

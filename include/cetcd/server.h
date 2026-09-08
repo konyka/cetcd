@@ -580,6 +580,16 @@ int cetcd_encode_lease_ttl_response(int64_t id, int64_t ttl, int64_t granted,
 int cetcd_parse_lease_ttl_response(const uint8_t *req, size_t len,
                                    int64_t *id, int64_t *ttl, int64_t *granted,
                                    char *key, size_t key_cap);
+/* leftover-safe AuthenticateResponse.token. omitted / empty / dummy
+ * 0x00 = empty token. leftover truncated token is INVAL so a
+ * truncated login cannot look like no token. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a used token. unknown wire types are INVAL. last
+ * token is copied when token/token_cap are set. */
+int cetcd_encode_authenticate_response(const char *token, uint8_t *out,
+                                       size_t cap, size_t *n);
+int cetcd_parse_authenticate_response(const uint8_t *req, size_t len,
+                                      char *token, size_t token_cap);
 /* leftover-safe DowngradeRequest. omitted / empty / dummy 0x00 =
  * action VALIDATE (0) / empty version. leftover truncated action /
  * version is INVAL so a truncated validate cannot look like ENABLE

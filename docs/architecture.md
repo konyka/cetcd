@@ -601,7 +601,7 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `lease keepalive [--once]` (loop keepalive by default, `--once` for single keepalive),
 `compact/hash/hashkv/defrag/move-leader -w json` (JSON output for maintenance and KV compact commands),
 `lease grant/timetolive -w json` (JSON output for lease commands),
-`auth status -w json` (JSON output for auth status query); AuthStatus leftover-safe-parses so leftover length-delimited bytes cannot steal `enabled`; UserList/RoleList leftover-safe-parses so leftover cannot steal a printed name,
+`auth status -w json` (JSON output for auth status query); Authenticate leftover-safe-parses so leftover length-delimited bytes cannot steal a used token; AuthStatus leftover-safe-parses so leftover length-delimited bytes cannot steal `enabled`; UserList/RoleList leftover-safe-parses so leftover cannot steal a printed name,
 `--insecure` (global flag, skips TLS verify when `--cacert`/`--cert` enable TLS),
 `--dial-timeout SEC` (global flag for connection timeout via SO_SNDTIMEO/SO_RCVTIMEO),
 `--keepalive-time SEC` / `--keepalive-timeout SEC` (TCP `SO_KEEPALIVE` idle/interval; invalid values and timeout without time fail-close),
