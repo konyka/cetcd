@@ -3624,6 +3624,65 @@ CETCD_TEST_CASE(auto_compact_parse_watch_event_kv_lease) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_watch_event_kv_version) {
+    uint8_t buf[16];
+    size_t n = 0;
+    int64_t version = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_watch_event_kv_version(0, buf, sizeof(buf),
+                                                           &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_watch_event_kv_version(3, buf, sizeof(buf),
+                                                           &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_kv_version(buf, n, &version),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(version == 3);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_kv_version(NULL, 0, &version),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(version == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_kv_version(dummy, 1, &version),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(version == 0);
+
+    /* leftover truncated Event-nested version cannot look like 0 */
+    uint8_t trunc[] = { 0x5a, 0x03, 0x12, 0x01, 0x20 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_kv_version(trunc, sizeof(trunc),
+                                                          &version),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed Event version */
+    uint8_t steal[] = { 0x5a, 0x06, 0x12, 0x04, 0x32, 0x02, 0x20, 0x03 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_kv_version(steal, sizeof(steal),
+                                                          &version),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(version == 0);
+
+    /* leftover header raft_term is not Event version */
+    uint8_t header[] = { 0x0a, 0x02, 0x20, 0x07 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_kv_version(header,
+                                                          sizeof(header),
+                                                          &version),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(version == 0);
+
+    uint8_t last[] = { 0x5a, 0x04, 0x12, 0x02, 0x20, 0x01,
+                       0x5a, 0x04, 0x12, 0x02, 0x20, 0x02 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_kv_version(last, sizeof(last),
+                                                          &version),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(version == 2);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_kv_version(fixed64, 1, &version),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_event_kv_version(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_watch_fragment) {
     uint8_t buf[8];
     size_t n = 0;
@@ -5898,6 +5957,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_role_get_range_end),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_response),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_event_kv_lease),
+    CETCD_TEST_ENTRY(auto_compact_parse_watch_event_kv_version),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_fragment),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_cancel_reason),
     CETCD_TEST_ENTRY(auto_compact_parse_delete_range_response),

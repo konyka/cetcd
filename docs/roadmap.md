@@ -1012,6 +1012,13 @@ Performance-first, fail-closed design:
   length. Tag `0x0a` header raft_term is not Event lease. `cetcdctl
   watch` leftover-safe-parses field 6 inside Event. Accepting leftover
   payload as the printed Event lease is rejected.
+- **Watch leftover-safe Event KV version** — leftover-safe-parses
+  WatchResponse Event KV version so leftover length-delimited bytes
+  cannot steal a printed Event version. A truncated Event-nested
+  version fail-closes (cannot look like version 0). Dummy `0x00` is
+  not a skip length. Tag `0x0a` header raft_term is not Event version.
+  `cetcdctl watch` leftover-safe-parses field 4 inside Event. Accepting
+  leftover payload as the printed Event version is rejected.
 - **Watch leftover-safe fragment** — leftover-safe-parses
   WatchResponse.fragment so leftover length-delimited bytes cannot
   steal `fragment=true`. A truncated fragment fail-closes (cannot
