@@ -568,7 +568,7 @@ The `cetcdctl` CLI has been expanded to cover the full command set: `lease list/
 `member add/remove/update/promote`, `user delete/change-password/grant-role/revoke-role`,
 `role delete`, `hash`, `hashkv`, `defrag`, `move-leader`, `get --prefix/--keys-only/--rev` (`--rev`/`--limit`/`--*-mod-rev`/`--*-create-rev` must be integers `>= 0`; leftover text fail-closes); Range leftover-safe-parses so leftover length-delimited bytes cannot steal `rev` / `limit` (truncated `--rev` fail-closes),
 `del --prefix/--prev-kv` (DeleteRange leftover-safe-parses so leftover length-delimited bytes cannot steal `range_end` and turn a point delete into a range delete; truncated `range_end` fail-closes), `put --prev-kv`, `watch --prefix/--prev-kv/--start-rev` (`--start-rev` must be an integer `>= 0`; leftover text fail-closes; WatchCreate leftover-safe-parses so leftover cannot steal `start_rev` / `range_end`), RangeResponse leftover-safe-parses so leftover length-delimited bytes cannot steal a printed `get` / `txn` key; AlarmResponse leftover-safe-parses so leftover cannot steal a printed CORRUPT type; `txn cas` (compare-and-swap; leftover-safe so leftover cannot steal Compare result and flip a CAS),
-`auth login` (token-based authentication; Authenticate leftover-safe-parses so leftover length-delimited bytes cannot steal a name or password; truncated password fail-closes), `user add` / `user passwd` leftover-safe-parses so leftover cannot steal a password or `no_password`, `user delete` / `user get` / `role add` / `role delete` / `role get` leftover-safe-parses so leftover cannot steal the name and delete or look up the wrong principal, `user grant-role` / `user revoke-role` leftover-safe-parses so leftover cannot steal the user or role, `role grant-permission` / `role revoke-permission` leftover-safe-parses so leftover cannot steal the role, key, range_end, or permType, `get --count-only/--limit N/--sort-by/--sort-order/--print-value-only`,
+`auth login` (token-based authentication; Authenticate leftover-safe-parses so leftover length-delimited bytes cannot steal a name or password; truncated password fail-closes), `user add` / `user passwd` leftover-safe-parses so leftover cannot steal a password or `no_password`, `user delete` / `user get` / `role add` / `role delete` / `role get` leftover-safe-parses so leftover cannot steal the name and delete or look up the wrong principal; RoleGet leftover-safe-parses so leftover cannot steal a printed key or permType, `user grant-role` / `user revoke-role` leftover-safe-parses so leftover cannot steal the user or role, `role grant-permission` / `role revoke-permission` leftover-safe-parses so leftover cannot steal the role, key, range_end, or permType, `get --count-only/--limit N/--sort-by/--sort-order/--print-value-only`,
 `put --ignore-value/--ignore-lease`, `get/del KEY RANGE_END` (positional range_end argument),
 `get/del --from-key` (unbounded range queries), `put --lease ID` (attach lease to key; leftover `10foo` fail-closes; `--lease=1` accepted),
 `alarm list/activate/disarm` (alarm management), `version` (print client version),
@@ -852,7 +852,10 @@ the same user/role strings so leftover cannot grant or revoke the wrong
 binding. RoleGrantPermission / RoleRevokePermission leftover-safe-parses
 so leftover length-delimited bytes cannot steal the role, Permission key,
 range_end, or permType; a truncated name / Permission / key fail-closes
-(cannot look like a successful grant). Dummy `0x00` / omitted is empty. The `AuthStatus`, `UserList`, `RoleList`, `UserGet`, and `RoleGet` responses all
+(cannot look like a successful grant). Dummy `0x00` / omitted is empty.
+RoleGet leftover-safe-parses so leftover length-delimited bytes cannot
+steal a printed Permission key or permType; a truncated perm / key
+fail-closes (cannot print leftover text). The `AuthStatus`, `UserList`, `RoleList`, `UserGet`, and `RoleGet` responses all
 include a `ResponseHeader` prefix.
 
 The Watch handler now includes a `ResponseHeader` (field 1, tag 0x0a) in all WatchResponse

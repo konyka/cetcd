@@ -826,6 +826,12 @@ Performance-first, fail-closed design:
   (cannot steal a lock interval). Dummy `0x00` is not a skip length.
   `cetcdctl lease keepalive` / `lock` / `elect` leftover-safe-parse
   field 3. Accepting leftover payload as the TTL is rejected.
+- **RoleGet leftover-safe key / permType** — leftover-safe-parses
+  AuthRoleGetResponse so leftover length-delimited bytes cannot steal
+  a printed Permission key or permType. A truncated perm / key
+  fail-closes (cannot print leftover text). Dummy `0x00` is not a
+  skip length. `cetcdctl role get` leftover-safe-skips unknown fields.
+  Accepting leftover payload as the printed key is rejected.
 - **AuthStatus / user-role list leftover-safe** — leftover-safe-parses
   AuthStatusResponse and UserList/RoleList so leftover length-delimited
   bytes cannot steal `enabled` or a printed user/role name. A truncated

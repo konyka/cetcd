@@ -912,6 +912,7 @@ Hash / HashKV leftover-safe-parses so leftover length-delimited bytes cannot ste
 Authenticate leftover-safe-parses field 1/2 so leftover length-delimited bytes cannot steal a name or password (truncated password fail-closes; dummy `0x00` / omitted = empty).
 Authenticate leftover-safe-parses the response so leftover length-delimited bytes cannot steal a used token (truncated token fail-closes).
 AuthStatus leftover-safe-parses so leftover length-delimited bytes cannot steal `enabled`. UserList/RoleList leftover-safe-parses so leftover cannot steal a printed user or role.
+RoleGet leftover-safe-parses so leftover length-delimited bytes cannot steal a printed Permission key or permType (truncated perm / key fail-closes).
 Status leftover-safe-parses so leftover length-delimited bytes cannot steal a printed version, dbSize, or `isLearner` (truncated version / isLearner fail-closes).
 UserAdd leftover-safe-parses so leftover length-delimited bytes cannot steal a password or `no_password` (truncated password / options fail-closes). UserChangePassword leftover-safe-parses the same name/password fields.
 UserDelete / RoleAdd / RoleDelete / UserGet / RoleGet leftover-safe-parses so leftover length-delimited bytes cannot steal the name and delete or look up the wrong principal (truncated name fail-closes). UserGrantRole / UserRevokeRole leftover-safe-parses so leftover cannot steal the user or role.

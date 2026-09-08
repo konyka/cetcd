@@ -555,6 +555,7 @@ to cancel the watch and close the stream.
 ./build/bin/cetcdctl role add admin        # Create via Raft (followers share the role)
 ./build/bin/cetcdctl role get admin        # View role permissions
 # leftover-safe: leftover proto bytes cannot steal the role name
+# leftover-safe: leftover proto bytes cannot steal a printed key or permType
 ./build/bin/cetcdctl role list             # List all roles
 ./build/bin/cetcdctl role delete admin     # Delete via Raft (followers drop the role)
 # leftover-safe: leftover proto bytes cannot steal the name and delete the wrong role

@@ -649,6 +649,17 @@ int cetcd_encode_snapshot_response(const uint8_t *blob, size_t blob_len,
                                    uint8_t *out, size_t cap, size_t *n);
 int cetcd_parse_snapshot_response(const uint8_t *req, size_t len,
                                   uint8_t *blob, size_t blob_cap, size_t *n);
+/* leftover-safe RoleGet last Permission. omitted / empty / dummy
+ * 0x00 = 0 perms / READ / empty key. leftover truncated perm / key
+ * is INVAL so a truncated get cannot print a leftover key. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed key or permType. unknown wire types are
+ * INVAL. last key is copied when key/key_cap are set. */
+int cetcd_encode_role_get_perm(int perm_type, const char *key, uint8_t *out,
+                               size_t cap, size_t *n);
+int cetcd_parse_role_get_response(const uint8_t *req, size_t len,
+                                  int *perm_type, char *key, size_t key_cap,
+                                  size_t *n);
 /* leftover-safe DowngradeRequest. omitted / empty / dummy 0x00 =
  * action VALIDATE (0) / empty version. leftover truncated action /
  * version is INVAL so a truncated validate cannot look like ENABLE

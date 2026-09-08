@@ -5507,16 +5507,24 @@ static int cmd_role(int argc, char **argv) {
                             uint64_t l = 0; read_varint(resp, pend, &rpos, &l);
                             printf("key: %.*s\n", (int)l, resp + rpos);
                             rpos += l;
-                        } else {
-                            uint64_t v = 0; read_varint(resp, pend, &rpos, &v);
+                        } else if (ptag == 0x00) {
+                            continue;
+                        } else if (cetcd_leftover_safe_skip_field(resp, pend,
+                                                                  &rpos, ptag)
+                                   != CETCD_OK) {
+                            break;
                         }
                     }
                     rpos = pend;
                 } else if (tag == 0x0a) {
                     uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
                     rpos += l;
-                } else {
-                    uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+                } else if (tag == 0x00) {
+                    continue;
+                } else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                          &rpos, tag)
+                           != CETCD_OK) {
+                    break;
                 }
             }
             fputs("\n", stdout);
@@ -5544,8 +5552,12 @@ static int cmd_role(int argc, char **argv) {
                             pkey = (const char *)(resp + rpos);
                             pkey_len = (size_t)l;
                             rpos += l;
-                        } else {
-                            uint64_t v = 0; read_varint(resp, pend, &rpos, &v);
+                        } else if (ptag == 0x00) {
+                            continue;
+                        } else if (cetcd_leftover_safe_skip_field(resp, pend,
+                                                                  &rpos, ptag)
+                                   != CETCD_OK) {
+                            break;
                         }
                     }
                     if (!first) printf(",");
@@ -5557,8 +5569,12 @@ static int cmd_role(int argc, char **argv) {
                 } else if (tag == 0x0a) {
                     uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
                     rpos += l;
-                } else {
-                    uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+                } else if (tag == 0x00) {
+                    continue;
+                } else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                          &rpos, tag)
+                           != CETCD_OK) {
+                    break;
                 }
             }
             printf("]}\n");
@@ -5579,16 +5595,24 @@ static int cmd_role(int argc, char **argv) {
                             uint64_t l = 0; read_varint(resp, pend, &rpos, &l);
                             printf("  key: %.*s\n", (int)l, resp + rpos);
                             rpos += l;
-                        } else {
-                            uint64_t v = 0; read_varint(resp, pend, &rpos, &v);
+                        } else if (ptag == 0x00) {
+                            continue;
+                        } else if (cetcd_leftover_safe_skip_field(resp, pend,
+                                                                  &rpos, ptag)
+                                   != CETCD_OK) {
+                            break;
                         }
                     }
                     rpos = pend;
                 } else if (tag == 0x0a) {
                     uint64_t l = 0; read_varint(resp, rlen, &rpos, &l);
                     rpos += l;
-                } else {
-                    uint64_t v = 0; read_varint(resp, rlen, &rpos, &v);
+                } else if (tag == 0x00) {
+                    continue;
+                } else if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen,
+                                                          &rpos, tag)
+                           != CETCD_OK) {
+                    break;
                 }
             }
         }

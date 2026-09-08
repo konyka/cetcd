@@ -2502,6 +2502,83 @@ CETCD_TEST_CASE(auto_compact_parse_lease_keepalive_response) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_role_get_response) {
+    uint8_t buf[32];
+    size_t n = 0, got = 9;
+    int perm = 9;
+    char key[16];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_role_get_perm(1, NULL, buf, sizeof(buf),
+                                                   &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_role_get_perm(1, "/k", buf, sizeof(buf),
+                                                   &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_response(buf, n, &perm, key,
+                                                      sizeof(key), &got),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(perm, 1);
+    CETCD_ASSERT_EQ_STR(key, "/k");
+    CETCD_ASSERT_TRUE(got == 1);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_response(NULL, 0, &perm, key,
+                                                      sizeof(key), &got),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(key, "");
+    CETCD_ASSERT_TRUE(got == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_response(dummy, 1, &perm, key,
+                                                      sizeof(key), &got),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(got == 0);
+
+    /* leftover truncated perm cannot print a leftover key */
+    uint8_t trunc[] = { 0x12 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_response(trunc, 1, &perm, key,
+                                                      sizeof(key), &got),
+                        CETCD_ERR_INVAL);
+    uint8_t trunc_key[] = { 0x12, 0x01, 0x0a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_response(trunc_key,
+                                                      sizeof(trunc_key),
+                                                      &perm, key, sizeof(key),
+                                                      &got),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed key */
+    uint8_t steal[] = { 0x1a, 0x06, 0x12, 0x04, 0x0a, 0x02, '/', 'k' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_response(steal, sizeof(steal),
+                                                      &perm, key, sizeof(key),
+                                                      &got),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(got == 0);
+    CETCD_ASSERT_EQ_STR(key, "");
+
+    uint8_t inner_steal[] = { 0x12, 0x06, 0x1a, 0x04, 0x0a, 0x02, '/', 'k' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_response(inner_steal,
+                                                      sizeof(inner_steal),
+                                                      &perm, key, sizeof(key),
+                                                      &got),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(got == 1);
+    CETCD_ASSERT_EQ_STR(key, "");
+
+    uint8_t steal_pt[] = { 0x12, 0x04, 0x1a, 0x02, 0x08, 0x01 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_response(steal_pt,
+                                                      sizeof(steal_pt),
+                                                      &perm, key, sizeof(key),
+                                                      &got),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(perm, 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_response(fixed64, 1, &perm, key,
+                                                      sizeof(key), &got),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_role_get_response(buf, n, NULL, NULL, 0,
+                                                      NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_downgrade_request) {
     uint8_t buf[64];
     size_t n = 0;
@@ -4169,6 +4246,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_response_header),
     CETCD_TEST_ENTRY(auto_compact_parse_snapshot_response),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_keepalive_response),
+    CETCD_TEST_ENTRY(auto_compact_parse_role_get_response),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_request),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_op_key),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),
