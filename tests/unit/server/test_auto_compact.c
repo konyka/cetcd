@@ -4279,6 +4279,64 @@ CETCD_TEST_CASE(auto_compact_parse_range_response_kv) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_range_response_kv_lease) {
+    uint8_t buf[16];
+    size_t n = 0;
+    int64_t lease = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_range_response_kv_lease(0, buf,
+                                                            sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_range_response_kv_lease(5, buf,
+                                                            sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_kv_lease(buf, n, &lease),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(lease == 5);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_kv_lease(NULL, 0, &lease),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(lease == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_kv_lease(dummy, 1, &lease),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(lease == 0);
+
+    /* leftover truncated lease cannot look like lease 0 */
+    uint8_t trunc[] = { 0x12, 0x01, 0x30 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_kv_lease(trunc, sizeof(trunc),
+                                                           &lease),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed lease */
+    uint8_t steal[] = { 0x12, 0x04, 0x32, 0x02, 0x30, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_kv_lease(steal, sizeof(steal),
+                                                           &lease),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(lease == 0);
+
+    /* leftover header is not lease */
+    uint8_t header[] = { 0x0a, 0x02, 0x30, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_kv_lease(header,
+                                                           sizeof(header),
+                                                           &lease),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(lease == 0);
+
+    uint8_t last[] = { 0x12, 0x02, 0x30, 0x01, 0x12, 0x02, 0x30, 0x02 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_kv_lease(last, sizeof(last),
+                                                           &lease),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(lease == 2);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_kv_lease(fixed64, 1, &lease),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_range_response_kv_lease(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_range_response_count) {
     uint8_t buf[16];
     size_t n = 0;
@@ -5598,6 +5656,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_alarm_request),
     CETCD_TEST_ENTRY(auto_compact_parse_alarm_response),
     CETCD_TEST_ENTRY(auto_compact_parse_range_response_kv),
+    CETCD_TEST_ENTRY(auto_compact_parse_range_response_kv_lease),
     CETCD_TEST_ENTRY(auto_compact_parse_range_response_count),
     CETCD_TEST_ENTRY(auto_compact_parse_range_request),
     CETCD_TEST_ENTRY(auto_compact_parse_put_request),

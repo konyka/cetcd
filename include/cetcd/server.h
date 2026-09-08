@@ -260,6 +260,17 @@ int cetcd_encode_range_response_kv(const uint8_t *key, size_t key_len,
 int cetcd_parse_range_response_kv(const uint8_t *req, size_t len,
                                   char *key, size_t key_cap, char *value,
                                   size_t value_cap, size_t *n_kvs);
+/* leftover-safe RangeResponse KV lease (field 6, tag 0x30). omitted /
+ * empty / dummy 0x00 = 0. leftover truncated lease is INVAL so a
+ * truncated get cannot look like lease 0. leftover
+ * length-delimited fields are skipped by payload so leftover bytes
+ * cannot steal a printed lease (tag 0x0a header is not lease).
+ * unknown wire types are INVAL. last lease is copied when lease is
+ * set. */
+int cetcd_encode_range_response_kv_lease(int64_t lease, uint8_t *out,
+                                         size_t cap, size_t *n);
+int cetcd_parse_range_response_kv_lease(const uint8_t *req, size_t len,
+                                        int64_t *lease);
 /* leftover-safe RangeResponse.count / more. omitted / empty / dummy
  * 0x00 = count 0 / more false. leftover truncated count / more is
  * INVAL so a truncated get --count-only cannot print 0. leftover

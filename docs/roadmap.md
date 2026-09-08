@@ -721,6 +721,13 @@ Performance-first, fail-closed design:
   `0x00` is not a skip length. `cetcdctl get` leftover-safe-parses
   field 3/4. Accepting leftover payload as the printed count is
   rejected.
+- **Range leftover-safe KV lease** — leftover-safe-parses
+  RangeResponse KV lease so leftover length-delimited bytes cannot
+  steal a printed lease. A truncated lease fail-closes (cannot look
+  like lease 0). Dummy `0x00` is not a skip length. Tag `0x0a` header
+  is not lease. `cetcdctl get` / `put --prev-kv` / `del --prev-kv` /
+  `watch` leftover-safe-parse field 6. Accepting leftover payload as
+  the printed lease is rejected.
 - **Authenticate leftover-safe name/password** — leftover-safe-parses
   AuthenticateRequest so leftover length-delimited bytes cannot steal
   a name or password. A truncated password fail-closes (cannot look
