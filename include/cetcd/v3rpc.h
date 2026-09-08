@@ -263,6 +263,8 @@ CETCD_API struct cetcd_lease_mgr  *cetcd_v3rpc_leases(cetcd_v3rpc *rpc);
 /* Backend quota (0 = unlimited). Over-quota Puts raise NOSPACE and fail closed. */
 CETCD_API void cetcd_v3rpc_set_quota(uint64_t bytes);
 CETCD_API void cetcd_v3rpc_set_max_txn_ops(uint64_t n);
+/* Cap WatchResponse frames. 0 → 1.5 MiB (etcd --max-request-bytes). */
+CETCD_API void cetcd_v3rpc_set_max_request_bytes(uint64_t n);
 /* Cap learner MemberAdd. Unset (unit tests) is unlimited; 0 refuses new learners. */
 CETCD_API void cetcd_v3rpc_set_max_learners(uint32_t n);
 CETCD_API void cetcd_v3rpc_clear_max_learners(void);

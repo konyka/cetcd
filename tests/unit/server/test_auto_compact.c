@@ -2655,6 +2655,56 @@ CETCD_TEST_CASE(auto_compact_parse_watch_response) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_watch_fragment) {
+    uint8_t buf[8];
+    size_t n = 0;
+    int fragment = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_watch_fragment(0, NULL, 0, &n),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_watch_fragment(0, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_watch_fragment(1, buf, sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 2);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_fragment(buf, n, &fragment),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(fragment, 1);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_fragment(NULL, 0, &fragment),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(fragment, 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_fragment(dummy, 1, &fragment),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(fragment, 0);
+
+    /* leftover truncated fragment cannot look like more frames */
+    uint8_t trunc[] = { 0x38 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_fragment(trunc, 1, &fragment),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal fragment=true */
+    uint8_t steal[] = { 0x1a, 0x02, 0x38, 0x01 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_fragment(steal, sizeof(steal),
+                                                   &fragment),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(fragment, 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_fragment(fixed64, 1, &fragment),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_fragment(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+
+    CETCD_ASSERT_EQ_INT(cetcd_watch_fragment_over_budget(0, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_watch_fragment_over_budget(1572864ULL, 0), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_watch_fragment_over_budget(1572865ULL, 0), 1);
+    CETCD_ASSERT_EQ_INT(cetcd_watch_fragment_over_budget(10, 10), 0);
+    CETCD_ASSERT_EQ_INT(cetcd_watch_fragment_over_budget(11, 10), 1);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_delete_range_response) {
     uint8_t buf[32];
     size_t n = 0, got = 9;
@@ -4443,6 +4493,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_lease_keepalive_response),
     CETCD_TEST_ENTRY(auto_compact_parse_role_get_response),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_response),
+    CETCD_TEST_ENTRY(auto_compact_parse_watch_fragment),
     CETCD_TEST_ENTRY(auto_compact_parse_delete_range_response),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_request),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_response),

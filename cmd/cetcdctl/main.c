@@ -5862,7 +5862,8 @@ static size_t build_watch_create(uint8_t *buf, size_t cap,
                                   const char *key, size_t key_len,
                                   bool prefix, const char *range_end_arg,
                                   int64_t start_rev, bool prev_kv,
-                                  int filter_type, bool progress_notify) {
+                                  int filter_type, bool progress_notify,
+                                  bool fragment) {
     uint8_t create_inner[512];
     size_t cpos = 0;
     cpos = encode_bytes_field(create_inner, sizeof(create_inner), cpos, 0x0a,
@@ -5886,6 +5887,8 @@ static size_t build_watch_create(uint8_t *buf, size_t cap,
         cpos = encode_varint_field(create_inner, sizeof(create_inner), cpos, 0x30, 1);
     if (filter_type >= 0)
         cpos = encode_varint_field(create_inner, sizeof(create_inner), cpos, 0x28, (uint64_t)filter_type);
+    if (fragment)
+        cpos = encode_varint_field(create_inner, sizeof(create_inner), cpos, 0x40, 1);
     size_t wpos = 0;
     buf[wpos++] = 0x0a;
     wpos = write_varint(buf, cap, wpos, (uint64_t)cpos);
@@ -6061,10 +6064,11 @@ static int print_watch_response(const uint8_t *resp, size_t rlen,
 }
 
 static int cmd_watch(int argc, char **argv) {
-    if (argc < 3) { fprintf(stderr, "usage: cetcdctl watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--progress-notify] [--start-rev N] [--filter TYPE] [--hex] [--exec CMD] [-w json|fields] KEY\n"); return 1; }
+    if (argc < 3) { fprintf(stderr, "usage: cetcdctl watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--progress-notify] [--fragment] [--start-rev N] [--filter TYPE] [--hex] [--exec CMD] [-w json|fields] KEY\n"); return 1; }
     bool prefix = false;
     bool prev_kv = false;
     bool progress_notify = false;
+    bool fragment = false;
     bool want_json = false;
     bool want_fields = false;
     bool hex_output = false;
@@ -6105,6 +6109,12 @@ static int cmd_watch(int argc, char **argv) {
                 return 1;
             }
             progress_notify = on != 0;
+        } else if (cmd_flag_is_(argv[i], "--fragment")) {
+            if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
+                fprintf(stderr, "--fragment must be true or false\n");
+                return 1;
+            }
+            fragment = on != 0;
         } else if (cmd_flag_is_(argv[i], "--hex")) {
             if (cetcd_take_cli_bool_eq(&i, argc, argv, &on) != CETCD_OK) {
                 fprintf(stderr, "--hex must be true or false\n");
@@ -6155,7 +6165,7 @@ static int cmd_watch(int argc, char **argv) {
             return 1;
         }
     }
-    if (!interactive && !key) { fprintf(stderr, "usage: cetcdctl watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--progress-notify] [--start-rev N] [--filter TYPE] [--hex] [--exec CMD] [-w json|fields] KEY\n"); return 1; }
+    if (!interactive && !key) { fprintf(stderr, "usage: cetcdctl watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--progress-notify] [--fragment] [--start-rev N] [--filter TYPE] [--hex] [--exec CMD] [-w json|fields] KEY\n"); return 1; }
     if (prefix && range_end_arg) { fprintf(stderr, "--prefix and --range-end are mutually exclusive\n"); return 1; }
 
     /* Connect to server and keep the connection open for streaming */
@@ -6176,7 +6186,8 @@ static int cmd_watch(int argc, char **argv) {
         uint8_t watch_buf[1024];
         size_t wpos = build_watch_create(watch_buf, sizeof(watch_buf),
                                          key, key_len, prefix, range_end_arg,
-                                         start_rev, prev_kv, filter_type, progress_notify);
+                                         start_rev, prev_kv, filter_type,
+                                         progress_notify, fragment);
         if (wpos == 0) { fprintf(stderr, "key too long\n"); conn_close(fd); return 1; }
         if (send_request(fd, "/etcdserverpb.Watch/Watch", watch_buf, wpos) != 0) {
             fprintf(stderr, "send failed\n"); conn_close(fd); return 1;
@@ -6209,8 +6220,8 @@ static int cmd_watch(int argc, char **argv) {
                 if (!cmd) continue;
                 if (strcmp(cmd, "watch") == 0) {
                     char *wkey = strtok(NULL, " \t");
-                    if (!wkey) { fprintf(stderr, "usage: watch KEY [--prefix] [--prev-kv] [--progress-notify] [--start-rev N]\n"); continue; }
-                    bool wprefix = false, wprev_kv = false, wprogress_notify = false;
+                    if (!wkey) { fprintf(stderr, "usage: watch KEY [--prefix] [--prev-kv] [--progress-notify] [--fragment] [--start-rev N]\n"); continue; }
+                    bool wprefix = false, wprev_kv = false, wprogress_notify = false, wfragment = false;
                     int64_t wstart_rev = 0;
                     int wrev_ok = 1;
                     char *tok;
@@ -6218,6 +6229,7 @@ static int cmd_watch(int argc, char **argv) {
                         if (strcmp(tok, "--prefix") == 0) wprefix = true;
                         else if (strcmp(tok, "--prev-kv") == 0) wprev_kv = true;
                         else if (strcmp(tok, "--progress-notify") == 0) wprogress_notify = true;
+                        else if (strcmp(tok, "--fragment") == 0) wfragment = true;
                         else if (strncmp(tok, "--start-rev=", 12) == 0) {
                             if (parse_i64_(tok + 12, &wstart_rev) != 0 || wstart_rev < 0) {
                                 fprintf(stderr, "--start-rev must be >= 0\n");
@@ -6242,7 +6254,7 @@ static int cmd_watch(int argc, char **argv) {
                     if (!wrev_ok) continue;
                     size_t wklen = strlen(wkey);
                     uint8_t wbuf[1024];
-                    size_t wp = build_watch_create(wbuf, sizeof(wbuf), wkey, wklen, wprefix, NULL, wstart_rev, wprev_kv, -1, wprogress_notify);
+                    size_t wp = build_watch_create(wbuf, sizeof(wbuf), wkey, wklen, wprefix, NULL, wstart_rev, wprev_kv, -1, wprogress_notify, wfragment);
                     if (wp > 0) { send_request(fd, "/etcdserverpb.Watch/Watch", wbuf, wp); fprintf(stderr, "watch created for key '%s'\n", wkey); }
                 } else if (strcmp(cmd, "cancel") == 0) {
                     char *id_str = strtok(NULL, " \t");
@@ -6581,7 +6593,7 @@ static int cmd_completion(int argc, char **argv) {
         printf("        put) local opts=\"--prev-kv --ignore-value --ignore-lease --lease -w --write-out\";;\n");
         printf("        get) local opts=\"--prefix --from-key --range-end --keys-only --count-only --print-value-only --hex --consistency --rev --limit --sort-by --sort-order --min-mod-rev --max-mod-rev --min-create-rev --max-create-rev -w --write-out\";;\n");
         printf("        del) local opts=\"--prefix --from-key --range-end --prev-kv --hex -w --write-out\";;\n");
-        printf("        watch) local opts=\"-i --interactive --prefix --range-end --prev-kv --progress-notify --start-rev --filter --hex --exec -w --write-out\";;\n");
+        printf("        watch) local opts=\"-i --interactive --prefix --range-end --prev-kv --progress-notify --fragment --start-rev --filter --hex --exec -w --write-out\";;\n");
         printf("        lease) local opts=\"--lease-id --keys --once --interval -w --write-out\"\n");
         printf("              local subs=\"grant revoke timetolive list keepalive\";;\n");
         printf("        txn) local opts=\"-w --write-out\"; local subs=\"-i put cas get del\";;\n");
@@ -6765,7 +6777,7 @@ static void print_usage(void) {
     printf("  get [--prefix] [--from-key] [--range-end KEY] [--keys-only] [--count-only] [--print-value-only] [--hex] [--consistency l|s] [-w json|fields|table] [--rev N] [--limit N] [--sort-by FIELD] [--sort-order ORDER] [--min-mod-rev N] [--max-mod-rev N] [--min-create-rev N] [--max-create-rev N] KEY [RANGE_END]\n");
     printf("                         Retrieve keys (sort-by: key|version|create|mod|value; sort-order: ascend|descend)\n");
     printf("  del [--prefix] [--from-key] [--range-end KEY] [--prev-kv] [--hex] [--print-value-only] [-w json|fields] KEY [RANGE_END]  Delete a key (options: --prefix, --from-key, --range-end, --prev-kv, --hex, --print-value-only)\n");
-    printf("  watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--progress-notify] [--start-rev N] [--filter NOPUT|NODELETE] [--hex] [--exec CMD] [-w json|fields] KEY  Watch key changes (-i for interactive mode, --progress-notify for periodic progress updates, --exec runs CMD with ETCD_WATCH_* env vars; --start-rev >= 0; leftover --flags fail-close)\n");
+    printf("  watch [-i] [--prefix] [--range-end KEY] [--prev-kv] [--progress-notify] [--fragment] [--start-rev N] [--filter NOPUT|NODELETE] [--hex] [--exec CMD] [-w json|fields] KEY  Watch key changes (-i for interactive mode, --progress-notify for periodic progress updates, --fragment splits oversized WatchResponses by --max-request-bytes, --exec runs CMD with ETCD_WATCH_* env vars; --start-rev >= 0; leftover --flags fail-close)\n");
     printf("  lease grant [--lease-id ID] [-w json|fields] TTL  Grant a lease (TTL > 0; --lease-id hex)\n");
     printf("  lease revoke [-w json|fields] ID  Revoke a lease by ID (> 0)\n");
     printf("  lease timetolive [--keys] [-w json|fields] ID  Query remaining TTL (ID > 0)\n");

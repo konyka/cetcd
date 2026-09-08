@@ -2958,6 +2958,7 @@ int cetcd_server_start(cetcd_server *srv) {
     cetcd_v3rpc_set_quota(
         cetcd_quota_backend_bytes_effective(srv->cfg.quota_backend_bytes));
     cetcd_v3rpc_set_max_txn_ops(srv->cfg.max_txn_ops);
+    cetcd_v3rpc_set_max_request_bytes(srv->cfg.max_request_bytes);
     cetcd_v3rpc_set_watch_progress_interval(
         srv->cfg.watch_progress_interval_ms,
         cetcd_server_tick_ms(srv->cfg.tick_ms));

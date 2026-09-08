@@ -26,6 +26,7 @@
 
 extern cetcd_mvcc_store *g_rpc_store;
 extern cetcd_loop       *g_rpc_loop;
+extern uint64_t          g_rpc_max_request_bytes;
 
 /* Forward declaration */
 cetcd_rpc_bytes watch_handle_watch(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len);
@@ -157,8 +158,85 @@ static size_t encode_event(uint8_t *buf, size_t cap, size_t pos,
     return pos;
 }
 
+/* etcd --max-request-bytes default. Duplicated so v3rpc does not
+ * call cetcd_parse_* / server leftovers from this TU. */
+#define WATCH_MAX_REQUEST_BYTES_DEFAULT 1572864ULL
+
+static uint64_t watch_max_request_bytes_(void) {
+    return g_rpc_max_request_bytes ? g_rpc_max_request_bytes
+                                   : WATCH_MAX_REQUEST_BYTES_DEFAULT;
+}
+
+/* Encode WatchResponse prefix (header / ids / flags). field 7
+ * fragment (0x38) is set when more frames follow. */
+static size_t encode_watch_prefix_(uint8_t *resp, size_t cap,
+                                   int64_t watch_id, int created, int canceled,
+                                   int64_t current_rev, int64_t compact_revision,
+                                   int fragment) {
+    uint8_t hdr_inner[16];
+    size_t hip = 0;
+    size_t rpos = 0;
+    if (!resp || cap < 8) return 0;
+    hdr_inner[hip++] = 0x18;
+    hip = write_varint_w(hdr_inner, sizeof(hdr_inner), hip,
+                         (uint64_t)(current_rev > 0 ? current_rev : 1));
+    resp[rpos++] = 0x0a;
+    rpos = write_varint_w(resp, cap, rpos, (uint64_t)hip);
+    if (rpos + hip > cap) return 0;
+    memcpy(resp + rpos, hdr_inner, hip);
+    rpos += hip;
+    resp[rpos++] = 0x10;
+    rpos = write_varint_w(resp, cap, rpos, (uint64_t)watch_id);
+    if (created) {
+        resp[rpos++] = 0x18;
+        resp[rpos++] = 0x01;
+    }
+    if (canceled) {
+        resp[rpos++] = 0x20;
+        resp[rpos++] = 0x01;
+    }
+    if (compact_revision > 0) {
+        resp[rpos++] = 0x28;
+        rpos = write_varint_w(resp, cap, rpos, (uint64_t)compact_revision);
+    }
+    if (fragment) {
+        resp[rpos++] = 0x38;
+        resp[rpos++] = 0x01;
+    }
+    return rpos;
+}
+
 /* Encode a WatchResponse protobuf.  Caller frees out->data with free().
- * compact_revision > 0 emits field 5 (tag 0x28); used when start_rev is compacted. */
+ * compact_revision > 0 emits field 5 (tag 0x28); used when start_rev is compacted.
+ * fragment emits field 7 (tag 0x38) when more frames follow. */
+static cetcd_rpc_bytes encode_watch_response_frag(int64_t watch_id,
+                                                  int created,
+                                                  int canceled,
+                                                  const cetcd_watch_event *events,
+                                                  size_t event_count,
+                                                  int64_t current_rev,
+                                                  int want_prev_kv,
+                                                  int64_t compact_revision,
+                                                  int fragment) {
+    cetcd_rpc_bytes out = {NULL, 0};
+    size_t cap = 256 + event_count * 8192;
+    uint8_t *resp = (uint8_t *)malloc(cap);
+    size_t rpos;
+    if (!resp) return out;
+    rpos = encode_watch_prefix_(resp, cap, watch_id, created, canceled,
+                                current_rev, compact_revision, fragment);
+    for (size_t i = 0; i < event_count; i++) {
+        rpos = encode_event(resp, cap, rpos, &events[i], want_prev_kv);
+    }
+    uint8_t *final = (uint8_t *)malloc(rpos);
+    if (!final) { free(resp); return out; }
+    memcpy(final, resp, rpos);
+    free(resp);
+    out.data = final;
+    out.len = rpos;
+    return out;
+}
+
 static cetcd_rpc_bytes encode_watch_response(int64_t watch_id,
                                               int created,
                                               int canceled,
@@ -167,59 +245,9 @@ static cetcd_rpc_bytes encode_watch_response(int64_t watch_id,
                                               int64_t current_rev,
                                               int want_prev_kv,
                                               int64_t compact_revision) {
-    cetcd_rpc_bytes out = {NULL, 0};
-
-    /* ResponseHeader inner: field 3 = revision */
-    uint8_t hdr_inner[16]; size_t hip = 0;
-    hdr_inner[hip++] = 0x18;
-    hip = write_varint_w(hdr_inner, sizeof(hdr_inner), hip,
-                         (uint64_t)(current_rev > 0 ? current_rev : 1));
-
-    /* Response buffer */
-    size_t cap = 256 + event_count * 8192;
-    uint8_t *resp = (uint8_t *)malloc(cap);
-    if (!resp) return out;
-    size_t rpos = 0;
-
-    /* field 1 = header */
-    resp[rpos++] = 0x0a;
-    rpos = write_varint_w(resp, cap, rpos, (uint64_t)hip);
-    memcpy(resp + rpos, hdr_inner, hip); rpos += hip;
-
-    /* field 2 = watch_id */
-    resp[rpos++] = 0x10;
-    rpos = write_varint_w(resp, cap, rpos, (uint64_t)watch_id);
-
-    /* field 3 = created */
-    if (created) {
-        resp[rpos++] = 0x18;
-        resp[rpos++] = 0x01;
-    }
-
-    /* field 4 = canceled */
-    if (canceled) {
-        resp[rpos++] = 0x20;
-        resp[rpos++] = 0x01;
-    }
-
-    /* field 5 = compact_revision */
-    if (compact_revision > 0) {
-        resp[rpos++] = 0x28;
-        rpos = write_varint_w(resp, cap, rpos, (uint64_t)compact_revision);
-    }
-
-    /* field 11 = repeated Event */
-    for (size_t i = 0; i < event_count; i++) {
-        rpos = encode_event(resp, cap, rpos, &events[i], want_prev_kv);
-    }
-
-    uint8_t *final = (uint8_t *)malloc(rpos);
-    if (!final) { free(resp); return out; }
-    memcpy(final, resp, rpos);
-    free(resp);
-    out.data = final;
-    out.len = rpos;
-    return out;
+    return encode_watch_response_frag(watch_id, created, canceled, events,
+                                      event_count, current_rev, want_prev_kv,
+                                      compact_revision, 0);
 }
 
 /* start_rev > 0 and below compacted_rev → cannot create watch (etcd ErrCompacted). */
@@ -273,6 +301,7 @@ typedef struct cetcd_stream_watcher_ctx {
     int                     want_prev_kv;
     int                     filter_noput;
     int                     filter_nodelete;
+    int                     fragment; /* WatchCreate field 8: split oversized frames */
     int                     want_progress_notify;
     int                     ticks_since_progress; /* 100ms ticks since last progress */
     int                     replay_pending; /* history queued; wake after create-ack */
@@ -290,6 +319,66 @@ static void free_stream_watcher_ctx(cetcd_stream_watcher_ctx *wctx) {
     if (!wctx) return;
     cetcd_mvcc_watch_notify_destroy(&wctx->notify);
     free(wctx);
+}
+
+/* Split a filtered event batch so each WatchResponse stays under
+ * max-request-bytes. Non-last frames set fragment=true. One event
+ * that itself exceeds the budget is still sent (cannot drop). */
+static void write_watch_events_maybe_fragment_(
+    cetcd_stream_watcher_ctx *wctx,
+    const cetcd_watch_event *events,
+    size_t send_count,
+    int64_t rev)
+{
+    uint64_t maxb;
+    size_t cap;
+    uint8_t *scratch;
+    size_t i;
+    if (!wctx || !wctx->write_fn || send_count == 0) return;
+    if (!wctx->fragment) {
+        cetcd_rpc_bytes resp = encode_watch_response(
+            wctx->watch_id, 0, 0, events, send_count, rev,
+            wctx->want_prev_kv, 0);
+        if (resp.data && resp.len > 0)
+            wctx->write_fn(resp.data, resp.len, wctx->write_ctx);
+        cetcd_rpc_bytes_free(&resp);
+        return;
+    }
+    maxb = watch_max_request_bytes_();
+    cap = 256 + send_count * 8192;
+    if (cap < 8192) cap = 8192;
+    scratch = (uint8_t *)malloc(cap);
+    if (!scratch) return;
+    i = 0;
+    while (i < send_count) {
+        size_t pos = encode_watch_prefix_(scratch, cap, wctx->watch_id,
+                                          0, 0, rev, 0, 0);
+        size_t n = 0;
+        int more;
+        while (i + n < send_count) {
+            size_t next = encode_event(scratch, cap, pos, &events[i + n],
+                                       wctx->want_prev_kv);
+            size_t reserve = (i + n + 1 < send_count) ? 2u : 0u;
+            if (next <= pos) break;
+            if (n > 0 && (uint64_t)next + reserve > maxb)
+                break;
+            pos = next;
+            n++;
+        }
+        if (n == 0) break;
+        more = (i + n < send_count);
+        if (more) {
+            size_t k;
+            pos = encode_watch_prefix_(scratch, cap, wctx->watch_id,
+                                       0, 0, rev, 0, 1);
+            for (k = 0; k < n; k++)
+                pos = encode_event(scratch, cap, pos, &events[i + k],
+                                   wctx->want_prev_kv);
+        }
+        wctx->write_fn(scratch, pos, wctx->write_ctx);
+        i += n;
+    }
+    free(scratch);
 }
 
 /* Direct callback: called from notify_push when MVCC events arrive.
@@ -313,15 +402,9 @@ static void streaming_watch_notify_cb(void *udata) {
         send_count++;
     }
     if (send_count > 0) {
-        cetcd_rpc_bytes resp = encode_watch_response(
-            wctx->watch_id, 0, 0,
-            events, send_count,
-            g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 1,
-            wctx->want_prev_kv, 0);
-        if (resp.data && resp.len > 0 && wctx->write_fn) {
-            wctx->write_fn(resp.data, resp.len, wctx->write_ctx);
-        }
-        cetcd_rpc_bytes_free(&resp);
+        write_watch_events_maybe_fragment_(
+            wctx, events, send_count,
+            g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 1);
     }
     /* Free event data that was deep-copied into the notification queue. */
     for (size_t i = 0; i < count; i++) {
@@ -726,6 +809,7 @@ static cetcd_rpc_bytes handle_streaming_watch(const watch_request_parsed *p,
         wctx->want_prev_kv = p->want_prev_kv;
         wctx->filter_noput = p->filter_noput;
         wctx->filter_nodelete = p->filter_nodelete;
+        wctx->fragment = p->fragment;
         wctx->want_progress_notify = p->want_progress_notify;
         wctx->ticks_since_progress = 0;
         wctx->replay_pending = 0;

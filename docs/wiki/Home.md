@@ -922,6 +922,7 @@ UserDelete / RoleAdd / RoleDelete / UserGet / RoleGet leftover-safe-parses so le
 RoleGrantPermission / RoleRevokePermission leftover-safe-parses so leftover length-delimited bytes cannot steal the role, Permission key, range_end, or permType (truncated name / Permission / key fail-closes).
 `cetcdctl watch --start-rev` must be an integer `>= 0`; leftover text fail-closes instead of starting at a truncated revision. WatchCreate leftover-safe-parses so leftover length-delimited bytes cannot steal `start_rev` / `range_end` / `watch_id` (truncated `--start-rev` fail-closes).
 Watch leftover-safe-parses so leftover length-delimited bytes cannot steal a printed Event key or type (truncated event / kv / key fail-closes).
+Watch leftover-safe-parses `fragment` so leftover length-delimited bytes cannot steal `fragment=true` (truncated fragment fail-closes). WatchCreate `fragment` leftover-safe-splits oversized WatchResponses by `--max-request-bytes`; `cetcdctl watch --fragment` leftover-safe-encodes field 8 (not a no-op).
 `--help` does not pre-empt an earlier invalid flag. `--config-file` is skipped when `--help` is present.
 A `cert-file` enables client TLS even without an https listen URL. A data-dir join does not campaign as a singleton before persisted peers load.
 `--grpc-keepalive-time` / `--grpc-keepalive-interval` / `--grpc-keepalive-timeout`

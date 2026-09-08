@@ -671,6 +671,20 @@ int cetcd_encode_watch_event_kv(int type, const char *key, uint8_t *out,
                                 size_t cap, size_t *n);
 int cetcd_parse_watch_response(const uint8_t *req, size_t len, int *type,
                                char *key, size_t key_cap, size_t *n);
+/* leftover-safe WatchResponse.fragment (field 7, tag 0x38). omitted /
+ * empty / dummy 0x00 = not a fragment. leftover truncated fragment
+ * is INVAL so a truncated watch cannot look like more frames.
+ * leftover length-delimited fields are skipped by payload so
+ * leftover bytes cannot steal fragment=true. unknown wire types
+ * are INVAL. proto3 omitted fragment is 0. */
+int cetcd_encode_watch_fragment(int fragment, uint8_t *out, size_t cap,
+                                size_t *n);
+int cetcd_parse_watch_fragment(const uint8_t *req, size_t len, int *fragment);
+/* 1 when encoded bytes exceed the WatchResponse budget. max 0 uses
+ * CETCD_DEFAULT_MAX_REQUEST_BYTES so a huge frame cannot hide as
+ * "unlimited". encoded == max is not over. */
+int cetcd_watch_fragment_over_budget(size_t encoded,
+                                     uint64_t max_request_bytes);
 /* leftover-safe DeleteRange last prev_kv. omitted / empty / dummy
  * 0x00 = 0 prev_kvs / empty key. leftover truncated prev_kv / key
  * is INVAL so a truncated delete cannot print a leftover key.

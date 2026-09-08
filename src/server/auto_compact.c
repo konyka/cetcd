@@ -5236,6 +5236,47 @@ int cetcd_parse_watch_response(const uint8_t *req, size_t len, int *type,
     return CETCD_OK;
 }
 
+int cetcd_encode_watch_fragment(int fragment, uint8_t *out, size_t cap,
+                                size_t *n) {
+    if (!out || !n) return CETCD_ERR_INVAL;
+    *n = 0;
+    if (!fragment) return CETCD_OK;
+    if (cap < 2) return CETCD_ERR_OVERFLOW;
+    out[0] = 0x38; /* field 7 fragment */
+    out[1] = 0x01;
+    *n = 2;
+    return CETCD_OK;
+}
+
+int cetcd_parse_watch_fragment(const uint8_t *req, size_t len, int *fragment) {
+    size_t p = 0;
+    if (!fragment) return CETCD_ERR_INVAL;
+    *fragment = 0;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x38) {
+            uint64_t v = 0;
+            if (leftover_safe_varint_at_(req, len, &p, &v) != CETCD_OK)
+                return CETCD_ERR_INVAL;
+            *fragment = v != 0;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
+int cetcd_watch_fragment_over_budget(size_t encoded,
+                                     uint64_t max_request_bytes) {
+    if (max_request_bytes == 0)
+        max_request_bytes = CETCD_DEFAULT_MAX_REQUEST_BYTES;
+    return (uint64_t)encoded > max_request_bytes;
+}
+
 int cetcd_encode_delete_range_prev_kv(const char *key, uint8_t *out,
                                       size_t cap, size_t *n) {
     uint8_t kv[64];

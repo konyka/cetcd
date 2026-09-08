@@ -753,8 +753,8 @@ Performance-first, fail-closed design:
   `start_rev`, `range_end`, `watch_id`, or `fragment`. A truncated
   `--start-rev` fail-closes (cannot watch the live tree). Dummy `0x00` /
   omitted is from-now. Accepting leftover payload as the start revision
-  is rejected. `fragment` is leftover-safe-parsed; splitting large
-  WatchResponses is a separate land (a no-op fragment flag is rejected).
+  is rejected. `fragment` leftover-safe-splits oversized WatchResponses
+  by `--max-request-bytes` (a no-op fragment flag is rejected).
 - **MemberAdd leftover-safe peerURL** — leftover-safe-parses
   MemberAddRequest so leftover length-delimited bytes cannot steal a
   peerURL or `isLearner`. A truncated peerURL / isLearner fail-closes
@@ -845,6 +845,14 @@ Performance-first, fail-closed design:
   (cannot print leftover text or set `ETCD_WATCH_KEY`). Dummy `0x00`
   is not a skip length. `cetcdctl watch` leftover-safe-skips unknown
   fields. Accepting leftover payload as the printed key is rejected.
+- **Watch leftover-safe fragment** — leftover-safe-parses
+  WatchResponse.fragment so leftover length-delimited bytes cannot
+  steal `fragment=true`. A truncated fragment fail-closes (cannot
+  look like more frames). Dummy `0x00` is not a skip length.
+  WatchCreate `fragment` leftover-safe-splits oversized frames by
+  `--max-request-bytes`; one event over budget is still sent.
+  `cetcdctl watch --fragment` leftover-safe-encodes field 8 (not a
+  no-op). Accepting leftover payload as fragment is rejected.
 - **DeleteRange leftover-safe prev_kv** — leftover-safe-parses
   DeleteRangeResponse so leftover length-delimited bytes cannot steal
   a printed prev_kv key. A truncated prev_kv / key fail-closes

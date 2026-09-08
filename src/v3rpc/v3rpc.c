@@ -83,6 +83,7 @@ const char       *g_rpc_auth_user = NULL;
 cetcd_backend    *g_rpc_auth_backend = NULL;
 uint64_t          g_rpc_quota_bytes = 0;
 uint64_t          g_rpc_max_txn_ops = 128;
+uint64_t          g_rpc_max_request_bytes = 1572864ULL;
 uint32_t          g_rpc_max_learners = 0;
 int               g_rpc_max_learners_set = 0;
 int               g_rpc_strict_reconfig = 1;
@@ -101,6 +102,7 @@ cetcd_v3rpc *cetcd_v3rpc_new(void) {
     g_rpc_lease_mgr = rpc->leases;
     g_rpc_auth = rpc->auth;
     g_rpc_max_txn_ops = 128;
+    g_rpc_max_request_bytes = 1572864ULL;
     cetcd_v3rpc_alarm_load(NULL);
     return rpc;
 }
@@ -122,6 +124,7 @@ void cetcd_v3rpc_free(cetcd_v3rpc *rpc) {
     }
     if (g_rpc_auth_backend) g_rpc_auth_backend = NULL;
     g_rpc_max_txn_ops = 128;
+    g_rpc_max_request_bytes = 1572864ULL;
     free(rpc);
 }
 
@@ -314,6 +317,11 @@ void cetcd_v3rpc_set_max_txn_ops(uint64_t n) {
     if (n == 0) n = 128;
     if (n > 128) n = 128;
     g_rpc_max_txn_ops = n;
+}
+
+void cetcd_v3rpc_set_max_request_bytes(uint64_t n) {
+    if (n == 0) n = 1572864ULL;
+    g_rpc_max_request_bytes = n;
 }
 
 void cetcd_v3rpc_set_max_learners(uint32_t n) {

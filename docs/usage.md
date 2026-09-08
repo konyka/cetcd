@@ -393,13 +393,18 @@ so many concurrent watchers can share a single TCP connection.
 # --start-rev must be >= 0; leftover text is not a silent truncated revision
 # leftover-safe: leftover proto bytes cannot steal start_rev / range_end
 # leftover-safe: leftover proto bytes cannot steal a printed Event key
+# leftover-safe: leftover proto bytes cannot steal fragment=true
 # leftover watch --foo key fail-closes (not a watch on key --foo)
+# --fragment leftover-safe-splits oversized WatchResponses by --max-request-bytes
 
 # Include the previous key-value in each event
 ./build/bin/cetcdctl watch --prev-kv foo
 
 # Request periodic progress notifications from the server
 ./build/bin/cetcdctl watch --progress-notify foo
+
+# Split oversized WatchResponses by --max-request-bytes (not a no-op)
+./build/bin/cetcdctl watch --fragment foo
 
 # Output events in hex format
 ./build/bin/cetcdctl watch --hex foo
