@@ -179,6 +179,11 @@ int cetcd_parse_i64(const char *s, int64_t *out);
 int cetcd_parse_pprof_seconds(const char *qs, size_t qs_len, int *out);
 /* HashKVRequest field 1 (revision). 0 = current (empty body). Negative INVAL. */
 int cetcd_encode_hashkv_request(int64_t rev, uint8_t *out, size_t cap, size_t *n);
+/* leftover-safe HashKVRequest.revision. omitted / empty / dummy 0x00 = 0
+ * (current). leftover truncated varint is INVAL so a truncated --rev
+ * cannot hash the live tree. leftover length-delimited fields are
+ * skipped by payload; unknown wire types are INVAL. */
+int cetcd_parse_hashkv_request(const uint8_t *req, size_t len, int64_t *out);
 /* MemberListRequest field 1 (linearizable). proto3 omitted = 0. */
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n);

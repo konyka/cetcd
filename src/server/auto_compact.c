@@ -1429,6 +1429,72 @@ int cetcd_encode_hashkv_request(int64_t rev, uint8_t *out, size_t cap, size_t *n
     return CETCD_OK;
 }
 
+int cetcd_parse_hashkv_request(const uint8_t *req, size_t len, int64_t *out) {
+    size_t p = 0;
+    if (!out) return CETCD_ERR_INVAL;
+    *out = 0;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x08) {
+            uint64_t v = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return CETCD_ERR_INVAL;
+            }
+            if (!got) return CETCD_ERR_INVAL;
+            if (v > (uint64_t)INT64_MAX) return CETCD_ERR_INVAL;
+            *out = (int64_t)v;
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return CETCD_ERR_INVAL;
+            }
+            if (!got) return CETCD_ERR_INVAL;
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return CETCD_ERR_INVAL;
+            }
+            if (!got || p + skip > len) return CETCD_ERR_INVAL;
+            p += (size_t)skip;
+            continue;
+        }
+        return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n) {
     if (!out || !n || cap < 2) return CETCD_ERR_INVAL;

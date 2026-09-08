@@ -12,6 +12,7 @@
  *   - Downgrade: VALIDATE of cetcd_version() only; ENABLE/CANCEL fail-closed
  */
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -345,21 +346,79 @@ cetcd_rpc_bytes maint_handle_hash(cetcd_v3rpc *rpc, const uint8_t *req, size_t r
  *   field 2 (hash)     = uint32, tag = 0x10
  *   field 3 (compact_revision) = int64, tag = 0x18
  */
+/* leftover-safe HashKVRequest.revision. truncated varint is INVAL so a
+ * leftover --rev cannot hash the live tree. dummy 0x00 / omitted = 0. */
+static int parse_hashkv_request_(const uint8_t *req, size_t len, int64_t *out) {
+    size_t p = 0;
+    if (!out) return -1;
+    *out = 0;
+    if (!req || len == 0) return 0;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x08) {
+            uint64_t v = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got) return -1;
+            if (v > (uint64_t)INT64_MAX) return -1;
+            *out = (int64_t)v;
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got) return -1;
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got || p + skip > len) return -1;
+            p += (size_t)skip;
+            continue;
+        }
+        return -1;
+    }
+    return 0;
+}
+
 cetcd_rpc_bytes maint_handle_hash_kv(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
     int64_t req_rev = 0;
-    size_t p = 0;
-    while (p < req_len) {
-        uint8_t tag = req[p++];
-        if (tag == 0x08) {
-            uint64_t v = 0;
-            if (read_varint_m(req, req_len, &p, &v) != 0) break;
-            req_rev = (int64_t)v;
-        } else {
-            uint64_t skip = 0;
-            if (read_varint_m(req, req_len, &p, &skip) != 0) break;
-        }
-    }
+    if (parse_hashkv_request_(req, req_len, &req_rev) != 0)
+        return (cetcd_rpc_bytes){NULL, 0};
 
     int64_t current = g_rpc_store ? cetcd_mvcc_revision(g_rpc_store) : 0;
     int64_t compact_rev = g_rpc_store ? cetcd_mvcc_compacted_revision(g_rpc_store) : 0;

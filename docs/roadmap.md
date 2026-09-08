@@ -633,6 +633,11 @@ Performance-first, fail-closed design:
   `[key, range_end)` (single 0 = FromKey). A swallowed range_end would
   grant a prefix instead of a range. Accepting `--from-key` as a no-op
   is rejected.
+- **HashKV leftover-safe revision** — leftover-safe-parses
+  HashKVRequest.revision so a truncated field-1 varint (`0x08` with no
+  value) cannot hash the live tree. Dummy `0x00` / omitted is current.
+  A leftover length-delimited field is skipped by payload, not eaten as
+  a revision. Accepting a truncated `--rev` as current is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`
