@@ -4556,6 +4556,82 @@ int cetcd_parse_range_response_kv_mod_rev(const uint8_t *req, size_t len,
     return CETCD_OK;
 }
 
+int cetcd_encode_range_response_kv_value(const char *value, uint8_t *out,
+                                         size_t cap, size_t *n) {
+    uint8_t inner[64];
+    size_t in = 0;
+    uint64_t v;
+    size_t pos = 0;
+    int rc;
+    if (!out || !n) return CETCD_ERR_INVAL;
+    *n = 0;
+    if (!value || !value[0]) return CETCD_OK;
+    rc = write_bytes_field_(inner, sizeof(inner), &in, 0x2a,
+                            (const uint8_t *)value, strlen(value));
+    if (rc != CETCD_OK) return rc;
+    if (pos + 2 + in > cap) return CETCD_ERR_OVERFLOW;
+    out[pos++] = 0x12; /* field 2 kvs */
+    v = in;
+    do {
+        if (pos >= cap) return CETCD_ERR_OVERFLOW;
+        uint8_t b = (uint8_t)(v & 0x7fu);
+        v >>= 7;
+        if (v) b |= 0x80u;
+        out[pos++] = b;
+    } while (v);
+    memcpy(out + pos, inner, in);
+    pos += in;
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_range_response_kv_value(const uint8_t *req, size_t len,
+                                        char *value, size_t value_cap) {
+    size_t p = 0;
+    if (!value || !value_cap) return CETCD_ERR_INVAL;
+    value[0] = '\0';
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x12) {
+            uint64_t skip = 0;
+            size_t ip = 0;
+            int rc = leftover_safe_varint_at_(req, len, &p, &skip);
+            if (rc != CETCD_OK || p + skip > len) return CETCD_ERR_INVAL;
+            value[0] = '\0';
+            while (ip < (size_t)skip) {
+                uint8_t kt = req[p + ip];
+                ip++;
+                if (kt == 0x00)
+                    continue;
+                if (kt == 0x2a) {
+                    uint64_t sl = 0;
+                    size_t qp = ip;
+                    if (leftover_safe_varint_at_(req + p, (size_t)skip, &qp,
+                                                 &sl) != CETCD_OK
+                        || qp + sl > (size_t)skip)
+                        return CETCD_ERR_INVAL;
+                    if (sl >= value_cap) return CETCD_ERR_INVAL;
+                    memcpy(value, req + p + qp, (size_t)sl);
+                    value[sl] = '\0';
+                    ip = qp + (size_t)sl;
+                    continue;
+                }
+                if (leftover_safe_skip_unknown_at_(req + p, (size_t)skip, &ip,
+                                                   kt) != CETCD_OK)
+                    return CETCD_ERR_INVAL;
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_range_response_count(int64_t count, int more, uint8_t *out,
                                       size_t cap, size_t *n) {
     size_t pos = 0;

@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 194 — leftover-safe Watch Event prev_kv value</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 195 — leftover-safe Range KV value</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 194 leftover-safe-parses
-     Watch Event prev_kv value so leftover length-delimited bytes cannot
-     steal a printed prev value.</p>
+  <p><strong>v0.3.0</strong>. Phase 195 leftover-safe-parses
+     Range KV value so leftover length-delimited bytes cannot
+     steal a printed value.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -247,6 +247,7 @@
       <tr><td>192</td><td>leftover-safe Watch Event prev_kv version</td><td>Watch leftover-safe-parses so leftover length-delimited bytes cannot steal a printed Event prev version; truncated Event-nested prev version fail-closes; header raft_term is not prev version; cetcdctl leftover-safe-parses field 4 inside Event prev_kv — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>193</td><td>leftover-safe Watch Event prev_kv key</td><td>Watch leftover-safe-parses so leftover length-delimited bytes cannot steal a printed Event prev key; truncated Event-nested prev key fail-closes; header is not prev key; cetcdctl leftover-safe-parses field 1 inside Event prev_kv — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>194</td><td>leftover-safe Watch Event prev_kv value</td><td>Watch leftover-safe-parses so leftover length-delimited bytes cannot steal a printed Event prev value; truncated Event-nested prev value fail-closes; header is not prev value; cetcdctl leftover-safe-parses field 5 inside Event prev_kv — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>195</td><td>leftover-safe Range KV value</td><td>Range leftover-safe-parses so leftover length-delimited bytes cannot steal a printed KV value; truncated value fail-closes; header is not value; cetcdctl leftover-safe-parses field 5 — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>
