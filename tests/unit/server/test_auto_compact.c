@@ -2886,6 +2886,62 @@ CETCD_TEST_CASE(auto_compact_parse_lease_ttl_granted) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_lease_ttl_remaining) {
+    uint8_t buf[16];
+    size_t n = 0;
+    int64_t ttl = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_lease_ttl_remaining(0, buf, sizeof(buf),
+                                                        &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_lease_ttl_remaining(5, buf, sizeof(buf),
+                                                        &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_remaining(buf, n, &ttl),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ttl == 5);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_remaining(NULL, 0, &ttl),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ttl == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_remaining(dummy, 1, &ttl),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ttl == 0);
+
+    /* leftover truncated remaining TTL cannot look like remaining 0 */
+    uint8_t trunc[] = { 0x18 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_remaining(trunc, 1, &ttl),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed remaining TTL */
+    uint8_t steal[] = { 0x1a, 0x02, 0x18, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_remaining(steal, sizeof(steal),
+                                                       &ttl),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ttl == 0);
+
+    /* leftover header revision is not remaining TTL */
+    uint8_t header[] = { 0x0a, 0x02, 0x18, 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_remaining(header, sizeof(header),
+                                                       &ttl),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ttl == 0);
+
+    uint8_t last[] = { 0x18, 0x01, 0x18, 0x02 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_remaining(last, sizeof(last),
+                                                       &ttl),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ttl == 2);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_remaining(fixed64, 1, &ttl),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_ttl_remaining(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_authenticate_response) {
     uint8_t buf[32];
     size_t n = 0;
@@ -5470,6 +5526,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_lease_ttl_response),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_ttl_key),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_ttl_granted),
+    CETCD_TEST_ENTRY(auto_compact_parse_lease_ttl_remaining),
     CETCD_TEST_ENTRY(auto_compact_parse_authenticate_response),
     CETCD_TEST_ENTRY(auto_compact_parse_txn_succeeded),
     CETCD_TEST_ENTRY(auto_compact_parse_hash_response),

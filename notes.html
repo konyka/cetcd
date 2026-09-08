@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 179 — leftover-safe TimeToLive grantedTTL</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 180 — leftover-safe TimeToLive remaining TTL</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 179 leftover-safe-parses
-     TimeToLive grantedTTL so leftover length-delimited bytes cannot
-     steal a printed granted TTL.</p>
+  <p><strong>v0.3.0</strong>. Phase 180 leftover-safe-parses
+     TimeToLive remaining TTL so leftover length-delimited bytes cannot
+     steal a printed remaining TTL.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -232,6 +232,7 @@
       <tr><td>177</td><td>leftover-safe Status isLearner</td><td>Status leftover-safe-parses so leftover length-delimited bytes cannot steal a printed isLearner; truncated isLearner fail-closes; cetcdctl leftover-safe-parses field 10 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>178</td><td>leftover-safe Member isLearner</td><td>Member leftover-safe-parses so leftover length-delimited bytes cannot steal a printed isLearner; truncated isLearner fail-closes; header is not isLearner; cetcdctl leftover-safe-parses field 5 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>179</td><td>leftover-safe TimeToLive grantedTTL</td><td>TimeToLive leftover-safe-parses so leftover length-delimited bytes cannot steal a printed grantedTTL; truncated grantedTTL fail-closes; header raft_term is not grantedTTL; cetcdctl leftover-safe-parses field 4 — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>180</td><td>leftover-safe TimeToLive remaining TTL</td><td>TimeToLive leftover-safe-parses so leftover length-delimited bytes cannot steal a printed remaining TTL; truncated remaining TTL fail-closes; header revision is not remaining TTL; cetcdctl leftover-safe-parses field 3 — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>
