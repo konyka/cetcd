@@ -853,6 +853,14 @@ Performance-first, fail-closed design:
   `--max-request-bytes`; one event over budget is still sent.
   `cetcdctl watch --fragment` leftover-safe-encodes field 8 (not a
   no-op). Accepting leftover payload as fragment is rejected.
+- **Watch leftover-safe cancel_reason** — leftover-safe-parses
+  WatchResponse.cancel_reason so leftover length-delimited bytes
+  cannot steal a printed compact cancel. A truncated reason
+  fail-closes (cannot print leftover text). Dummy `0x00` is not a
+  skip length. Compacted WatchCreate / active-watch cancel encodes
+  etcd `ErrCompacted` on field 6. `cetcdctl watch` leftover-safe-parses
+  field 6. Accepting leftover payload as the printed reason is
+  rejected.
 - **DeleteRange leftover-safe prev_kv** — leftover-safe-parses
   DeleteRangeResponse so leftover length-delimited bytes cannot steal
   a printed prev_kv key. A truncated prev_kv / key fail-closes

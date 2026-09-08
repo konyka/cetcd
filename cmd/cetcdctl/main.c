@@ -5920,6 +5920,12 @@ static int print_watch_response(const uint8_t *resp, size_t rlen,
     const uint8_t *evt_val = NULL; size_t evt_val_len = 0;
     uint64_t evt_mod_rev = 0;
 
+    char cancel_reason[128];
+    cancel_reason[0] = '\0';
+    if (cetcd_parse_watch_cancel_reason(resp, rlen, cancel_reason,
+                                        sizeof(cancel_reason)) != CETCD_OK)
+        cancel_reason[0] = '\0';
+
     if (want_json) {
         fputs("{", stdout);
         parse_and_print_header_json(resp, rlen);
@@ -6059,7 +6065,19 @@ static int print_watch_response(const uint8_t *resp, size_t rlen,
             break;
         }
     }
-    if (want_json) fputs("]}\n", stdout);
+    if (want_json) {
+        if (cancel_reason[0]) {
+            fputs("],\"cancel_reason\":", stdout);
+            print_json_string((const uint8_t *)cancel_reason,
+                              strlen(cancel_reason));
+            fputs("}\n", stdout);
+        } else {
+            fputs("]}\n", stdout);
+        }
+    } else if (cancel_reason[0]) {
+        if (want_fields) printf("cancel_reason: %s\n", cancel_reason);
+        else printf("cancel reason: %s\n", cancel_reason);
+    }
     return event_count;
 }
 

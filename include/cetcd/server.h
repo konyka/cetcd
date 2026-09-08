@@ -685,6 +685,17 @@ int cetcd_parse_watch_fragment(const uint8_t *req, size_t len, int *fragment);
  * "unlimited". encoded == max is not over. */
 int cetcd_watch_fragment_over_budget(size_t encoded,
                                      uint64_t max_request_bytes);
+/* leftover-safe WatchResponse.cancel_reason (field 6, tag 0x32).
+ * omitted / empty / dummy 0x00 = empty reason. leftover truncated
+ * reason is INVAL so a truncated compact cancel cannot print leftover
+ * text. leftover length-delimited fields are skipped by payload so
+ * leftover bytes cannot steal a printed cancel_reason. unknown wire
+ * types are INVAL. last reason is copied when reason/reason_cap
+ * are set. */
+int cetcd_encode_watch_cancel_reason(const char *reason, uint8_t *out,
+                                     size_t cap, size_t *n);
+int cetcd_parse_watch_cancel_reason(const uint8_t *req, size_t len,
+                                    char *reason, size_t reason_cap);
 /* leftover-safe DeleteRange last prev_kv. omitted / empty / dummy
  * 0x00 = 0 prev_kvs / empty key. leftover truncated prev_kv / key
  * is INVAL so a truncated delete cannot print a leftover key.

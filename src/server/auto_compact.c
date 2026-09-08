@@ -5277,6 +5277,49 @@ int cetcd_watch_fragment_over_budget(size_t encoded,
     return (uint64_t)encoded > max_request_bytes;
 }
 
+int cetcd_encode_watch_cancel_reason(const char *reason, uint8_t *out,
+                                     size_t cap, size_t *n) {
+    size_t pos = 0;
+    int rc;
+    if (!out || !n) return CETCD_ERR_INVAL;
+    *n = 0;
+    if (!reason || !reason[0]) return CETCD_OK;
+    rc = write_bytes_field_(out, cap, &pos, 0x32,
+                            (const uint8_t *)reason, strlen(reason));
+    if (rc != CETCD_OK) return rc;
+    *n = pos;
+    return CETCD_OK;
+}
+
+int cetcd_parse_watch_cancel_reason(const uint8_t *req, size_t len,
+                                    char *reason, size_t reason_cap) {
+    size_t p = 0;
+    if (reason && reason_cap)
+        reason[0] = '\0';
+    if (!reason) return CETCD_ERR_INVAL;
+    if (!req || len == 0) return CETCD_OK;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x32) {
+            uint64_t skip = 0;
+            int rc = leftover_safe_varint_at_(req, len, &p, &skip);
+            if (rc != CETCD_OK || p + skip > len) return CETCD_ERR_INVAL;
+            if (reason_cap) {
+                if (skip >= reason_cap) return CETCD_ERR_INVAL;
+                memcpy(reason, req + p, (size_t)skip);
+                reason[skip] = '\0';
+            }
+            p += (size_t)skip;
+            continue;
+        }
+        if (leftover_safe_skip_unknown_at_(req, len, &p, tag) != CETCD_OK)
+            return CETCD_ERR_INVAL;
+    }
+    return CETCD_OK;
+}
+
 int cetcd_encode_delete_range_prev_kv(const char *key, uint8_t *out,
                                       size_t cap, size_t *n) {
     uint8_t kv[64];

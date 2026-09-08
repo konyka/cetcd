@@ -199,6 +199,18 @@ static size_t encode_watch_prefix_(uint8_t *resp, size_t cap,
         resp[rpos++] = 0x28;
         rpos = write_varint_w(resp, cap, rpos, (uint64_t)compact_revision);
     }
+    /* field 6 = cancel_reason (etcd ErrCompacted) when compact-canceled */
+    if (canceled && compact_revision > 0) {
+        static const char reason[] =
+            "etcdserver: mvcc: required revision has been compacted";
+        size_t rlen = sizeof(reason) - 1;
+        resp[rpos++] = 0x32;
+        rpos = write_varint_w(resp, cap, rpos, (uint64_t)rlen);
+        if (rpos + rlen <= cap) {
+            memcpy(resp + rpos, reason, rlen);
+            rpos += rlen;
+        }
+    }
     if (fragment) {
         resp[rpos++] = 0x38;
         resp[rpos++] = 0x01;
@@ -208,6 +220,7 @@ static size_t encode_watch_prefix_(uint8_t *resp, size_t cap,
 
 /* Encode a WatchResponse protobuf.  Caller frees out->data with free().
  * compact_revision > 0 emits field 5 (tag 0x28); used when start_rev is compacted.
+ * canceled + compact_revision emits field 6 cancel_reason (etcd ErrCompacted).
  * fragment emits field 7 (tag 0x38) when more frames follow. */
 static cetcd_rpc_bytes encode_watch_response_frag(int64_t watch_id,
                                                   int created,

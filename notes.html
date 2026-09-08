@@ -31,14 +31,14 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 160 — leftover-safe Watch fragment</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 161 — leftover-safe Watch cancel_reason</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 160 leftover-safe-parses
-     Watch fragment so leftover length-delimited bytes cannot steal
-     fragment=true, and leftover-safe-splits oversized WatchResponses
-     by --max-request-bytes.</p>
+  <p><strong>v0.3.0</strong>. Phase 161 leftover-safe-parses
+     Watch cancel_reason so leftover length-delimited bytes cannot
+     steal a printed compact cancel, and compacted watches encode
+     etcd ErrCompacted.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -214,6 +214,7 @@
       <tr><td>158</td><td>leftover-safe LeaseGrant print</td><td>LeaseGrant leftover-safe-parses so leftover length-delimited bytes cannot steal a printed grant ID; TimeToLive leftover-safe-skips so leftover cannot steal a printed TTL key — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>159</td><td>leftover-safe Downgrade version</td><td>Downgrade leftover-safe-parses so leftover length-delimited bytes cannot steal a printed cluster version; truncated version fail-closes; VALIDATE encodes cetcd_version(); cetcdctl leftover-safe-parses field 2 — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>160</td><td>leftover-safe Watch fragment</td><td>Watch leftover-safe-parses so leftover length-delimited bytes cannot steal fragment=true; truncated fragment fail-closes; leftover-safe-splits oversized WatchResponses by --max-request-bytes; cetcdctl --fragment leftover-safe-encodes field 8 — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>161</td><td>leftover-safe Watch cancel_reason</td><td>Watch leftover-safe-parses so leftover length-delimited bytes cannot steal a printed compact cancel; truncated reason fail-closes; compacted WatchCreate / active-watch cancel encodes etcd ErrCompacted; cetcdctl leftover-safe-parses field 6 — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

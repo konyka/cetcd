@@ -2705,6 +2705,66 @@ CETCD_TEST_CASE(auto_compact_parse_watch_fragment) {
     CETCD_ASSERT_EQ_INT(cetcd_watch_fragment_over_budget(11, 10), 1);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_watch_cancel_reason) {
+    uint8_t buf[32];
+    size_t n = 0;
+    char reason[32];
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_watch_cancel_reason(NULL, buf,
+                                                          sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_watch_cancel_reason("", buf,
+                                                          sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_watch_cancel_reason("compacted", buf,
+                                                          sizeof(buf), &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_cancel_reason(buf, n, reason,
+                                                         sizeof(reason)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(reason, "compacted");
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_cancel_reason(NULL, 0, reason,
+                                                         sizeof(reason)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(reason, "");
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_cancel_reason(dummy, 1, reason,
+                                                         sizeof(reason)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(reason, "");
+
+    /* leftover truncated reason cannot print leftover text */
+    uint8_t trunc[] = { 0x32 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_cancel_reason(trunc, 1, reason,
+                                                         sizeof(reason)),
+                        CETCD_ERR_INVAL);
+    uint8_t trunc_len[] = { 0x32, 0x0a };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_cancel_reason(trunc_len,
+                                                         sizeof(trunc_len),
+                                                         reason,
+                                                         sizeof(reason)),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed cancel_reason */
+    uint8_t steal[] = { 0x1a, 0x0b, 0x32, 0x09, 'c', 'o', 'm', 'p', 'a',
+                        'c', 't', 'e', 'd' };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_cancel_reason(steal, sizeof(steal),
+                                                         reason,
+                                                         sizeof(reason)),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_STR(reason, "");
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_cancel_reason(fixed64, 1, reason,
+                                                         sizeof(reason)),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_watch_cancel_reason(buf, n, NULL, 0),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_delete_range_response) {
     uint8_t buf[32];
     size_t n = 0, got = 9;
@@ -4494,6 +4554,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_role_get_response),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_response),
     CETCD_TEST_ENTRY(auto_compact_parse_watch_fragment),
+    CETCD_TEST_ENTRY(auto_compact_parse_watch_cancel_reason),
     CETCD_TEST_ENTRY(auto_compact_parse_delete_range_response),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_request),
     CETCD_TEST_ENTRY(auto_compact_parse_downgrade_response),
