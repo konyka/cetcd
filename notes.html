@@ -31,13 +31,13 @@
 </head>
 <body>
 <h1>cetcd — implementation notes</h1>
-<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 122 — leftover-safe MoveLeader target</code>.</p>
+<p class="sub">Pure-C reimplementation of etcd. Living progress log. Last updated: <code>Phase 123 — leftover-safe LeaseGrant TTL</code>.</p>
 
 <div class="card">
   <h2>Status</h2>
-  <p><strong>v0.3.0</strong>. Phase 122 leftover-safe-parses
-     MoveLeaderRequest.targetID so a truncated field-1 varint cannot
-     look like a successful transfer.</p>
+  <p><strong>v0.3.0</strong>. Phase 123 leftover-safe-parses
+     LeaseGrantRequest.TTL so a truncated field-1 varint cannot grant
+     a 60s lease.</p>
   <p class="legend">
     <span><span class="pill done">done</span> complete</span>
     <span><span class="pill wip">wip</span> in progress</span>
@@ -175,6 +175,7 @@
       <tr><td>120</td><td>leftover-safe HashKV revision</td><td>HashKV leftover-safe-parses field 1 so a truncated varint cannot hash the live tree; dummy 0x00 / omitted is current — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>121</td><td>leftover-safe Compact revision</td><td>Compact leftover-safe-parses field 1 so leftover length-delimited bytes cannot compact a different rev; truncated varint fail-closes; physical is read and ignored (already sync) — TDD</td><td><span class="pill done">done</span></td></tr>
       <tr><td>122</td><td>leftover-safe MoveLeader target</td><td>MoveLeader leftover-safe-parses field 1 so a truncated varint / dummy 0x00 / 0 cannot look like a successful transfer; leftover length-delimited bytes cannot steal the target — TDD</td><td><span class="pill done">done</span></td></tr>
+      <tr><td>123</td><td>leftover-safe LeaseGrant TTL</td><td>LeaseGrant leftover-safe-parses field 1 so a truncated varint cannot grant a 60s lease; dummy 0x00 / TTL&lt;=0 fail-closes; leftover length-delimited bytes cannot steal the TTL — TDD</td><td><span class="pill done">done</span></td></tr>
     </tbody>
   </table>
 </div>

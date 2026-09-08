@@ -201,6 +201,13 @@ int cetcd_encode_move_leader_request(uint64_t target, uint8_t *out, size_t cap,
  * a leftover id. unknown wire types are INVAL. */
 int cetcd_parse_move_leader_request(const uint8_t *req, size_t len,
                                     uint64_t *out);
+/* leftover-safe LeaseGrantRequest. field 1 TTL, field 2 ID.
+ * omitted / empty / dummy 0x00 = ttl 0 / id 0. leftover truncated
+ * varint is INVAL so a truncated TTL cannot grant a 60s lease.
+ * leftover length-delimited fields are skipped by payload so leftover
+ * bytes cannot steal the TTL or id. unknown wire types are INVAL. */
+int cetcd_parse_lease_grant_request(const uint8_t *req, size_t len,
+                                    int64_t *ttl, int64_t *id);
 /* MemberListRequest field 1 (linearizable). proto3 omitted = 0. */
 int cetcd_encode_member_list_request(int linearizable, uint8_t *out, size_t cap,
                                      size_t *n);

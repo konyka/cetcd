@@ -650,6 +650,11 @@ Performance-first, fail-closed design:
   steal the target. Dummy `0x00` / omitted / `0` fail-closes (etcd
   member 0 is not a transfer). Accepting a truncated target as OK is
   rejected.
+- **LeaseGrant leftover-safe TTL** — leftover-safe-parses
+  LeaseGrantRequest.TTL so a truncated field-1 varint cannot grant a
+  60s lease. Leftover length-delimited bytes cannot steal the TTL or
+  id. Dummy `0x00` / omitted / `TTL<=0` fail-closes. Accepting a
+  truncated TTL as the default 60s is rejected.
 - **`unix://` / `unixs://` listen** — etcd UniqueURLs may be unix
   sockets. cetcd has no unix listener, so `--listen-*-urls`,
   advertise, `--initial-cluster`, metrics, and `cetcdctl --endpoints`

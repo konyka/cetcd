@@ -1569,6 +1569,58 @@ CETCD_TEST_CASE(auto_compact_parse_move_leader_request) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_lease_grant_request) {
+    int64_t ttl = 99, id = 99;
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_request(NULL, 0, &ttl, &id),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ttl == 0);
+    CETCD_ASSERT_TRUE(id == 0);
+
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_request(dummy, 1, &ttl, &id),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ttl == 0);
+
+    uint8_t sixty[] = { 0x08, 0x3c };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_request(sixty, 2, &ttl, &id),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ttl == 60);
+    CETCD_ASSERT_TRUE(id == 0);
+
+    uint8_t custom[] = { 0x08, 0x3c, 0x10, 0x02 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_request(custom, 4, &ttl, &id),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ttl == 60);
+    CETCD_ASSERT_TRUE(id == 2);
+
+    /* leftover truncated TTL cannot grant a 60s lease */
+    uint8_t trunc[] = { 0x08 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_request(trunc, 1, &ttl, &id),
+                        CETCD_ERR_INVAL);
+    uint8_t trunc2[] = { 0x08, 0x80 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_request(trunc2, 2, &ttl, &id),
+                        CETCD_ERR_INVAL);
+
+    /* leftover length-delimited payload cannot steal TTL */
+    uint8_t steal[] = { 0x08, 0x0a, 0x12, 0x01, 0x3c };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_request(steal, sizeof(steal),
+                                                       &ttl, &id),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(ttl == 10);
+
+    uint8_t badskip[] = { 0x08, 0x0a, 0x12, 0x05 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_request(badskip, 4, &ttl, &id),
+                        CETCD_ERR_INVAL);
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_request(fixed64, 1, &ttl, &id),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_request(sixty, 2, NULL, &id),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_lease_grant_request(sixty, 2, &ttl, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_compact_argv) {
     int physical = 0;
     int64_t rev = 0;
@@ -2175,6 +2227,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_hashkv_request),
     CETCD_TEST_ENTRY(auto_compact_parse_compact_request),
     CETCD_TEST_ENTRY(auto_compact_parse_move_leader_request),
+    CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_request),
     CETCD_TEST_ENTRY(auto_compact_parse_compact_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_maint_argv),
     CETCD_TEST_ENTRY(auto_compact_parse_defrag_argv),

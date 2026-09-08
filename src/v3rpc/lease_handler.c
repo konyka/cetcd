@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -72,20 +73,84 @@ static cetcd_rpc_bytes make_lease_response(cetcd_lease_id id, int64_t ttl) {
     return (cetcd_rpc_bytes){out, pos};
 }
 
+/* leftover-safe LeaseGrantRequest. truncated TTL is INVAL so leftover
+ * bytes cannot grant a 60s lease. leftover length-delimited fields
+ * cannot steal TTL/id. dummy 0x00 / omitted = ttl 0. */
+static int parse_lease_grant_request_(const uint8_t *req, size_t len,
+                                      int64_t *ttl, int64_t *id) {
+    size_t p = 0;
+    if (!ttl || !id) return -1;
+    *ttl = 0;
+    *id = 0;
+    if (!req || len == 0) return 0;
+    while (p < len) {
+        uint8_t tag = req[p++];
+        if (tag == 0x00)
+            continue;
+        if (tag == 0x08 || tag == 0x10) {
+            uint64_t v = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                v |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got) return -1;
+            if (v > (uint64_t)INT64_MAX) return -1;
+            if (tag == 0x08) *ttl = (int64_t)v;
+            else *id = (int64_t)v;
+            continue;
+        }
+        if ((tag & 7) == 0) {
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got) return -1;
+            continue;
+        }
+        if ((tag & 7) == 2) {
+            uint64_t skip = 0;
+            int shift = 0;
+            int got = 0;
+            while (p < len) {
+                uint8_t b = req[p++];
+                skip |= (uint64_t)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0) {
+                    got = 1;
+                    break;
+                }
+                shift += 7;
+                if (shift > 63) return -1;
+            }
+            if (!got || p + skip > len) return -1;
+            p += (size_t)skip;
+            continue;
+        }
+        return -1;
+    }
+    return 0;
+}
+
 cetcd_rpc_bytes lease_handle_grant(cetcd_v3rpc *rpc, const uint8_t *req, size_t req_len) {
     (void)rpc;
-    size_t pos = 0; int64_t ttl = 0; int64_t id = 0;
-    while (pos < req_len) {
-        uint8_t tag = req[pos++];
-        if (tag == 0x08) { /* ttl varint */
-            if (read_varint_local(req, req_len, &pos, &ttl) != 0) break;
-        } else if (tag == 0x10) { /* id varint */
-            if (read_varint_local(req, req_len, &pos, &id) != 0) break;
-        } else {
-            if (pos < req_len) pos++;
-        }
-    }
-    if (ttl <= 0) ttl = 60; /* default TTL */
+    int64_t ttl = 0;
+    int64_t id = 0;
+    if (parse_lease_grant_request_(req, req_len, &ttl, &id) != 0 || ttl <= 0)
+        return (cetcd_rpc_bytes){NULL, 0};
     if (ttl > CETCD_MAX_LEASE_TTL)
         return (cetcd_rpc_bytes){NULL, 0}; /* etcd ErrLeaseTTLTooLarge */
     if (!g_rpc_lease_mgr)
