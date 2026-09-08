@@ -782,6 +782,11 @@ static void parse_status_response(const uint8_t *data, size_t len) {
     /* leftover-safe: leftover cannot steal a printed raftTerm */
     if (cetcd_parse_status_raft_term(data, len, &leftover_rterm) != CETCD_OK)
         return;
+    uint64_t leftover_rapplied = 0;
+    /* leftover-safe: leftover cannot steal a printed raftAppliedIndex */
+    if (cetcd_parse_status_raft_applied(data, len, &leftover_rapplied)
+        != CETCD_OK)
+        return;
     size_t pos = 0;
     while (pos < len) {
         uint8_t tag = data[pos++];
@@ -816,8 +821,13 @@ static void parse_status_response(const uint8_t *data, size_t len) {
             }
             printf("raftTerm: %llu\n", (unsigned long long)leftover_rterm);
         } else if (tag == 0x38) {
-            uint64_t v = 0; read_varint(data, len, &pos, &v);
-            printf("raftAppliedIndex: %llu\n", (unsigned long long)v);
+            /* leftover-safe-skip field 7; leftover-safe raftAppliedIndex */
+            if (cetcd_leftover_safe_skip_field(data, len, &pos, tag)
+                != CETCD_OK) {
+                break;
+            }
+            printf("raftAppliedIndex: %llu\n",
+                   (unsigned long long)leftover_rapplied);
         } else if (tag == 0x42) {
             /* leftover-safe: leftover cannot steal a printed alarm error */
             if (cetcd_leftover_safe_skip_field(data, len, &pos, tag)
@@ -3230,11 +3240,18 @@ static int cmd_status(int argc, char **argv) {
         fprintf(stderr, "request failed\n");
         return 1;
     }
+    uint64_t leftover_rapplied = 0;
+    /* leftover-safe: leftover cannot steal a printed raftAppliedIndex */
+    if (cetcd_parse_status_raft_applied(resp, (size_t)rlen, &leftover_rapplied)
+        != CETCD_OK) {
+        fprintf(stderr, "request failed\n");
+        return 1;
+    }
     /* Parse StatusResponse */
     size_t pos = 0;
     const uint8_t *version = NULL; size_t version_len = 0;
     uint64_t db_size = 0, leader = leftover_leader, raft_index = leftover_ridx, raft_term = leftover_rterm, revision = 0;
-    uint64_t raft_applied = 0, db_inuse = leftover_inuse, is_learner = 0;
+    uint64_t raft_applied = leftover_rapplied, db_inuse = leftover_inuse, is_learner = 0;
     while (pos < (size_t)rlen) {
         uint8_t tag = resp[pos++];
         if (tag == 0x12) {
@@ -3261,7 +3278,11 @@ static int cmd_status(int argc, char **argv) {
                 break;
             }
         } else if (tag == 0x38) {
-            read_varint(resp, rlen, &pos, &raft_applied);
+            /* leftover-safe: leftover cannot steal a printed raftAppliedIndex */
+            if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen, &pos, tag)
+                != CETCD_OK) {
+                break;
+            }
         } else if (tag == 0x42) {
             /* leftover-safe: leftover cannot steal a printed alarm error */
             if (cetcd_leftover_safe_skip_field(resp, (size_t)rlen, &pos, tag)
@@ -3593,6 +3614,13 @@ static int cmd_endpoint(int argc, char **argv) {
                 if (cetcd_parse_status_raft_term(sresp, (size_t)srlen,
                                                  &leftover_rterm) != CETCD_OK)
                     continue;
+                uint64_t leftover_rapplied = 0;
+                /* leftover-safe: leftover cannot steal a printed raftAppliedIndex */
+                if (cetcd_parse_status_raft_applied(sresp, (size_t)srlen,
+                                                    &leftover_rapplied)
+                    != CETCD_OK)
+                    continue;
+                (void)leftover_rapplied;
                 size_t pos = 0;
                 const uint8_t *ver = NULL; size_t ver_len = 0;
                 uint64_t db_size = 0, leader = leftover_leader, raft_index = leftover_ridx, raft_term = leftover_rterm, revision = 0;
@@ -3749,6 +3777,14 @@ static int cmd_endpoint(int argc, char **argv) {
             fprintf(stderr, "request failed\n");
             return 1;
         }
+        uint64_t leftover_rapplied = 0;
+        /* leftover-safe: leftover cannot steal a printed raftAppliedIndex */
+        if (cetcd_parse_status_raft_applied(resp, (size_t)rlen, &leftover_rapplied)
+            != CETCD_OK) {
+            fprintf(stderr, "request failed\n");
+            return 1;
+        }
+        (void)leftover_rapplied;
         size_t pos = 0;
         const uint8_t *ver = NULL; size_t ver_len = 0;
         uint64_t db_size = 0, leader = leftover_leader, raft_index = leftover_ridx, raft_term = leftover_rterm, revision = 0;

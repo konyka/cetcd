@@ -2340,6 +2340,49 @@ CETCD_TEST_CASE(auto_compact_parse_status_raft_term) {
                         CETCD_ERR_INVAL);
 }
 
+CETCD_TEST_CASE(auto_compact_parse_status_raft_applied) {
+    uint8_t buf[16];
+    size_t n = 0;
+    uint64_t applied = 9;
+
+    CETCD_ASSERT_EQ_INT(cetcd_encode_status_raft_applied(0, buf, sizeof(buf),
+                                                        &n),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(n == 0);
+    CETCD_ASSERT_EQ_INT(cetcd_encode_status_raft_applied(11, buf, sizeof(buf),
+                                                        &n),
+                        CETCD_OK);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_raft_applied(buf, n, &applied),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(applied == 11);
+
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_raft_applied(NULL, 0, &applied),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(applied == 0);
+    uint8_t dummy[] = { 0x00 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_raft_applied(dummy, 1, &applied),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(applied == 0);
+
+    /* leftover truncated raftAppliedIndex cannot look like 0 */
+    uint8_t trunc[] = { 0x38 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_raft_applied(trunc, 1, &applied),
+                        CETCD_ERR_INVAL);
+
+    /* leftover cannot steal a printed raftAppliedIndex */
+    uint8_t steal[] = { 0x1a, 0x02, 0x38, 0x0b };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_raft_applied(steal, sizeof(steal),
+                                                       &applied),
+                        CETCD_OK);
+    CETCD_ASSERT_TRUE(applied == 0);
+
+    uint8_t fixed64[] = { 0x09 };
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_raft_applied(fixed64, 1, &applied),
+                        CETCD_ERR_INVAL);
+    CETCD_ASSERT_EQ_INT(cetcd_parse_status_raft_applied(buf, n, NULL),
+                        CETCD_ERR_INVAL);
+}
+
 CETCD_TEST_CASE(auto_compact_parse_lease_grant_response) {
     uint8_t buf[16];
     size_t n = 0;
@@ -5096,6 +5139,7 @@ CETCD_TEST_LIST_BEGIN
     CETCD_TEST_ENTRY(auto_compact_parse_status_leader),
     CETCD_TEST_ENTRY(auto_compact_parse_status_raft_index),
     CETCD_TEST_ENTRY(auto_compact_parse_status_raft_term),
+    CETCD_TEST_ENTRY(auto_compact_parse_status_raft_applied),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_response),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_grant_error),
     CETCD_TEST_ENTRY(auto_compact_parse_lease_ttl_response),

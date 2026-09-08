@@ -639,6 +639,17 @@ int cetcd_encode_status_raft_term(uint64_t raft_term, uint8_t *out, size_t cap,
                                   size_t *n);
 int cetcd_parse_status_raft_term(const uint8_t *req, size_t len,
                                  uint64_t *raft_term);
+/* leftover-safe StatusResponse.raftAppliedIndex (field 7, tag 0x38).
+ * omitted / empty / dummy 0x00 = 0. leftover truncated
+ * raftAppliedIndex is INVAL so a truncated status cannot look like
+ * raftAppliedIndex 0. leftover length-delimited fields are skipped
+ * by payload so leftover bytes cannot steal a printed
+ * raftAppliedIndex. unknown wire types are INVAL. last
+ * raftAppliedIndex is copied when raft_applied is set. */
+int cetcd_encode_status_raft_applied(uint64_t raft_applied, uint8_t *out,
+                                     size_t cap, size_t *n);
+int cetcd_parse_status_raft_applied(const uint8_t *req, size_t len,
+                                    uint64_t *raft_applied);
 /* leftover-safe LeaseGrantResponse ID / TTL. omitted / empty / dummy
  * 0x00 = id 0 / ttl 0. leftover truncated ID / TTL is INVAL so a
  * truncated grant cannot look like id 0. leftover length-delimited

@@ -828,6 +828,13 @@ Performance-first, fail-closed design:
   (cannot look like raftTerm 0). Dummy `0x00` is not a skip length.
   `cetcdctl status` / `endpoint status` leftover-safe-parse field 6.
   Accepting leftover payload as the printed raftTerm is rejected.
+- **Status leftover-safe raftAppliedIndex** — leftover-safe-parses
+  StatusResponse.raftAppliedIndex so leftover length-delimited bytes
+  cannot steal a printed raftAppliedIndex. A truncated
+  raftAppliedIndex fail-closes (cannot look like raftAppliedIndex 0).
+  Dummy `0x00` is not a skip length. `cetcdctl status` /
+  `endpoint status` leftover-safe-parse field 7. Accepting leftover
+  payload as the printed raftAppliedIndex is rejected.
 - **LeaseGrant / TimeToLive leftover-safe ID** — leftover-safe-parses
   LeaseGrantResponse and LeaseTimeToLiveResponse so leftover
   length-delimited bytes cannot steal a printed or lock-used ID, TTL,
